@@ -7,7 +7,7 @@ import UnifiedProfileCard from "../src/components/research/UnifiedProfileCard.vu
 import DealPipelineCard from "../src/components/research/DealPipelineCard.vue";
 import CapTableCard from "../src/components/research/CapTableCard.vue";
 import VCRatiosCard from "../src/components/research/VCRatiosCard.vue";
-import DecisionsCard from "../src/components/research/DecisionsCard.vue";
+import RecordDecisionModal from "../src/components/research/RecordDecisionModal.vue";
 import api from "../src/api.js";
 
 vi.mock("../src/api.js", () => {
@@ -240,13 +240,14 @@ describe("ResearchDeskView", () => {
     expect(wrapper.findComponent(VCRatiosCard).exists()).toBe(true);
   });
 
-  it("records a decision in DecisionsCard", async () => {
-    api.decisionRecords.add.mockResolvedValue({ id: "dec-2", type: "invest" });
+  it("records a decision through the \u2318D sheet", async () => {
+    api.decisionRecords.add.mockResolvedValue({ id: "dec-2", verdict: "watch" });
 
-    const wrapper = mount(DecisionsCard, {
+    const wrapper = mount(RecordDecisionModal, {
       props: {
-        companyId: "acme-corp",
+        isOpen: true,
         company: mockCompanies[0],
+        reports: [{ id: "rep-1", title: "Q3 Investment Memo", status: "complete" }],
       },
       global: {
         plugins: [router],
@@ -255,17 +256,26 @@ describe("ResearchDeskView", () => {
 
     await flushPromises();
 
-    // Enter rationale and submit
+    // Enter the rationale and submit "Record Watch"
     const textarea = wrapper.find("textarea");
     await textarea.setValue("Super strong retention and product velocity.");
-    const saveBtn = wrapper.findAll("button").find((b) => b.text().includes("Save Decision") || b.text().includes("保存决议"));
+    const saveBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Record Watch") || b.text().includes("记录观察"));
     expect(saveBtn).toBeDefined();
     await saveBtn.trigger("click");
     await flushPromises();
 
-    expect(api.decisionRecords.add).toHaveBeenCalledWith("acme-corp", {
-      type: "watch",
-      rationale: "Super strong retention and product velocity.",
-    });
+    expect(api.decisionRecords.add).toHaveBeenCalledWith(
+      "acme-corp",
+      expect.objectContaining({
+        verdict: "watch",
+        explanation: "Super strong retention and product velocity.",
+        report_id: "rep-1",
+      }),
+    );
+    const payload = api.decisionRecords.add.mock.calls[0][1];
+    expect(payload.decided_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00Z$/);
+    expect(wrapper.emitted("saved")).toBeTruthy();
   });
 });

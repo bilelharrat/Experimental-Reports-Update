@@ -109,6 +109,7 @@ describe("MemoAnalysisDashboard", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     m.get.mockResolvedValue(baseSession());
     m.getEvidenceMatrix.mockResolvedValue(emptyMatrix);
     m.patchArtifact.mockImplementation(() => Promise.resolve(baseSession({

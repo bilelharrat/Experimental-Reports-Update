@@ -1,4 +1,7 @@
 <script setup>
+// Web twin of MacSignalScoreView (MacFirmViews.swift): the 52pt ring gauge
+// with 5pt round-capped stroke, dsHeadline title, coverage caption, tertiary
+// formula line, and the expandable component breakdown table.
 import { computed, ref, watch } from "vue";
 import api from "../../api.js";
 import { useT } from "../../i18n.js";
@@ -28,43 +31,34 @@ const isInsufficient = computed(() => {
   return scoreData.value?.is_insufficient ?? (score.value == null);
 });
 
-const colorClass = computed(() => {
-  if (score.value == null || isInsufficient.value) return "text-neutral-400";
-  if (score.value >= 70) return "text-emerald-400";
-  if (score.value >= 40) return "text-amber-400";
-  return "text-rose-400";
-});
-
+// score >= 70 → green, >= 40 → orange, else red; secondary while unknown.
 const strokeColor = computed(() => {
-  if (score.value == null || isInsufficient.value) return "rgba(255, 255, 255, 0.15)";
-  if (score.value >= 70) return "#34c759";
-  if (score.value >= 40) return "#ff9500";
-  return "#ff3b30";
+  if (score.value == null) return "var(--mac-secondary)";
+  if (score.value >= 70) return "var(--mac-green)";
+  if (score.value >= 40) return "var(--mac-orange)";
+  return "var(--mac-red)";
 });
 
-const circumference = 2 * Math.PI * 18; // r=18 for 44px
+const gaugeSize = computed(() => (props.compact ? 40 : 52));
+const radius = computed(() => (gaugeSize.value - 5) / 2);
+const circumference = computed(() => 2 * Math.PI * radius.value);
 const strokeDashoffset = computed(() => {
-  if (score.value == null || isInsufficient.value) return circumference;
+  if (score.value == null) return circumference.value;
   const clamped = Math.max(0, Math.min(100, score.value));
-  return circumference - (clamped / 100) * circumference;
+  return circumference.value - (clamped / 100) * circumference.value;
 });
 
 const coverageSubtitle = computed(() => {
-  if (!scoreData.value) return loading.value ? t("workspace.loading") : "Loading…";
+  if (!scoreData.value) return t("research_desk.loading_ellipsis");
   if (scoreData.value.is_insufficient) {
     const covered = (scoreData.value.components || []).filter((c) => c.available).length;
     const total = (scoreData.value.components || []).length;
     return `Insufficient data · ${covered} of ${total}`;
   }
-  return (scoreData.value.coverage || "").replace(" have data", " with data") || "2 of 6 components with data";
+  return (scoreData.value.coverage || "").replace(" have data", " with data");
 });
 
-const formulaText = computed(() => {
-  return (
-    scoreData.value?.formula ||
-    "score = Σ points ÷ Σ max of components with data × 100, shown only with ≥2 components and ≥35 max points"
-  );
-});
+const formulaText = computed(() => scoreData.value?.formula || "");
 
 async function loadSignalScore() {
   if (!props.companyId) return;
@@ -90,66 +84,65 @@ watch(
 </script>
 
 <template>
-  <div class="rounded-xl border border-white/[0.08] bg-[#1c1c1f] p-3 shadow-xs transition-all text-white">
-    <div class="flex items-center gap-3">
-      <!-- Compact Circular SVG Gauge (Matching MacSignalScoreView.swift 44-52px) -->
-      <div class="relative flex shrink-0 items-center justify-center w-[44px] h-[44px]">
-        <svg class="h-full w-full -rotate-90 transform" viewBox="0 0 44 44">
+  <div class="mac-card flex flex-col gap-2" :class="compact ? 'p-2' : 'p-3'">
+    <div class="flex items-center gap-2.5">
+      <!-- Ring gauge: Circle stroke 5pt, secondary 15% track, round cap -->
+      <div
+        class="relative flex shrink-0 items-center justify-center"
+        :style="{ width: `${gaugeSize}px`, height: `${gaugeSize}px` }"
+      >
+        <svg class="h-full w-full -rotate-90 transform" :viewBox="`0 0 ${gaugeSize} ${gaugeSize}`">
           <circle
-            cx="22"
-            cy="22"
-            r="18"
+            :cx="gaugeSize / 2"
+            :cy="gaugeSize / 2"
+            :r="radius"
             fill="transparent"
-            stroke="rgba(255, 255, 255, 0.12)"
-            stroke-width="3.5"
+            stroke="color-mix(in srgb, var(--mac-secondary) 15%, transparent)"
+            stroke-width="5"
           />
           <circle
-            cx="22"
-            cy="22"
-            r="18"
+            :cx="gaugeSize / 2"
+            :cy="gaugeSize / 2"
+            :r="radius"
             fill="transparent"
             :stroke="strokeColor"
-            stroke-width="3.5"
+            stroke-width="5"
             stroke-linecap="round"
             :stroke-dasharray="circumference"
             :stroke-dashoffset="strokeDashoffset"
-            class="transition-all duration-700 ease-out"
+            style="transition: stroke-dashoffset 0.7s ease-out, stroke 0.3s ease"
           />
         </svg>
         <span
-          class="absolute font-bold tracking-tight tabular-nums select-none"
-          :class="[compact ? 'text-xs' : 'text-sm', colorClass]"
+          class="mac-mono absolute select-none font-bold"
+          :style="{ fontSize: compact ? '12px' : '15px' }"
         >
-          {{ isInsufficient || score == null ? "—" : score }}
+          {{ score == null ? "—" : score }}
         </span>
       </div>
 
-      <!-- Title, Coverage Subtitle & Formula (Mac headline / caption typography) -->
-      <div class="flex-1 min-w-0 flex flex-col justify-center">
-        <h3 class="text-sm font-semibold tracking-tight text-white leading-tight">
+      <!-- Signal score · coverage · formula -->
+      <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <h3 :class="compact ? 'mac-t-subhead' : 'mac-t-headline'">
           {{ t("research_desk.signal_score") }}
         </h3>
-        <p class="text-xs text-neutral-400 leading-tight mt-0.5 truncate">
+        <p class="mac-t-caption mac-c-secondary line-clamp-2">
           {{ coverageSubtitle }}
         </p>
-        <p v-if="!compact" class="text-[10px] font-mono text-neutral-500 leading-tight mt-0.5 truncate">
+        <p v-if="!compact && formulaText" class="mac-t-caption mac-c-tertiary truncate">
           {{ formulaText }}
         </p>
       </div>
 
-      <!-- Right Action Controls: Formula toggle and Refresh icon button -->
-      <div class="flex items-center gap-1.5 shrink-0">
-        <button
-          type="button"
-          class="rounded border border-white/10 bg-white/5 hover:bg-white/10 px-2 py-0.5 text-[11px] font-medium text-neutral-200 transition-colors shadow-2xs"
-          @click="expanded = !expanded"
-        >
+      <!-- "Formula" toggle (mini) + refresh (plain mini) -->
+      <div class="flex shrink-0 items-center gap-1.5">
+        <button type="button" class="mac-btn mac-btn--mini" @click="expanded = !expanded">
           {{ expanded ? t("research_desk.signal_hide_formula") : t("research_desk.signal_formula") }}
         </button>
 
         <button
           type="button"
-          class="flex h-6 w-6 items-center justify-center rounded text-neutral-400 hover:text-white transition-colors"
+          class="mac-btn mac-btn--mini mac-btn--plain"
           :title="t('research_desk.refresh')"
           :disabled="loading"
           @click="loadSignalScore"
@@ -159,30 +152,27 @@ watch(
       </div>
     </div>
 
-    <!-- Collapsible Component Breakdown Table (MacSignalScoreView.swift:485-505) -->
-    <div
-      v-if="expanded && scoreData?.components"
-      class="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2 space-y-1.5 divide-y divide-white/[0.04] text-xs"
+    <!-- Component breakdown rows on a 4% tint, hairline-divided -->
+    <div v-if="expanded && scoreData?.components" class="overflow-hidden rounded-md"
+      style="background: color-mix(in srgb, var(--mac-secondary) 4%, transparent)"
     >
       <div
-        v-for="c in scoreData.components"
+        v-for="(c, idx) in scoreData.components"
         :key="c.name"
-        class="flex flex-wrap items-start justify-between gap-2 pt-1.5 first:pt-0"
+        class="flex items-start gap-2 px-2 py-[5px]"
+        :class="idx > 0 ? 'mac-hairline-t' : ''"
       >
-        <div class="w-28 shrink-0 font-medium text-neutral-200 truncate">
-          {{ c.name }}
-        </div>
-
-        <div class="w-28 shrink-0 font-mono text-neutral-400">
-          <span :class="c.available ? 'text-white font-semibold' : 'text-neutral-500'">
-            {{ c.available ? `${Number(c.points || 0).toFixed(1)} / ${c.max}` : `not scored · ${c.max} max` }}
-          </span>
-        </div>
-
-        <div class="flex-1 min-w-[140px] text-[11px]">
-          <div class="text-neutral-400">{{ c.formula }}</div>
-          <div v-if="c.basis" class="text-neutral-500 text-[10px]">{{ c.basis }}</div>
-        </div>
+        <span class="mac-t-caption10 w-[110px] shrink-0 truncate font-semibold">{{ c.name }}</span>
+        <span
+          class="mac-t-caption10 mac-mono w-[120px] shrink-0"
+          :class="c.available ? '' : 'mac-c-secondary'"
+        >
+          {{ c.available ? `${Number(c.points || 0).toFixed(1)} / ${c.max}` : `not scored · ${c.max} max` }}
+        </span>
+        <span class="flex min-w-0 flex-col gap-px">
+          <span class="mac-t-caption10 mac-c-secondary">{{ c.formula }}</span>
+          <span v-if="c.basis" class="mac-t-caption10 mac-c-tertiary">{{ c.basis }}</span>
+        </span>
       </div>
     </div>
   </div>

@@ -1,12 +1,14 @@
 <script setup>
-import { ref, watch, onMounted } from "vue";
+// Web twin of the "Decision record" card in MacResearchDeskView.swift:
+// MacCardHeader with the lifecycle stage, then MacDecisionTimeline — verdict
+// pill, date, author, memo link, explanation, and the retrospectives the
+// tracking sync appends. Recording happens in the ⌘D sheet, not inline.
+import { ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { useT } from "../../i18n.js";
-import {
-  ShieldCheck,
-  Trash2,
-  Loader2,
-} from "lucide-vue-next";
+import { BadgeCheck, Trash2, FileText, CheckCircle2, OctagonX, HelpCircle } from "lucide-vue-next";
 import api from "../../api.js";
+import { formatRelativeTime } from "../../formatters.js";
 
 const props = defineProps({
   companyId: {
@@ -17,27 +19,24 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  reloadToken: {
+    type: Number,
+    default: 0,
+  },
 });
 
 const t = useT();
+const router = useRouter();
 
 const loading = ref(false);
-const submitting = ref(false);
 const decisions = ref([]);
-
-const newDecision = ref({
-  type: "watch",
-  rationale: "",
-});
 
 async function loadDecisions() {
   if (!props.companyId) return;
   loading.value = true;
   try {
     const res = await api.decisionRecords.list(props.companyId);
-    if (res) {
-      decisions.value = Array.isArray(res) ? res : (res.decisions || res.items || []);
-    }
+    decisions.value = Array.isArray(res) ? res : (res?.decisions || res?.items || []);
   } catch {
     decisions.value = [];
   } finally {
@@ -45,41 +44,21 @@ async function loadDecisions() {
   }
 }
 
-watch(() => props.companyId, loadDecisions, { immediate: true });
-onMounted(loadDecisions);
+watch(() => [props.companyId, props.reloadToken], loadDecisions, { immediate: true });
 
-async function addDecision() {
-  if (!props.companyId || submitting.value || !newDecision.value.rationale.trim()) return;
-  submitting.value = true;
+async function removeDecision(decision) {
+  if (!props.companyId || !decision?.id) return;
+  const when = String(decision.decided_at || "").slice(0, 10);
+  const ok = window.confirm(
+    t("research_desk.decision_delete_confirm", { verdict: verdictLabel(decision.verdict), date: when }),
+  );
+  if (!ok) return;
   try {
-    await api.decisionRecords.add(props.companyId, {
-      type: newDecision.value.type,
-      rationale: newDecision.value.rationale.trim(),
-    });
-    newDecision.value.rationale = "";
+    await api.decisionRecords.remove(props.companyId, decision.id);
     await loadDecisions();
   } catch {
-    // error handling
-  } finally {
-    submitting.value = false;
+    // leave the row; the next reload shows the truth
   }
-}
-
-async function removeDecision(decisionId) {
-  if (!props.companyId || !decisionId) return;
-  try {
-    await api.decisionRecords.remove(props.companyId, decisionId);
-    await loadDecisions();
-  } catch {
-    // error handling
-  }
-}
-
-function verdictPillClass(verdict) {
-  const v = (verdict || "").toLowerCase();
-  if (v === "invest") return "bg-emerald-500/15 text-emerald-400 border-emerald-500/25";
-  if (v === "pass") return "bg-rose-500/15 text-rose-400 border-rose-500/25";
-  return "bg-amber-500/15 text-amber-400 border-amber-500/25";
 }
 
 function verdictLabel(verdict) {
@@ -89,106 +68,118 @@ function verdictLabel(verdict) {
   return t("research_desk.watch");
 }
 
-function formatDate(iso) {
-  if (!iso) return "";
-  return String(iso).slice(0, 10);
+function verdictTint(verdict) {
+  const v = (verdict || "").toLowerCase();
+  if (v === "invest") return "var(--mac-green)";
+  if (v === "pass") return "var(--mac-red)";
+  return "var(--mac-orange)";
+}
+
+function retroIcon(verdict) {
+  if (verdict === "still_right") return CheckCircle2;
+  if (verdict === "looks_wrong") return OctagonX;
+  return HelpCircle;
+}
+
+function retroTint(verdict) {
+  if (verdict === "still_right") return "var(--mac-green)";
+  if (verdict === "looks_wrong") return "var(--mac-red)";
+  return "var(--mac-orange)";
+}
+
+function retroLabel(verdict) {
+  if (verdict === "still_right") return t("research_desk.retro_still_right");
+  if (verdict === "looks_wrong") return t("research_desk.retro_looks_wrong");
+  return t("research_desk.retro_questionable");
+}
+
+function openMemo(reportId) {
+  router.push({ name: "reports", query: { id: reportId, company: props.companyId } });
 }
 </script>
 
 <template>
-  <div class="rounded-xl border border-white/[0.08] bg-[#1c1c1f] p-3.5 shadow-xs transition-all text-white">
-    <!-- Header: Decision record + Stage -->
-    <div class="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-      <div class="flex items-center gap-2">
-        <ShieldCheck class="h-4 w-4 text-[#0a84ff]" />
-        <span class="font-semibold text-white text-xs">
-          {{ t("research_desk.decision_record_title") }}
-        </span>
-        <span v-if="company?.deal_stage" class="text-xs text-neutral-400">
-          · {{ company.deal_stage }}
-        </span>
+  <div class="mac-card mac-card-pad flex flex-col gap-3">
+    <!-- MacCardHeader("Decision record", stage, checkmark.seal) -->
+    <div class="mac-cardheader">
+      <span class="mac-cardheader-icon"><BadgeCheck class="h-[13px] w-[13px]" stroke-width="2.4" /></span>
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <span class="mac-t-headline">{{ t("research_desk.decision_record_title") }}</span>
+        <span class="mac-t-caption mac-c-secondary">{{ company?.deal_stage || "Sourced" }}</span>
       </div>
-
-      <span class="text-xs font-mono text-neutral-400">
-        {{ decisions.length }} {{ t("research_desk.decisions_count") }}
-      </span>
     </div>
 
-    <!-- Timeline of Decisions (MacDecisionTimeline.swift) -->
-    <div class="mt-3 space-y-2">
-      <!-- Empty state -->
-      <div v-if="decisions.length === 0 && !loading" class="py-3 text-center text-xs text-neutral-400">
-        {{ t("research_desk.no_formal_decisions") }}
-      </div>
+    <!-- MacDecisionTimeline -->
+    <div class="flex flex-col gap-2.5">
+      <p v-if="decisions.length === 0 && !loading" class="mac-t-caption mac-c-secondary">
+        {{ t("research_desk.decisions_empty") }}
+      </p>
 
-      <!-- Decision items -->
       <div
         v-for="dec in decisions"
         :key="dec.id || dec.created_at"
-        class="rounded-lg bg-white/[0.03] border border-white/[0.04] p-2.5 space-y-1.5"
+        class="flex flex-col gap-1.5 rounded-lg p-2.5"
+        style="background: color-mix(in srgb, var(--mac-secondary) 4%, transparent)"
       >
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span
-              class="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-              :class="verdictPillClass(dec.type || dec.verdict)"
-            >
-              {{ verdictLabel(dec.type || dec.verdict) }}
-            </span>
-            <span v-if="dec.author || dec.created_by" class="text-xs text-white font-medium">
-              {{ dec.author || dec.created_by }}
-            </span>
-            <span class="text-[11px] text-neutral-400">
-              {{ formatDate(dec.created_at || dec.date) }}
-            </span>
-          </div>
-
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="mac-status-pill" :style="{ '--tint': verdictTint(dec.verdict || dec.type) }">
+            {{ verdictLabel(dec.verdict || dec.type) }}
+          </span>
+          <span class="mac-t-caption10 mac-mono mac-c-secondary">
+            {{ String(dec.decided_at || dec.created_at || "").slice(0, 10) }}
+          </span>
+          <span v-if="dec.created_by || dec.author" class="mac-t-caption10 mac-c-secondary">
+            · {{ dec.created_by || dec.author }}
+          </span>
+          <button
+            v-if="dec.report_id"
+            type="button"
+            class="mac-c-accent flex items-center gap-1 border-none bg-transparent p-0"
+            @click="openMemo(dec.report_id)"
+          >
+            <FileText class="h-3 w-3" />
+            <span class="mac-t-caption10">{{ t("research_desk.decision_view_memo") }}</span>
+          </button>
+          <span class="flex-1" />
           <button
             v-if="dec.id"
             type="button"
-            class="text-neutral-500 hover:text-rose-400 p-1"
+            class="mac-c-secondary border-none bg-transparent p-0.5"
             :title="t('research_desk.delete_decision')"
-            @click="removeDecision(dec.id)"
+            @click="removeDecision(dec)"
           >
             <Trash2 class="h-3 w-3" />
           </button>
         </div>
 
-        <p v-if="dec.rationale" class="text-xs text-neutral-300 leading-relaxed whitespace-pre-wrap">
-          {{ dec.rationale }}
+        <p class="mac-t-callout select-text whitespace-pre-wrap">
+          {{ dec.explanation || dec.rationale }}
         </p>
-      </div>
-    </div>
 
-    <!-- Inline Add Drawer with textarea for test compatibility -->
-    <div class="mt-3 pt-3 border-t border-white/[0.06] space-y-2">
-      <div class="flex items-start gap-2">
-        <select
-          v-model="newDecision.type"
-          class="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white focus:outline-hidden focus:border-[#0a84ff]"
+        <!-- Retrospectives from the tracking sync -->
+        <div
+          v-for="retro in dec.retrospectives || []"
+          :key="retro.id"
+          class="flex items-start gap-1.5 rounded-md p-2"
+          style="background: color-mix(in srgb, var(--mac-secondary) 5%, transparent)"
         >
-          <option value="invest" class="bg-[#1c1c1f] text-white">{{ t("research_desk.invest") }}</option>
-          <option value="watch" class="bg-[#1c1c1f] text-white">{{ t("research_desk.watch") }}</option>
-          <option value="pass" class="bg-[#1c1c1f] text-white">{{ t("research_desk.pass") }}</option>
-        </select>
-
-        <textarea
-          v-model="newDecision.rationale"
-          rows="1"
-          :placeholder="t('research_desk.rationale_placeholder')"
-          class="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-[#0a84ff] resize-none"
-          @keydown.enter.exact.prevent="addDecision"
-        />
-
-        <button
-          type="button"
-          class="rounded-lg bg-[#0a84ff] hover:bg-[#0071e3] px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-50 shrink-0"
-          :disabled="submitting || !newDecision.rationale.trim()"
-          @click="addDecision"
-        >
-          <Loader2 v-if="submitting" class="h-3.5 w-3.5 animate-spin" />
-          <span v-else>{{ t("research_desk.save_decision") }}</span>
-        </button>
+          <component
+            :is="retroIcon(retro.verdict)"
+            class="mt-px h-3.5 w-3.5 shrink-0"
+            :style="{ color: retroTint(retro.verdict) }"
+          />
+          <span class="flex min-w-0 flex-col gap-0.5">
+            <span class="mac-t-caption10 font-semibold">
+              {{ retroLabel(retro.verdict) }} · {{ formatRelativeTime(retro.assessed_at) }}
+            </span>
+            <span v-if="retro.rationale_en" class="mac-t-caption10 mac-c-secondary">
+              {{ retro.rationale_en }}
+            </span>
+            <span v-if="retro.news_titles?.length" class="mac-t-caption10 mac-c-tertiary line-clamp-2">
+              {{ retro.news_titles.slice(0, 2).join(" · ") }}
+            </span>
+          </span>
+        </div>
       </div>
     </div>
   </div>

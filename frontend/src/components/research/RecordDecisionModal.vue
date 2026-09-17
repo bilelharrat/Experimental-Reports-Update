@@ -1,7 +1,14 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+// Web twin of MacDecisionSheet (⌘D): a 520pt sheet with bar-material header
+// and footer, a grouped form (verdict glass segments, decided date, memo
+// picker, required rationale), submitting {verdict, explanation, decided_at,
+// report_id} — decided_at as the picked day at midnight UTC, like
+// MacDecisionDate.dayInstant.
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
+import { sessionName } from "../../auth.js";
+import { CheckCircle2, Eye, XCircle } from "lucide-vue-next";
 
 const props = defineProps({
   isOpen: {
@@ -31,6 +38,10 @@ const reportId = ref("");
 const submitting = ref(false);
 const error = ref(null);
 
+const openableReports = computed(() =>
+  (props.reports || []).filter((r) => r.status === "complete" || r.can_open),
+);
+
 watch(
   () => props.isOpen,
   (open) => {
@@ -38,10 +49,11 @@ watch(
       verdict.value = "watch";
       explanation.value = "";
       decidedAt.value = new Date().toISOString().slice(0, 10);
-      reportId.value = props.seedReportId || (props.reports?.[0]?.id ?? "");
+      reportId.value = props.seedReportId || openableReports.value[0]?.id || "";
       error.value = null;
     }
   },
+  { immediate: true },
 );
 
 const verdictLabel = computed(() => {
@@ -50,17 +62,11 @@ const verdictLabel = computed(() => {
   return t("research_desk.watch");
 });
 
-const userDisplayName = computed(() => {
-  return "You";
-});
+const userDisplayName = computed(() => sessionName.value || t("research_desk.recorded_you"));
 
-const canSubmit = computed(() => {
-  return (
-    !submitting.value &&
-    explanation.value.trim().length > 0 &&
-    props.company?.id
-  );
-});
+const canSubmit = computed(
+  () => !submitting.value && explanation.value.trim().length > 0 && props.company?.id,
+);
 
 async function submitDecision() {
   if (!canSubmit.value) return;
@@ -68,195 +74,157 @@ async function submitDecision() {
   error.value = null;
 
   try {
-    const payload = {
-      type: verdict.value,
-      rationale: explanation.value.trim(),
-      decided_at: decidedAt.value ? new Date(decidedAt.value).toISOString() : new Date().toISOString(),
+    const res = await api.decisionRecords.add(props.company.id, {
+      verdict: verdict.value,
+      explanation: explanation.value.trim(),
+      // The picked calendar day as midnight UTC (MacDecisionDate.dayInstant).
+      decided_at: decidedAt.value ? `${decidedAt.value}T00:00:00Z` : undefined,
       report_id: reportId.value || undefined,
-    };
-    const res = await api.decisionRecords.add(props.company.id, payload);
+    });
     emit("saved", res);
     emit("close");
   } catch (err) {
-    error.value = err?.message || "Failed to record decision";
+    error.value = err?.message || "Could not record the decision.";
   } finally {
     submitting.value = false;
   }
 }
 
-function handleClose() {
-  emit("close");
+function onKeydown(e) {
+  if (!props.isOpen) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    emit("close");
+  }
 }
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
   <div
     v-if="isOpen"
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    class="mac-desk fixed inset-0 z-50 flex items-center justify-center p-4"
+    style="background: transparent"
     role="dialog"
     aria-modal="true"
   >
-    <!-- Scrim -->
-    <div
-      class="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-      @click="handleClose"
-    />
+    <!-- Sheet scrim -->
+    <div class="fixed inset-0" style="background: rgba(0, 0, 0, 0.28)" @click="emit('close')" />
 
-    <!-- Modal Box -->
+    <!-- Sheet -->
     <div
-      class="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-surface/95 dark:bg-[#1c1c1e]/95 shadow-2xl backdrop-blur-2xl transition-all"
+      class="relative flex w-full max-w-[520px] flex-col overflow-hidden rounded-[12px]"
+      style="background: var(--mac-canvas); box-shadow: 0 0 0 1px var(--mac-hairline), 0 24px 60px rgba(0, 0, 0, 0.35)"
     >
-      <!-- Header -->
-      <div class="flex items-center justify-between border-b border-border/40 px-5 py-3.5 bg-muted/20">
-        <div>
-          <h3 class="font-semibold text-foreground text-sm">
-            {{ t("research_desk.record_decision_title") }}
-          </h3>
-          <p class="text-[11px] text-muted-foreground mt-0.5">
-            {{ company.name || company.title }}
-          </p>
+      <!-- Header on bar material -->
+      <div class="mac-bar-material flex items-center px-4 py-3">
+        <div class="flex min-w-0 flex-col gap-0.5">
+          <span class="mac-t-headline-sys">{{ t("research_desk.record_decision_title") }}</span>
+          <span class="mac-t-caption mac-c-secondary truncate">{{ company.name || company.title || company.id }}</span>
         </div>
-        <button
-          type="button"
-          class="rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
-          @click="handleClose"
-        >
+        <span class="flex-1" />
+        <button type="button" class="mac-btn" @click="emit('close')">
           {{ t("research_desk.cancel") }}
         </button>
       </div>
+      <div class="mac-divider" />
 
-      <!-- Form Content -->
-      <form class="p-5 space-y-4 text-xs" @submit.prevent="submitDecision">
-        <!-- Verdict Segmented Control -->
-        <div class="space-y-1.5">
-          <label class="block font-medium text-muted-foreground">
-            {{ t("research_desk.verdict_label") }}
-          </label>
-          <div class="grid grid-cols-3 gap-2 rounded-xl border border-border/40 bg-muted/30 p-1">
-            <button
-              type="button"
-              class="flex items-center justify-center gap-1.5 rounded-lg py-2 font-medium text-xs transition-all"
-              :class="
-                verdict === 'invest'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              "
-              @click="verdict = 'invest'"
-            >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </svg>
-              <span>{{ t("research_desk.invest") }}</span>
-            </button>
+      <!-- Grouped form -->
+      <form class="mac-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" @submit.prevent="submitDecision">
+        <div class="mac-tile flex flex-col" style="border-radius: 10px">
+          <!-- Verdict -->
+          <div class="flex items-center gap-4 px-2.5 py-2">
+            <span class="mac-t-body shrink-0">{{ t("research_desk.verdict_label") }}</span>
+            <span class="flex-1" />
+            <div class="mac-segmented w-[280px]">
+              <button
+                type="button"
+                class="mac-segment flex items-center justify-center gap-1"
+                :class="{ 'is-selected': verdict === 'invest' }"
+                @click="verdict = 'invest'"
+              >
+                <CheckCircle2 class="h-3 w-3" />
+                {{ t("research_desk.invest") }}
+              </button>
+              <button
+                type="button"
+                class="mac-segment flex items-center justify-center gap-1"
+                :class="{ 'is-selected': verdict === 'watch' }"
+                @click="verdict = 'watch'"
+              >
+                <Eye class="h-3 w-3" />
+                {{ t("research_desk.watch") }}
+              </button>
+              <button
+                type="button"
+                class="mac-segment flex items-center justify-center gap-1"
+                :class="{ 'is-selected': verdict === 'pass' }"
+                @click="verdict = 'pass'"
+              >
+                <XCircle class="h-3 w-3" />
+                {{ t("research_desk.pass") }}
+              </button>
+            </div>
+          </div>
+          <div class="mac-divider mx-2.5" />
 
-            <button
-              type="button"
-              class="flex items-center justify-center gap-1.5 rounded-lg py-2 font-medium text-xs transition-all"
-              :class="
-                verdict === 'watch'
-                  ? 'bg-amber-500 text-white shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              "
-              @click="verdict = 'watch'"
-            >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <span>{{ t("research_desk.watch") }}</span>
-            </button>
+          <!-- Decided -->
+          <div class="flex items-center gap-4 px-2.5 py-2">
+            <span class="mac-t-body shrink-0">{{ t("research_desk.decided_date") }}</span>
+            <span class="flex-1" />
+            <input v-model="decidedAt" type="date" class="mac-field mac-mono" style="font-size: 12px" />
+          </div>
+          <div class="mac-divider mx-2.5" />
 
-            <button
-              type="button"
-              class="flex items-center justify-center gap-1.5 rounded-lg py-2 font-medium text-xs transition-all"
-              :class="
-                verdict === 'pass'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              "
-              @click="verdict = 'pass'"
-            >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              <span>{{ t("research_desk.pass") }}</span>
-            </button>
+          <!-- Based on memo -->
+          <div class="flex items-center gap-4 px-2.5 py-2">
+            <span class="mac-t-body shrink-0">{{ t("research_desk.based_on_memo") }}</span>
+            <span class="flex-1" />
+            <div class="mac-popup max-w-[280px]">
+              <select v-model="reportId">
+                <option value="">{{ t("research_desk.none") }}</option>
+                <option v-for="r in openableReports" :key="r.id" :value="r.id">
+                  {{ r.title || r.id }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <!-- Date & Memo Fields in Grid -->
-        <div class="grid grid-cols-2 gap-3">
-          <div class="space-y-1.5">
-            <label class="block font-medium text-muted-foreground">
-              {{ t("research_desk.decided_date") }}
-            </label>
-            <input
-              v-model="decidedAt"
-              type="date"
-              class="w-full rounded-lg border border-border/60 bg-surface dark:bg-muted/30 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="block font-medium text-muted-foreground">
-              {{ t("research_desk.based_on_memo") }}
-            </label>
-            <select
-              v-model="reportId"
-              class="w-full rounded-lg border border-border/60 bg-surface dark:bg-muted/30 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-            >
-              <option value="">{{ t("research_desk.none") }}</option>
-              <option v-for="r in reports" :key="r.id" :value="r.id">
-                {{ r.title || r.displayTitle || r.id }}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Rationale text area -->
-        <div class="space-y-1.5">
-          <label class="block font-medium text-muted-foreground">
-            {{ t("research_desk.rationale_required") }}
-          </label>
+        <!-- Rationale -->
+        <div class="flex flex-col gap-1.5">
+          <span class="mac-t-label mac-c-secondary">{{ t("research_desk.rationale_required") }}</span>
           <textarea
             v-model="explanation"
-            rows="5"
+            rows="6"
             required
-            class="w-full rounded-xl border border-border/60 bg-surface dark:bg-muted/20 p-3 text-xs leading-relaxed text-foreground placeholder-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-accent"
+            class="mac-field w-full resize-y"
+            style="min-height: 140px; line-height: 1.4"
             :placeholder="t('research_desk.rationale_placeholder')"
           />
         </div>
 
-        <div v-if="error" class="rounded-lg border border-rose-500/20 bg-rose-500/10 p-2 text-[11px] text-rose-600 dark:text-rose-400">
-          {{ error }}
-        </div>
+        <span v-if="error" class="mac-t-caption" :style="{ color: 'var(--mac-red)' }">{{ error }}</span>
       </form>
 
-      <!-- Footer -->
-      <div class="flex items-center justify-between border-t border-border/40 px-5 py-3 bg-muted/20">
-        <span class="text-[11px] text-muted-foreground">
+      <div class="mac-divider" />
+
+      <!-- Footer on bar material -->
+      <div class="mac-bar-material flex items-center px-4 py-3">
+        <span class="mac-t-caption10 mac-c-secondary">
           {{ t("research_desk.recorded_as", { user: userDisplayName }) }}
         </span>
-
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors"
-            @click="handleClose"
-          >
-            {{ t("research_desk.cancel") }}
-          </button>
-          <button
-            type="button"
-            class="btn-filled rounded-lg px-4 py-1.5 text-xs font-medium text-white transition-all disabled:opacity-50"
-            :disabled="!canSubmit"
-            @click="submitDecision"
-          >
-            {{ submitting ? t("research_desk.saving") : t("research_desk.record_action", { verdict: verdictLabel }) }}
-          </button>
-        </div>
+        <span class="flex-1" />
+        <button
+          type="button"
+          class="mac-btn mac-btn--prominent"
+          :disabled="!canSubmit"
+          @click="submitDecision"
+        >
+          {{ submitting ? t("research_desk.saving") : t("research_desk.record_action", { verdict: verdictLabel }) }}
+        </button>
       </div>
     </div>
   </div>

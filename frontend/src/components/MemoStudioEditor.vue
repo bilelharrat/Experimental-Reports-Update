@@ -1,18 +1,35 @@
 <script setup>
+// Web twin of MacMemoStudioView.swift — the Memo Studio Workbench.
+// Header with the HUMAN-IN-THE-LOOP badge, the synthesize / spine-active
+// action banner, and the five editorial sections restyled to the Mac desk
+// language, plus the Mac workbench features the web lacked: move up/down,
+// double-click title rename, risk refine-framing, and the Readiness Gates
+// and Evidence Claims sections. Web-native features stay: drag reorder,
+// bullet tree with dive-deeper/discuss, tasks, export gating, history.
 import { computed, onMounted, ref, watch } from "vue";
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  Circle,
   Download,
+  FileSearch,
   GripVertical,
+  ListChecks,
   Loader2,
+  MinusCircle,
   RefreshCw,
+  SlidersHorizontal,
+  Sparkles,
   X,
+  XCircle,
 } from "lucide-vue-next";
+import { useRouter } from "vue-router";
 import { api } from "../api.js";
-import { formatIsoDate, humanizeStatus } from "../formatters.js";
+import { formatIsoDate, formatRelativeTime, humanizeStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import AiMark from "./AiMark.vue";
@@ -22,13 +39,17 @@ const props = defineProps({
   companyId: { type: String, required: true },
   generateAvailable: { type: Boolean, default: false },
   generating: { type: Boolean, default: false },
+  // Company reports from the dossier: drives the awaiting-studio synthesize
+  // banner and the Open Memo View shortcut, like the Mac workbench.
+  reports: { type: Array, default: () => [] },
   // Bumped by the parent when an investigation seeds fresh cards, so an
   // already-mounted editor reloads instead of showing stale state.
   refreshKey: { type: String, default: "" },
 });
 
-const emit = defineEmits(["discuss", "generate"]);
+const emit = defineEmits(["discuss", "generate", "synthesized"]);
 const t = useT();
+const router = useRouter();
 
 const editor = ref(null);
 const loading = ref(true);
@@ -85,6 +106,38 @@ const progressPct = computed(() =>
   Math.round((completedSections.value / sectionIds.length) * 100),
 );
 
+// The Mac workbench's studio flow, from the dossier's report list.
+const awaitingStudioReport = computed(() =>
+  (props.reports || []).find((rep) => rep.status === "awaiting_studio"),
+);
+const latestOpenableReport = computed(() =>
+  (props.reports || []).find((rep) => rep.status === "complete" || rep.can_open),
+);
+
+const synthesizing = ref(false);
+const synthesisStarted = ref(false);
+
+async function synthesizeFromStudio() {
+  const awaiting = awaitingStudioReport.value;
+  if (!awaiting || synthesizing.value) return;
+  synthesizing.value = true;
+  try {
+    await api.studioGenerate(awaiting.id);
+    synthesisStarted.value = true;
+    emit("synthesized", awaiting.id);
+  } catch {
+    error.value = "action";
+  } finally {
+    synthesizing.value = false;
+  }
+}
+
+function openMemoView() {
+  const rep = latestOpenableReport.value;
+  if (!rep) return;
+  router.push({ name: "reports", query: { id: rep.id, company: props.companyId } });
+}
+
 function orderedCards(sectionId) {
   const cards = sections.value[sectionId]?.cards || [];
   const seen = new Set();
@@ -138,13 +191,32 @@ function likelihoodLabel(value) {
   return value;
 }
 
-function cardTone(sectionId, card) {
+// Left accent stripe per card, like the Mac severity tinting.
+function cardStripe(sectionId, card) {
   if (sectionId === "risks_mitigations") {
-    if (card.severity === "high") return "border-l-danger";
-    if (card.severity === "medium") return "border-l-warning";
-    return "border-l-ink-muted";
+    if (card.severity === "high" || card.severity === "critical") return "var(--mac-red)";
+    if (card.severity === "medium") return "var(--mac-orange)";
+    return "var(--mac-secondary)";
   }
-  return "border-l-accent";
+  return "var(--mac-accent)";
+}
+
+// MacMemoStudioView.severityBadge tints.
+function severityTint(severity) {
+  switch (String(severity || "").toLowerCase()) {
+    case "critical": return "var(--mac-red)";
+    case "high": return "var(--mac-orange)";
+    case "medium": return "var(--mac-yellow)";
+    case "low": return "var(--mac-green)";
+    default: return "var(--mac-secondary)";
+  }
+}
+
+function statusTone(status) {
+  const value = String(status || "").toLowerCase();
+  if (["done", "complete", "completed", "approved", "ready"].includes(value)) return "var(--mac-green)";
+  if (["error", "failed", "blocked"].includes(value)) return "var(--mac-red)";
+  return "var(--mac-secondary)";
 }
 
 function sourceLabel(item) {
@@ -190,7 +262,13 @@ async function loadHistory() {
 }
 
 onMounted(load);
-watch(() => props.companyId, load);
+watch(() => props.companyId, () => {
+  synthesisStarted.value = false;
+  analysisData.value = null;
+  evidenceData.value = null;
+  refiningRiskId.value = "";
+  load();
+});
 watch(
   () => props.refreshKey,
   () => {
@@ -213,6 +291,154 @@ async function patchCard(sectionId, card, patch) {
   } finally {
     savingId.value = "";
   }
+}
+
+// ---- Move up/down (Mac workbench chevrons) --------------------------------
+
+async function moveCard(sectionId, card, direction) {
+  savingId.value = `move:${sectionId}:${card.id}`;
+  try {
+    applyState(await api.memoEditor.moveCard(props.companyId, sectionId, card.id, direction));
+  } catch {
+    error.value = "action";
+  } finally {
+    savingId.value = "";
+  }
+}
+
+// ---- Double-click title rename (Mac workbench) ----------------------------
+
+const editingTitleId = ref("");
+const titleDraft = ref("");
+
+function startTitleEdit(card) {
+  editingTitleId.value = card.id;
+  titleDraft.value = card.title || "";
+}
+
+async function commitTitleEdit(sectionId, card) {
+  const title = titleDraft.value.trim();
+  editingTitleId.value = "";
+  if (!title || title === card.title) return;
+  await patchCard(sectionId, card, { title });
+}
+
+// ---- Risk refine framing (Mac workbench) ----------------------------------
+
+const refiningRiskId = ref("");
+const refineFraming = ref("other");
+const refineNote = ref("");
+const refineBusy = ref(false);
+const refinedRiskIds = ref(new Set());
+
+const FRAMING_OPTIONS = [
+  ["other", "memo.framing_other"],
+  ["overstated", "memo.framing_overstated"],
+  ["understated", "memo.framing_understated"],
+  ["mitigated", "memo.framing_mitigated"],
+];
+
+function toggleRefine(card) {
+  if (refiningRiskId.value === card.id) {
+    refiningRiskId.value = "";
+    return;
+  }
+  refiningRiskId.value = card.id;
+  refineFraming.value = "other";
+  refineNote.value = "";
+}
+
+async function applyRefinement(card) {
+  if (refineBusy.value) return;
+  refineBusy.value = true;
+  try {
+    await api.memoAnalysis.refineRisk(props.companyId, card.id, {
+      framing: refineFraming.value,
+      analyst_note: refineNote.value.trim(),
+    });
+    refinedRiskIds.value = new Set([...refinedRiskIds.value, card.id]);
+    refiningRiskId.value = "";
+    await loadHistory();
+  } catch {
+    error.value = "action";
+  } finally {
+    refineBusy.value = false;
+  }
+}
+
+// ---- Readiness gates & evidence claims (Mac workbench tabs 3–4) -----------
+// Load on ask: fetching the memo analysis opens a Studio session server-side.
+
+const analysisData = ref(null);
+const evidenceData = ref(null);
+const gatesBusy = ref(false);
+
+const readinessAreas = computed(() => analysisData.value?.additional_areas || []);
+const evidenceClaims = computed(() => evidenceData.value?.claims || []);
+
+async function loadGatesAndEvidence() {
+  if (gatesBusy.value) return;
+  gatesBusy.value = true;
+  try {
+    const [analysisRes, evidenceRes] = await Promise.allSettled([
+      api.memoAnalysis.get(props.companyId),
+      api.memoAnalysis.getEvidenceMatrix(props.companyId),
+    ]);
+    if (analysisRes.status === "fulfilled") analysisData.value = analysisRes.value;
+    if (evidenceRes.status === "fulfilled") evidenceData.value = evidenceRes.value;
+  } finally {
+    gatesBusy.value = false;
+  }
+}
+
+function areaIcon(status) {
+  const value = String(status || "open").toLowerCase();
+  if (["clear", "passed", "approved", "reviewed"].includes(value)) return CheckCircle2;
+  if (value === "waived") return MinusCircle;
+  if (["blocker", "critical", "failed"].includes(value)) return XCircle;
+  return AlertTriangle;
+}
+
+function areaTint(status) {
+  const value = String(status || "open").toLowerCase();
+  if (["clear", "passed", "approved", "reviewed"].includes(value)) return "var(--mac-green)";
+  if (value === "waived") return "var(--mac-orange)";
+  if (["blocker", "critical", "failed"].includes(value)) return "var(--mac-red)";
+  return "var(--mac-orange)";
+}
+
+function claimTint(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "supported") return "var(--mac-green)";
+  if (value === "contradicted") return "var(--mac-red)";
+  if (value === "partial" || value === "mixed") return "var(--mac-orange)";
+  return "var(--mac-secondary)";
+}
+
+function claimLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "supported") return t("memo.claim_supported");
+  if (value === "contradicted") return t("memo.claim_contradicted");
+  if (value === "partial" || value === "mixed") return t("memo.claim_mixed");
+  return t("memo.claim_unverified");
+}
+
+// ---- Section jump bar ------------------------------------------------------
+
+const navSections = computed(() => [
+  { id: "executive_summary", num: "01", label: t("memo.executive_summary") },
+  { id: "investment_thesis", num: "02", label: t("memo.investment_thesis"), count: thesisCards.value.length },
+  { id: "risks_mitigations", num: "03", label: t("memo.risks"), count: riskCards.value.length },
+  { id: "conclusion", num: "04", label: t("memo.conclusion") },
+  { id: "appendix", num: "05", label: t("memo.appendix") },
+  { id: "readiness_gates", num: "06", label: t("memo.readiness_gates") },
+  { id: "evidence_claims", num: "07", label: t("memo.evidence_claims") },
+]);
+const activeNav = ref("executive_summary");
+
+function jumpTo(id) {
+  activeNav.value = id;
+  document.getElementById(`memo-sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ---- Drag-to-reorder (live preview) ---------------------------------------
@@ -466,53 +692,110 @@ async function setTaskStatus(task, status) {
 </script>
 
 <template>
-  <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <div class="vogue-label">{{ t("memo.eyebrow") }}</div>
-        <h2 class="font-display text-xl font-semibold text-ink-primary">
-          {{ t("memo.title") }}
-        </h2>
-        <p class="mt-1 max-w-3xl text-sm text-ink-muted">
-          {{ t("memo.subtitle") }}
-        </p>
+  <section class="mac-card flex flex-col gap-3.5 p-[18px]">
+    <!-- Workbench header (MacMemoStudioView.studioHeader) -->
+    <div class="flex flex-wrap items-center gap-3">
+      <SlidersHorizontal class="mac-c-accent h-4 w-4 shrink-0" stroke-width="2.4" />
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="mac-t-headline">{{ t("memo.workbench_title") }}</h2>
+          <span
+            class="rounded-full px-1.5 py-[2px] text-[9px] font-bold tracking-wide"
+            :style="{
+              background: 'color-mix(in srgb, var(--mac-accent) 12%, transparent)',
+              color: 'var(--mac-accent)',
+            }"
+          >
+            {{ t("memo.workbench_hitl") }}
+          </span>
+        </div>
+        <p class="mac-t-caption mac-c-secondary">{{ t("memo.workbench_subtitle") }}</p>
       </div>
+      <span class="min-w-2 flex-1" />
       <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          @click="load"
-          class="inline-flex items-center gap-2 rounded-full border border-subtle px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-        >
-          <RefreshCw class="h-4 w-4" />
-          {{ t("common.refresh") }}
+        <button type="button" class="mac-btn mac-btn--sm" :title="t('common.refresh')" @click="load">
+          <RefreshCw class="h-3 w-3" />
+          <span>{{ t("common.refresh") }}</span>
         </button>
         <button
           type="button"
-          @click="projectExport"
+          class="mac-btn mac-btn--sm"
           :disabled="exporting || loading"
-          class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
+          @click="projectExport"
         >
-          <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
-          <Download v-else class="h-4 w-4" />
-          {{ t("memo.export") }}
+          <Loader2 v-if="exporting" class="h-3 w-3 animate-spin" />
+          <Download v-else class="h-3 w-3" />
+          <span>{{ t("memo.export") }}</span>
         </button>
         <button
           v-if="generateAvailable"
           type="button"
-          @click="emit('generate')"
+          class="mac-btn mac-btn--sm mac-btn--prominent"
           :disabled="generating || loading"
-          class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
+          @click="emit('generate')"
         >
-          <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
-          <AiMark v-else class="h-4 w-4 shrink-0" />
-          {{ t("memo.generate_report") }}
+          <Loader2 v-if="generating" class="h-3 w-3 animate-spin" />
+          <AiMark v-else class="h-3 w-3 shrink-0" />
+          <span>{{ t("memo.generate_report") }}</span>
         </button>
       </div>
     </div>
 
+    <!-- Action banner: parked investigation → synthesize; else spine active -->
+    <div
+      v-if="awaitingStudioReport && !synthesisStarted"
+      class="flex flex-wrap items-center gap-3 rounded-lg p-3"
+      :style="{
+        background: 'color-mix(in srgb, var(--mac-orange) 8%, transparent)',
+        boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--mac-orange) 25%, transparent)',
+      }"
+    >
+      <span class="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full" :style="{ background: 'var(--mac-orange)' }" />
+      <span class="flex min-w-0 flex-col gap-0.5">
+        <span class="mac-t-subhead font-semibold" :style="{ color: 'var(--mac-orange)' }">
+          {{ t("memo.parked_title") }}
+        </span>
+        <span class="mac-t-caption mac-c-secondary">{{ t("memo.parked_subtitle") }}</span>
+      </span>
+      <span class="min-w-2 flex-1" />
+      <button
+        type="button"
+        class="mac-btn mac-btn--sm mac-btn--prominent mac-btn--tinted shrink-0"
+        :style="{ '--tint': 'var(--mac-orange)' }"
+        :disabled="synthesizing"
+        @click="synthesizeFromStudio"
+      >
+        <Loader2 v-if="synthesizing" class="h-3 w-3 animate-spin" />
+        <Sparkles v-else class="h-3 w-3" />
+        <span>{{ t("memo.synthesize_phase3") }}</span>
+      </button>
+    </div>
+    <div
+      v-else
+      class="flex flex-wrap items-center gap-2.5 rounded-lg p-2.5"
+      style="background: color-mix(in srgb, var(--mac-secondary) 4%, transparent)"
+    >
+      <CheckCircle2 class="h-3.5 w-3.5 shrink-0" :style="{ color: 'var(--mac-green)' }" />
+      <span class="mac-t-caption mac-c-secondary min-w-0">
+        {{ synthesisStarted ? t("memo.synthesis_started") : t("memo.spine_active") }}
+      </span>
+      <span class="min-w-2 flex-1" />
+      <button
+        v-if="latestOpenableReport"
+        type="button"
+        class="mac-btn mac-btn--mini"
+        @click="openMemoView"
+      >
+        <BookOpen class="h-3 w-3" />
+        <span>{{ t("memo.open_memo_view") }}</span>
+      </button>
+    </div>
+
+    <!-- Provenance -->
     <div
       v-if="agentRun"
-      class="mt-3 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
+      class="mac-t-caption mac-c-secondary rounded-md px-2.5 py-1.5"
+      style="background: color-mix(in srgb, var(--mac-accent) 6%, transparent)"
     >
       {{
         t("memo.seeded_from_run", {
@@ -523,164 +806,182 @@ async function setTaskStatus(task, status) {
     </div>
     <div
       v-else-if="!loading && editor"
-      class="mt-3 rounded-lg border border-notice/40 bg-notice-soft/40 px-3 py-2 text-xs text-ink-secondary"
+      class="mac-t-caption rounded-md px-2.5 py-1.5"
+      :style="{
+        background: 'color-mix(in srgb, var(--mac-yellow) 10%, transparent)',
+        color: 'var(--mac-secondary)',
+      }"
     >
       {{ t("memo.no_agent_seed") }}
     </div>
 
-    <div v-if="loading" class="mt-5 flex items-center gap-2 text-sm text-ink-muted">
-      <Loader2 class="h-4 w-4 animate-spin" />
+    <div v-if="loading" class="mac-t-caption mac-c-secondary flex items-center gap-2 py-4">
+      <Loader2 class="h-3.5 w-3.5 animate-spin" />
       {{ t("memo.loading") }}
     </div>
-    <div v-else-if="error" class="mt-5 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+    <div v-else-if="error" class="mac-t-caption rounded-md p-2.5" :style="{ color: 'var(--mac-red)', background: 'color-mix(in srgb, var(--mac-red) 8%, transparent)' }">
       {{ errorMessage }}
     </div>
 
     <template v-else-if="editor">
-      <div class="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-        <div class="rounded-card bg-surface-muted p-4">
-          <div class="flex items-center justify-between gap-3 text-xs text-ink-muted">
+      <!-- Readiness + version strip -->
+      <div class="grid gap-2.5 md:grid-cols-[1fr_auto]">
+        <div class="mac-tile flex flex-col justify-center gap-1.5 p-3" style="border-radius: 10px">
+          <div class="mac-t-caption mac-c-secondary flex items-center justify-between gap-3">
             <span>{{ t("memo.readiness", { ready: completedSections, total: sectionIds.length }) }}</span>
-            <span class="font-mono">{{ progressPct }}%</span>
+            <span class="mac-mono">{{ progressPct }}%</span>
           </div>
-          <div class="mt-2 h-2 rounded-full bg-surface">
+          <div class="h-1 rounded-full" style="background: color-mix(in srgb, var(--mac-secondary) 15%, transparent)">
             <div
-              class="h-2 rounded-full bg-accent"
-              :style="{ width: `${progressPct}%` }"
+              class="h-1 rounded-full transition-all duration-500"
+              :style="{ width: `${progressPct}%`, background: progressPct === 100 ? 'var(--mac-green)' : 'var(--mac-accent)' }"
             />
           </div>
         </div>
-        <div class="rounded-card bg-surface-muted p-4 text-xs text-ink-muted">
-          <div class="font-semibold text-ink-primary">
+        <div class="mac-tile flex flex-col justify-center gap-0.5 p-3" style="border-radius: 10px">
+          <span class="mac-t-subheadline font-semibold">
             {{ editor.version_id || "v1" }} · {{ humanizeStatus(editor.status, t("memo.draft"), appLanguage) }}
-          </div>
-          <div class="mono-data mt-1">{{ t("memo.updated") }} {{ formatIsoDate(editor.updated_at, t("memo.pending")) }}</div>
+          </span>
+          <span class="mac-t-caption10 mac-mono mac-c-secondary">
+            {{ t("memo.updated") }} {{ formatIsoDate(editor.updated_at, t("memo.pending")) }}
+          </span>
         </div>
       </div>
 
+      <!-- Export gate result -->
       <div
         v-if="exportResult"
-        class="mt-5 rounded-card border p-4"
-        :class="exportResult.blocked ? 'border-warning bg-warning-soft text-warning-ink' : 'border-accent/30 bg-accent-soft/30 text-ink-primary'"
+        class="flex items-start gap-2.5 rounded-lg p-3"
+        :style="
+          exportResult.blocked
+            ? { background: 'color-mix(in srgb, var(--mac-orange) 8%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--mac-orange) 25%, transparent)' }
+            : { background: 'color-mix(in srgb, var(--mac-green) 7%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--mac-green) 22%, transparent)' }
+        "
       >
-        <div class="flex items-start gap-3">
-          <AlertTriangle v-if="exportResult.blocked" class="mt-0.5 h-5 w-5 shrink-0" />
-          <CheckCircle2 v-else class="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div class="text-sm font-semibold">
-              <template v-if="exportResult.blocked">
-                {{ exportResult.block_reason }}
-              </template>
-              <template v-else>
-                {{ t("memo.export_ready") }}
-              </template>
-            </div>
-            <p class="mt-1 text-xs opacity-80">
-              {{ coverageLabel(exportResult) }}
-            </p>
-            <ul v-if="exportResult.blocked" class="mt-2 space-y-1 text-xs">
-              <li
-                v-for="item in exportResult.missing_sources"
-                :key="`${item.location}-${item.text}`"
-              >
-                <span class="font-semibold">{{ item.location }}:</span>
-                {{ item.terms.join(", ") }}
-              </li>
-            </ul>
-          </div>
+        <AlertTriangle v-if="exportResult.blocked" class="mt-0.5 h-4 w-4 shrink-0" :style="{ color: 'var(--mac-orange)' }" />
+        <CheckCircle2 v-else class="mt-0.5 h-4 w-4 shrink-0" :style="{ color: 'var(--mac-green)' }" />
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="mac-t-subhead font-semibold">
+            <template v-if="exportResult.blocked">{{ exportResult.block_reason }}</template>
+            <template v-else>{{ t("memo.export_ready") }}</template>
+          </span>
+          <span class="mac-t-caption mac-c-secondary">{{ coverageLabel(exportResult) }}</span>
+          <ul v-if="exportResult.blocked" class="flex flex-col gap-0.5">
+            <li
+              v-for="item in exportResult.missing_sources"
+              :key="`${item.location}-${item.text}`"
+              class="mac-t-caption"
+            >
+              <span class="font-semibold">{{ item.location }}:</span>
+              {{ item.terms.join(", ") }}
+            </li>
+          </ul>
         </div>
       </div>
-      <div v-if="exportError" class="mt-3 text-sm text-danger">{{ exportErrorMessage }}</div>
+      <div v-if="exportError" class="mac-t-caption" :style="{ color: 'var(--mac-red)' }">{{ exportErrorMessage }}</div>
 
-      <section class="mt-6">
-        <div class="flex flex-wrap items-end justify-between gap-3 border-b border-subtle pb-3">
-          <div class="flex items-baseline gap-3">
-            <span class="mono-data text-xs font-bold text-accent-ink">01</span>
-            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.executive_summary") }}</h3>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
-              {{ humanizeStatus(sections.executive_summary?.status, t("memo.not_started"), appLanguage) }}
-              </span>
-              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
-                {{ sourceLabel(sections.executive_summary) }}
-              </span>
-              <button
-                type="button"
-                @click="rerunSection('executive_summary')"
-                class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-              >
-              {{ t("memo.rerun") }}
-              </button>
-          </div>
+      <!-- Section jump bar -->
+      <nav class="mac-tabbar -mx-1 px-1">
+        <div class="mac-tabbar-inner">
+          <button
+            v-for="section in navSections"
+            :key="section.id"
+            type="button"
+            class="mac-tab flex items-center gap-1.5"
+            :class="{ 'is-active': activeNav === section.id }"
+            @click="jumpTo(section.id)"
+          >
+            <span class="mac-mono mac-t-caption10" :style="activeNav === section.id ? { color: 'var(--mac-accent)' } : {}">{{ section.num }}</span>
+            {{ section.label }}
+            <span
+              v-if="section.count"
+              class="mac-mono rounded-full px-1 text-[10px] font-bold"
+              style="background: color-mix(in srgb, var(--mac-label) 8%, transparent)"
+            >
+              {{ section.count }}
+            </span>
+          </button>
         </div>
-        <div class="mt-3 rounded-card border border-subtle border-l-4 border-l-accent bg-surface p-4">
-            <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
-              {{ sections.executive_summary?.body }}
-            </p>
-            <div class="mt-3 grid gap-2 text-sm md:grid-cols-3">
-              <div class="rounded-card bg-surface shadow-card p-3">
-                <div class="vogue-label">{{ t("memo.recommendation") }}</div>
-                <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.recommendation }}</p>
-              </div>
-              <div class="rounded-card bg-surface shadow-card p-3">
-                <div class="vogue-label">{{ t("memo.round") }}</div>
-                <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.round || t("memo.pending") }}</p>
-              </div>
-              <div class="rounded-card bg-surface shadow-card p-3">
-                <div class="vogue-label">{{ t("memo.top_gate") }}</div>
-                <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.top_gate }}</p>
-              </div>
+      </nav>
+
+      <!-- 01 · Executive Summary -->
+      <section :id="`memo-sec-executive_summary`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">01</span>
+          <h3 class="mac-t-headline">{{ t("memo.executive_summary") }}</h3>
+          <span class="min-w-2 flex-1" />
+          <span class="mac-status-tag" :style="{ '--tint': statusTone(sections.executive_summary?.status) }">
+            {{ humanizeStatus(sections.executive_summary?.status, t("memo.not_started"), appLanguage) }}
+          </span>
+          <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">
+            {{ sourceLabel(sections.executive_summary) }}
+          </span>
+          <button type="button" class="mac-btn mac-btn--mini" @click="rerunSection('executive_summary')">
+            {{ t("memo.rerun") }}
+          </button>
+        </div>
+        <div
+          class="mac-tile flex flex-col gap-2.5 p-3"
+          style="border-radius: 10px; border-left: 3px solid var(--mac-accent)"
+        >
+          <p class="mac-t-body mac-c-secondary" style="line-height: 1.5">
+            {{ sections.executive_summary?.body }}
+          </p>
+          <div class="grid gap-2.5 md:grid-cols-3">
+            <div class="mac-tile flex flex-col gap-1 p-2.5">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.recommendation") }}</span>
+              <p class="mac-t-caption mac-c-secondary" style="line-height: 1.4">{{ sections.executive_summary?.recommendation }}</p>
             </div>
+            <div class="mac-tile flex flex-col gap-1 p-2.5">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.round") }}</span>
+              <p class="mac-t-caption mac-c-secondary" style="line-height: 1.4">{{ sections.executive_summary?.round || t("memo.pending") }}</p>
+            </div>
+            <div class="mac-tile flex flex-col gap-1 p-2.5">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.top_gate") }}</span>
+              <p class="mac-t-caption mac-c-secondary" style="line-height: 1.4">{{ sections.executive_summary?.top_gate }}</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section class="mt-6">
-        <div class="mb-3 flex items-end justify-between gap-3 border-b border-subtle pb-3">
-          <div class="flex items-baseline gap-3">
-            <span class="mono-data text-xs font-bold text-accent-ink">02</span>
-            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.investment_thesis") }}</h3>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: thesisCards.length }) }}</span>
-            <input
-              v-if="addingSection === 'investment_thesis'"
-              v-model="newCardTitle"
-              :placeholder="t('memo.new_card_title')"
-              class="field focus-ring w-48 px-2 py-1 text-xs"
-              @keyup.enter="addCard('investment_thesis')"
-            />
-            <button
-              type="button"
-              @click="toggleAddCard('investment_thesis')"
-              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              {{ addingSection === 'investment_thesis' ? t("memo.save_card") : t("memo.add_card") }}
-            </button>
-            <button
-              type="button"
-              @click="rerunSection('investment_thesis')"
-              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              {{ t("memo.rerun") }}
-            </button>
-          </div>
+      <!-- 02 · Investment Thesis -->
+      <section :id="`memo-sec-investment_thesis`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">02</span>
+          <h3 class="mac-t-headline">{{ t("memo.investment_thesis") }}</h3>
+          <span class="min-w-2 flex-1" />
+          <span class="mac-t-caption mac-c-secondary">{{ t("memo.card_count", { count: thesisCards.length }) }}</span>
+          <input
+            v-if="addingSection === 'investment_thesis'"
+            v-model="newCardTitle"
+            :placeholder="t('memo.new_card_title')"
+            class="mac-field w-48"
+            style="font-size: 11px; padding: 3px 8px"
+            @keyup.enter="addCard('investment_thesis')"
+          />
+          <button type="button" class="mac-btn mac-btn--mini" :class="addingSection === 'investment_thesis' ? 'mac-btn--tint' : ''" @click="toggleAddCard('investment_thesis')">
+            {{ addingSection === 'investment_thesis' ? t("memo.save_card") : t("memo.add_card") }}
+          </button>
+          <button type="button" class="mac-btn mac-btn--mini" @click="rerunSection('investment_thesis')">
+            {{ t("memo.rerun") }}
+          </button>
         </div>
         <TransitionGroup
           tag="div"
           name="card-drag"
-          class="space-y-3"
+          class="flex flex-col gap-2"
           @dragover.prevent
           @drop.prevent="commitDrag('investment_thesis')"
         >
           <article
-            v-for="card in thesisCards"
+            v-for="(card, cardIndex) in thesisCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface p-3"
-            :class="[
-              cardTone('investment_thesis', card),
-              dragCardId === card.id ? 'opacity-60' : '',
-            ]"
+            class="mac-tile p-2.5"
+            :style="{
+              borderRadius: '10px',
+              borderLeft: `3px solid ${cardStripe('investment_thesis', card)}`,
+              opacity: dragCardId === card.id ? 0.6 : card.included ? 1 : 0.55,
+            }"
             :draggable="dragArmedId === card.id"
             @dragstart="onDragStart($event, 'investment_thesis', card)"
             @dragover.prevent="onDragOver($event, 'investment_thesis', card)"
@@ -689,41 +990,52 @@ async function setTaskStatus(task, status) {
             <div class="flex items-start gap-2">
               <button
                 type="button"
-                class="mt-0.5 shrink-0 cursor-grab rounded p-1 text-ink-muted hover:bg-surface-muted focus-ring"
+                class="mac-c-secondary mt-0.5 shrink-0 cursor-grab rounded border-none bg-transparent p-0.5"
                 :aria-label="t('memo.drag_card')"
                 @mousedown="armDrag(card.id)"
                 @mouseup="disarmDrag"
               >
-                <GripVertical class="h-4 w-4" />
+                <GripVertical class="h-3.5 w-3.5" />
               </button>
               <input
                 type="checkbox"
                 :checked="card.included"
-                @change="patchCard('investment_thesis', card, { included: $event.target.checked })"
-                class="memo-checkbox focus-ring mt-1 shrink-0"
+                class="mt-0.5 shrink-0"
                 :aria-label="t('memo.include_card', { title: card.title })"
+                @change="patchCard('investment_thesis', card, { included: $event.target.checked })"
               />
-              <span class="mt-0.5 w-5 shrink-0 text-center font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
+              <span class="mac-mono mt-0.5 w-5 shrink-0 text-center text-[12px] font-semibold">{{ card.rank }}</span>
               <div class="min-w-0 flex-1">
+                <input
+                  v-if="editingTitleId === card.id"
+                  v-model="titleDraft"
+                  class="mac-field w-full"
+                  style="font-size: 13px; font-weight: 600"
+                  @keyup.enter="commitTitleEdit('investment_thesis', card)"
+                  @blur="commitTitleEdit('investment_thesis', card)"
+                />
                 <button
+                  v-else
                   type="button"
+                  class="flex w-full items-start justify-between gap-3 border-none bg-transparent p-0 text-left"
+                  :title="t('memo.rename_hint')"
                   @click="patchCard('investment_thesis', card, { expanded: !card.expanded })"
-                  class="flex w-full items-start justify-between gap-3 text-left focus-ring"
+                  @dblclick.stop.prevent="startTitleEdit(card)"
                 >
-                  <span>
-                    <span class="block text-base font-semibold text-ink-primary">{{ card.title }}</span>
-                    <span class="mt-1 flex flex-wrap items-center gap-2">
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.category }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ sourceLabel(card) }}</span>
-                      <span class="text-[11px] text-ink-muted">{{ t("memo.source_count", { count: sourceCount(card) }) }}</span>
+                  <span class="min-w-0">
+                    <span class="mac-t-subhead block font-semibold">{{ card.title }}</span>
+                    <span class="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ card.category }}</span>
+                      <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ sourceLabel(card) }}</span>
+                      <span class="mac-t-caption10 mac-c-secondary">{{ t("memo.source_count", { count: sourceCount(card) }) }}</span>
                     </span>
                   </span>
-                  <ChevronDown v-if="card.expanded" class="h-4 w-4 text-ink-muted" />
-                  <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+                  <ChevronDown v-if="card.expanded" class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
+                  <ChevronRight v-else class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
                 </button>
                 <MemoStudioBulletTree
                   v-if="card.expanded"
-                  class="mt-3"
+                  class="mt-2.5"
                   :company-id="companyId"
                   section-id="investment_thesis"
                   :card-id="card.id"
@@ -733,71 +1045,80 @@ async function setTaskStatus(task, status) {
                   @discuss="discuss"
                 />
               </div>
-              <button
-                type="button"
-                @click="removeCard('investment_thesis', card)"
-                class="mt-0.5 shrink-0 rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
-                :aria-label="t('memo.remove_card')"
-              >
-                <X class="h-3.5 w-3.5" />
-              </button>
+              <span class="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5 disabled:opacity-30"
+                  :disabled="cardIndex === 0"
+                  :aria-label="t('memo.move_up')"
+                  @click="moveCard('investment_thesis', card, 'up')"
+                >
+                  <ChevronUp class="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5 disabled:opacity-30"
+                  :disabled="cardIndex === thesisCards.length - 1"
+                  :aria-label="t('memo.move_down')"
+                  @click="moveCard('investment_thesis', card, 'down')"
+                >
+                  <ChevronDown class="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5"
+                  :aria-label="t('memo.remove_card')"
+                  @click="removeCard('investment_thesis', card)"
+                >
+                  <X class="h-3 w-3" />
+                </button>
+              </span>
             </div>
           </article>
         </TransitionGroup>
       </section>
 
-      <section class="mt-6">
-        <div class="mb-3 flex items-end justify-between gap-3 border-b border-subtle pb-3">
-          <div class="flex items-baseline gap-3">
-            <span class="mono-data text-xs font-bold text-danger-ink">03</span>
-            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.risks") }}</h3>
-          </div>
-          <div class="flex items-center gap-2">
-            <span
-              v-if="riskCountWarning"
-              class="text-xs font-semibold text-warning-ink"
-            >
-              {{ t("memo.risk_count_hint", { count: includedRiskCount }) }}
-            </span>
-            <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: riskCards.length }) }}</span>
-            <input
-              v-if="addingSection === 'risks_mitigations'"
-              v-model="newCardTitle"
-              :placeholder="t('memo.new_card_title')"
-              class="field focus-ring w-48 px-2 py-1 text-xs"
-              @keyup.enter="addCard('risks_mitigations')"
-            />
-            <button
-              type="button"
-              @click="toggleAddCard('risks_mitigations')"
-              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              {{ addingSection === 'risks_mitigations' ? t("memo.save_card") : t("memo.add_card") }}
-            </button>
-            <button
-              type="button"
-              @click="rerunSection('risks_mitigations')"
-              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              {{ t("memo.rerun") }}
-            </button>
-          </div>
+      <!-- 03 · Risks & Mitigations -->
+      <section :id="`memo-sec-risks_mitigations`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-red)' }">03</span>
+          <h3 class="mac-t-headline">{{ t("memo.risks") }}</h3>
+          <span class="min-w-2 flex-1" />
+          <span v-if="riskCountWarning" class="mac-t-caption font-semibold" :style="{ color: 'var(--mac-orange)' }">
+            {{ t("memo.risk_count_hint", { count: includedRiskCount }) }}
+          </span>
+          <span class="mac-t-caption mac-c-secondary">{{ t("memo.card_count", { count: riskCards.length }) }}</span>
+          <input
+            v-if="addingSection === 'risks_mitigations'"
+            v-model="newCardTitle"
+            :placeholder="t('memo.new_card_title')"
+            class="mac-field w-48"
+            style="font-size: 11px; padding: 3px 8px"
+            @keyup.enter="addCard('risks_mitigations')"
+          />
+          <button type="button" class="mac-btn mac-btn--mini" :class="addingSection === 'risks_mitigations' ? 'mac-btn--tint' : ''" @click="toggleAddCard('risks_mitigations')">
+            {{ addingSection === 'risks_mitigations' ? t("memo.save_card") : t("memo.add_card") }}
+          </button>
+          <button type="button" class="mac-btn mac-btn--mini" @click="rerunSection('risks_mitigations')">
+            {{ t("memo.rerun") }}
+          </button>
         </div>
         <TransitionGroup
           tag="div"
           name="card-drag"
-          class="space-y-3"
+          class="flex flex-col gap-2"
           @dragover.prevent
           @drop.prevent="commitDrag('risks_mitigations')"
         >
           <article
-            v-for="card in riskCards"
+            v-for="(card, cardIndex) in riskCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface p-3"
-            :class="[
-              cardTone('risks_mitigations', card),
-              dragCardId === card.id ? 'opacity-60' : '',
-            ]"
+            class="mac-tile p-2.5"
+            :style="{
+              borderRadius: '10px',
+              borderLeft: `3px solid ${cardStripe('risks_mitigations', card)}`,
+              opacity: dragCardId === card.id ? 0.6 : card.included ? 1 : 0.55,
+            }"
             :draggable="dragArmedId === card.id"
             @dragstart="onDragStart($event, 'risks_mitigations', card)"
             @dragover.prevent="onDragOver($event, 'risks_mitigations', card)"
@@ -806,58 +1127,85 @@ async function setTaskStatus(task, status) {
             <div class="flex items-start gap-2">
               <button
                 type="button"
-                class="mt-0.5 shrink-0 cursor-grab rounded p-1 text-ink-muted hover:bg-surface-muted focus-ring"
+                class="mac-c-secondary mt-0.5 shrink-0 cursor-grab rounded border-none bg-transparent p-0.5"
                 :aria-label="t('memo.drag_card')"
                 @mousedown="armDrag(card.id)"
                 @mouseup="disarmDrag"
               >
-                <GripVertical class="h-4 w-4" />
+                <GripVertical class="h-3.5 w-3.5" />
               </button>
               <input
                 type="checkbox"
                 :checked="card.included"
-                @change="patchCard('risks_mitigations', card, { included: $event.target.checked })"
-                class="memo-checkbox focus-ring mt-1 shrink-0"
+                class="mt-0.5 shrink-0"
                 :aria-label="t('memo.include_card', { title: card.title })"
+                @change="patchCard('risks_mitigations', card, { included: $event.target.checked })"
               />
-              <span class="mt-0.5 w-5 shrink-0 text-center font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
+              <span class="mac-mono mt-0.5 w-5 shrink-0 text-center text-[12px] font-semibold">{{ card.rank }}</span>
               <div class="min-w-0 flex-1">
+                <input
+                  v-if="editingTitleId === card.id"
+                  v-model="titleDraft"
+                  class="mac-field w-full"
+                  style="font-size: 13px; font-weight: 600"
+                  @keyup.enter="commitTitleEdit('risks_mitigations', card)"
+                  @blur="commitTitleEdit('risks_mitigations', card)"
+                />
                 <button
+                  v-else
                   type="button"
+                  class="flex w-full items-start justify-between gap-3 border-none bg-transparent p-0 text-left"
+                  :title="t('memo.rename_hint')"
                   @click="patchCard('risks_mitigations', card, { expanded: !card.expanded })"
-                  class="flex w-full items-start justify-between gap-3 text-left focus-ring"
+                  @dblclick.stop.prevent="startTitleEdit(card)"
                 >
-                  <span>
-                    <span class="block text-base font-semibold text-ink-primary">{{ card.title }}</span>
-                    <span class="mt-1 flex flex-wrap items-center gap-2">
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.category }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.severity || t("memo.risk") }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ sourceLabel(card) }}</span>
+                  <span class="min-w-0">
+                    <span class="mac-t-subhead block font-semibold">{{ card.title }}</span>
+                    <span class="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        class="rounded-full px-1.5 py-[2px] text-[9px] font-bold"
+                        :style="{
+                          background: `color-mix(in srgb, ${severityTint(card.severity)} 15%, transparent)`,
+                          color: severityTint(card.severity),
+                        }"
+                      >
+                        {{ (card.severity || t("memo.risk")).toUpperCase() }}
+                      </span>
+                      <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ card.category }}</span>
+                      <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ sourceLabel(card) }}</span>
+                      <span
+                        v-if="refinedRiskIds.has(card.id)"
+                        class="mac-status-tag"
+                        :style="{ '--tint': 'var(--mac-green)' }"
+                      >
+                        {{ t("memo.refined_tag") }}
+                      </span>
                     </span>
                   </span>
-                  <ChevronDown v-if="card.expanded" class="h-4 w-4 text-ink-muted" />
-                  <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+                  <ChevronDown v-if="card.expanded" class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
+                  <ChevronRight v-else class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
                 </button>
-                <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                  <label class="flex items-center gap-1 text-ink-muted">
+
+                <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                  <label class="mac-t-caption10 mac-c-secondary flex items-center gap-1">
                     {{ t("memo.rating") }}
                     <select
                       :value="card.agent_rating || ''"
+                      class="mac-field"
+                      style="font-size: 10px; padding: 2px 5px"
                       @change="setRiskRating(card, $event.target.value)"
-                      class="field focus-ring w-20 px-1.5 py-0.5 text-[11px]"
                     >
                       <option value="">—</option>
-                      <option v-for="option in RATING_OPTIONS" :key="option" :value="option">
-                        {{ option }}
-                      </option>
+                      <option v-for="option in RATING_OPTIONS" :key="option" :value="option">{{ option }}</option>
                     </select>
                   </label>
-                  <label class="flex items-center gap-1 text-ink-muted">
+                  <label class="mac-t-caption10 mac-c-secondary flex items-center gap-1">
                     {{ t("memo.likelihood") }}
                     <select
                       :value="card.likelihood || ''"
+                      class="mac-field"
+                      style="font-size: 10px; padding: 2px 5px"
                       @change="setRiskLikelihood(card, $event.target.value)"
-                      class="field focus-ring w-24 px-1.5 py-0.5 text-[11px]"
                     >
                       <option value="">—</option>
                       <option v-for="option in LIKELIHOOD_OPTIONS" :key="option" :value="option">
@@ -865,10 +1213,57 @@ async function setTaskStatus(task, status) {
                       </option>
                     </select>
                   </label>
+                  <span class="flex-1" />
+                  <button
+                    type="button"
+                    class="mac-btn mac-btn--mini"
+                    :class="refiningRiskId === card.id ? 'mac-btn--tint' : ''"
+                    @click="toggleRefine(card)"
+                  >
+                    <SlidersHorizontal class="h-2.5 w-2.5" />
+                    <span>{{ refiningRiskId === card.id ? t("memo.refine_done") : t("memo.refine_framing") }}</span>
+                  </button>
                 </div>
+
+                <!-- Inline refinement panel (Mac workbench) -->
+                <div
+                  v-if="refiningRiskId === card.id"
+                  class="mt-2 flex flex-col gap-2 rounded-md p-2.5"
+                  style="background: color-mix(in srgb, var(--mac-secondary) 4%, transparent)"
+                >
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <span class="mac-t-caption10 font-semibold">{{ t("memo.framing_override") }}</span>
+                    <div class="mac-popup">
+                      <select v-model="refineFraming">
+                        <option v-for="[value, key] in FRAMING_OPTIONS" :key="value" :value="value">
+                          {{ t(key) }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <input
+                    v-model="refineNote"
+                    type="text"
+                    class="mac-field w-full"
+                    :placeholder="t('memo.steering_ph')"
+                  />
+                  <div class="flex items-center">
+                    <span class="flex-1" />
+                    <button
+                      type="button"
+                      class="mac-btn mac-btn--sm mac-btn--prominent"
+                      :disabled="refineBusy"
+                      @click="applyRefinement(card)"
+                    >
+                      <Loader2 v-if="refineBusy" class="h-3 w-3 animate-spin" />
+                      <span>{{ t("memo.apply_refinement") }}</span>
+                    </button>
+                  </div>
+                </div>
+
                 <MemoStudioBulletTree
                   v-if="card.expanded"
-                  class="mt-3"
+                  class="mt-2.5"
                   :company-id="companyId"
                   section-id="risks_mitigations"
                   :card-id="card.id"
@@ -878,196 +1273,304 @@ async function setTaskStatus(task, status) {
                   @discuss="discuss"
                 />
               </div>
-              <button
-                type="button"
-                @click="removeCard('risks_mitigations', card)"
-                class="mt-0.5 shrink-0 rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
-                :aria-label="t('memo.remove_card')"
-              >
-                <X class="h-3.5 w-3.5" />
-              </button>
+              <span class="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5 disabled:opacity-30"
+                  :disabled="cardIndex === 0"
+                  :aria-label="t('memo.move_up')"
+                  @click="moveCard('risks_mitigations', card, 'up')"
+                >
+                  <ChevronUp class="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5 disabled:opacity-30"
+                  :disabled="cardIndex === riskCards.length - 1"
+                  :aria-label="t('memo.move_down')"
+                  @click="moveCard('risks_mitigations', card, 'down')"
+                >
+                  <ChevronDown class="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  class="mac-c-secondary border-none bg-transparent p-0.5"
+                  :aria-label="t('memo.remove_card')"
+                  @click="removeCard('risks_mitigations', card)"
+                >
+                  <X class="h-3 w-3" />
+                </button>
+              </span>
             </div>
           </article>
         </TransitionGroup>
       </section>
 
-      <section class="mt-6">
-        <div class="flex items-end justify-between gap-3 border-b border-subtle pb-3">
-          <div class="flex items-baseline gap-3">
-            <span class="mono-data text-xs font-bold text-accent-ink">04</span>
-            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.conclusion") }}</h3>
-          </div>
-          <button
-            type="button"
-            @click="rerunSection('conclusion')"
-            class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-          >
+      <!-- 04 · Conclusion -->
+      <section :id="`memo-sec-conclusion`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">04</span>
+          <h3 class="mac-t-headline">{{ t("memo.conclusion") }}</h3>
+          <span class="min-w-2 flex-1" />
+          <button type="button" class="mac-btn mac-btn--mini" @click="rerunSection('conclusion')">
             {{ t("memo.rerun") }}
           </button>
         </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-3">
+        <div class="grid gap-2.5 md:grid-cols-3">
           <button
             v-for="option in conclusion.options || []"
             :key="option.id"
             type="button"
+            class="flex flex-col gap-1.5 p-3 text-left"
+            :class="conclusion.selected_option_id === option.id ? 'mac-tile-tint' : 'mac-tile'"
+            :style="
+              conclusion.selected_option_id === option.id
+                ? { '--tint': 'var(--mac-accent)', borderRadius: '10px', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--mac-accent) 40%, transparent)' }
+                : { borderRadius: '10px' }
+            "
             @click="selectConclusion(option)"
-            class="rounded-card border p-4 text-left focus-ring"
-            :class="conclusion.selected_option_id === option.id ? 'border-accent bg-accent-soft/40' : 'border-subtle bg-surface hover:border-strong'"
           >
-            <div class="text-sm font-semibold text-ink-primary">{{ option.label }}</div>
-            <p class="mt-2 text-sm leading-relaxed text-ink-muted">{{ option.text }}</p>
-            <div class="mt-3 text-[11px] text-footnote font-semibold text-ink-muted">
-              {{ sourceLabel(option) }}
-            </div>
+            <span class="mac-t-subhead flex items-center gap-1.5 font-semibold">
+              <component
+                :is="conclusion.selected_option_id === option.id ? CheckCircle2 : Circle"
+                class="h-3.5 w-3.5 shrink-0"
+                :style="{ color: conclusion.selected_option_id === option.id ? 'var(--mac-accent)' : 'var(--mac-secondary)' }"
+              />
+              {{ option.label }}
+            </span>
+            <p class="mac-t-caption mac-c-secondary" style="line-height: 1.45">{{ option.text }}</p>
+            <span class="mac-t-caption10 mac-c-tertiary font-semibold">{{ sourceLabel(option) }}</span>
           </button>
         </div>
       </section>
 
-      <section class="mt-6">
-        <div class="flex items-end justify-between gap-3 border-b border-subtle pb-3">
-          <div class="flex items-baseline gap-3">
-            <span class="mono-data text-xs font-bold text-accent-ink">05</span>
-            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.appendix") }}</h3>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-muted">{{ t("memo.collapsed_default") }}</span>
-            <button
-              type="button"
-              @click="rerunSection('appendix')"
-              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              {{ t("memo.rerun") }}
-            </button>
-          </div>
+      <!-- 05 · Appendix -->
+      <section :id="`memo-sec-appendix`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">05</span>
+          <h3 class="mac-t-headline">{{ t("memo.appendix") }}</h3>
+          <span class="min-w-2 flex-1" />
+          <span class="mac-t-caption mac-c-secondary">{{ t("memo.collapsed_default") }}</span>
+          <button type="button" class="mac-btn mac-btn--mini" @click="rerunSection('appendix')">
+            {{ t("memo.rerun") }}
+          </button>
         </div>
-        <div class="mt-3 divide-y divide-subtle rounded-card bg-surface">
+        <div class="mac-tile flex flex-col" style="border-radius: 10px">
           <div
-            v-for="block in appendixBlocks"
+            v-for="(block, blockIndex) in appendixBlocks"
             :key="block.id"
-            class="p-3"
+            class="p-2.5"
+            :class="blockIndex > 0 ? 'mac-hairline-t' : ''"
           >
             <button
               type="button"
+              class="flex w-full items-center justify-between gap-3 border-none bg-transparent p-0 text-left"
               @click="toggleAppendix(block)"
-              class="flex w-full items-center justify-between gap-3 text-left focus-ring"
             >
-              <span>
-                <span class="font-semibold text-ink-primary">{{ block.title }}</span>
-                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
+              <span class="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span class="mac-t-subhead font-semibold">{{ block.title }}</span>
+                <span class="mac-status-tag" :style="{ '--tint': statusTone(block.status) }">
                   {{ humanizeStatus(block.status, t("memo.pending"), appLanguage) }}
                 </span>
-                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
-                  {{ sourceLabel(block) }}
-                </span>
+                <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ sourceLabel(block) }}</span>
               </span>
-              <ChevronDown v-if="block.expanded" class="h-4 w-4 text-ink-muted" />
-              <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+              <ChevronDown v-if="block.expanded" class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
+              <ChevronRight v-else class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
             </button>
-            <ul v-if="block.expanded" class="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-secondary">
-              <li v-for="fact in block.facts || []" :key="fact">{{ fact }}</li>
+            <ul v-if="block.expanded" class="mt-2 flex list-disc flex-col gap-1 pl-5">
+              <li v-for="fact in block.facts || []" :key="fact" class="mac-t-caption mac-c-secondary">{{ fact }}</li>
             </ul>
           </div>
         </div>
       </section>
 
-      <section class="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <div class="rounded-card bg-surface-muted p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="vogue-label">{{ t("memo.copilot_tasks") }}</div>
-              <h3 class="font-display text-title3 text-ink-primary">
-                {{ t("memo.action_queue") }}
-              </h3>
-            </div>
-            <span class="mono-data text-xs text-ink-muted">{{ memoTasks.length }}</span>
+      <!-- 06 · Readiness Gates (Mac workbench tab, load on ask) -->
+      <section :id="`memo-sec-readiness_gates`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">06</span>
+          <h3 class="mac-t-headline flex items-center gap-1.5">
+            <ListChecks class="mac-c-accent h-3.5 w-3.5" />
+            {{ t("memo.readiness_gates") }}
+          </h3>
+          <span class="min-w-2 flex-1" />
+          <span v-if="gatesBusy" class="mac-spinner" />
+          <button type="button" class="mac-btn mac-btn--mini" :disabled="gatesBusy" @click="loadGatesAndEvidence">
+            {{ analysisData ? t("common.refresh") : t("memo.gates_load") }}
+          </button>
+        </div>
+        <span v-if="!analysisData" class="mac-t-caption mac-c-secondary">{{ t("memo.gates_hint") }}</span>
+        <template v-else>
+          <div v-if="readinessAreas.length === 0" class="flex flex-col items-center gap-1 py-5 text-center">
+            <ListChecks class="mac-c-tertiary h-6 w-6" stroke-width="1.5" />
+            <span class="mac-t-subhead mac-c-secondary">{{ t("memo.gates_empty_title") }}</span>
+            <span class="mac-t-caption mac-c-tertiary">{{ t("memo.gates_empty_hint") }}</span>
           </div>
-          <div v-if="memoTasks.length === 0" class="mt-3 text-sm text-ink-muted">
-            {{ t("memo.action_queue_empty") }}
+          <div
+            v-for="area in readinessAreas"
+            :key="area.id"
+            class="mac-tile flex items-center gap-2.5 p-2.5"
+            style="border-radius: 8px"
+          >
+            <component :is="areaIcon(area.status)" class="h-3.5 w-3.5 shrink-0" :style="{ color: areaTint(area.status) }" />
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="mac-t-subhead font-semibold">{{ area.area || area.id }}</span>
+              <span v-if="area.rationale || area.why_it_matters" class="mac-t-caption mac-c-secondary line-clamp-2">
+                {{ area.rationale || area.why_it_matters }}
+              </span>
+            </span>
+            <span class="mac-status-tag shrink-0" :style="{ '--tint': areaTint(area.status) }">
+              {{ (area.status || "open").replace(/^./, (c) => c.toUpperCase()) }}
+            </span>
           </div>
-          <div v-else class="mt-3 space-y-2">
-            <article
-              v-for="task in memoTasks"
-              :key="task.id"
-              class="rounded-row bg-fill-tertiary p-3"
+        </template>
+      </section>
+
+      <!-- 07 · Evidence Claims (Mac workbench tab) -->
+      <section :id="`memo-sec-evidence_claims`" class="flex flex-col gap-2.5 scroll-mt-4">
+        <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
+          <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">07</span>
+          <h3 class="mac-t-headline flex items-center gap-1.5">
+            <FileSearch class="mac-c-accent h-3.5 w-3.5" />
+            {{ t("memo.evidence_claims") }}
+          </h3>
+          <span class="min-w-2 flex-1" />
+          <span v-if="evidenceData" class="mac-t-caption mac-mono mac-c-secondary">{{ evidenceClaims.length }}</span>
+        </div>
+        <span v-if="!evidenceData" class="mac-t-caption mac-c-secondary">{{ t("memo.evidence_hint") }}</span>
+        <template v-else>
+          <div v-if="evidenceClaims.length === 0" class="flex flex-col items-center gap-1 py-5 text-center">
+            <FileSearch class="mac-c-tertiary h-6 w-6" stroke-width="1.5" />
+            <span class="mac-t-subhead mac-c-secondary">{{ t("memo.evidence_empty_title") }}</span>
+            <span class="mac-t-caption mac-c-tertiary">{{ t("memo.evidence_empty_hint") }}</span>
+          </div>
+          <div
+            v-for="claim in evidenceClaims"
+            :key="claim.claim"
+            class="mac-tile flex flex-col gap-1.5 p-2.5"
+            style="border-radius: 8px"
+          >
+            <span class="flex items-start gap-2">
+              <span
+                class="mt-px shrink-0 rounded-full px-1.5 py-[2px] text-[9px] font-bold"
+                :style="{
+                  background: `color-mix(in srgb, ${claimTint(claim.status)} 12%, transparent)`,
+                  color: claimTint(claim.status),
+                }"
+              >
+                {{ claimLabel(claim.status) }}
+              </span>
+              <span class="mac-t-subhead min-w-0 font-semibold">{{ claim.claim }}</span>
+            </span>
+            <span
+              v-for="(entry, entryIndex) in (claim.supporting_evidence || []).slice(0, 3)"
+              :key="entryIndex"
+              class="mac-t-caption mac-c-secondary line-clamp-2 pl-3"
             >
-              <div class="flex flex-wrap items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <div class="text-sm font-semibold text-ink-primary">{{ task.title }}</div>
-                  <p v-if="task.description" class="mt-1 text-xs leading-relaxed text-ink-muted">
-                    {{ task.description }}
-                  </p>
-                </div>
-                <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-caption1 font-semibold text-ink-muted">
-                  {{ humanizeStatus(task.status, t("memo.pending"), appLanguage) }}
-                </span>
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  @click="setTaskStatus(task, 'accepted')"
-                  :disabled="savingId === `task:${task.id}` || task.status === 'accepted'"
-                  class="btn-filled btn-sm px-2.5 text-[11px] focus-ring"
-                >
-                  {{ t("memo.accept") }}
-                </button>
-                <button
-                  type="button"
-                  @click="setTaskStatus(task, 'rejected')"
-                  :disabled="savingId === `task:${task.id}` || task.status === 'rejected'"
-                  class="rounded-full border border-subtle px-2.5 py-1 text-[11px] font-semibold text-ink-secondary disabled:opacity-50 focus-ring"
-                >
-                  {{ t("memo.reject") }}
-                </button>
-                <button
-                  type="button"
-                  @click="setTaskStatus(task, 'completed')"
-                  :disabled="savingId === `task:${task.id}` || task.status === 'completed'"
-                  class="rounded-full border border-subtle px-2.5 py-1 text-[11px] font-semibold text-ink-secondary disabled:opacity-50 focus-ring"
-                >
-                  {{ t("memo.complete") }}
-                </button>
-              </div>
-            </article>
+              {{ entry.excerpt }}
+            </span>
           </div>
-          <div v-if="historyError" class="mt-3 text-xs text-danger">{{ historyErrorMessage }}</div>
+        </template>
+      </section>
+
+      <!-- Tasks from Warren + Recoverable history -->
+      <section class="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div class="mac-tile flex flex-col gap-2.5 p-3" style="border-radius: 10px">
+          <div class="flex items-center gap-2">
+            <span class="flex min-w-0 flex-col gap-0.5">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.copilot_tasks") }}</span>
+              <span class="mac-t-headline" style="font-size: 15px">{{ t("memo.action_queue") }}</span>
+            </span>
+            <span class="flex-1" />
+            <span class="mac-t-caption mac-mono mac-c-secondary">{{ memoTasks.length }}</span>
+          </div>
+          <span v-if="memoTasks.length === 0" class="mac-t-caption mac-c-secondary">
+            {{ t("memo.action_queue_empty") }}
+          </span>
+          <article
+            v-for="task in memoTasks"
+            :key="task.id"
+            class="mac-tile flex flex-col gap-2 p-2.5"
+            style="border-radius: 8px"
+          >
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="mac-t-subhead font-semibold">{{ task.title }}</span>
+                <span v-if="task.description" class="mac-t-caption mac-c-secondary" style="line-height: 1.4">
+                  {{ task.description }}
+                </span>
+              </span>
+              <span class="mac-status-tag shrink-0" :style="{ '--tint': task.status === 'accepted' || task.status === 'completed' ? 'var(--mac-green)' : task.status === 'rejected' ? 'var(--mac-red)' : 'var(--mac-secondary)' }">
+                {{ humanizeStatus(task.status, t("memo.pending"), appLanguage) }}
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                class="mac-btn mac-btn--mini mac-btn--prominent"
+                :disabled="savingId === `task:${task.id}` || task.status === 'accepted'"
+                @click="setTaskStatus(task, 'accepted')"
+              >
+                {{ t("memo.accept") }}
+              </button>
+              <button
+                type="button"
+                class="mac-btn mac-btn--mini"
+                :disabled="savingId === `task:${task.id}` || task.status === 'rejected'"
+                @click="setTaskStatus(task, 'rejected')"
+              >
+                {{ t("memo.reject") }}
+              </button>
+              <button
+                type="button"
+                class="mac-btn mac-btn--mini"
+                :disabled="savingId === `task:${task.id}` || task.status === 'completed'"
+                @click="setTaskStatus(task, 'completed')"
+              >
+                {{ t("memo.complete") }}
+              </button>
+            </div>
+          </article>
+          <span v-if="historyError" class="mac-t-caption10" :style="{ color: 'var(--mac-red)' }">{{ historyErrorMessage }}</span>
         </div>
 
-        <div class="rounded-card bg-surface-muted p-4">
-          <div class="vogue-label">{{ t("memo.audit_versions") }}</div>
-          <h3 class="font-display text-title3 text-ink-primary">
-            {{ t("memo.recoverable_history") }}
-          </h3>
-          <div class="mt-3 grid gap-2 sm:grid-cols-2">
-            <div class="rounded-row bg-fill-tertiary p-3">
-              <div class="vogue-label text-[10px]">{{ t("memo.revisions") }}</div>
-              <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
-                {{ versions.length }}
-              </div>
+        <div class="mac-tile flex flex-col gap-2.5 p-3" style="border-radius: 10px">
+          <span class="flex flex-col gap-0.5">
+            <span class="mac-t-label mac-c-secondary">{{ t("memo.audit_versions") }}</span>
+            <span class="mac-t-headline" style="font-size: 15px">{{ t("memo.recoverable_history") }}</span>
+          </span>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div class="mac-tile flex flex-col gap-0.5 p-2.5" style="border-radius: 8px">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.revisions") }}</span>
+              <span class="mac-t-metric-sm">{{ versions.length }}</span>
             </div>
-            <div class="rounded-row bg-fill-tertiary p-3">
-              <div class="vogue-label text-[10px]">{{ t("memo.audit_events") }}</div>
-              <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
-                {{ auditRecords.length }}
-              </div>
+            <div class="mac-tile flex flex-col gap-0.5 p-2.5" style="border-radius: 8px">
+              <span class="mac-t-label mac-c-secondary">{{ t("memo.audit_events") }}</span>
+              <span class="mac-t-metric-sm">{{ auditRecords.length }}</span>
             </div>
           </div>
-          <div v-if="versions.length" class="mt-3 max-h-48 overflow-y-auto rounded-row bg-fill-tertiary">
+          <div v-if="versions.length" class="mac-scroll mac-tile max-h-48 overflow-y-auto" style="border-radius: 8px">
             <div
-              v-for="version in versions.slice(0, 6)"
+              v-for="(version, versionIndex) in versions.slice(0, 6)"
               :key="version.revision_id"
-              class="border-b border-subtle px-3 py-2 last:border-0"
+              class="px-2.5 py-1.5"
+              :class="versionIndex > 0 ? 'mac-hairline-t' : ''"
             >
-              <div class="flex items-center justify-between gap-3 text-xs">
-                <span class="font-semibold text-ink-primary">{{ version.revision_id }}</span>
-                <span class="text-ink-muted">{{ humanizeStatus(version.event, t("memo.pending"), appLanguage) }}</span>
+              <div class="flex items-center justify-between gap-3">
+                <span class="mac-t-caption10 font-semibold">{{ version.revision_id }}</span>
+                <span class="mac-t-caption10 mac-c-secondary">{{ humanizeStatus(version.event, t("memo.pending"), appLanguage) }}</span>
               </div>
-              <div class="mono-data mt-0.5 text-[11px] text-ink-muted">{{ formatIsoDate(version.created_at) }}</div>
+              <span class="mac-t-caption10 mac-mono mac-c-tertiary">{{ formatRelativeTime(version.created_at) || formatIsoDate(version.created_at) }}</span>
             </div>
           </div>
-          <div v-if="auditRecords.length" class="mt-3 max-h-44 overflow-y-auto space-y-1 text-xs text-ink-muted">
-            <div v-for="record in auditRecords.slice(0, 8)" :key="record.id" class="rounded bg-surface px-2 py-1">
-              <span class="font-semibold text-ink-secondary">{{ humanizeStatus(record.event, t("memo.pending"), appLanguage) }}</span>
-              <span class="mono-data"> · {{ formatIsoDate(record.created_at) }}</span>
+          <div v-if="auditRecords.length" class="mac-scroll flex max-h-44 flex-col gap-1 overflow-y-auto">
+            <div
+              v-for="record in auditRecords.slice(0, 8)"
+              :key="record.id"
+              class="mac-tile px-2 py-1"
+              style="border-radius: 6px"
+            >
+              <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ humanizeStatus(record.event, t("memo.pending"), appLanguage) }}</span>
+              <span class="mac-t-caption10 mac-mono mac-c-tertiary"> · {{ formatIsoDate(record.created_at) }}</span>
             </div>
           </div>
         </div>

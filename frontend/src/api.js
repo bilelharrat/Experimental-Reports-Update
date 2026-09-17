@@ -208,6 +208,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // The cadence bar shared by every background job that spends tokens.
+  getAutoUpdates: () => request("/api/auto-updates"),
+  putAutoUpdate: (channelId, body) =>
+    request(`/api/auto-updates/${encodeURIComponent(channelId)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   // Background sync schedule and the global auto-apply switch.
   getTrackingSettings: () => request("/api/tracking/settings"),
   putTrackingSettings: (body) =>
@@ -430,8 +437,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  getCompanyComps: (companyId) =>
-    request(`/api/companies/${companyId}/comps`),
+  getCapModel: (companyId) =>
+    request(`/api/companies/${companyId}/cap-model`),
+  saveCapModel: (companyId, inputs) =>
+    request(`/api/companies/${companyId}/cap-model`, {
+      method: "PUT",
+      body: JSON.stringify(inputs),
+    }),
+  getCompanyComps: (companyId, refresh = false) =>
+    request(`/api/companies/${companyId}/comps${refresh ? "?refresh=1" : ""}`),
+  saveCompsPeers: (companyId, tickers) =>
+    request(`/api/companies/${companyId}/comps/peers`, {
+      method: "PUT",
+      body: JSON.stringify({ tickers }),
+    }),
   getFounderDossier: (companyId) =>
     request(`/api/companies/${companyId}/founder-dossier`),
   deepSearchFounder: (companyId) =>
@@ -498,6 +517,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  resolveCompanyComment: (companyId, commentId, resolved = true) =>
+    request(
+      `/api/companies/${companyId}/comments/${encodeURIComponent(commentId)}/resolve`,
+      { method: "POST", body: JSON.stringify({ resolved }) },
+    ),
+  deleteCompanyComment: (companyId, commentId) =>
+    request(
+      `/api/companies/${companyId}/comments/${encodeURIComponent(commentId)}`,
+      { method: "DELETE" },
+    ),
+  getChatChannels: () => request("/api/chat/channels"),
   getMemoAnalysis: (companyId) =>
     request(`/api/companies/${companyId}/memo-analysis`),
   getEvidence: (companyId) =>

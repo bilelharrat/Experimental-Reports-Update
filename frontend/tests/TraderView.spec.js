@@ -2,7 +2,7 @@
 // populated grid and the refresh button wiring. The api module is
 // mocked so the component mounts without HTTP.
 
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { appLanguage } from "../src/state.js";
 
@@ -62,6 +62,12 @@ describe("TraderView empty state", () => {
 });
 
 describe("TraderView populated state", () => {
+  // A trader refresh re-runs the Claude snapshot passes, so it confirms
+  // first; these tests act as a user who agrees.
+  beforeEach(() => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
   const snapshot = {
     refreshed_at: new Date().toISOString(),
     price_card: {
