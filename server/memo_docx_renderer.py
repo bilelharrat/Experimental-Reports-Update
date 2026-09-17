@@ -364,6 +364,11 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                 _repair_localized(block, "title", repairs, f"{where}.title")
                 _repair_localized(block, "label", repairs, f"{where}.label")
                 _repair_localized(block, "body", repairs, f"{where}.body")
+                # The validator reads a callout's prose as `body or text`, so
+                # prose left as a plain string under `text` fails as ".body
+                # must be bilingual". That single unrepaired shape was what
+                # sent a 5,000-word first draft into the regeneration retry.
+                _repair_localized(block, "text", repairs, f"{where}.text")
                 block["items"] = _repair_localized_list(
                     block.get("items"), repairs, f"{where}.items"
                 )

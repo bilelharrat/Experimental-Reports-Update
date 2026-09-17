@@ -1678,3 +1678,25 @@ def test_pinning_is_idempotent_and_ignores_unknown_sections():
     assert second == []
     assert package["sections"][-1]["title"] == {"en": "Appendix", "zh": "附录"}
     assert isinstance(first, list)
+
+
+def test_callout_prose_under_text_is_localized_by_the_mechanical_repair():
+    """The validator reads a callout's prose as `body or text`; the repair
+    localized only `body`. A first-draft package from the per-section wave
+    failed validation on exactly this — sections[0].blocks[1].body — and the
+    regeneration retry that followed came back at half the length."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].insert(1, {
+        "type": "callout",
+        "title": "Investment Committee Diligence Disposition",
+        "text": "Recommendation: pass on Cienet Technologies due to complete operational opacity.",
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][1]
+    assert block["text"] == {
+        "en": "Recommendation: pass on Cienet Technologies due to complete operational opacity.",
+        "zh": "",
+    }
+    assert any(r.endswith("blocks[1].text: wrapped plain string as bilingual en value") for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "blocks[1].body must be bilingual" in e], errors
