@@ -1,5 +1,5 @@
 ---
-en_sha256: d0adbf4ac9ca6f20727b19e70e468766f339ab74e2b3000e5b42dd981be3004f
+en_sha256: 922841b7d8da8de4030f18ebaf87f07cfb649fa416fc44a9f998abde13e26066
 ---
 ## 人写的高管级备忘录语气契约
 
@@ -13,7 +13,18 @@ en_sha256: d0adbf4ac9ca6f20727b19e70e468766f339ab74e2b3000e5b42dd981be3004f
 - 把证据转化为判断；
 - 正文中避免流程语言、方法论叙述、任务标签和验证脚手架；
 - 直接陈述。不要把备忘录当作一个对象来写，不要叙述备忘录/文件/章节/分析"做了
-  什么"，也不要使用写作者流程语言；
+  什么"，也不要使用写作者流程语言。"this memo"、"the memo"、"our memo"、
+  "this analysis"、"the analysis"、"our analysis"、"this document"、"the
+  framework" 这些说法不得出现在成稿的任何位置：正文不行，表头不行，表格单元格
+  也不行。即使整句话在投资表达上没有问题，也同样禁止。请直接指称投资本身，而不是
+  指称描述它的这份文件：
+  - "it moves the denominator of every multiple in this memo" 改为 "it moves
+    the denominator of every multiple we use"；
+  - "the margin risk that carries this memo shrinks" 改为 "the margin risk
+    that carries the investment case shrinks"；
+  - "What the gap costs the analysis"（表头）改为 "What the gap costs us"；
+  - "the analysis assumes 40% gross margins" 改为 "we assume 40% gross
+    margins"；
 - 使用面向 LP 的联合投资口吻：一位合伙人向 LP 做简报。表述基金使命时把基金作为
   专有名词使用（"BSH invests in..."，即"BSH 投资于……"，用于说明基金支持的
   赛道）。用交易英语陈述投资工具（"The SPV is a $10M SAFE with a 15% discount

@@ -647,3 +647,55 @@ def test_linter_blocks_generic_duplicate_risks_and_watch_commands(tmp_path):
         "generic_risk_filler",
         "unsupported_risk_claim",
     } <= codes
+
+
+def test_meta_language_suggestion_shows_the_rewrite(tmp_path):
+    """The 2026-09-17 compact run shipped with three meta_process_language
+    findings the surgical repair had already tried and failed to fix. The
+    suggestion it was handed said only "Rewrite writer/process language as
+    direct investment judgment" — a category name, not an instruction. The
+    repair prompt carries this string verbatim, so it has to show the
+    substitution, including for the table-header case it missed.
+    """
+    path = tmp_path / "meta-suggestion.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "VI. Risks",
+            "The margin risk that carries this memo shrinks.",
+        ],
+    )
+    finding = next(
+        f
+        for f in memo_quality_lint.lint_memo_docx(path).findings
+        if f.code == "meta_process_language"
+    )
+    assert "->" in finding.suggestion
+    assert "every multiple we use" in finding.suggestion
+    assert "the investment case" in finding.suggestion
+    assert "Table headers" in finding.suggestion
+
+
+def test_voice_contract_names_the_phrases_the_gate_rejects():
+    """Prevention, not repair: the writers produced these three phrases
+    because the contract banned "the memo ..." only for data vintage. Every
+    noun the gate rejects must be named where the writers read it, with the
+    rewrite spelled out."""
+    from server import memo_prompts
+
+    contract = memo_prompts.load_prompt("voice_contract.md")
+    for phrase in (
+        '"this memo"',
+        '"the memo"',
+        '"our memo"',
+        '"this analysis"',
+        '"the analysis"',
+        '"our analysis"',
+        '"this document"',
+        '"the\n  framework"',
+    ):
+        assert phrase in contract, phrase
+    # The rewrite, not just the ban.
+    assert "every multiple we use" in contract
+    assert "What the gap\n    costs us" in contract
+    assert "in a table header, not in a table cell" in contract
