@@ -263,6 +263,26 @@ def reset_run_dir_state(run_dir: str) -> None:
         _PROVIDER_LIMITED_RUN_DIRS.pop(str(run_dir), None)
 
 
+# These four memo entry points drive the Claude CLI as an agent — it reads the
+# run folder and writes files there — so they have no Gemini twin and do not
+# pass through `_run_memo_local_json_artifact`, where the engine toggle lives.
+# Without this guard a Gemini memo reaching one of them spawns the CLI anyway
+# and fails as whatever the CLI happens to say; a live run surfaced as
+# "OAuth session expired" on a run that had asked for Gemini.
+CLAUDE_ONLY_STAGE_ERROR = (
+    "{stage} runs the Claude CLI as an agent and has no Gemini equivalent, "
+    "but this memo was started on the Gemini engine. Re-run it on Claude, or "
+    "start a fresh Gemini run."
+)
+
+
+def claude_only_stage_error(stage: str, run_dir) -> str | None:
+    """The error a Claude-only memo stage must return on a Gemini run."""
+    if memo_engine.run_engine(run_dir) != "gemini":
+        return None
+    return CLAUDE_ONLY_STAGE_ERROR.format(stage=stage)
+
+
 def _memo_run_halt_error(run_dir) -> str | None:
     """Why a memo run must not spawn another subprocess, or None."""
     if run_dir_cancelled(run_dir):
@@ -9701,6 +9721,10 @@ def run_investment_memo(
 
     Returns ``{ok, cost_usd, duration_ms, error?}``.
     """
+    claude_only = claude_only_stage_error("Serena's memo skill", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -10006,6 +10030,10 @@ def run_buffett_investment_memo(
     timeout_sec: int = 3600,
 ) -> dict:
     """Spawn `claude -p` to run the Buffett investment-memo skill."""
+    claude_only = claude_only_stage_error("The Buffett memo skill", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -10477,6 +10505,10 @@ def run_resume_memo_package(
     timeout_sec: int = 1800,
 ) -> dict:
     """Resume a failed memo run by writing only logs/memo_package.json."""
+    claude_only = claude_only_stage_error("Memo resume", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -10815,6 +10847,10 @@ def run_internal_diligence_memo(
     timeout_sec: int = 1200,
 ) -> dict:
     """Spawn Claude to write the separate internal diligence memo Markdown."""
+    claude_only = claude_only_stage_error("The internal diligence memo", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,

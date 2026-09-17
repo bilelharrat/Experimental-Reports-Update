@@ -490,3 +490,42 @@ def test_a_unit_that_fails_twice_reports_the_real_cause_on_gemini(tmp_path, monk
     assert result is None
     assert "Invalid control character" in error
     assert "not attempted" in error
+
+
+def test_claude_only_memo_stages_refuse_a_gemini_run_instead_of_spawning_the_cli(tmp_path, monkeypatch):
+    """Four memo entry points drive the CLI as an agent and have no Gemini
+    twin, so they never pass through the funnel where the toggle lives. A
+    live Gemini run reached the resume agent and failed as "OAuth session
+    expired" — the CLI's problem, reported on a run that never wanted it."""
+    run_dir = tmp_path / "run"; run_dir.mkdir()
+    memo_engine.register_run_engine(run_dir, "gemini")
+    monkeypatch.setattr(
+        claude_runner, "_popen_claude",
+        lambda *a, **kw: pytest.fail("a gemini run must not spawn the Claude CLI"),
+    )
+    # Available on PATH, so only the engine guard can stop these.
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+
+    common = dict(
+        run_dir=run_dir, company_name="Acme", company_slug="acme", run_id="r1",
+        settings_path=tmp_path / "s.md", companies_yaml_path=tmp_path / "c.yaml",
+        memo_paths={}, research_dir=tmp_path,
+    )
+    for fn, extra in (
+        (claude_runner.run_resume_memo_package, {}),
+        (
+            claude_runner.run_internal_diligence_memo,
+            {"internal_markdown_path": tmp_path / "internal.md"},
+        ),
+    ):
+        result = fn(**common, **extra)
+        assert result["ok"] is False, fn.__name__
+        assert "no Gemini equivalent" in result["error"]
+        assert "Re-run it on Claude" in result["error"]
+
+
+def test_a_claude_run_is_not_affected_by_the_guard(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run2"; run_dir.mkdir()
+    memo_engine.register_run_engine(run_dir, "claude")
+    assert claude_runner.claude_only_stage_error("Memo resume", run_dir) is None
+    assert claude_runner.claude_only_stage_error("Memo resume", None) is None
