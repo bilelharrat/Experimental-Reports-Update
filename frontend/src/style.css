@@ -885,6 +885,60 @@ select.field-sm {
   @apply text-footnote text-ink-muted;
 }
 
+/* Morning brief — the long Pulse note is a 1200-1800 word report across
+   eight sections, so it gets a reading surface rather than a status box:
+   a measure that keeps lines readable, a title that carries, and hairline
+   rules between sections instead of boxes inside a box. */
+.morning-brief {
+  @apply rounded-card px-4 py-3.5;
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
+}
+
+.morning-brief-headline {
+  @apply text-title2 text-ink-primary;
+  text-wrap: balance;
+}
+
+/* ~68 characters is the comfortable measure for continuous prose; the
+   surrounding page is far wider than that. */
+.morning-brief-measure {
+  max-width: 68ch;
+}
+
+.morning-brief-section + .morning-brief-section {
+  @apply mt-3.5 pt-3.5;
+  border-top: 1px solid rgb(var(--color-border-subtle));
+}
+
+.morning-brief-section-title {
+  @apply text-headline text-ink-primary;
+}
+
+.morning-brief-body {
+  @apply mt-1 whitespace-pre-line text-callout leading-[1.55] text-ink-secondary;
+}
+
+.morning-brief-bullets {
+  @apply mt-2 space-y-1.5 text-callout leading-[1.5] text-ink-secondary;
+}
+
+/* A leading accent dot rather than a bullet glyph, as the Mac cards do. */
+.morning-brief-bullets > li {
+  @apply relative pl-4;
+}
+
+.morning-brief-bullets > li::before {
+  content: "";
+  @apply absolute left-0 top-[0.5rem] h-1 w-1 rounded-full;
+  background-color: rgb(var(--color-accent));
+}
+
+.morning-brief-foot {
+  @apply mt-3.5 pt-3 text-caption1 text-ink-muted;
+  border-top: 1px solid rgb(var(--color-border-subtle));
+}
+
 /* Quaternary tile: label / value / detail. */
 .stat-tile {
   @apply rounded-[10px] px-3 py-2.5;

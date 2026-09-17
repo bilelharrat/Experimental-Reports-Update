@@ -1523,6 +1523,12 @@ def get_market_brief(date: str | None = Query(default=None)) -> dict:
     return brief
 
 
+@router.get("/market-brief/schedule")
+def get_market_brief_schedule() -> dict:
+    """Morning-brief schedule state: when it runs and how the last run went."""
+    return market_brief.morning_status()
+
+
 @router.get("/market-brief/archive")
 def get_market_brief_archive() -> dict:
     return {"dates": market_brief.list_briefs()}

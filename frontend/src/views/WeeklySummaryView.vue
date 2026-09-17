@@ -60,6 +60,13 @@ const noteWriting = ref(false);
 // geoeconomics and geopolitics. It defaults on; "Short" stays available for
 // a quick numbers-only read.
 const noteLength = ref("long");
+
+const noteSectionCount = computed(() => {
+  const note = brief.value?.note;
+  if (!note) return 0;
+  const sections = pickArray(note, "sections");
+  return Array.isArray(sections) ? sections.length : 0;
+});
 const ledger = ref([]);
 let activeStream = null;
 let streamIdleTimer = null;
@@ -857,45 +864,53 @@ onBeforeUnmount(() => {
             <p class="text-caption1 text-ink-muted">
               {{ t("pulse.brief_as_of", { when: (brief.generated_at && refreshedAtLabel(brief.generated_at)) || brief.date }) }}
             </p>
-            <div
+            <article
               v-if="brief.note"
-              class="mt-2 rounded-subbox bg-fill-tertiary/60 px-3 py-2.5"
+              class="morning-brief mt-2.5"
               data-testid="brief-note"
             >
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-callout font-semibold text-ink-primary">
+              <header class="morning-brief-measure">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="section-label">{{ t("pulse.note_label") }}</span>
+                  <span class="chip bg-accent/10 text-accent-ink">
+                    {{ t("pulse.note_ai_tag") }}
+                  </span>
+                </div>
+                <h3 class="morning-brief-headline mt-1.5">
                   {{ pick(brief.note, "headline") }}
+                </h3>
+                <p class="mt-1 text-footnote text-ink-muted">
+                  {{ t("pulse.brief_as_of", { when: (brief.note.generated_at && refreshedAtLabel(brief.note.generated_at)) || brief.date }) }}
+                  <template v-if="noteSectionCount">
+                    · {{ t("pulse.note_sections", { count: noteSectionCount }) }}
+                  </template>
                 </p>
-                <span class="chip bg-accent/10 text-accent-ink">
-                  {{ t("pulse.note_ai_tag") }}
-                </span>
-              </div>
+              </header>
+
               <ul
                 v-if="pickArray(brief.note, 'bullets').length"
-                class="mt-1.5 list-disc space-y-1 pl-4 text-callout text-ink-secondary"
+                class="morning-brief-bullets morning-brief-measure"
               >
                 <li v-for="(line, i) in pickArray(brief.note, 'bullets')" :key="`note-${i}`">
                   {{ line }}
                 </li>
               </ul>
+
               <div
                 v-for="(section, i) in pickArray(brief.note, 'sections')"
                 :key="`note-sec-${i}`"
-                class="mt-2.5"
+                class="morning-brief-section morning-brief-measure"
+                :class="{ 'mt-3.5': i === 0 }"
               >
-                <div class="text-footnote font-semibold text-ink-primary">
-                  {{ section.title }}
-                </div>
-                <p class="mt-0.5 whitespace-pre-line text-callout leading-relaxed text-ink-secondary">
-                  {{ section.body }}
-                </p>
+                <h4 class="morning-brief-section-title">{{ section.title }}</h4>
+                <p class="morning-brief-body">{{ section.body }}</p>
               </div>
 
               <!-- A long note makes claims about the world, so it shows what
                    it read. No sources means it was written unresearched. -->
               <p
                 v-if="brief.note.length === 'long'"
-                class="mt-2.5 text-caption1 text-ink-muted"
+                class="morning-brief-foot morning-brief-measure"
                 data-testid="brief-note-sources"
               >
                 <template v-if="brief.note.researched && (brief.note.sources || []).length">
@@ -912,7 +927,8 @@ onBeforeUnmount(() => {
                 </template>
                 <template v-else>{{ t("pulse.note_unresearched") }}</template>
               </p>
-            </div>
+            </article>
+
             <div class="mt-2 flex flex-wrap gap-2">
               <button
                 v-for="row in (brief.indices || []).slice(0, 6)"

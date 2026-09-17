@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -452,3 +454,151 @@ def load_brief(date: str | None = None) -> dict | None:
     except (OSError, ValueError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+# ---- Morning schedule -------------------------------------------------------
+#
+# The brief is only useful if it is already written when the desk opens. Left
+# to the buttons it is written when someone remembers, which means the analyst
+# reads yesterday's tape or waits ninety seconds for a long note. This loop
+# builds the brief and writes its note once each morning.
+
+MORNING_STATE_FILE = "_morning_state.json"
+MORNING_CHECK_SECONDS = 300
+DEFAULT_MORNING_HOUR = 7
+DEFAULT_MORNING_LENGTH = "long"
+
+_MORNING_LOCK = threading.Lock()
+_MORNING_LOOP_STARTED = False
+
+
+def morning_enabled() -> bool:
+    """``BSH_MORNING_BRIEF=0`` turns the schedule off."""
+    raw = str(os.environ.get("BSH_MORNING_BRIEF") or "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def morning_hour() -> int:
+    """Local hour to write the brief at (``BSH_MORNING_BRIEF_HOUR``, default 7)."""
+    raw = str(os.environ.get("BSH_MORNING_BRIEF_HOUR") or "").strip()
+    try:
+        hour = int(raw)
+    except ValueError:
+        return DEFAULT_MORNING_HOUR
+    return hour if 0 <= hour <= 23 else DEFAULT_MORNING_HOUR
+
+
+def morning_length() -> str:
+    """``short`` or ``long`` (``BSH_MORNING_BRIEF_LENGTH``, default long)."""
+    raw = str(os.environ.get("BSH_MORNING_BRIEF_LENGTH") or "").strip().lower()
+    return raw if raw in {"short", "long"} else DEFAULT_MORNING_LENGTH
+
+
+def _morning_state_path() -> Path:
+    return BRIEFS_ROOT / MORNING_STATE_FILE
+
+
+def _read_morning_state() -> dict:
+    try:
+        payload = json.loads(_morning_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_morning_state(payload: dict) -> None:
+    try:
+        BRIEFS_ROOT.mkdir(parents=True, exist_ok=True)
+        _morning_state_path().write_text(
+            json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+    except OSError:
+        logger.warning("morning brief: could not record run state", exc_info=True)
+
+
+def morning_due(now: datetime | None = None) -> bool:
+    """True when today's brief should be written and has not been.
+
+    Local time, because "morning" is the reader's morning. A run is due once
+    the hour has arrived and no run has completed for today's date; a brief
+    that already carries a note is not rewritten, so restarting the server
+    all morning does not spend a call each time.
+    """
+    if not morning_enabled():
+        return False
+    current = now or datetime.now().astimezone()
+    if current.hour < morning_hour():
+        return False
+    today = current.strftime("%Y-%m-%d")
+    if str(_read_morning_state().get("last_run_date") or "") == today:
+        return False
+    existing = load_brief(today)
+    return not (isinstance(existing, dict) and existing.get("note"))
+
+
+def run_morning_brief(now: datetime | None = None) -> dict | None:
+    """Build today's brief and write its note. Returns the brief, or None.
+
+    Never raises: this runs on a background thread, and a market-data or
+    model outage must not take the loop down with it. The run is recorded
+    either way so a failing morning is not retried every five minutes.
+    """
+    current = now or datetime.now().astimezone()
+    today = current.strftime("%Y-%m-%d")
+    length = morning_length()
+    try:
+        build_brief()
+        brief = write_note(length=length)
+        _write_morning_state(
+            {"last_run_date": today, "length": length, "ok": True, "error": None}
+        )
+        logger.info("Morning brief written for %s (%s).", today, length)
+        return brief
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Morning brief failed for %s: %s", today, exc)
+        _write_morning_state(
+            {"last_run_date": today, "length": length, "ok": False, "error": str(exc)[:300]}
+        )
+        return None
+
+
+def morning_status() -> dict:
+    """What the schedule is doing, for the Pulse page and diagnostics."""
+    state = _read_morning_state()
+    return {
+        "enabled": morning_enabled(),
+        "hour": morning_hour(),
+        "length": morning_length(),
+        "last_run_date": state.get("last_run_date"),
+        "last_run_ok": state.get("ok"),
+        "last_error": state.get("error"),
+        "due_now": morning_due(),
+    }
+
+
+def _morning_loop() -> None:
+    while True:
+        try:
+            if morning_due():
+                run_morning_brief()
+        except Exception:  # noqa: BLE001
+            logger.exception("Morning brief loop iteration failed")
+        time.sleep(MORNING_CHECK_SECONDS)
+
+
+def start_morning_loop() -> bool:
+    """Start the morning schedule (FastAPI startup hook). Idempotent.
+
+    Off when ``BSH_MORNING_BRIEF=0`` or no engine can run.
+    """
+    global _MORNING_LOOP_STARTED
+    if not morning_enabled() or not ai_engine.available():
+        return False
+    with _MORNING_LOCK:
+        if _MORNING_LOOP_STARTED:
+            return False
+        _MORNING_LOOP_STARTED = True
+    threading.Thread(
+        target=_morning_loop, name="morning-brief-loop", daemon=True
+    ).start()
+    return True
