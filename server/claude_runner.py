@@ -6353,9 +6353,11 @@ against the stragglers when they land.
      stance and sit in the scorecard band: {band_list}.
    - `scorecard`: `total` plus all nine `dimensions`, each with an
      integer `score` (0 to that dimension's max), a one-line `why`, and
-     `evidence`: one or two sentences carrying THE number that settles
-     this dimension, what that number measures, and where it came from
-     (a source id, or a calculation note cited as [C#]). The executive
+     `evidence`: an ARRAY of one or two strings (never a single
+     string, however short — that is the most common way this field is
+     rejected), each a sentence carrying THE number that settles this
+     dimension, what that number measures, and where it came from (a
+     source id, or a calculation note cited as [C#]). The executive
      summary prints one scan line per dimension from these, so a reader
      sees market size, growth, industry position, moat, team, business
      model, profitability and exit outlook in one place instead of
@@ -6388,7 +6390,8 @@ against the stragglers when they land.
      matters, never the topic it belongs to: "Enterprise channels carry
      distribution" is a topic and fails; "Distribution does not have to
      be built, because the three largest clouds already resell it" is a
-     verdict and passes), `evidence` (2-3 sentences, one fact each,
+     verdict and passes), `evidence` (an ARRAY of 2-3 strings, never one
+     joined string; one fact each,
      each naming what its number MEASURES before the number appears,
      and where that number comes from — a named source, or our own
      calculation cited with its [C#] id; never the words "the memo".
@@ -6445,8 +6448,12 @@ Produce ONE JSON object with:
      "Recommendation: " — for example "Recommendation: BSH commits $X to
      <target> at <terms>." or "Recommendation: pass on <target> —
      <one-line reason>." It is a recommendation, never a decided action.
-   - `key_metrics`: the metric values sections repeat (name, value, as_of,
-     supporting source ids).
+   - `key_metrics`: the metric values sections repeat. Keys are
+     exactly `name`, `value`, `as_of` and `source_ids` — the last is
+     spelled `source_ids` and holds an array of ids like ["S3", "S7"];
+     a key named `sources` is rejected. Pin the metrics the SECTIONS
+     WILL REPEAT, not every number you found: this is a fact sheet the
+     workers must agree on, not an index.
    - `scenarios`: one line of numbers each for bear, base, and bull.
    - `risks`: the full risk list, ordered by rating highest first — one-line
      summary, `N/10` rating, and High/Medium/Low likelihood per risk.
