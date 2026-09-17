@@ -341,6 +341,25 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
         where_section = f"sections[{s_index}]"
         _repair_localized(section, "title", repairs, f"{where_section}.title")
         blocks = section.get("blocks")
+        # An empty table — no headers, no rows — is a placeholder the model
+        # never filled. Validation rejects the whole package over it and a
+        # regeneration attempt follows; dropping the block is what a human
+        # editor would do. Seen live from the per-section wave on Gemini.
+        if isinstance(blocks, list):
+            kept = []
+            for b_index, block in enumerate(blocks):
+                if (
+                    isinstance(block, dict)
+                    and str(block.get("type") or "").strip().lower() == "table"
+                    and not (block.get("headers") or block.get("rows"))
+                ):
+                    repairs.append(
+                        f"{where_section}.blocks[{b_index}]: dropped empty table"
+                    )
+                    continue
+                kept.append(block)
+            if len(kept) != len(blocks):
+                blocks[:] = kept
         for b_index, block in enumerate(blocks if isinstance(blocks, list) else []):
             if not isinstance(block, dict):
                 continue

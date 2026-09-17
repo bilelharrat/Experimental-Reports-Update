@@ -1731,3 +1731,15 @@ def test_prose_blocks_and_wrapped_cells_are_repaired_mechanically():
     assert any("unwrapped cell text" in r for r in repairs)
     errors = memo_docx_renderer.english_package_validation_errors(repaired)
     assert not [e for e in errors if "'prose' is unsupported" in e or "cells[0].en is required" in e], errors
+
+
+def test_an_empty_table_is_dropped_rather_than_failing_the_package():
+    """'table must include headers or rows' cost a live wave attempt. A table
+    with neither is a placeholder the model never filled."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].insert(0, {"type": "table", "headers": [], "rows": []})
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][0]["type"] != "table" or repaired["sections"][0]["blocks"][0].get("rows")
+    assert any("dropped empty table" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "must include headers or rows" in e], errors
