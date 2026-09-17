@@ -2983,7 +2983,7 @@ def _spine_scenario_object_schema() -> dict[str, Any]:
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "narrative": {"type": "string", "maxLength": 240},
+                    "narrative": {"type": "string", "maxLength": 320},
                     "exit_year": {"type": "string", "maxLength": 8},
                     "exit_revenue": {"type": "string", "maxLength": 24},
                     "exit_multiple": {"type": "string", "maxLength": 16},
@@ -6375,7 +6375,9 @@ against the stragglers when they land.
      fixed: the first is how the company charges and whether that
      survives the next product shift, the second is whether it makes
      money — gross margin now, and what has to change for it to turn
-     positive. A dimension you score below half its max must also
+     positive. Both of those go in `evidence`, which is why it holds two
+     strings; `why` stays ONE line for every dimension, this one
+     included. A dimension you score below half its max must also
      appear in `risks` as a named risk.
      Weights for this stage: {weight_list}. The total MUST equal the sum
      of the nine scores — a deterministic gate recomputes it.
