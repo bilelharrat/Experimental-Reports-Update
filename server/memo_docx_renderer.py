@@ -1520,8 +1520,48 @@ def render_memos(
     }
 
 
+def pin_section_titles(package: dict, structure) -> list[str]:
+    """Replace a core section's heading with the canonical title when the
+    parity gate would not recognise it. Returns one note per change.
+
+    The package's own heading normally wins, so a model that writes
+    "公司概况与公司治理" where the profile says "公司概览" ships that heading —
+    and the Chinese parity gate, which finds sections by full-line anchored
+    patterns, then reports the section missing although every paragraph of
+    it is there. A live Gemini run produced four such false "missing" P0s.
+    Only headings the gate would reject are replaced: a recognised variant
+    such as "II. Company Overview" keeps its numbering.
+    """
+    titles = structure.section_titles()
+    patterns = structure.parity_patterns()
+    notes: list[str] = []
+    for section in package.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or "")
+        if section_id not in titles or section_id not in patterns:
+            continue
+        for locale in ("en", "zh"):
+            canonical = _loc(titles[section_id], locale)
+            pattern = patterns[section_id].get(locale)
+            if not canonical or pattern is None:
+                continue
+            own = _loc(section.get("title"), locale)
+            if own and pattern.match(own):
+                continue
+            title = section.get("title")
+            if not isinstance(title, dict):
+                title = {"en": own, "zh": own} if own else {}
+            title[locale] = canonical
+            section["title"] = title
+            notes.append(f"{section_id}.title.{locale}: {own!r} -> {canonical!r}")
+    return notes
+
+
 def _build_document(package: dict, locale: str) -> Document:
-    section_titles = _structure_for(package).section_titles()
+    structure = _structure_for(package)
+    pin_section_titles(package, structure)
+    section_titles = structure.section_titles()
     document = Document()
     _configure_document(document, package, locale)
     _add_cover(document, package, locale)

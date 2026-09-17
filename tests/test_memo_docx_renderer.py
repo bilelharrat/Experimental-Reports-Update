@@ -11,6 +11,7 @@ from server import (
     memo_chinese_parity,
     memo_docx_renderer,
     memo_quality_lint,
+    memo_structure,
 )
 
 
@@ -1632,3 +1633,48 @@ def test_risk_lint_rejects_an_operational_cause_and_says_what_it_wants():
     assert len(errors) == 1
     assert "revenue, margin, cost" in errors[0]
     assert "not only the operational cause" in errors[0]
+
+
+def test_a_heading_the_parity_gate_would_reject_is_pinned_to_the_canonical_title():
+    """A live Gemini run wrote "公司概况与公司治理" and "投资风险与下行分析" as
+    section headings. Every paragraph was there, but the Chinese parity gate
+    finds sections by full-line anchored patterns and reported four core
+    sections missing. The renderer now pins such headings; recognised
+    variants keep their numbering."""
+    package = copy.deepcopy(_package())
+    by_id = {s["id"]: s for s in package["sections"]}
+    by_id["company_overview"]["title"] = {"en": "II. Company Overview", "zh": "公司概况与公司治理"}
+    by_id["investment_risk"]["title"] = {"en": "Investment Risk", "zh": "投资风险与下行分析"}
+
+    notes = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+
+    # The canonical titles come from the profile (numbered, e.g. "II. 公司概览"),
+    # so the expectation is derived from it rather than hardcoded.
+    canonical = memo_structure.LATE.section_titles()
+    assert by_id["company_overview"]["title"]["zh"] == canonical["company_overview"]["zh"]
+    assert by_id["investment_risk"]["title"]["zh"] == canonical["investment_risk"]["zh"]
+    # A heading the gate already recognises — numbered or not — is left alone.
+    assert by_id["company_overview"]["title"]["en"] == "II. Company Overview"
+    assert by_id["investment_risk"]["title"]["en"] == "Investment Risk"
+    # The fixture's other sections carry no title, so the pin fills those in
+    # too (a missing heading is the clearest case); only the two edited ones
+    # are asserted here.
+    for expected in (
+        f"company_overview.title.zh: '公司概况与公司治理' -> {canonical['company_overview']['zh']!r}",
+        f"investment_risk.title.zh: '投资风险与下行分析' -> {canonical['investment_risk']['zh']!r}",
+    ):
+        assert expected in notes, notes
+    # And the pinned headings are exactly what the parity gate matches.
+    patterns = memo_structure.LATE.parity_patterns()
+    for section_id in ("company_overview", "investment_risk"):
+        assert patterns[section_id]["zh"].match(by_id[section_id]["title"]["zh"])
+
+
+def test_pinning_is_idempotent_and_ignores_unknown_sections():
+    package = copy.deepcopy(_package())
+    package["sections"].append({"id": "appendix_custom", "title": {"en": "Appendix", "zh": "附录"}, "blocks": []})
+    first = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+    second = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+    assert second == []
+    assert package["sections"][-1]["title"] == {"en": "Appendix", "zh": "附录"}
+    assert isinstance(first, list)
