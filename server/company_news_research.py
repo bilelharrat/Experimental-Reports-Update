@@ -39,6 +39,10 @@ from . import ai_engine, context_store, storage
 logger = logging.getLogger(__name__)
 
 SWEEP_TIMEOUT_SEC = 240
+# Same reasoning as the founder dossier: this runs from a button, so the
+# Claude fallback gets a UI-shaped cap rather than ai_engine's 15-minute
+# batch default.
+FALLBACK_TIMEOUT_SEC = 300
 MAX_NEW_ROWS = 20
 MAX_STORED_ROWS = 60
 CATEGORIES = ("fundraising", "product", "filing", "partnership", "leadership", "risk", "press")
@@ -264,6 +268,7 @@ def sweep_company_news(company_id: str, *, lang: str | None = None) -> dict:
         schema=NEWS_SCHEMA,
         name="company_news_sweep",
         gemini_timeout_sec=SWEEP_TIMEOUT_SEC,
+        claude_timeout_sec=FALLBACK_TIMEOUT_SEC,
     )
 
     sweep: dict[str, Any] = {

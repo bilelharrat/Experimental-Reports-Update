@@ -85,6 +85,25 @@ const boardList = computed(() => {
 
 const headcount = computed(() => founderData.value?.team_headcount || null);
 
+// Why a refresh produced nothing. Without this the button just stops
+// spinning and the card looks unchanged, which is indistinguishable from
+// "there was nothing new to find".
+const researchError = computed(() => founderData.value?.research_error || null);
+
+// Which engine actually answered, and what it read. A Claude fallback
+// reports no sources, so the two are shown together rather than letting
+// "researched" stand on its own.
+const provenance = computed(() => {
+  const data = founderData.value;
+  if (!data?.engine || researchError.value) return null;
+  return {
+    engine: data.engine,
+    model: data.model || "",
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    audited: Boolean(data.is_deep_audited),
+  };
+});
+
 const traction = computed(
   () => founderData.value?.developer_traction || props.company?.developer_traction || null,
 );
@@ -154,9 +173,36 @@ function initials(name) {
         @click="deepSearch"
       >
         <RotateCw class="h-3 w-3" :class="{ 'animate-spin': searching || loading }" />
-        <span>{{ t("research_desk.refresh") }}</span>
+        <span>{{ searching ? t("research_desk.researching") : t("research_desk.refresh") }}</span>
       </button>
     </div>
+
+    <!-- Why the last refresh produced nothing -->
+    <div
+      v-if="researchError"
+      class="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs"
+      data-testid="founder-research-error"
+    >
+      <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+      <div>
+        <p class="font-medium text-amber-300">{{ t("research_desk.research_failed") }}</p>
+        <p class="mt-0.5 text-muted-foreground">{{ researchError }}</p>
+      </div>
+    </div>
+
+    <!-- Which engine answered, and what it read -->
+    <p
+      v-else-if="provenance"
+      class="mb-4 text-xs text-muted-foreground"
+      data-testid="founder-provenance"
+    >
+      {{ t("research_desk.researched_by", { engine: provenance.engine }) }}
+      <span v-if="provenance.model" class="font-mono">({{ provenance.model }})</span>
+      <template v-if="provenance.sources.length">
+        · {{ t("research_desk.read_sources", { count: provenance.sources.length }) }}
+      </template>
+      <template v-else>· {{ t("research_desk.no_sources_reported") }}</template>
+    </p>
 
     <!-- Load failure -->
     <div

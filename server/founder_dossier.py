@@ -194,6 +194,11 @@ def build_founder_dossier(company_id: str) -> dict:
 # ---- Research layer -------------------------------------------------------
 
 RESEARCH_TIMEOUT_SEC = 240
+# The Claude fallback is an agentic WebSearch run and `ai_engine` allows it 15
+# minutes by default. This one runs from the Team tab's Refresh button with a
+# spinner in front of the user, so it gets a UI-shaped cap instead: a failure
+# they can see beats a spinner that never resolves.
+FALLBACK_TIMEOUT_SEC = 300
 
 PERSON_PROPERTIES: dict[str, Any] = {
     "name": {"type": "string", "description": "Full name as it appears in sources."},
@@ -501,6 +506,7 @@ def deep_search_founder_dossier(company_id: str) -> dict:
         schema=RESEARCH_SCHEMA,
         name="founder_dossier",
         gemini_timeout_sec=RESEARCH_TIMEOUT_SEC,
+        claude_timeout_sec=FALLBACK_TIMEOUT_SEC,
     )
     if error is not None or not isinstance(data, dict):
         logger.warning("founder_dossier: research failed for %s — %s", company_id, error)

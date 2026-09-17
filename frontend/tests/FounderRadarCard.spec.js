@@ -46,6 +46,62 @@ describe("FounderRadarCard (Team tab)", () => {
     vi.clearAllMocks();
   });
 
+  it("says why a refresh produced nothing instead of failing silently", async () => {
+    api.getFounderDossier.mockResolvedValue(dossier);
+    api.deepSearchFounder.mockResolvedValue({
+      ...dossier,
+      engine: "gemini",
+      research_error: "gemini HTTP 400 — API key not valid",
+    });
+    const wrapper = mount(FounderRadarCard, { props: { companyId: "zainar-inc", company: {} } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="founder-research-error"]').exists()).toBe(false);
+
+    await wrapper.find('[data-testid="founder-refresh"]').trigger("click");
+    await flushPromises();
+    const banner = wrapper.find('[data-testid="founder-research-error"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain("API key not valid");
+    // A failed pass still shows the people it had.
+    expect(wrapper.text()).toContain("Daniel Jacker");
+  });
+
+  it("shows which engine answered and how many sources it read", async () => {
+    api.getFounderDossier.mockResolvedValue({
+      ...dossier,
+      engine: "gemini",
+      model: "gemini-3.8-flash",
+      is_deep_audited: true,
+      sources: [
+        { title: "ZaiNar team", url: "https://zainar.example/team" },
+        { title: "Crunchbase", url: "https://crunchbase.example/zainar" },
+      ],
+      research_error: null,
+    });
+    const wrapper = mount(FounderRadarCard, { props: { companyId: "zainar-inc", company: {} } });
+    await flushPromises();
+    const provenance = wrapper.find('[data-testid="founder-provenance"]');
+    expect(provenance.text()).toContain("Researched by gemini");
+    expect(provenance.text()).toContain("gemini-3.8-flash");
+    expect(provenance.text()).toContain("read 2 source(s)");
+  });
+
+  it("marks a sourceless fallback rather than implying it was audited", async () => {
+    api.getFounderDossier.mockResolvedValue({
+      ...dossier,
+      engine: "claude",
+      model: null,
+      is_deep_audited: false,
+      sources: [],
+      research_error: null,
+    });
+    const wrapper = mount(FounderRadarCard, { props: { companyId: "zainar-inc", company: {} } });
+    await flushPromises();
+    const provenance = wrapper.find('[data-testid="founder-provenance"]');
+    expect(provenance.text()).toContain("Researched by claude");
+    expect(provenance.text()).toContain("no sources reported");
+  });
+
   it("renders leadership, board and headcount from the founder dossier", async () => {
     api.getFounderDossier.mockResolvedValue(dossier);
     const wrapper = mount(FounderRadarCard, { props: { companyId: "zainar-inc", company: {} } });
