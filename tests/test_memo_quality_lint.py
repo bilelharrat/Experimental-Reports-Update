@@ -735,3 +735,59 @@ def test_a_copied_benchmark_header_is_still_caught(tmp_path):
     )
     result = memo_quality_lint.lint_memo_docx(path)
     assert any(f.code == "packet_process_label" for f in result.findings)
+
+
+def test_citing_the_registry_gets_registry_advice(tmp_path):
+    """2026-09-17, RadixArk run 3: five findings in one memo, all the same
+    habit — listing our internal registry among the places searched. The
+    surgical repair was handed the generic self-reference advice, which
+    offers rewrites for "this memo" and "the analysis" and says nothing
+    about the registry, and left every one of them in place.
+    """
+    path = tmp_path / "registry-cite.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "No revenue, bookings, backlog or customer count appears in "
+            "the launch release, the company blog, the registry or any "
+            "press coverage we reviewed.",
+        ],
+    )
+    finding = next(
+        f
+        for f in memo_quality_lint.lint_memo_docx(path).findings
+        if f.code == "meta_process_language"
+    )
+    assert "internal inputs" in finding.suggestion
+    assert "Name public sources only" in finding.suggestion
+    # and NOT the advice for a different defect
+    assert "every multiple we use" not in finding.suggestion
+
+
+def test_self_reference_still_gets_self_reference_advice(tmp_path):
+    path = tmp_path / "self-ref.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "VI. Risks",
+            "The margin risk that carries this memo shrinks.",
+        ],
+    )
+    finding = next(
+        f
+        for f in memo_quality_lint.lint_memo_docx(path).findings
+        if f.code == "meta_process_language"
+    )
+    assert "every multiple we use" in finding.suggestion
+    assert "internal inputs" not in finding.suggestion
+
+
+def test_the_contract_tells_writers_not_to_cite_the_registry():
+    from server import memo_prompts
+
+    contract = memo_prompts.load_prompt("voice_contract.md")
+    assert "never cite our own plumbing as a source" in contract
+    assert "the reader cannot see any of them" in contract
+    # the rewrite, not just the ban
+    assert "or any press coverage we reviewed" in contract

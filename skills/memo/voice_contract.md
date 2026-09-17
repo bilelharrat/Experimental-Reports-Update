@@ -68,6 +68,15 @@ Final memo prose must:
   or the note cell. Do not force model / proxy / sensitivity vocabulary;
 - em dashes are allowed. Prefer short sentences. Do not pad with
   colon-semicolon machinery just to avoid a dash;
+- never cite our own plumbing as a source. The company registry, the
+  source packet, the run's artifacts and the research passes are internal
+  inputs you READ; the reader cannot see any of them, so naming one
+  presents an internal lookup as though it were public evidence. When
+  listing where you searched, list only what a reader could check
+  themselves: "no revenue figure appears in the launch release, the
+  company blog or any press coverage we reviewed" — never "...the launch
+  release, the company blog, the registry or any press coverage". The
+  same applies to a table cell explaining a gap;
 - express data vintage with absolute dates only: "figures are as of March
   2026", "no disclosure since the January launch window". NEVER anchor
   staleness to the memo itself: phrases like "at the memo date", "as of

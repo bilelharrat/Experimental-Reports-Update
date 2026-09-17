@@ -397,6 +397,49 @@ _DISCLOSURE_LANGUAGE_PATTERNS = (
 )
 
 
+# Internal plumbing the memo may READ but must never cite. A reader has
+# no idea what "the registry" is, and naming it presents an internal
+# lookup as though it were a public source. 2026-09-17, RadixArk run 3:
+# the writer found a good formulation for "we looked everywhere and
+# found nothing" — "no figure exists in the launch release, the company
+# blog, the registry or any press coverage we reviewed" — and reused it
+# across four sections, five findings in one memo. The surgical repair
+# saw the generic self-reference advice, which offered rewrites for "this
+# memo" and "the analysis" and said nothing about the registry, and left
+# every one of them in place.
+_INTERNAL_SOURCE_RE = re.compile(
+    r"\b(?:the registry|embedded in the registry|source material)\b",
+    re.IGNORECASE,
+)
+
+_META_SUGGESTION_SELF = (
+    "Delete the self-reference and keep the judgment: "
+    '"every multiple in this memo" -> "every multiple we use"; '
+    '"the margin risk that carries this memo" -> "the margin risk that '
+    'carries the investment case"; "What the gap costs the analysis" -> '
+    '"What the gap costs us". Never name the memo, the analysis, the '
+    "document, the framework or the section — name the investment "
+    "instead. Table headers and table cells count."
+)
+
+_META_SUGGESTION_INTERNAL = (
+    "Never cite our own plumbing as a source. The registry and the "
+    "source packet are internal inputs the reader cannot see, so naming "
+    'them presents a lookup as evidence: "no figure exists in the launch '
+    'release, the company blog, the registry or any press coverage we '
+    'reviewed" -> "no figure exists in the launch release, the company '
+    'blog or any press coverage we reviewed". Name public sources only, '
+    "and drop the internal one from the list."
+)
+
+
+def _meta_language_suggestion(match_text: str) -> str:
+    """Advice that fits the phrase actually matched."""
+    if _INTERNAL_SOURCE_RE.search(match_text):
+        return _META_SUGGESTION_INTERNAL
+    return _META_SUGGESTION_SELF
+
+
 def lint_memo_docx(
     path: str | Path,
     structure: memo_structure.MemoStructure | None = None,
@@ -695,18 +738,7 @@ def _lint_blocks(
                         "P0",
                         "meta_process_language",
                         match.group(0),
-                        (
-                            "Delete the self-reference and keep the "
-                            "judgment: \"every multiple in this memo\" -> "
-                            "\"every multiple we use\"; \"the margin risk "
-                            "that carries this memo\" -> \"the margin risk "
-                            "that carries the investment case\"; \"What the "
-                            "gap costs the analysis\" -> \"What the gap "
-                            "costs us\". Never name the memo, the analysis, "
-                            "the document, the framework or the section — "
-                            "name the investment instead. Table headers and "
-                            "table cells count."
-                        ),
+                        _meta_language_suggestion(match.group(0)),
                     )
                 )
                 break

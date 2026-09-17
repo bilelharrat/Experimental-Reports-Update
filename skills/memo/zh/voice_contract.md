@@ -1,5 +1,5 @@
 ---
-en_sha256: 922841b7d8da8de4030f18ebaf87f07cfb649fa416fc44a9f998abde13e26066
+en_sha256: 60f6d271130b96d243e00e05007789c167c582f5edd7dfa4a25b0adb31b7bb68
 ---
 ## 人写的高管级备忘录语气契约
 
@@ -65,6 +65,14 @@ en_sha256: 922841b7d8da8de4030f18ebaf87f07cfb649fa416fc44a9f998abde13e26066
   使用模型 / 代理变量 / 敏感性这类词汇；
 - 允许使用破折号（em dash）。优先使用短句。不要为了避开破折号而用冒号-分号的
   机械结构来填充；
+- 绝不把我们自己的内部管线当作来源引用。公司登记表（registry）、来源包、本次
+  运行的中间产物以及各分析轮次都是你阅读的内部输入；读者看不到其中任何一项，
+  因此点名引用会把一次内部查询包装成公开证据。在说明"我们查了哪些地方"时，
+  只列读者自己能够核验的渠道："no revenue figure appears in the launch
+  release, the company blog or any press coverage we reviewed"（发布稿、
+  公司博客或我们查阅的任何媒体报道中都没有营收数字）—— 绝不要写成
+  "...the launch release, the company blog, the registry or any press
+  coverage"。表格中解释数据缺口的单元格同样适用；
 - 数据时点只用绝对日期表达："figures are as of March 2026"（数据截至 2026 年
   3 月）、"no disclosure since the January launch window"（自 1 月发布窗口
   以来没有披露）。绝不把数据陈旧程度锚定在备忘录本身："at the memo date"、
