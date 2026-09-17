@@ -148,6 +148,7 @@ which spends the user's Claude Code subscription. Three surfaces do not:
 | Team dossier refresh | `founder_dossier.py` | Web-grounded, needs machine-readable source URLs |
 | Morning Brief written note | `market_brief.py` | Short, frequent, no tools needed |
 | Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
+| Story briefings | `news_brief.py` | Highest-frequency call in the app; no tools needed |
 
 `server/gemini_runner.py` is the backend — the Gemini `generateContent`
 REST API over `httpx`, no new dependency. It mirrors
@@ -163,12 +164,21 @@ to rediscover, both measured against the live API:
    `groundingMetadata` — no chunks, no queries — so every source URL is lost
    and a researched answer is indistinguishable from unsourced recall.
    `run_grounded_json` therefore puts the schema in the prompt instead.
-2. **Tool use depends on the thinking level, and not monotonically.** On the
-   founder-dossier prompt, `low` and `high` answered from memory with zero
-   searches; `medium` searched every time (13-16 queries, 19-32 sources).
-   Grounded calls default to `medium` for that reason
-   (`BSH_GEMINI_GROUNDED_THINKING`), and `meta["grounded"]` reports whether
-   any search actually ran.
+2. **Grounding is the model's decision, and it is not reliable.** Whether it
+   calls `google_search` varies with both the thinking level and the prompt.
+   `medium` grounds far more often than `low` or `high` (hence
+   `BSH_GEMINI_GROUNDED_THINKING`), but on a long schema-carrying prompt for
+   a company the model already knows, identical requests grounded only 2
+   times in 5. **Retrying does not fix it** — resampling up to three times
+   measured the same 2/5, so the decision is sticky per prompt rather than
+   random per call. A short, unstructured question about the same company
+   grounds reliably, which points at prompt shape as the real fix: do the
+   research in a natural-language grounded call, then structure the result
+   in a second, cheap, ungrounded call. That split is not built yet.
+
+   Until it is, `meta["grounded"]` reports whether any search actually ran,
+   and `founder_dossier` keys `is_deep_audited` off the source list, so an
+   ungrounded answer is shown as unsourced rather than as research.
 
 `response_schema` also takes an OpenAPI-flavored subset of JSON Schema and
 400s on keywords outside it (`additionalProperties`, which our Claude-era

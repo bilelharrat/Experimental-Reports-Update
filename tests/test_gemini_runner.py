@@ -451,3 +451,65 @@ def test_unsupported_schema_keywords_are_stripped_before_sending(monkeypatch, ke
     assert "additionalProperties" not in sent["properties"]["rows"]["items"]
     # The shape itself survives.
     assert sent["properties"]["rows"]["type"] == "array"
+
+
+# ---- engine availability --------------------------------------------------
+
+
+def test_availability_does_not_depend_on_the_claude_cli(monkeypatch, key):
+    """A Gemini key with no CLI installed is a working setup. The pre-Gemini
+    check would have left background loops switched off."""
+    monkeypatch.delenv("BSH_AI_ENGINE", raising=False)
+    monkeypatch.setattr(ai_engine.claude_runner, "is_available", lambda: False)
+    assert ai_engine.available() is True
+
+
+def test_availability_is_false_when_nothing_can_run(monkeypatch, no_key):
+    monkeypatch.delenv("BSH_AI_ENGINE", raising=False)
+    monkeypatch.setattr(ai_engine.claude_runner, "is_available", lambda: False)
+    assert ai_engine.available() is False
+
+
+def test_claude_policy_availability_ignores_the_gemini_key(monkeypatch, key):
+    monkeypatch.setenv("BSH_AI_ENGINE", "claude")
+    monkeypatch.setattr(ai_engine.claude_runner, "is_available", lambda: False)
+    assert ai_engine.available() is False
+
+
+def test_an_ungrounded_answer_is_reported_as_ungrounded(monkeypatch, key):
+    """The model may answer a grounded request from memory. That is recall,
+    not research, and callers key `is_deep_audited` off this."""
+    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))])
+    data, meta, error = gemini_runner.run_grounded_json(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    assert error is None and data == {"headline": "x"}
+    assert meta["grounded"] is False
+    assert meta["sources"] == []
+
+
+def test_a_searched_answer_is_reported_as_grounded(monkeypatch, key):
+    grounding = {
+        "webSearchQueries": ["acme board"],
+        "groundingChunks": [{"web": {"uri": "https://example.com/a", "title": "Ex"}}],
+    }
+    _stub_post(
+        monkeypatch, [_response(200, _envelope('{"headline": "x"}', grounding=grounding))]
+    )
+    _data, meta, _error = gemini_runner.run_grounded_json(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    assert meta["grounded"] is True
+
+
+def test_grounded_calls_default_to_the_level_that_searches(monkeypatch, key):
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))], calls)
+    gemini_runner.run_grounded_json(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    thinking = calls[0]["body"]["generationConfig"]["thinkingConfig"]["thinkingLevel"]
+    assert thinking == "medium"
+    # And a grounded call must not send a response schema — that empties
+    # groundingMetadata.
+    assert "responseSchema" not in calls[0]["body"]["generationConfig"]

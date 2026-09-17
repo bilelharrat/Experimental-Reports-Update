@@ -11,9 +11,10 @@ prewarming 16 briefings eight at a time on every tape change):
    without an AI briefing gets a *basic* briefing built without AI: the
    article's lead paragraphs and the sentences that carry figures.
 2. AI briefings are written by ONE worker, one headline at a time
-   (``_WRITE_LOCK``), on Sonnet at medium effort with every tool removed
-   (``--tools ""``). One call writes English AND Chinese, and back-to-back
-   calls share the prompt cache.
+   (``_WRITE_LOCK``), through ``ai_engine.structured`` — Gemini Flash with
+   a Claude fallback, no tools either way, since the article text is fetched
+   here and the model only has to write from it. One call writes English AND
+   Chinese. The briefing records which engine wrote it.
 3. A server loop writes AI briefings for the top of the tape that clients
    last showed, every ``BSH_NEWS_BRIEF_REFRESH_HOURS`` (default 6). A user
    can start that refresh now, or rewrite one story; the UI warns first.
@@ -37,7 +38,7 @@ from pathlib import Path
 
 import httpx
 
-from server import claude_runner
+from server import ai_engine
 from server.link_preview import HEADERS, extract_text_from_html
 
 logger = logging.getLogger(__name__)
@@ -537,6 +538,7 @@ def _ai_payload(
     confidence: str,
     article_chars: int,
     generated_at: str,
+    meta: dict | None = None,
 ) -> dict | None:
     what_happened = str(part.get("what_happened") or "").strip()
     if not what_happened:
@@ -549,7 +551,11 @@ def _ai_payload(
         "key": key,
         "lang": language,
         "kind": "ai",
-        "model": brief_model(),
+        # The engine that actually wrote it, not the configured preference:
+        # a Claude fallback has to be visible on the stored briefing.
+        "engine": (meta or {}).get("engine"),
+        "model": (meta or {}).get("model") or brief_model(),
+        "engine_fallback_reason": (meta or {}).get("fallback_reason"),
         "effort": brief_effort(),
         "generated_at": generated_at,
         "title": row["title"],
@@ -632,15 +638,14 @@ def write_brief(
 def _write_brief_locked(key: str, row: dict) -> dict[str, dict]:
     article_text, final_url = fetch_article_text(row["url"])
     source_url = _source_url(row["url"], final_url)
-    data, err = claude_runner.run_structured_prompt(
+    data, meta, err = ai_engine.structured(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=_prompt(row=row, url=source_url, article_text=article_text),
         schema=BRIEF_SCHEMA,
         name="news_brief",
         timeout_sec=BRIEF_TIMEOUT_SEC,
-        model=brief_model(),
-        effort=brief_effort(),
-        tools="",
+        claude_model=brief_model(),
+        claude_effort=brief_effort(),
     )
     if err is not None or not isinstance(data, dict):
         raise RuntimeError(err or "Empty briefing response")
@@ -669,6 +674,7 @@ def _write_brief_locked(key: str, row: dict) -> dict[str, dict]:
             confidence=confidence,
             article_chars=len(article_text),
             generated_at=generated_at,
+            meta=meta,
         )
         if payload is None:
             continue
@@ -934,11 +940,13 @@ def _refresh_loop() -> None:
 def start_refresh_loop() -> bool:
     """Start the scheduled refresh (FastAPI startup hook). Idempotent.
 
-    Off when ``BSH_NEWS_BRIEF_REFRESH_HOURS=0`` or Claude is not installed.
+    Off when ``BSH_NEWS_BRIEF_REFRESH_HOURS=0`` or no engine can run. This
+    asks ``ai_engine``, not the Claude CLI: with a Gemini key and no CLI
+    installed the loop must still start.
     A server that never refreshed is due at once, but writes nothing until
     a client has recorded the tape."""
     global _LOOP_STARTED
-    if refresh_interval_hours() <= 0 or not claude_runner.is_available():
+    if refresh_interval_hours() <= 0 or not ai_engine.available():
         return False
     with _LOOP_LOCK:
         if _LOOP_STARTED:

@@ -78,9 +78,9 @@ def stub_claude(monkeypatch):
                 **kwargs,
             }
         )
-        return _payload(), None
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _fake)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _fake)
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
@@ -106,7 +106,7 @@ ARTICLE = "\n".join(
 # ---- AI briefing: one call, both languages, Sonnet medium, tools off ------
 
 
-def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_claude):
+def test_one_call_writes_both_languages_with_no_tools(stub_claude):
     written = news_brief.write_brief(
         title="ZaiNar opens Tokyo office",
         summary="Short desk one-liner.",
@@ -118,9 +118,12 @@ def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_clau
 
     assert len(stub_claude) == 1
     call = stub_claude[0]
-    assert call["model"] == "sonnet"
-    assert call["effort"] == "medium"
-    assert call["tools"] == ""
+    # ai_engine never enables tools for a structured call, and the
+    # BSH_NEWS_BRIEF_* knobs now pin the Claude fallback only — Gemini's
+    # model comes from BSH_GEMINI_MODEL.
+    assert call["claude_model"] == "sonnet"
+    assert call["claude_effort"] == "medium"
+    assert "tools" not in call
     assert set(call["schema"]["required"]) == {"en", "zh"}
     assert "do NOT call tools" in call["system_prompt"]
     assert "ZaiNar (PRIV)" in call["user_prompt"]
@@ -142,12 +145,12 @@ def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_clau
     ]
 
 
-def test_env_can_change_model_and_effort(stub_claude, monkeypatch):
+def test_env_can_change_the_fallback_model_and_effort(stub_claude, monkeypatch):
     monkeypatch.setenv("BSH_NEWS_BRIEF_MODEL", "haiku")
     monkeypatch.setenv("BSH_NEWS_BRIEF_EFFORT", "low")
     news_brief.write_brief(title="Headline")
-    assert stub_claude[0]["model"] == "haiku"
-    assert stub_claude[0]["effort"] == "low"
+    assert stub_claude[0]["claude_model"] == "haiku"
+    assert stub_claude[0]["claude_effort"] == "low"
 
 
 def test_article_text_is_injected_into_prompt(stub_claude, monkeypatch):
@@ -174,9 +177,9 @@ def test_writes_run_one_at_a_time(monkeypatch):
         time.sleep(0.1)
         with lock:
             active -= 1
-        return _payload(), None
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _slow)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _slow)
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
@@ -193,23 +196,24 @@ def test_writes_run_one_at_a_time(monkeypatch):
 
 def test_model_failure_raises_runtime_error(monkeypatch):
     monkeypatch.setattr(
-        news_brief.claude_runner,
-        "run_structured_prompt",
-        lambda **kwargs: (None, "claude exploded"),
+        news_brief.ai_engine,
+        "structured",
+        lambda **kwargs: (None, {"engine": "gemini"}, "the engine exploded"),
     )
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
-    with pytest.raises(RuntimeError, match="claude exploded"):
+    with pytest.raises(RuntimeError, match="the engine exploded"):
         news_brief.expand(title="Headline", refresh=True)
 
 
 def test_body_less_response_raises(monkeypatch):
     monkeypatch.setattr(
-        news_brief.claude_runner,
-        "run_structured_prompt",
+        news_brief.ai_engine,
+        "structured",
         lambda **kwargs: (
             _payload(en=_part("en", what_happened=" "), zh=_part("zh", what_happened="")),
+            {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None},
             None,
         ),
     )
@@ -350,16 +354,16 @@ def test_refresh_writes_only_missing_headlines_in_order(stub_claude):
 def test_refresh_counts_a_failed_story_and_keeps_going(stub_claude, monkeypatch):
     def _flaky(*, user_prompt, **kwargs):
         if "Bad story" in user_prompt:
-            return None, "claude exploded"
-        return _payload(), None
+            return None, {"engine": "gemini"}, "the engine exploded"
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _flaky)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _flaky)
     news_brief.start_refresh(
         items=[{"title": "Bad story"}, {"title": "Good story"}], background=False
     )
     status = news_brief.refresh_status()
     assert status["done"] == 1 and status["failed"] == 1
-    assert "claude exploded" in status["last_error"]
+    assert "the engine exploded" in status["last_error"]
     assert news_brief.load_brief(news_brief.brief_key("Good story"), "zh")
 
 
@@ -399,13 +403,15 @@ def test_schedule_is_due_every_six_hours(monkeypatch):
     assert news_brief.refresh_status()["next_refresh_at"] is None
 
 
-def test_refresh_loop_needs_an_interval_and_claude(monkeypatch):
+def test_refresh_loop_needs_an_interval_and_an_engine(monkeypatch):
+    """The gate asks ai_engine, not the Claude CLI: a Gemini key with no CLI
+    installed must still start the loop."""
     monkeypatch.setattr(news_brief, "_LOOP_STARTED", False)
     monkeypatch.setattr(news_brief, "_refresh_loop", lambda: None)
-    monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: False)
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: False)
     assert news_brief.start_refresh_loop() is False
 
-    monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
     monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
     assert news_brief.start_refresh_loop() is False
 

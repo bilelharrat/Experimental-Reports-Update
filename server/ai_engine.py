@@ -33,6 +33,22 @@ def policy() -> str:
     return raw if raw in POLICIES else DEFAULT_POLICY
 
 
+def available() -> bool:
+    """Whether the configured policy has an engine that can actually run.
+
+    Callers that gate a background loop on "is a model installed" must ask
+    this rather than `claude_runner.is_available()`: with a Gemini key and
+    no Claude CLI the answer is yes, and the pre-Gemini check would have
+    silently kept the loop switched off.
+    """
+    chosen = policy()
+    if chosen == "claude":
+        return claude_runner.is_available()
+    if chosen == "gemini-only":
+        return gemini_runner.is_available()
+    return gemini_runner.is_available() or claude_runner.is_available()
+
+
 def _meta(
     engine: str,
     *,

@@ -57,6 +57,20 @@ THINKING_LEVELS = ("low", "medium", "high")
 MAX_ATTEMPTS = 3
 RETRY_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
+# Whether the model calls `google_search` is its own decision and it is not
+# reliable on a long, schema-carrying prompt: measured on the founder-dossier
+# prompt for a well-known company, identical requests grounded 2 times in 5.
+#
+# Retrying does NOT fix it — resampling an ungrounded call up to three times
+# measured the same 2/5, so the decision is sticky for a given prompt rather
+# than random per call. The retry was removed again as pure cost. A short,
+# unstructured question about the same company grounds reliably, so the fix
+# is prompt shape, not repetition (see docs/architecture.md).
+#
+# What this module owes callers meanwhile is the truth about which they got:
+# `meta["grounded"]` says whether any search actually ran, and callers must
+# not present an ungrounded answer as research.
+
 # A 400 can mean the schema was rejected OR that the key is bad, the model
 # name is wrong, the prompt is malformed. Only the first is worth retrying
 # without the schema; the rest would just spend a second doomed call and log
@@ -384,6 +398,42 @@ def _run(
     if thinking not in THINKING_LEVELS:
         thinking = DEFAULT_GROUNDED_THINKING if grounded else DEFAULT_THINKING
 
+    data, meta, error = _single_call(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=schema,
+        name=name,
+        timeout_sec=timeout_sec,
+        model=chosen_model,
+        key=key,
+        thinking=thinking,
+        grounded=grounded,
+        temperature=temperature,
+    )
+    if error is None and grounded and not meta.get("grounded"):
+        logger.warning(
+            "gemini_runner: %s answered without searching — the result is "
+            "model recall, not research, and must not be shown as sourced",
+            name,
+        )
+    return data, meta, error
+
+
+def _single_call(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str,
+    timeout_sec: int,
+    model: str,
+    key: str,
+    thinking: str,
+    grounded: bool,
+    temperature: float | None,
+) -> tuple[dict | None, dict, str | None]:
+    """One request, including the schema-rejection degradation."""
+    chosen_model = model
     # Grounded calls MUST carry the schema in the prompt rather than in
     # `responseSchema`. Setting a response schema alongside the
     # `google_search` tool makes the API return an empty `groundingMetadata`
