@@ -900,14 +900,15 @@ onBeforeUnmount(() => {
               >
                 <template v-if="brief.note.researched && (brief.note.sources || []).length">
                   {{ t("pulse.note_researched", { count: brief.note.sources.length }) }}
-                  <a
+                  <span
                     v-for="(src, i) in (brief.note.sources || []).slice(0, 4)"
                     :key="`note-src-${i}`"
-                    :href="src.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="ml-1.5 underline decoration-dotted hover:text-ink-secondary"
-                  >{{ src.title }}</a>
+                  >{{ i ? " · " : " " }}<a
+                      :href="src.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="underline decoration-dotted hover:text-ink-secondary"
+                    >{{ src.title }}</a></span>
                 </template>
                 <template v-else>{{ t("pulse.note_unresearched") }}</template>
               </p>
