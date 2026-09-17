@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import context_store, storage
+from . import auto_update, context_store, storage
 
 logger = logging.getLogger("bsh.tracking_updates")
 
@@ -57,6 +57,8 @@ ACTION_NONE = "none"
 ACTION_INVESTIGATE = "deep_investigate"
 ACTION_REPORT = "full_report"
 
+# The cadence itself lives in server.auto_update (the shared bar).
+AUTO_UPDATE_CHANNEL = "tracked_news"
 SYNC_INTERVAL_SECONDS_DEFAULT = 12 * 3600
 # How often the loop wakes to check whether a sync is due.
 SYNC_CHECK_SECONDS = 600
@@ -96,13 +98,20 @@ def _impact_ai_enabled() -> bool:
 
 
 def sync_interval_seconds() -> float:
-    """Seconds between background syncs (default 12 hours, floor 60s)."""
-    raw = str(os.environ.get("BSH_TRACKING_SYNC_INTERVAL_SECONDS") or "").strip()
-    try:
-        value = float(raw) if raw else float(SYNC_INTERVAL_SECONDS_DEFAULT)
-    except ValueError:
-        value = float(SYNC_INTERVAL_SECONDS_DEFAULT)
-    return max(60.0, value)
+    """Seconds between background syncs, from the auto-update bar.
+
+    The stored choice wins; ``BSH_TRACKING_SYNC_INTERVAL_SECONDS`` is only
+    the default until someone picks one. ``0`` means manual — the loop
+    never fires and the Sync button is the only way in."""
+    hours = auto_update.interval_hours(AUTO_UPDATE_CHANNEL)
+    if hours <= 0:
+        return 0.0
+    return max(60.0, hours * 3600.0)
+
+
+def sync_cadence() -> str:
+    """Which segment of the auto-update bar is lit."""
+    return auto_update.cadence(AUTO_UPDATE_CHANNEL)
 
 _HIGH_TERMS = (
     "acquire",
@@ -818,14 +827,24 @@ def _mark_synced(at: datetime | None = None) -> None:
     _write_json_file(_sync_state_path(), {"last_sync_at": moment.isoformat()})
 
 
-def seconds_until_sync_due() -> float:
-    """Zero or less when the background sync is due; a server that never
-    synced is due at once. The clock is persisted, so restarts don't reset it."""
-    last = last_sync_at()
-    if last is None:
-        return 0.0
-    due = last + timedelta(seconds=sync_interval_seconds())
+def seconds_until_sync_due() -> float | None:
+    """Seconds until the background sync is due; None when it is manual.
+
+    A server that never synced waits a full interval rather than firing at
+    startup — restarting must not cost tokens. The clock is persisted, so
+    restarts don't reset it."""
+    interval = sync_interval_seconds()
+    if interval <= 0:
+        return None
+    base = last_sync_at() or datetime.now(timezone.utc)
+    due = base + timedelta(seconds=interval)
     return (due - datetime.now(timezone.utc)).total_seconds()
+
+
+def start_clock_if_unset() -> None:
+    """Stamp the clock the first time the loop sees this install."""
+    if last_sync_at() is None:
+        _mark_synced()
 
 
 def get_settings() -> dict:
@@ -833,13 +852,19 @@ def get_settings() -> dict:
     stored = _read_json_file(_settings_path())
     last = last_sync_at()
     interval = sync_interval_seconds()
-    next_at = last + timedelta(seconds=interval) if last else None
+    next_at = (
+        (last or datetime.now(timezone.utc)) + timedelta(seconds=interval)
+        if interval > 0
+        else None
+    )
     return {
         "auto_apply": auto_apply_enabled(),
         "auto_apply_updated_at": stored.get("updated_at"),
         "auto_apply_updated_by": stored.get("updated_by"),
         "auto_sync": os.environ.get("BSH_TRACKING_AUTO_SYNC", "1") == "1",
         "interval_hours": round(interval / 3600, 2),
+        "cadence": sync_cadence(),
+        "cadence_choices": list(auto_update.CADENCES),
         "last_sync_at": last.isoformat() if last else None,
         "next_sync_at": next_at.isoformat() if next_at else None,
         "news_model": news_model(),
@@ -870,8 +895,10 @@ def run_scheduled_sync() -> dict:
 
 
 def start_tracking_sync_loop() -> None:
-    """Sync the watchlist every ``BSH_TRACKING_SYNC_INTERVAL_SECONDS``
-    (12 hours by default). ``BSH_TRACKING_AUTO_SYNC=0`` turns it off."""
+    """Sync the watchlist on the cadence picked in the auto-update bar
+    (12 hours by default; ``manual`` never fires). The loop runs even on
+    ``manual``, so moving the bar takes effect without a restart.
+    ``BSH_TRACKING_AUTO_SYNC=0`` keeps the thread from starting at all."""
     enabled = os.environ.get("BSH_TRACKING_AUTO_SYNC", "1") == "1"
     if not enabled:
         return
@@ -882,8 +909,14 @@ def start_tracking_sync_loop() -> None:
         _SYNC_THREAD_STARTED = True
 
     def _loop() -> None:
+        start_clock_if_unset()
         while True:
+            # Re-read every tick: the bar can move at any time.
             wait = seconds_until_sync_due()
+            if wait is None:
+                # Manual: sleep and look again in case the bar moved.
+                time.sleep(SYNC_CHECK_SECONDS)
+                continue
             if wait <= 0:
                 try:
                     run_scheduled_sync()
@@ -1267,3 +1300,6 @@ def sync_from_news_feed(
         summary["recommended_auto_run"] = auto_run
     summary["executed_auto_run"] = executed
     return summary
+
+
+auto_update.register_clock(AUTO_UPDATE_CHANNEL, last_sync_at)

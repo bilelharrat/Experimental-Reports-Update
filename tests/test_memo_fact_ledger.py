@@ -82,13 +82,13 @@ def test_analysis_pass_prompt_carries_ledger(tmp_path, monkeypatch):
         research_dir=research,
     )
     claude_runner.run_memo_fast_analysis_pass(**kwargs)
-    assert "## Curated fact ledger" in captured["prompt"]
-    assert "$500M+ contracted book" in captured["prompt"]
+    assert "## Curated fact ledger" in captured["append_system_prompt"]
+    assert "$500M+ contracted book" in captured["append_system_prompt"]
     # Without a ledger the block must be absent.
     captured.clear()
     kwargs["research_dir"] = tmp_path / "research" / "other-co"
     claude_runner.run_memo_fast_analysis_pass(**kwargs)
-    assert "Curated fact ledger" not in captured["prompt"]
+    assert "Curated fact ledger" not in captured["append_system_prompt"]
 
 
 def test_spine_prompt_carries_ledger_kwarg(tmp_path, monkeypatch):

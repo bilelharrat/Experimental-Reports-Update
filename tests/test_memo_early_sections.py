@@ -26,19 +26,17 @@ _PASS_IDS = [spec.pass_id for spec in memo_analysis._FAST_MEMO_PASSES]
 
 # The passes noted first in these tests: every pin-feeding pass (the
 # spine's launch gate) plus enough color to satisfy the affinity of
-# every early-startable section except company_overview (whose two
-# affine passes are the two stragglers).
-_FIRST_EIGHT = [
-    "arithmetic_denominators",
-    "time_base",
+# every early-startable section except company_overview, which waits on
+# the straggler.
+_FIRST_WAVE = [
+    "numbers_integrity",
     "growth_bridge",
-    "valuation_comps",
-    "exit_paths",
-    "replacement_coexistence",
-    "competitive_rights",
+    "valuation_exit",
+    "competitive_position",
     "alternative_explanations",
+    "market_sizing",
 ]
-_STRAGGLERS = ["deployment_behavior", "gtm_operating_burden"]
+_STRAGGLERS = ["adoption_distribution"]
 
 
 def _spine_result() -> dict:
@@ -157,24 +155,23 @@ def test_sections_start_only_after_spine_and_their_affine_passes(
         claude_runner, "_run_english_section", _fake_section(section_calls)
     )
     spec = _speculator(tmp_path)
-    for pass_id in _FIRST_EIGHT:
+    for pass_id in _FIRST_WAVE:
         spec.note_pass_result(pass_id, True)
     # Spine still gated: nothing may start.
     assert spec.had_early_sections is False
     gate.set()
     result, reason = spec.consume()
     assert reason is None and isinstance(result, dict)
-    # Spine done + eight passes: three sections are affinity-satisfied;
-    # company_overview waits on the two stragglers.
+    # Spine done + the first wave: three sections are affinity-satisfied;
+    # company_overview waits on the straggler.
     started = set(spec.early_futures())
     assert started == {
         "financial_forecast_valuation",
         "investment_highlights",
         "investment_risk",
     }
-    spec.note_pass_result(_STRAGGLERS[0], True)
     assert "company_overview" not in spec.early_futures()
-    spec.note_pass_result(_STRAGGLERS[1], True)
+    spec.note_pass_result(_STRAGGLERS[0], True)
     futures = spec.early_futures()
     assert set(futures) == {
         "financial_forecast_valuation",

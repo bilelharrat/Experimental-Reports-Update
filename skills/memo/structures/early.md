@@ -257,8 +257,7 @@ components:
 - key_operating_metrics
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - product and early validation
 subsections:
@@ -317,10 +316,8 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- arithmetic_denominators
-- time_base
-- valuation_comps
-- exit_paths
+- numbers_integrity
+- valuation_exit
 title_word_aliases:
 - deal terms and required returns
 - deal terms

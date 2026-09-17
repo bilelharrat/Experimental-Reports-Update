@@ -76,11 +76,18 @@ class SectionDef:
     scorecard_dimensions: tuple[str, ...] = ()
     # Fixed numbered subsections (v2-family profiles); empty for late v1.
     subsections: tuple[SubsectionDef, ...] = ()
-    # Hard English word ceiling for the whole section (all `en` text,
-    # table cells included), enforced by a generation-time gate. None =
-    # no gate — declared only by compact profiles, whose prose budgets
-    # alone failed to keep sections short in two live runs.
+    # SOFT English word target for the whole section (all `en` text, table
+    # cells included). None = no gate — declared only by compact profiles,
+    # whose prose budgets alone failed to keep sections short in two live
+    # runs. Reaching it is a signal to land the section, not a stop: the
+    # writer finishes the point it is on and closes.
     budget_words: int | None = None
+    # What multiple of `budget_words` the generation-time gate actually
+    # rejects at. Per-section because the sections differ in how much a
+    # complete answer costs — a risk register that has genuinely found
+    # eight risks cannot be as short as a valuation summary. Owner-set
+    # 2026-09-16. None falls back to _BUDGET_GRACE in the renderer.
+    budget_hard_multiple: float | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,50 @@ SCORECARD_DIMENSION_LABELS: dict[str, dict[str, str]] = {
     "risk_reward": {"en": "risk-reward balance", "zh": "风险收益比"},
 }
 
+# How a dimension's score reads in one word. Derived, never written by a
+# model, so the scan, the highlights and the risk list can never disagree
+# about whether a dimension is a strength.
+SCORECARD_BANDS: tuple[tuple[str, float], ...] = (
+    ("strong", 0.75),
+    ("adequate", 0.50),
+    ("weak", 0.0),
+)
+SCORECARD_BAND_LABELS: dict[str, dict[str, str]] = {
+    "strong": {"en": "strong", "zh": "强"},
+    "adequate": {"en": "adequate", "zh": "中等"},
+    "weak": {"en": "weak", "zh": "弱"},
+}
+
+
+def scorecard_band(score: int, max_score: int) -> str:
+    """"strong" / "adequate" / "weak" for one dimension's score."""
+    if not isinstance(max_score, int) or max_score <= 0:
+        return "weak"
+    ratio = score / max_score
+    for name, floor in SCORECARD_BANDS:
+        if ratio >= floor:
+            return name
+    return "weak"
+
+
+# How many risks a run pins, and therefore how many cards the register
+# renders. ONE definition, read by the spine schema and by the renderer's
+# card gate, because they were written separately and disagreed: the
+# schema was raised to ten for the 16,000-word memo while the gate still
+# demanded four to six, so a run that pinned ten risks could not produce
+# a package that validated (live 2026-09-17).
+#
+# v1 keeps its own four-to-six: it is the default pipeline's frozen
+# contract and its memo is a third of the length.
+RISK_COUNT_V1 = (4, 6)
+RISK_COUNT_V2 = (4, 10)
+
+
+def risk_count_bounds(structure: "MemoStructure") -> tuple[int, int]:
+    """(min, max) risk cards for this structure's family."""
+    return RISK_COUNT_V2 if structure.scorecard_weights() else RISK_COUNT_V1
+
+
 # The seven areas a pinned risk is filed under, so a risk first says
 # WHICH aspect of the case it concentrates on.
 RISK_AREA_KEYS: tuple[str, ...] = (
@@ -170,11 +221,14 @@ COMPANY_TYPE_KEYS: tuple[str, ...] = (
 )
 
 COMPANY_TYPE_LABELS: dict[str, dict[str, str]] = {
-    "ai_foundation_model": {"en": "AI foundation model", "zh": "AI 大模型"},
+    "ai_foundation_model": {
+        "en": "AI foundation model",
+        "zh": "AI 大模型与前沿实验室",
+    },
     "ai_infra": {"en": "AI infrastructure", "zh": "AI 基础设施"},
     "ai_application": {"en": "AI application", "zh": "AI 应用"},
     "ai_video_short_drama": {"en": "AI video & short drama", "zh": "AI 视频与短剧"},
-    "robotics": {"en": "Robotics", "zh": "机器人"},
+    "robotics": {"en": "Robotics", "zh": "机器人与具身智能"},
     "other": {"en": "Other", "zh": "其他"},
 }
 
@@ -383,6 +437,13 @@ class CompanyTypeProfile:
     scorecard: dict[str, dict[str, int]]
     # pass_id (or "all") -> research focus addendum for Phase 2
     research_focus: dict[str, str]
+    # section id -> how much MORE (or less) of the report this type
+    # deserves to spend there, as a multiplier on the profile's
+    # `budget_words`. The owner's ask, 2026-09-16: "different types of
+    # companies may have different things to write more about, and we
+    # should adjust accordingly". Total length is preserved — emphasis
+    # moves words between sections, it never adds them.
+    section_emphasis: dict[str, float]
     # The analysis lens appended to the Phase 3 shared context
     body: str
 
@@ -433,7 +494,52 @@ def load_company_type(company_type: str | None) -> CompanyTypeProfile | None:
         research_focus={
             str(k): str(v) for k, v in (head.get("research_focus") or {}).items()
         },
+        section_emphasis={
+            str(k): float(v)
+            for k, v in (head.get("section_emphasis") or {}).items()
+        },
         body=body.strip(),
+    )
+
+
+# How far a type may push one section's share. A type file that wanted a
+# section at four times the profile's length would be arguing for a
+# different profile, not an emphasis.
+_EMPHASIS_MIN = 0.6
+_EMPHASIS_MAX = 2.0
+
+
+def _emphasized_sections(
+    sections: tuple["SectionDef", ...], emphasis: dict[str, float]
+) -> tuple["SectionDef", ...]:
+    """Re-cut the section word budgets by a type's emphasis, same total.
+
+    Emphasis is a claim about PROPORTION — "for a robotics company the
+    deployment evidence deserves more of the report than the moat
+    argument does" — so the weights are renormalized back onto the
+    profile's own total. A type cannot lengthen the memo; only the owner
+    editing `budget_words` can do that.
+    """
+    budgeted = [s for s in sections if s.budget_words]
+    if not budgeted or not emphasis:
+        return sections
+    total = sum(s.budget_words or 0 for s in budgeted)
+    weights = {
+        s.id: (s.budget_words or 0)
+        * min(_EMPHASIS_MAX, max(_EMPHASIS_MIN, emphasis.get(s.id, 1.0)))
+        for s in budgeted
+    }
+    weighted_total = sum(weights.values())
+    if weighted_total <= 0:
+        return sections
+    scale = total / weighted_total
+    recut: dict[str, int] = {
+        section_id: max(1, round(weight * scale / 50) * 50)
+        for section_id, weight in weights.items()
+    }
+    return tuple(
+        replace(s, budget_words=recut[s.id]) if s.id in recut else s
+        for s in sections
     )
 
 
@@ -522,7 +628,14 @@ def load_structure(
         scorecard = dict(base.scorecard)
         if overlay and base.scorecard:
             scorecard = {str(k): int(v) for k, v in overlay.items()}
-        structure = replace(base, scorecard=scorecard, company_type=company_type)
+        structure = replace(
+            base,
+            scorecard=scorecard,
+            company_type=company_type,
+            sections=_emphasized_sections(
+                base.sections, type_profile.section_emphasis
+            ),
+        )
         _validate_structure(structure)
         return structure
     profile = _parse_profile(_profile_path(stage, version))
@@ -572,6 +685,11 @@ def load_structure(
             ),
             budget_words=(
                 int(s["budget_words"]) if s.get("budget_words") else None
+            ),
+            budget_hard_multiple=(
+                float(s["budget_hard_multiple"])
+                if s.get("budget_hard_multiple")
+                else None
             ),
         )
         for s in profile["section_list"]

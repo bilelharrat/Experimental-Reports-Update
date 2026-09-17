@@ -246,6 +246,7 @@ struct MacICPrepView: View {
 
     private func runButton(_ tool: MacMemoTool) -> some View {
         Button(tool.isDone ? "Re-run" : "Run") {
+            guard MacTokenConfirm.ask() else { return }
             Task { await store.runMemoTool(companyId: company.id, tool: tool.name) }
         }
         .controlSize(.small)

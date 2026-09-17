@@ -34,6 +34,7 @@ import ICRoomCard from "./ICRoomCard.vue";
 import NumberLintCard from "./NumberLintCard.vue";
 import ThesisTrackerCard from "./ThesisTrackerCard.vue";
 import CompanyCommentsCard from "./CompanyCommentsCard.vue";
+import UnifiedDocumentsView from "../UnifiedDocumentsView.vue";
 import api from "../../api.js";
 
 const openReportCustomizer = inject("openReportCustomizer", () => {});
@@ -57,11 +58,13 @@ const router = useRouter();
 
 // Web twin of the bsh.launchDossierSection launch arg: ?section= picks the
 // tab, and the Mac's webCompanyMemoURL deep link (?tab=memo) lands on memos.
-const SECTIONS = ["overview", "memos", "decisions", "team", "pipeline", "capTable", "comps", "ratios", "all"];
+const SECTIONS = ["overview", "memos", "files", "decisions", "team", "pipeline", "capTable", "comps", "ratios", "all"];
 function initialSection() {
-  const q = String(route.query.section || "");
+  // The desk renders outside a router in tests, so read the query defensively.
+  const query = route?.query ?? {};
+  const q = String(query.section || "");
   if (SECTIONS.includes(q)) return q;
-  if (route.query.tab === "memo") return "memos";
+  if (query.tab === "memo") return "memos";
   return "overview";
 }
 
@@ -70,11 +73,14 @@ const showMoreMenu = ref(false);
 const isDecisionModalOpen = ref(false);
 const isFollowed = ref(false);
 const companyReports = ref([]);
+// Bumped after an upload, a delete or an Analyze run so the list reloads.
+const documentsRefresh = ref(0);
 const decisionsVersion = ref(0);
 
 const tabItems = computed(() => [
   { id: "overview", label: t("research_desk.section_overview") },
   { id: "memos", label: t("research_desk.section_memo_studio") },
+  { id: "files", label: t("research_desk.section_files") },
   { id: "decisions", label: t("research_desk.section_decisions") },
   { id: "team", label: t("research_desk.section_team") },
   { id: "pipeline", label: t("research_desk.section_pipeline") },
@@ -335,6 +341,17 @@ onUnmounted(() => {
     <CompsRailCard v-if="shows('comps')" :key="`comps-${companyId}`" :company-id="companyId" :company="company" />
 
     <CapTableCard v-if="shows('capTable')" :key="`cap-${companyId}`" :company-id="companyId" :company="company" />
+
+    <!-- Files: uploads, folders and their analyses. These land in the
+         company's research folder, which is the same folder every Phase-2
+         memo pass reads, so anything uploaded here feeds the next report. -->
+    <UnifiedDocumentsView
+      v-if="shows('files')"
+      :company-id="companyId"
+      :refresh-key="documentsRefresh"
+      @open-report="openMemo"
+      @files-changed="documentsRefresh += 1"
+    />
 
     <FounderRadarCard v-if="shows('team')" :company-id="companyId" :company="company" />
 

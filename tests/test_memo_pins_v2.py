@@ -324,11 +324,11 @@ def test_facts_block_renders_v2_pins():
 def test_facts_block_renders_case_summary_highlights_and_risk_areas():
     block = claude_runner._render_shared_facts_block(_good_shared_facts(), V2)
     # The opening sentence: strong dimensions = the pinned highlights in
-    # pinned order, weak points = the two lowest score-to-weight ratios.
+    # pinned order, the thinnest two = the lowest score-to-weight ratios.
     assert (
         '"The case rests on market size and growth (12/15), industry '
-        "position (11/15) and revenue growth and quality (11/15); the weak "
-        'points are valuation (6/10) and risk-reward balance (3/5)."'
+        "position (11/15) and revenue growth and quality (11/15); it is "
+        'thinnest on valuation (6/10) and risk-reward balance (3/5)."'
     ) in block
     assert "Investment highlights (exactly these three" in block
     assert (
@@ -750,3 +750,78 @@ def test_parallel_wrapper_respins_spine_on_gate_failure(tmp_path, monkeypatch):
     package = result["memo_package"]
     assert package["structure"] == V2.meta()
     assert len(package["sections"]) == len(V2.section_ids)
+
+
+def _tied_dimensions() -> tuple[dict, dict]:
+    """Three dimensions tied at exactly 0.500 on different weights.
+
+    Taken from the 2026-09-17 compact run: business model 6/12,
+    valuation 4/8 and risk-reward 2/4 all scored 0.500 at once.
+    """
+    weights = {
+        "market_size_growth": 12,
+        "industry_position": 18,
+        "moat": 18,
+        "revenue_growth_quality": 12,
+        "business_model_ue": 12,
+        "team_governance": 12,
+        "valuation": 8,
+        "exit_certainty": 4,
+        "risk_reward": 4,
+    }
+    scores = {
+        "market_size_growth": 11,
+        "industry_position": 15,
+        "moat": 12,
+        "revenue_growth_quality": 10,
+        "business_model_ue": 6,
+        "team_governance": 8,
+        "valuation": 4,
+        "exit_certainty": 3,
+        "risk_reward": 2,
+    }
+    dimensions = {
+        key: {"score": score, "why": "why.", "evidence": ["e."]}
+        for key, score in scores.items()
+    }
+    return dimensions, weights
+
+
+def test_case_summary_says_thinnest_not_weak():
+    """The scan bands by an absolute threshold and calls 0.500 `adequate`.
+    This sentence ranks, so it must not use a threshold word: the
+    2026-09-17 memo called business model a weak point in its opening
+    line and adequate four lines later, off the same 6/12."""
+    dimensions, weights = _tied_dimensions()
+    lines = claude_runner._render_case_summary_lines({}, dimensions, weights)
+    summary = lines[0]
+    assert "it is thinnest on" in summary
+    assert "weak point" not in summary
+    # Same numbers, banded: nothing here is actually weak.
+    scan = "\n".join(lines)
+    assert "business model and unit economics — 6/12, adequate" in scan
+
+
+def test_tied_thinnest_dimensions_break_by_weight_not_key_order():
+    """business model (6/12), valuation (4/8) and risk-reward (2/4) all
+    sit at 0.500. Key order alone picked two of the three arbitrarily;
+    the heavier weight is the one that costs the reader more, so it is
+    named first."""
+    dimensions, weights = _tied_dimensions()
+    summary = claude_runner._render_case_summary_lines(
+        {}, dimensions, weights
+    )[0]
+    thinnest = summary.split("it is thinnest on", 1)[1]
+    assert thinnest.index("business model and unit economics (6/12)") < (
+        thinnest.index("valuation (4/8)")
+    )
+    assert "risk-reward" not in thinnest
+
+    # Give risk-reward the heaviest weight and it leads instead.
+    heavy = dict(weights, risk_reward=20)
+    dimensions["risk_reward"]["score"] = 10
+    summary = claude_runner._render_case_summary_lines({}, dimensions, heavy)[0]
+    thinnest = summary.split("it is thinnest on", 1)[1]
+    assert thinnest.index("risk-reward balance (10/20)") < (
+        thinnest.index("business model and unit economics (6/12)")
+    )

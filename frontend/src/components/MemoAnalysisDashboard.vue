@@ -6,6 +6,7 @@ import {
   Save,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import RunLedgerTable from "./RunLedgerTable.vue";
 import MemoBenchmarkPanel from "./memo/MemoBenchmarkPanel.vue";
 import MemoChartPlansPanel from "./memo/MemoChartPlansPanel.vue";
@@ -919,6 +920,7 @@ function ensureTaskPolling() {
 
 async function runTool(toolName) {
   if (runningTool.value) return;
+  if (!confirmTokenSpend()) return;
   runningTool.value = toolName;
   error.value = null;
   try {

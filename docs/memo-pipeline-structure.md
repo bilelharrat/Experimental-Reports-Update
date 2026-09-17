@@ -38,11 +38,17 @@ and `claude_runner.load_memo_recent_news` injects it into every pass
 and the spine — never the shared section context (kill switch
 `BSH_MEMO_TRACKED_NEWS=0`).
 
-### Phase 2 — 12 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
+### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
 
 `memo_analysis._FAST_MEMO_PASSES` defines 8 pass specs (id, label,
 artifact filename, focus). Dispatch: `ThreadPoolExecutor` with
-`as_completed` (8 workers, `BSH_MEMO_FAST_MAX_WORKERS`). Each pass
+`as_completed` (8 workers, `BSH_MEMO_FAST_MAX_WORKERS`). All eight share
+one `--append-system-prompt` block
+(`claude_runner.memo_fast_pass_common_context`, built once per run in
+`memo_analysis` before the fan-out) so the registry entry, research
+listing, fact ledger, recent news and decision record are cached once for
+the whole wave rather than per pass — it only collapses while the bytes
+are identical, so nothing pass-specific may enter it. Each pass
 writes `analysis/fast/{pass_id}.json` (schema-capped: ≤8 findings, ≤8
 supporting, ≤6 disconfirming, ≤5 limits, ≤6 implications) plus a
 markdown artifact, at its own completion time.
@@ -107,6 +113,49 @@ on any structural failure).
   `_MEMO_SECTION_SPECS[id]` (+ risk-register contract for
   `investment_risk`). Output schema is loose (`{"section": object}`) —
   enforcement is post-hoc.
+- **Structured-output rejections**: the CLI rejects an answer that does
+  not match the schema and retries; when its retries run out the call
+  exits 1 with empty stderr. The rejection notices arrive as ordinary
+  tool results, so `_note_schema_rejection` keeps the last one and the
+  failure quotes it. They are overwhelmingly "must have required property
+  '<x>'" — an object submitted incomplete, not a giant one truncated
+  (481 stored pass payloads top out at 15,907 characters, while
+  successful passes write a median of 15,905 output tokens). Sibling
+  calls clear the same stumble on their next attempt, so a rejected pass
+  (`memo_pass_schema_retry`) and a rejected inline section
+  (`memo_section_schema_retry`) each get one more run, carrying the CLI's
+  own complaint in the prompt.
+- **Company type steers depth**: a type file's `section_emphasis`
+  (section id -> multiplier, clamped to 0.6-2.0) re-cuts the compact
+  profile's `budget_words` and renormalizes back onto the profile's own
+  total, so a type moves words between sections but can never lengthen
+  the memo. A foundation model spends more on thesis/market (its
+  scorecard puts 36 of 100 on position and moat); robotics spends more
+  on company/team and the deployment evidence in business/financials.
+- **Spine handoff** (`BSH_MEMO_SPINE_HANDOFF`, default on): the spine
+  writes its parts to `logs/english_units/spine_pieces/NN_<part>.json`
+  and returns a receipt. Moving it off `--json-schema` would lose the
+  CLI's validation, so `_schema_errors` (a small checker over the same
+  schema object, covering the keywords these schemas use) reproduces it
+  server-side and `_spine_piece_for_schema_error` routes each complaint
+  to the file that owns it — an over-long metric name re-asks
+  `04_metrics.json` alone, not the whole spine. Memo Studio's standalone
+  spine keeps the inline contract (`handoff=False`).
+- **Section handoff** (`BSH_MEMO_SECTION_HANDOFF`, default `all`): a listed section is written by the SAME single
+  agent, but it leaves through the filesystem instead of the response.
+  The agent writes each numbered subsection to
+  `logs/english_units/pieces/<section>/NN.json` as it finishes it and
+  returns only a receipt (`{section_id, pieces}`); the server validates
+  each piece (parses, non-empty `blocks`, opens with its scaffolded
+  heading) and assembles them in order. A missing or malformed piece is
+  re-asked alone, up to `MEMO_SECTION_PIECE_MAX_RETRIES` (3). Reason:
+  `executive_summary` exhausted its structured-output retries on
+  2026-09-16 after 17,189 output tokens, losing the lot. (That run
+  recorded no rejection notice, so the exact complaint is unknown; the
+  handoff earns its place by banking each subsection as it is written and
+  by making each ask small, not by the truncation story first told here.) One agent, not four: the per-call cache creation is 21–52k tokens,
+  and a sub-agent per subsection would pay it four times over while
+  seeing only its own slice.
 - **Detached artifacts** (`claude_runner.AsyncArtifacts`,
   `BSH_MEMO_ARTIFACTS_ASYNC=1`): the 7 private artifacts run on their
   own thread from wrapper entry. If the agent is already done at package
@@ -229,6 +278,8 @@ pin echo, gates).
 | `BSH_MEMO_FAST_MAX_WORKERS` (8) | Phase-2 pool |
 | `BSH_MEMO_ENGLISH_PARALLEL` (0) | spine-lite + section workers |
 | `BSH_MEMO_ENGLISH_SECTION_WORKERS` (6) | wave pool |
+| `BSH_MEMO_SPINE_HANDOFF` (1) | spine delivers its parts as files |
+| `BSH_MEMO_SECTION_HANDOFF` (`all`) | sections that deliver subsections as files |
 | `BSH_MEMO_ARTIFACTS_ASYNC` (0) | detach artifacts agent |
 | `BSH_MEMO_SPINE_SPECULATIVE` (0), `BSH_MEMO_SPINE_SPECULATE_AFTER` (6) | early spine + delta check |
 | `BSH_MEMO_SPINE_SPECULATE_REQUIRE` (pin-feeding passes) | pin-affine launch gate; `none` = count-only |

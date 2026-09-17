@@ -11,7 +11,6 @@ import {
   FileText,
   Loader2,
   Search,
-  Target,
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
@@ -41,7 +40,6 @@ const activeTab = ref("blueprint");
 const tabs = computed(() => [
   { id: "blueprint", label: t("customizer.tab_blueprint"), icon: FileText },
   { id: "engine", label: t("customizer.tab_engine"), icon: Cpu },
-  { id: "directives", label: t("customizer.tab_directives"), icon: Target },
   { id: "evidence", label: t("customizer.tab_evidence"), icon: Database },
 ]);
 
@@ -89,46 +87,58 @@ const filteredCompanies = computed(() => {
   );
 });
 
-// Tab 1: Blueprint Options
+// Tab 1: Blueprint Options.
+//
+// `reportType` must be a literal from api.REPORT_TYPES — the endpoint
+// compares strings and 400s on anything else. `studio` marks the ones
+// Memo Studio can run: memo_prep.is_memo_report_type accepts only the auto
+// and late-stage memos, and the studio endpoint additionally rejects the
+// Buffett memo.
 const archetypes = [
   {
     id: "auto",
-    reportType: "memo_late_stage",
+    reportType: "Investment Report (Auto)",
+    studio: true,
     title: "Auto Full IC",
     badge: "Recommended",
     desc: "Stage-calibrated institutional memorandum synthesized across all analysis pipelines.",
   },
   {
     id: "investment_memo_late_stage",
-    reportType: "investment_memo_late_stage",
+    reportType: "Investment Memo (Late-Stage)",
+    studio: true,
     title: "Late-Stage IC",
     badge: "Institutional",
     desc: "Growth & late-stage institutional thesis, unit economics, and exit roadmap.",
   },
   {
     id: "buffett_memo",
-    reportType: "buffett_memo",
+    reportType: "Buffett Investment Memo",
+    studio: false,
     title: "Buffett Fundamental",
     badge: "Value Moat",
     desc: "Margin of safety, durable moats, cash return, and circle of competence.",
   },
   {
     id: "deep_dive",
-    reportType: "deep_dive",
+    reportType: "Financial Analysis",
+    studio: false,
     title: "Financial Audit",
     badge: "Forensic",
     desc: "Forensic balance sheet, quality of earnings, and cash flow bridges.",
   },
   {
     id: "market_analysis",
-    reportType: "market_analysis",
+    reportType: "Market Analysis",
+    studio: false,
     title: "Market Analysis",
     badge: "Industry",
     desc: "TAM/SAM, competitive matrix, pricing power, and headwind sensitivity.",
   },
   {
     id: "background",
-    reportType: "background",
+    reportType: "Background",
+    studio: false,
     title: "Background Dossier",
     badge: "Diligence",
     desc: "Management track record, cap table evolution, and regulatory scrutiny.",
@@ -136,121 +146,180 @@ const archetypes = [
 ];
 const selectedArchetype = ref("auto");
 
+// `audience` must also be a literal from api.AUDIENCES ("LP", "Assistant",
+// "Partner", "Internal"). It is recorded on the report and printed in the
+// legacy generator's header; it does not steer the memo pipeline.
 const audiences = [
-  { id: "internal", title: "Internal IC", desc: "Direct, unvarnished analytical rigor for investment partners" },
-  { id: "gp", title: "General Partner", desc: "High-conviction executive summary and strategic dilemmas" },
-  { id: "lp", title: "LP Advisory", desc: "Institutional LP perspective, portfolio fit, risk-adjusted returns" },
-  { id: "diligence", title: "Diligence Lead", desc: "Deep forensic focus on claims, data integrity, and verification" },
+  { id: "Internal", title: "Internal IC", desc: "Direct, unvarnished analytical rigor for investment partners" },
+  { id: "Partner", title: "General Partner", desc: "High-conviction executive summary and strategic dilemmas" },
+  { id: "LP", title: "LP Advisory", desc: "Institutional LP perspective, portfolio fit, risk-adjusted returns" },
+  { id: "Assistant", title: "Diligence Lead", desc: "Deep forensic focus on claims, data integrity, and verification" },
 ];
-const selectedAudience = ref("internal");
+const selectedAudience = ref("Internal");
 
+// Page counts measured off produced memos, not aspirational: the last
+// compact Anthropic run came to ~6,900 words including tables, and the
+// full profile budgets 10,500-13,450 words of prose across twelve
+// sections before tables, sources and calculation notes.
 const reportModes = [
-  { id: "full", title: "Full Institutional IC", desc: "10–15 pages of deep forensic analysis and supporting evidence" },
-  { id: "compact", title: "Executive Brief", desc: "3–5 page partner-level investment synthesis" },
+  {
+    id: "compact",
+    title: "Executive Brief",
+    desc: "Seven sections, ~15 pages. The partner-level read, and the one that actually gets read end to end.",
+  },
+  {
+    id: "full",
+    title: "Full Institutional IC",
+    desc: "Twelve sections, 40+ pages with full evidence, sources and calculation notes.",
+  },
 ];
-const selectedReportMode = ref("full");
+const selectedReportMode = ref("compact");
 
+// The pipeline writes an English and a Chinese .docx on every run —
+// memo_prep builds both paths unconditionally — so bilingual is not a mode
+// you opt into, it is what the pipeline does. The single-language options
+// are disabled until the pipeline can genuinely skip one half; picking one
+// today would only change which file leads, not what gets generated.
 const languages = [
-  { id: "en", label: "English", desc: "Institutional global English" },
-  { id: "zh", label: "中文", desc: "Mandarin translation & localization" },
-  { id: "dual", label: "Bilingual (EN + ZH)", desc: "Synchronized dual-language outputs" },
+  {
+    id: "dual",
+    label: "Bilingual (EN + ZH)",
+    desc: "Both documents, every run",
+    disabled: false,
+  },
+  {
+    id: "en",
+    label: "English only",
+    desc: "Not available yet",
+    disabled: true,
+  },
+  {
+    id: "zh",
+    label: "中文 only",
+    desc: "Not available yet",
+    disabled: true,
+  },
 ];
-const selectedLanguage = ref("en");
+const selectedLanguage = ref("dual");
 
 // Tab 2: Engine & Quality Options
 const generationModes = [
   {
-    id: "studio_review",
-    title: "Interactive Studio Review",
-    badge: "Recommended",
-    desc: "Pauses after Phase 2 (Research & Dilemma formulation) so analysts can curate thesis spine cards and adjust risk framing before synthesizing the final memo.",
-  },
-  {
     id: "one_click",
     title: "One-Click Autonomous",
-    badge: "Direct Run",
+    badge: "Recommended",
     desc: "Runs start-to-finish without stopping. Best for quick exploratory reads or overnight batches.",
   },
+  {
+    id: "studio_review",
+    title: "Interactive Studio Review",
+    badge: "Curated",
+    desc: "Pauses after Phase 2 (Research & Dilemma formulation) so analysts can curate thesis spine cards and adjust risk framing before synthesizing the final memo.",
+  },
 ];
-const selectedGenerationMode = ref("studio_review");
+const selectedGenerationMode = ref("one_click");
 
+// Tiers map to claude_runner._MEMO_QUALITY_TIERS. Balanced leads: it keeps
+// the top model on the English the founder reads and moves research,
+// checking and translation to Sonnet.
 const qualities = [
+  {
+    id: "balanced",
+    title: "Balanced Pipeline",
+    badge: "Recommended",
+    desc: "Top model writes the memo at medium effort; research, verification and translation run on Sonnet.",
+  },
   {
     id: "best",
     title: "Best Frontier",
     badge: "Frontier",
-    desc: "Deep multi-pass reasoning, maximum evidence cross-examination, and frontier-grade synthesis.",
-  },
-  {
-    id: "balanced",
-    title: "Balanced Pipeline",
-    badge: "Fast",
-    desc: "Optimal trade-off between turnaround speed and analytical thoroughness.",
+    desc: "Top model at high effort across the whole writing wave. The most thorough, and the most expensive.",
   },
   {
     id: "economy",
     title: "Economy Draft",
     badge: "Light",
-    desc: "Rapid reconnaissance run for initial screening and preliminary structuring.",
+    desc: "Everything on Sonnet. Rapid reconnaissance for initial screening and preliminary structuring.",
   },
 ];
-const selectedQuality = ref("best");
-
-// Tab 3: Directives & Focus Options
-const directives = ref("");
-const suggestionChips = [
-  "Scrutinize pricing power against open-source threats",
-  "Stress test international expansion cap table",
-  "Analyze gross margin compression in downcycle",
-  "Evaluate enterprise churn vs net dollar retention",
-];
-
-function applySuggestion(suggestion) {
-  if (!directives.value.trim()) {
-    directives.value = suggestion;
-  } else if (!directives.value.includes(suggestion)) {
-    directives.value += `\n• ${suggestion}`;
-  }
-}
-
-const diligencePillars = [
-  "Moat Durability",
-  "Cap Table Dilution",
-  "Big Tech Threat",
-  "Unit Economics",
-  "Churn & Cohorts",
-  "Regulatory Moat",
-  "Key-Man Risk",
-  "Valuation Multiples",
-];
-const selectedPillars = ref(["Moat Durability", "Unit Economics"]);
-
-function togglePillar(pillar) {
-  if (selectedPillars.value.includes(pillar)) {
-    selectedPillars.value = selectedPillars.value.filter((p) => p !== pillar);
-  } else {
-    selectedPillars.value.push(pillar);
-  }
-}
-
-const sectorLenses = [
-  { id: "b2b_saas", label: "Enterprise B2B SaaS" },
-  { id: "deep_tech", label: "Deep Tech & AI Hardware" },
-  { id: "consumer", label: "Consumer & Marketplaces" },
-  { id: "fintech", label: "Fintech & Regulated Platforms" },
-];
-const selectedSectorLens = ref("b2b_saas");
+const selectedQuality = ref("balanced");
 
 // Tab 4: Evidence Sources
-const evidenceSources = ref([
-  { id: "filings", label: "Company SEC & Regulatory Filings", checked: true },
-  { id: "decks", label: "Data Room Pitch Decks & PDFs", checked: true },
-  { id: "transcripts", label: "Earnings Call Transcripts & Releases", checked: true },
-  { id: "news", label: "External Research & Verified News Feed", checked: true },
-]);
+// Tab 4: the analysed documents this company actually has. An Analyze run
+// in the Files tab writes a <name>_analysis.md beside the upload, and that
+// markdown is what the memo passes read — the raw source is deliberately
+// hidden behind it. Everything is selected by default: dropping one is the
+// exception, not the routine.
+const evidenceSources = ref([]);
+const evidenceLoading = ref(false);
+const evidenceLoadFailed = ref(false);
+
+async function loadEvidenceSources(companyId) {
+  if (!companyId) {
+    evidenceSources.value = [];
+    return;
+  }
+  evidenceLoading.value = true;
+  evidenceLoadFailed.value = false;
+  try {
+    const payload = await api.listCompanyDocuments(companyId);
+    const rows = (payload?.groups || []).flatMap((group) => group.rows || []);
+    const seen = new Set();
+    evidenceSources.value = rows
+      .filter((row) => row.analysis_of && row.record_id && !seen.has(row.record_id) && seen.add(row.record_id))
+      .map((row) => ({
+        id: row.record_id,
+        label: row.title || row.filename || row.record_id,
+        uploadedAt: String(row.uploaded_at || row.captured_at || "").slice(0, 10),
+        checked: true,
+      }));
+  } catch {
+    evidenceSources.value = [];
+    evidenceLoadFailed.value = true;
+  } finally {
+    evidenceLoading.value = false;
+  }
+}
+
+const allEvidenceSelected = computed(
+  () => evidenceSources.value.length > 0 && evidenceSources.value.every((s) => s.checked),
+);
+
+function toggleAllEvidence() {
+  const next = !allEvidenceSelected.value;
+  evidenceSources.value.forEach((src) => {
+    src.checked = next;
+  });
+}
+
+// null = "read the whole research folder", which is what a run did before
+// this tab existed. Only an actual deselection narrows it.
+const selectedEvidenceIds = computed(() => {
+  if (!evidenceSources.value.length) return null;
+  if (allEvidenceSelected.value) return null;
+  return evidenceSources.value.filter((s) => s.checked).map((s) => s.id);
+});
+
+watch(
+  () => currentCompany.value?.id,
+  (companyId) => loadEvidenceSources(companyId),
+  { immediate: true },
+);
 
 const activeArchetypeObj = computed(() => {
   return archetypes.find((a) => a.id === selectedArchetype.value) || archetypes[0];
+});
+
+// Memo Studio only runs the memo archetypes. Offering it for a Buffett,
+// Financial Analysis, Market Analysis or Background report just buys a
+// second 400 from the studio endpoint, so it locks instead — and if the
+// analyst had already chosen it, the mode falls back to One-Click.
+const studioAvailable = computed(() => Boolean(activeArchetypeObj.value?.studio));
+
+watch(studioAvailable, (ok) => {
+  if (!ok && selectedGenerationMode.value === "studio_review") {
+    selectedGenerationMode.value = "one_click";
+  }
 });
 
 async function launchReport() {
@@ -288,9 +357,12 @@ async function launchReport() {
         company_id: companyId,
         report_type: reportTypeVal,
         audience: selectedAudience.value,
+        // The API takes one language and it names the LEAD document; both
+        // are written either way. "dual" therefore sends "en".
         language: selectedLanguage.value === "zh" ? "zh" : "en",
         report_mode: selectedReportMode.value,
         quality: selectedQuality.value,
+        evidence_files: selectedEvidenceIds.value,
       });
 
       emit("created", rep);
@@ -544,13 +616,17 @@ async function launchReport() {
                     v-for="lang in languages"
                     :key="lang.id"
                     type="button"
+                    :disabled="lang.disabled"
+                    :title="lang.disabled ? t('customizer.language_locked') : null"
                     class="flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all focus-ring"
                     :class="[
-                      selectedLanguage === lang.id
-                        ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                        : 'border-subtle bg-surface hover:border-strong',
+                      lang.disabled
+                        ? 'border-subtle bg-surface opacity-40 cursor-not-allowed'
+                        : selectedLanguage === lang.id
+                          ? 'border-accent bg-accent/5 ring-1 ring-accent'
+                          : 'border-subtle bg-surface hover:border-strong',
                     ]"
-                    @click="selectedLanguage = lang.id"
+                    @click="lang.disabled || (selectedLanguage = lang.id)"
                   >
                     <span class="text-xs font-semibold text-ink-primary">{{ lang.label }}</span>
                     <span class="text-[10px] text-ink-muted mt-0.5">{{ lang.desc }}</span>
@@ -574,13 +650,17 @@ async function launchReport() {
                 v-for="mode in generationModes"
                 :key="mode.id"
                 type="button"
+                :disabled="mode.id === 'studio_review' && !studioAvailable"
+                :title="mode.id === 'studio_review' && !studioAvailable ? t('customizer.studio_unavailable') : null"
                 class="flex flex-col text-left p-4 rounded-xl border transition-all focus-ring"
                 :class="[
-                  selectedGenerationMode === mode.id
-                    ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                    : 'border-subtle bg-surface hover:border-strong',
+                  mode.id === 'studio_review' && !studioAvailable
+                    ? 'border-subtle bg-surface opacity-40 cursor-not-allowed'
+                    : selectedGenerationMode === mode.id
+                      ? 'border-accent bg-accent/5 ring-1 ring-accent'
+                      : 'border-subtle bg-surface hover:border-strong',
                 ]"
-                @click="selectedGenerationMode = mode.id"
+                @click="(mode.id === 'studio_review' && !studioAvailable) || (selectedGenerationMode = mode.id)"
               >
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="font-semibold text-sm text-ink-primary">{{ mode.title }}</span>
@@ -638,82 +718,6 @@ async function launchReport() {
           </div>
         </div>
 
-        <!-- ================= TAB 3: DIRECTIVES & STRATEGIC FOCUS ================= -->
-        <div v-if="activeTab === 'directives'" class="space-y-6">
-          <!-- Freeform Analyst Steering Directives -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="vogue-label">{{ t("customizer.directives_title") }}</span>
-              <span class="text-xs text-ink-muted">{{ t("customizer.directives_desc") }}</span>
-            </div>
-            <textarea
-              v-model="directives"
-              rows="4"
-              :placeholder="t('customizer.directives_placeholder')"
-              class="field w-full !text-sm !p-3 resize-none focus-ring"
-            />
-            <!-- Quick Suggestions -->
-            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <span class="text-xs text-ink-muted mr-1">{{ t("customizer.suggestions") }}</span>
-              <button
-                v-for="sug in suggestionChips"
-                :key="sug"
-                type="button"
-                class="rounded-full border border-subtle bg-surface px-2.5 py-1 text-xs text-ink-secondary hover:border-accent hover:text-accent-ink transition-colors"
-                @click="applySuggestion(sug)"
-              >
-                + {{ sug }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Diligence Focus Pillars -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="vogue-label">{{ t("customizer.pillars_title") }}</span>
-              <span class="text-xs text-ink-muted">{{ t("customizer.pillars_desc") }}</span>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="pillar in diligencePillars"
-                :key="pillar"
-                type="button"
-                class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all focus-ring"
-                :class="[
-                  selectedPillars.includes(pillar)
-                    ? 'border-accent bg-accent text-white shadow-sm'
-                    : 'border-subtle bg-surface text-ink-secondary hover:border-strong',
-                ]"
-                @click="togglePillar(pillar)"
-              >
-                <Check v-if="selectedPillars.includes(pillar)" class="h-3 w-3 stroke-[3]" />
-                <span>{{ pillar }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Sector Diligence Lens -->
-          <div>
-            <span class="vogue-label block mb-2">{{ t("customizer.sector_lens_title") }}</span>
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <button
-                v-for="lens in sectorLenses"
-                :key="lens.id"
-                type="button"
-                class="p-2.5 rounded-xl border text-center text-xs font-medium transition-all focus-ring"
-                :class="[
-                  selectedSectorLens === lens.id
-                    ? 'border-accent bg-accent/5 ring-1 ring-accent text-accent-ink font-semibold'
-                    : 'border-subtle bg-surface text-ink-secondary hover:border-strong',
-                ]"
-                @click="selectedSectorLens = lens.id"
-              >
-                {{ lens.label }}
-              </button>
-            </div>
-          </div>
-        </div>
-
         <!-- ================= TAB 4: EVIDENCE SOURCES ================= -->
         <div v-if="activeTab === 'evidence'" class="space-y-4">
           <div class="flex items-center justify-between mb-2">
@@ -721,23 +725,43 @@ async function launchReport() {
             <span class="text-xs text-ink-muted">{{ t("customizer.evidence_desc") }}</span>
           </div>
 
-          <div class="space-y-2">
-            <label
-              v-for="src in evidenceSources"
-              :key="src.id"
-              class="flex items-center justify-between p-3.5 rounded-xl border border-subtle bg-surface hover:border-strong cursor-pointer transition-colors"
+          <p v-if="evidenceLoading" class="text-sm text-ink-muted">
+            {{ t("customizer.evidence_loading") }}
+          </p>
+          <p v-else-if="evidenceLoadFailed" class="text-sm text-danger">
+            {{ t("customizer.evidence_failed") }}
+          </p>
+          <p v-else-if="!evidenceSources.length" class="text-sm text-ink-muted">
+            {{ t("customizer.evidence_empty") }}
+          </p>
+
+          <template v-else>
+            <button
+              type="button"
+              class="text-xs font-medium text-accent focus-ring rounded"
+              @click="toggleAllEvidence"
             >
-              <div class="flex items-center gap-3">
-                <input
-                  v-model="src.checked"
-                  type="checkbox"
-                  class="rounded border-subtle text-accent focus:ring-accent h-4 w-4"
-                />
-                <span class="text-sm font-medium text-ink-primary">{{ src.label }}</span>
-              </div>
-              <span class="text-xs text-ink-muted">{{ t("customizer.available_in_dossier") }}</span>
-            </label>
-          </div>
+              {{ allEvidenceSelected ? t("customizer.evidence_clear_all") : t("customizer.evidence_select_all") }}
+            </button>
+
+            <div class="space-y-2">
+              <label
+                v-for="src in evidenceSources"
+                :key="src.id"
+                class="flex items-center justify-between p-3.5 rounded-xl border border-subtle bg-surface hover:border-strong cursor-pointer transition-colors"
+              >
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model="src.checked"
+                    type="checkbox"
+                    class="rounded border-subtle text-accent focus:ring-accent h-4 w-4"
+                  />
+                  <span class="text-sm font-medium text-ink-primary">{{ src.label }}</span>
+                </div>
+                <span v-if="src.uploadedAt" class="text-xs text-ink-muted">{{ src.uploadedAt }}</span>
+              </label>
+            </div>
+          </template>
         </div>
       </div>
 

@@ -22,7 +22,10 @@ COMPACT = memo_structure.load_structure("late_compact", 1)
 
 def test_compact_profile_shape():
     assert len(COMPACT.section_ids) == 7
-    assert COMPACT.risk_format == "bullets"
+    # The founder's verdict on the bullet register (2026-09-16): "a
+    # paragraph of description, hard to catch the main point". Compact now
+    # uses the full report's per-risk cards.
+    assert COMPACT.risk_format == "cards"
     assert COMPACT.scorecard_weights() == memo_structure.load_structure(
         "late", 2
     ).scorecard_weights()
@@ -187,14 +190,13 @@ def test_compact_package_renders_and_clears_docx_gates(tmp_path):
     assert not parity.p0_findings, [f.to_dict() for f in parity.p0_findings]
 
 
-def test_compact_risk_contract_is_bullets():
+def test_compact_risk_contract_is_cards_like_the_full_report():
     from server import claude_runner
 
     contract = claude_runner.memo_risk_register_contract(COMPACT)
-    assert "BULLETS" in contract
-    assert "six" not in contract.lower()
     v2 = memo_structure.load_structure("late", 2)
-    assert "Mitigation" in claude_runner.memo_risk_register_contract(v2)
+    assert contract is claude_runner.memo_risk_register_contract(v2)
+    assert "Mitigation" in contract
 
 
 # ---- exec bullet topic-label gate -------------------------------------------
@@ -387,18 +389,49 @@ def test_compact_declares_word_ceilings():
 def test_word_budget_gate_flags_overrun_and_accepts_fit():
     package = _compact_package()
     errors = memo_docx_renderer.english_package_validation_errors(package)
-    assert not [e for e in errors if "word" in e and "ceiling" in e], errors
+    assert not [e for e in errors if "hard cap" in e], errors
     risks = next(s for s in package["sections"] if s["id"] == "risks")
+    risks_def = next(s for s in COMPACT.sections if s.id == "risks")
+    ceiling = risks_def.budget_words
+    # Derived from the profile, so widening a budget or a multiple never
+    # quietly turns this gate test into a no-op the way a hardcoded 300 did.
+    hard = ceiling * (
+        risks_def.budget_hard_multiple or memo_docx_renderer._BUDGET_GRACE
+    )
+    over_by = int(hard) + 50
     risks["blocks"].append(
         {
             "type": "paragraph",
-            "text": {"en": "filler word " * 300, "zh": ""},
+            "text": {"en": "filler word " * over_by, "zh": ""},
         }
     )
     errors = memo_docx_renderer.english_package_validation_errors(package)
-    overruns = [e for e in errors if "ceiling" in e]
+    overruns = [e for e in errors if "hard cap" in e]
     assert len(overruns) == 1 and "section risks" in overruns[0]
-    assert "500-word ceiling" in overruns[0]
+    assert f"{ceiling}-word target" in overruns[0]
+    assert f"{int(hard)}-word hard cap" in overruns[0]
+
+
+def test_a_section_between_its_target_and_its_cap_is_left_alone():
+    """The budget is a soft target: a section that ran past it to finish
+    its argument is fine, and re-emitting it has never shortened one."""
+    package = _compact_package()
+    risks = next(s for s in package["sections"] if s["id"] == "risks")
+    risks_def = next(s for s in COMPACT.sections if s.id == "risks")
+    ceiling = risks_def.budget_words
+    current = memo_docx_renderer._section_en_word_count(risks)
+    hard = ceiling * (
+        risks_def.budget_hard_multiple or memo_docx_renderer._BUDGET_GRACE
+    )
+    # Land above the target but inside the cap.
+    filler = int(hard) - current - 5
+    assert filler > ceiling - current
+    assert filler > 0
+    risks["blocks"].append(
+        {"type": "paragraph", "text": {"en": "filler word " * (filler // 2), "zh": ""}}
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert not [e for e in errors if "hard cap" in e], errors
 
 
 def test_money_parser_handles_digit_grouping():

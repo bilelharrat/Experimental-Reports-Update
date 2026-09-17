@@ -168,6 +168,7 @@ struct MacICRoomView: View {
                 }
                 Spacer()
                 Button {
+                    guard MacTokenConfirm.ask() else { return }
                     Task { await store.runRedTeam(companyId) }
                 } label: {
                     if redTeam?.isRunning == true {

@@ -144,7 +144,7 @@ def test_investigate_parks_at_awaiting_studio(studio_env, monkeypatch):
     monkeypatch.setattr(
         memo_analysis,
         "_run_fast_phase2",
-        lambda **kw: (_fake_pass_results({"competitive_rights"}), 0.8, 900),
+        lambda **kw: (_fake_pass_results({"competitive_position"}), 0.8, 900),
     )
     spine_calls: list[dict] = []
 
@@ -174,17 +174,17 @@ def test_investigate_parks_at_awaiting_studio(studio_env, monkeypatch):
     updated = storage.get_report(report["id"])
     assert updated["status"] == "awaiting_studio"
     investigation = updated["studio_investigation"]
-    assert investigation["pass_failed"] == ["competitive_rights"]
+    assert investigation["pass_failed"] == ["competitive_position"]
     assert len(investigation["pass_ok"]) == len(memo_analysis._FAST_MEMO_PASSES) - 1
     assert investigation["seeded_revision_id"] == "rev-0002"
     # Failed passes reach the spine prompt as missing artifacts.
-    assert spine_calls[0]["missing_pass_ids"] == ["competitive_rights"]
+    assert spine_calls[0]["missing_pass_ids"] == ["competitive_position"]
     assert seeded and seeded[0][0] == "generalist-inc"
     assert seeded[0][2]["mode"] == "studio"
     events = _events(run_dir)
     terminal = [e for e in events if e["type"] == "done"]
     assert terminal and terminal[-1]["awaiting_studio"] is True
-    assert terminal[-1]["pass_failed"] == ["competitive_rights"]
+    assert terminal[-1]["pass_failed"] == ["competitive_position"]
 
 
 def test_investigate_park_completes_tracking_auto_run(studio_env, monkeypatch):

@@ -61,6 +61,9 @@ async function loadFounders() {
 }
 
 async function refreshFromRecord() {
+  // No token confirmation here: the deep search rebuilds the dossier from the
+  // company record and calls no model (server/founder_dossier.py). Put the
+  // confirmTokenSpend() guard back the day external enrichment is wired in.
   if (!props.companyId || searching.value) return;
   searching.value = true;
   refreshError.value = null;

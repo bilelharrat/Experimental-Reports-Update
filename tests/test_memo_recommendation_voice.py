@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from docx import Document
 
+from server import memo_structure
 from server import memo_analysis, memo_quality_lint
 
 CANONICAL_SENTENCES = (
@@ -111,3 +112,45 @@ def test_canonical_forms_survive_the_rewriter():
             memo_analysis._rewrite_memo_package_voice_text(sentence)
             == sentence
         )
+
+
+# ---- the six moves ----------------------------------------------------------
+
+
+def test_the_addendum_names_the_six_moves():
+    """The founder's own refinement of a live passage, turned into a shape.
+
+    Her complaint across several rounds was never that a number was wrong
+    — it was that the memo assumed the reader already knew whether the
+    number was good. The calibrating move ("what counts as normal HERE")
+    is the one that answers that, and it is the one most often missing.
+    """
+    from server import memo_prompts
+
+    text = memo_prompts.load_prompt("structure_addendum.md")
+    assert "## The six moves" in text
+    for move in (
+        "Say the point, in plain words",
+        "Show the arithmetic",
+        "Say what it costs",
+        "say what counts as normal HERE",
+        "Say what to check",
+        "say why the rating is what it is",
+    ):
+        assert move in text, move
+    # the worked example must carry a calculation reference and a rating
+    # with its reason, or it is not modelling the shape it describes
+    assert "[C4]" in text
+    assert "What to check:" in text
+    assert "likelihood high, because the price range is already public" in text
+
+
+def test_the_chinese_twin_carries_the_founders_own_words():
+    """The zh file is what the founder's team edits, so the example there
+    is her text verbatim, not a translation of my translation."""
+    zh = (
+        memo_structure.STRUCTURES_DIR.parent / "zh" / "structure_addendum.md"
+    ).read_text(encoding="utf-8")
+    assert "## 六个动作" in zh
+    assert "要点核查：" in zh
+    assert "单项假设偏差即可将投资变为亏损" in zh

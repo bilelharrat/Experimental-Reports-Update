@@ -466,6 +466,54 @@ class _FastMemoPassSpec:
     focus: str
 
 
+# A pass that answers with placeholder text passes schema validation and
+# poisons everything downstream. Observed live on 2026-09-16: market_sizing
+# ran for 2.4 minutes, spent 16k output tokens and returned
+# summary="test" with a single finding of claim="a", finding="b" — the
+# memo's whole TAM section was then written from "a | b | c | d". Nothing
+# in the pipeline noticed, because the shape was valid.
+# A floor for obviously-empty answers, not a quality judge: a pass whose
+# summary is this short has not written a summary at all.
+_FAST_PASS_MIN_SUMMARY_CHARS = 20
+_FAST_PASS_MIN_FINDING_CHARS = 40
+_FAST_PASS_PLACEHOLDER_WORDS = frozenset(
+    {"test", "todo", "tbd", "placeholder", "n/a", "na", "none", "example", "foo"}
+)
+
+
+def _fast_pass_degenerate_reason(data: dict | None) -> str | None:
+    """Why this pass result is unusable, or None when it looks like work.
+
+    Both halves must fail before a pass is thrown away: a thin summary on
+    top of real findings is terse, not broken, and a pass that genuinely
+    found nothing is allowed to say so. Only an answer that is empty at
+    BOTH ends is placeholder text.
+    """
+    if not isinstance(data, dict):
+        return None  # a missing result is already an error
+    summary = str(data.get("summary") or "").strip()
+    looks_placeholder = (
+        len(summary) < _FAST_PASS_MIN_SUMMARY_CHARS
+        or summary.strip(" .").lower() in _FAST_PASS_PLACEHOLDER_WORDS
+    )
+    if not looks_placeholder:
+        return None
+    findings = data.get("key_findings")
+    findings = findings if isinstance(findings, list) else []
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        claim = str(item.get("claim") or "").strip()
+        finding = str(item.get("finding") or "").strip()
+        if len(claim) + len(finding) >= _FAST_PASS_MIN_FINDING_CHARS:
+            return None
+    return (
+        f"summary is {summary[:40]!r} and none of its {len(findings)} "
+        f"key_findings carry {_FAST_PASS_MIN_FINDING_CHARS} characters of "
+        "claim and finding"
+    )
+
+
 @dataclass
 class _FastMemoPassResult:
     spec: _FastMemoPassSpec
@@ -535,7 +583,78 @@ def _memo_package_path(run_dir: Path) -> Path:
     return run_dir / "logs" / "memo_package.json"
 
 
-def _memo_package_render_validation_error(package_path: Path) -> str | None:
+# A handful of paragraphs can come back from the translation wave with an
+# empty `zh` — the chaser refuses a translation that dropped or renumbered a
+# citation, and if its retry also misses, the slot stays blank. The renderer
+# requires `zh`, so on 2026-09-16 one such paragraph failed a run that had
+# already finished every phase. English in one Chinese paragraph is a far
+# smaller defect than no memo at all, so a FEW gaps are filled from the
+# English and reported. Many gaps mean the translation wave itself broke,
+# which is not something to paper over — those still fail the run.
+_MAX_ZH_FALLBACK_GAPS = 3
+
+
+def _fill_sparse_zh_gaps(payload: Any, limit: int = _MAX_ZH_FALLBACK_GAPS) -> list[str]:
+    """Fill blank ``zh`` slots from their English, in place.
+
+    Returns one description per filled slot, or an empty list when there was
+    nothing to fill or when there were too many to be a translation miss.
+    """
+    gaps: list[tuple[dict, str]] = []
+
+    def walk(node: Any, where: str) -> None:
+        if isinstance(node, dict):
+            if "en" in node and "zh" in node:
+                english = str(node.get("en") or "").strip()
+                if english and not str(node.get("zh") or "").strip():
+                    gaps.append((node, where))
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+            return
+        if isinstance(node, list):
+            for index, item in enumerate(node):
+                walk(item, f"{where}[{index}]")
+
+    walk(payload, "package")
+    if not gaps or len(gaps) > limit:
+        return []
+    filled = []
+    for node, where in gaps:
+        node["zh"] = node["en"]
+        filled.append(f"{where}.zh: fell back to the English text")
+    return filled
+
+
+# Regenerating a section has never brought it under its ceiling. Across
+# three Anthropic runs (2026-09-14 x2, 2026-09-16) every one of them spent
+# two full retry rounds on word-budget errors and still failed; on the last
+# of those company_team went 1358 -> 1187 -> 1018 words against a 750
+# ceiling, and the surgical repair pass — which EDITS the package it is
+# given instead of writing a new one — then fixed it in a single call.
+# Rewriting from the same inputs lands at the same natural length; only
+# editing converges. So a failure that is nothing but over-length sections
+# skips the retries and goes straight to the repair.
+#
+# This must stay the exact phrase `memo_docx_renderer._word_budget_errors`
+# writes. It said "-word ceiling" until the soft-budget change renamed the
+# message to "...-word target and its ...-word hard cap", and the shortcut
+# went silently dead: the 2026-09-16 re-run paid a full section
+# regeneration for company_team being 42 words over. `test_memo_budget_loop`
+# now builds its fixture from the renderer so the two cannot drift again.
+_WORD_BUDGET_ERROR_MARKER = "-word hard cap"
+
+
+def _only_word_budget_errors(validation_errors: list[str]) -> bool:
+    return bool(validation_errors) and all(
+        _WORD_BUDGET_ERROR_MARKER in str(err) for err in validation_errors
+    )
+
+
+def _memo_package_render_validation_error(
+    package_path: Path,
+    *,
+    allow_zh_fallback: bool = False,
+) -> str | None:
     if not package_path.exists():
         return None
     try:
@@ -553,6 +672,11 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
         except Exception:  # noqa: BLE001
             return error
         repaired, repairs = memo_docx_renderer.repair_package_structure(payload)
+        repairs = list(repairs)
+        if allow_zh_fallback:
+            # Last resort only, and only for the caller that has already run
+            # the monolithic Chinese repair: re-translation had its turn.
+            repairs += _fill_sparse_zh_gaps(repaired)
         if not repairs:
             return error
         try:
@@ -2722,6 +2846,7 @@ def _run_fast_memo_pass(
     scope_check: dict | None,
     warnings: list[str],
     structure: memo_structure.MemoStructure | None = None,
+    common_context: str | None = None,
 ) -> _FastMemoPassResult:
     started_at = _now_iso()
     started_monotonic = time.monotonic()
@@ -2750,8 +2875,8 @@ def _run_fast_memo_pass(
         started_monotonic=started_monotonic,
         thread=spec.label,
     )
-    try:
-        data, error = claude_runner.run_memo_fast_analysis_pass(
+    def _attempt() -> tuple[dict | None, str | None]:
+        return claude_runner.run_memo_fast_analysis_pass(
             run_dir=run_dir,
             company_name=company_name,
             company_slug=company_slug,
@@ -2769,7 +2894,60 @@ def _run_fast_memo_pass(
             progress=sub_progress,
             type_focus=type_focus or None,
             type_label=type_profile.label["en"] if type_profile else None,
+            common_context=common_context,
         )
+
+    try:
+        data, error = _attempt()
+        # The CLI rejecting every structured answer is a stumble, not a
+        # verdict: the model submits an object missing a required property
+        # (or the JSON as a string), and runs out of retries. The SAME
+        # schema and prompt succeed on the sibling passes in the same run —
+        # on 2026-09-16 seven of eight landed while `alternative_explanations`
+        # died after four rejections, all of them "must have required
+        # property 'key_findings'". A lost pass costs the memo a whole line
+        # of argument, so it is worth one more attempt.
+        if error and claude_runner.is_structured_output_failure(error):
+            logger.warning(
+                "fast memo pass %s had every structured answer rejected (%s); "
+                "retrying",
+                spec.pass_id,
+                error,
+            )
+            sub_progress.emit(
+                "stage",
+                stage="memo_pass_schema_retry",
+                message=(
+                    f"{spec.label}: the tool rejected every structured "
+                    "answer — running it again"
+                ),
+            )
+            data, error = _attempt()
+        # A placeholder answer is worse than no answer: it is indistinguishable
+        # from real work downstream. Try once more, then fail the pass loudly.
+        if not error:
+            reason = _fast_pass_degenerate_reason(data)
+            if reason:
+                logger.warning(
+                    "fast memo pass %s returned placeholder output (%s); retrying",
+                    spec.pass_id,
+                    reason,
+                )
+                sub_progress.emit(
+                    "stage",
+                    stage="memo_pass_retry",
+                    message=(
+                        f"{spec.label}: answer looked like placeholder text "
+                        f"({reason}) — running it again"
+                    ),
+                )
+                data, error = _attempt()
+                if not error:
+                    reason = _fast_pass_degenerate_reason(data)
+                    if reason:
+                        data, error = None, (
+                            f"pass returned placeholder output twice: {reason}"
+                        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("fast memo pass crashed: %s", spec.pass_id)
         data, error = None, f"{type(exc).__name__}: {exc}"
@@ -2877,6 +3055,21 @@ def _run_fast_phase2(
                 f"Runs with up to {worker_count} parallel Claude workers."
             ),
         )
+    # One shared, cached system-prompt block for the whole fan-out. Built
+    # here and not inside each pass so every pass sends byte-identical
+    # bytes and they collapse into a single prompt-cache entry.
+    pass_common_context = claude_runner.memo_fast_pass_common_context(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=memo_prep.SETTINGS_FILE,
+        companies_yaml_path=memo_prep.COMPANIES_FILE,
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
     stream.emit(
         "stage",
         stage="memo_fast_parallel_dispatch",
@@ -2912,6 +3105,7 @@ def _run_fast_phase2(
                 scope_check=scope_check,
                 warnings=warnings,
                 structure=structure,
+                common_context=pass_common_context,
             ): spec
             for spec in _FAST_MEMO_PASSES
         }
@@ -3368,12 +3562,21 @@ def _run_fast_synthesis(
         attempt_cost_before = phase3_progress.cost_usd
         attempt_duration_before = phase3_progress.duration_ms
         if attempt > 1:
+            # Name the real cause. This used to say "after a retryable
+            # Claude interruption" on every retry, so a package that was
+            # simply too long read in the job rail as an infrastructure
+            # failure.
+            cause = (
+                str(english_error).strip()
+                if english_error
+                else "renderer validation"
+            )
             phase3_progress.emit(
                 "stage",
                 stage="memo_fast_english_package_retry",
                 message=(
-                    "Retrying English package synthesis after a retryable "
-                    f"Claude interruption (attempt {attempt}/{max_attempts})"
+                    "Retrying English package synthesis after "
+                    f"{cause[:160]} (attempt {attempt}/{max_attempts})"
                 ),
                 attempt=attempt,
                 max_attempts=max_attempts,
@@ -3609,6 +3812,20 @@ def _run_fast_synthesis(
                 cost_usd=round(attempt_cost, 6),
                 claude_duration_ms=attempt_duration,
             )
+            if _only_word_budget_errors(validation_errors):
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_budget_repair_shortcut",
+                    message=(
+                        "Only word-budget errors remain; going straight to "
+                        "the trim repair instead of regenerating sections "
+                        "that would come back the same length"
+                    ),
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    validation_errors=validation_errors[:10],
+                )
+                break
             if attempt < max_attempts:
                 # Feed back the cumulative error list, not just this
                 # attempt's: retry 2 of the Axiom run fixed the fed-back
@@ -3673,17 +3890,50 @@ def _run_fast_synthesis(
             ),
             validation_errors=last_validation_errors[:10],
         )
-        repair_result, repair_error = (
-            claude_runner.run_memo_package_structure_repair(
-                run_dir=run_dir,
-                company_name=company_name,
-                run_id=run_id,
-                package_path=invalid_path,
-                validation_errors=last_validation_errors,
-                progress=phase3_progress,
+        repaired_package = None
+        if claude_runner._memo_sectional_repair_enabled() and isinstance(
+            last_invalid_candidate, dict
+        ):
+            # Word-budget overruns are per-section by construction, and the
+            # whole-package pass cannot carry a 16,000-word memo in one
+            # response. Try the per-section repair first; it re-emits only
+            # the sections the errors name.
+            sectional, sectional_reason = (
+                claude_runner.run_memo_package_sectional_repair(
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    package=last_invalid_candidate,
+                    findings=last_validation_errors,
+                    progress=phase3_progress,
+                    stream=stream,
+                )
             )
-        )
-        repaired_package = (
+            if isinstance(sectional, dict):
+                repaired_package = sectional
+            else:
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_sectional_repair_fallback",
+                    message=(
+                        "Per-section repair unavailable "
+                        f"({str(sectional_reason)[:300]}); falling back to "
+                        "the whole-package pass"
+                    ),
+                )
+        repair_result, repair_error = (None, None)
+        if repaired_package is None:
+            repair_result, repair_error = (
+                claude_runner.run_memo_package_structure_repair(
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    package_path=invalid_path,
+                    validation_errors=last_validation_errors,
+                    progress=phase3_progress,
+                )
+            )
+        repaired_package = repaired_package or (
             repair_result.get("memo_package")
             if not repair_error and isinstance(repair_result, dict)
             else None
@@ -4028,7 +4278,8 @@ def _run_fast_synthesis(
                 claude_runner._adopt_zh_translations(memo_package, repaired)
                 _write_json(final_package_path, memo_package)
                 package_error = _memo_package_render_validation_error(
-                    final_package_path
+                    final_package_path,
+                    allow_zh_fallback=True,
                 )
     if package_error:
         message = (
