@@ -102,7 +102,11 @@ def _loads_object(text: str) -> tuple[dict | None, str | None]:
     default decoder rejects the whole document over it.
     """
     reason: str | None = None
-    for candidate in (text, _BAD_QUOTE_RE.sub(r'\\"', text)):
+    candidates = [text, _BAD_QUOTE_RE.sub(r'\\"', text)]
+    stripped = _strip_stray_tokens(text)
+    if stripped is not None:
+        candidates.append(stripped)
+    for candidate in candidates:
         try:
             parsed = json.loads(candidate, strict=False)
         except json.JSONDecodeError as exc:
@@ -112,6 +116,48 @@ def _loads_object(text: str) -> tuple[dict | None, str | None]:
             return parsed, None
         reason = reason or f"top-level JSON is {type(parsed).__name__}, not an object"
     return None, reason
+
+
+_STRUCTURAL_AFTER = "]},"
+
+
+def _strip_stray_tokens(text: str, *, limit: int = 25) -> str | None:
+    """Remove bare words the model dropped between structural tokens.
+
+    A 21KB Chinese section unit failed with "Expecting ',' delimiter" at a
+    spot that read ``…"}]  Feature ]},{"type":…`` — one stray identifier
+    between an array close and the next close. The decoder's own position
+    points straight at it, so the repair is surgical: at the reported
+    position, skip spaces, take one bare identifier, and delete it only if
+    the next non-space character is a structural close or comma. Anything
+    inside a string never qualifies, because the decoder does not stop
+    there. Returns the repaired text, or None if nothing of that shape sits
+    at the failure position.
+    """
+    changed = False
+    for _ in range(limit):
+        try:
+            json.loads(text, strict=False)
+            return text if changed else None
+        except json.JSONDecodeError as exc:
+            if exc.msg not in ("Expecting ',' delimiter", "Expecting value", "Extra data"):
+                return text if changed else None
+            i = exc.pos
+            j = i
+            while j < len(text) and text[j] in " \t":
+                j += 1
+            k = j
+            while k < len(text) and (text[k].isalnum() or text[k] in "_-"):
+                k += 1
+            m = k
+            while m < len(text) and text[m] in " \t":
+                m += 1
+            if k > j and m < len(text) and text[m] in _STRUCTURAL_AFTER:
+                text = text[:i] + text[m:]
+                changed = True
+                continue
+            return text if changed else None
+    return text if changed else None
 
 
 class GeminiUnavailableError(RuntimeError):

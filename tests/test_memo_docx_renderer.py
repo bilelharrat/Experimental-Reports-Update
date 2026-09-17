@@ -1700,3 +1700,28 @@ def test_callout_prose_under_text_is_localized_by_the_mechanical_repair():
     assert any(r.endswith("blocks[1].text: wrapped plain string as bilingual en value") for r in repairs)
     errors = memo_docx_renderer.english_package_validation_errors(repaired)
     assert not [e for e in errors if "blocks[1].body must be bilingual" in e], errors
+
+
+def test_prose_blocks_and_wrapped_cells_are_repaired_mechanically():
+    """Both shapes came from the per-section wave on Gemini and each cost a
+    whole regeneration attempt: a block typed 'prose', and a table cell
+    written as {"text": {en, zh}} (reported as 'cells[0].en is required')."""
+    package = copy.deepcopy(_package())
+    section = package["sections"][0]
+    section["blocks"].insert(0, {"type": "prose", "text": {"en": "Opening prose.", "zh": "开篇。"}})
+    section["blocks"].append({
+        "type": "table", "headers": [],
+        "rows": [[{"text": {"en": "Risk Type", "zh": "风险类型"}}, {"text": "Execution"}]],
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert blocks[0]["type"] == "paragraph"
+    row = blocks[-1]["rows"][0]
+    assert row[0] == {"en": "Risk Type", "zh": "风险类型"}
+    # A one-word label counts as language-neutral, so the validator accepts
+    # it as a plain string; what matters is that the {"text": …} wrapper is
+    # gone and the cell is a value the validator understands.
+    assert row[1] in ("Execution", {"en": "Execution", "zh": ""})
+    assert any("unwrapped cell text" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "'prose' is unsupported" in e or "cells[0].en is required" in e], errors

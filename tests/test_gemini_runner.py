@@ -701,3 +701,23 @@ def test_a_parse_failure_names_the_decoder_reason_and_keeps_the_raw_output(
     match = _re.search(r"raw output kept at (\S+?);", error)
     assert match, error
     assert Path(match.group(1)).read_text(encoding="utf-8") == '{"a": 1,, "b": 2}'
+
+
+def test_a_stray_word_between_structural_tokens_is_removed(monkeypatch, key):
+    """A 21KB Chinese unit read `…"}]  Feature ]},{…` at the decoder's failure
+    position — one bare identifier between an array close and the next
+    close. Retrying the unit reproduced it."""
+    text = '{"rows":[[{"en":"a","zh":"甲"}]  Feature ],"next":{"en":"b","zh":"乙"}}'
+    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh"
+    )
+    assert error is None, error
+    assert data == {"rows": [[{"en": "a", "zh": "甲"}]], "next": {"en": "b", "zh": "乙"}}
+
+
+def test_the_stray_token_repair_never_touches_string_content(monkeypatch, key):
+    """The decoder never stops inside a string, so words inside values are
+    untouchable — and a genuinely broken document still fails honestly."""
+    assert gemini_runner._strip_stray_tokens('{"a": "x ] Feature ] y"}') is None
+    assert gemini_runner._strip_stray_tokens('{"a": [1, 2') is None

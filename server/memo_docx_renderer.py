@@ -260,6 +260,10 @@ _BLOCK_TYPE_SYNONYMS = {
     "text": "paragraph",
     "call_out": "callout",
     "box": "callout",
+    # Seen from the per-section wave on Gemini: prose under its own name.
+    "prose": "paragraph",
+    "narrative": "paragraph",
+    "body_text": "paragraph",
 }
 
 
@@ -394,6 +398,23 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                 rows = block.get("rows")
                 for r_index, row in enumerate(rows if isinstance(rows, list) else []):
                     cells = row.get("cells") if isinstance(row, dict) else row
+                    # A cell written as {"text": <localized>} carries its
+                    # value one level down; the validator wants the localized
+                    # object itself and reports "cells[0].en is required".
+                    if isinstance(cells, list):
+                        for c_index, cell in enumerate(cells):
+                            if (
+                                isinstance(cell, dict)
+                                and "en" not in cell
+                                and "zh" not in cell
+                                and isinstance(cell.get("text"), (dict, str))
+                                and len(cell) == 1
+                            ):
+                                cells[c_index] = cell["text"]
+                                repairs.append(
+                                    f"{where}.rows[{r_index}].cells[{c_index}]: "
+                                    "unwrapped cell text"
+                                )
                     fixed = _repair_localized_list(
                         cells, repairs, f"{where}.rows[{r_index}].cells"
                     )
