@@ -425,3 +425,29 @@ def test_a_bad_key_is_not_mistaken_for_a_schema_rejection(monkeypatch, key):
     )
     assert data is None and "API key not valid" in error
     assert len(calls) == 1
+
+
+def test_unsupported_schema_keywords_are_stripped_before_sending(monkeypatch, key):
+    """`response_schema` 400s on keywords outside its OpenAPI subset rather
+    than ignoring them, and our schemas carry `additionalProperties` because
+    they were written for Claude."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))], calls)
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "rows": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": False, "properties": {}},
+            }
+        },
+    }
+    gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=schema, name="t"
+    )
+    sent = calls[0]["body"]["generationConfig"]["responseSchema"]
+    assert "additionalProperties" not in sent
+    assert "additionalProperties" not in sent["properties"]["rows"]["items"]
+    # The shape itself survives.
+    assert sent["properties"]["rows"]["type"] == "array"

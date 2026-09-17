@@ -155,6 +155,25 @@ REST API over `httpx`, no new dependency. It mirrors
 `run_grounded_json` for Google Search-grounded calls that return the
 sources the model read.
 
+Two things about the Gemini API that are not guessable and cost real time
+to rediscover, both measured against the live API:
+
+1. **A grounded call must not set `responseSchema`.** Combining it with the
+   `google_search` tool makes the response come back with an *empty*
+   `groundingMetadata` — no chunks, no queries — so every source URL is lost
+   and a researched answer is indistinguishable from unsourced recall.
+   `run_grounded_json` therefore puts the schema in the prompt instead.
+2. **Tool use depends on the thinking level, and not monotonically.** On the
+   founder-dossier prompt, `low` and `high` answered from memory with zero
+   searches; `medium` searched every time (13-16 queries, 19-32 sources).
+   Grounded calls default to `medium` for that reason
+   (`BSH_GEMINI_GROUNDED_THINKING`), and `meta["grounded"]` reports whether
+   any search actually ran.
+
+`response_schema` also takes an OpenAPI-flavored subset of JSON Schema and
+400s on keywords outside it (`additionalProperties`, which our Claude-era
+schemas all carry), so `gemini_runner` strips those before sending.
+
 `server/ai_engine.py` owns the policy (`BSH_AI_ENGINE`), and this is the
 part to keep enforcing: **the fallback is never silent.** Every call
 returns a `meta` dict naming the engine that produced the answer and why

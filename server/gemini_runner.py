@@ -41,6 +41,15 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_THINKING = "low"
+# Grounded calls get their own default, and it is not the cheapest one.
+# Whether the model actually calls `google_search` turns out to depend on the
+# thinking level, and not monotonically: measured against the live API on the
+# founder-dossier prompt, `low` and `high` both answered from model memory
+# with zero searches, while `medium` searched every time (13-16 queries,
+# 19-32 sources). An ungrounded answer here is the failure this whole module
+# exists to avoid — it reads as researched while being unsourced recall — so
+# grounded calls default to the level that demonstrably searches.
+DEFAULT_GROUNDED_THINKING = "medium"
 THINKING_LEVELS = ("low", "medium", "high")
 
 # Attempts for a call that failed in a way a retry can fix (rate limit, 5xx,
@@ -89,9 +98,11 @@ def default_model() -> str:
     return str(os.environ.get("BSH_GEMINI_MODEL") or "").strip() or DEFAULT_MODEL
 
 
-def default_thinking_level() -> str:
-    raw = str(os.environ.get("BSH_GEMINI_THINKING") or "").strip().lower()
-    return raw if raw in THINKING_LEVELS else DEFAULT_THINKING
+def default_thinking_level(*, grounded: bool = False) -> str:
+    var = "BSH_GEMINI_GROUNDED_THINKING" if grounded else "BSH_GEMINI_THINKING"
+    fallback = DEFAULT_GROUNDED_THINKING if grounded else DEFAULT_THINKING
+    raw = str(os.environ.get(var) or "").strip().lower()
+    return raw if raw in THINKING_LEVELS else fallback
 
 
 # ---- response parsing -----------------------------------------------------
@@ -221,6 +232,40 @@ def _error_text(response: httpx.Response) -> str:
 # ---- request construction -------------------------------------------------
 
 
+# `response_schema` takes an OpenAPI-flavored subset of JSON Schema and hard
+# 400s on keywords outside it rather than ignoring them — `additionalProperties`
+# is the one our existing schemas carry, since they were written for Claude.
+# Stripping them costs nothing (they constrain a response the model is already
+# being told to produce) and saves a doomed round trip per call.
+_UNSUPPORTED_SCHEMA_KEYS = frozenset(
+    {
+        "additionalProperties",
+        "patternProperties",
+        "$schema",
+        "$id",
+        "$ref",
+        "definitions",
+        "$defs",
+        "const",
+        "default",
+        "examples",
+    }
+)
+
+
+def _sanitize_schema(value: Any) -> Any:
+    """Drop JSON Schema keywords the Gemini response schema rejects."""
+    if isinstance(value, dict):
+        return {
+            k: _sanitize_schema(v)
+            for k, v in value.items()
+            if k not in _UNSUPPORTED_SCHEMA_KEYS
+        }
+    if isinstance(value, list):
+        return [_sanitize_schema(item) for item in value]
+    return value
+
+
 def _schema_instructions(schema: dict) -> str:
     """The prompt-embedded schema contract, for the no-responseFormat path."""
     return (
@@ -256,7 +301,7 @@ def _build_body(
         # `_run`, so a shape change on Google's side degrades instead of
         # failing the call.
         generation_config["responseMimeType"] = "application/json"
-        generation_config["responseSchema"] = schema
+        generation_config["responseSchema"] = _sanitize_schema(schema)
     body: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": generation_config,
@@ -335,11 +380,18 @@ def _run(
             "(get one at https://aistudio.google.com/apikey)."
         )
     chosen_model = (model or default_model()).strip() or DEFAULT_MODEL
-    thinking = (thinking_level or default_thinking_level()).strip().lower()
+    thinking = (thinking_level or default_thinking_level(grounded=grounded)).strip().lower()
     if thinking not in THINKING_LEVELS:
-        thinking = DEFAULT_THINKING
+        thinking = DEFAULT_GROUNDED_THINKING if grounded else DEFAULT_THINKING
 
-    embed_schema = False
+    # Grounded calls MUST carry the schema in the prompt rather than in
+    # `responseSchema`. Setting a response schema alongside the
+    # `google_search` tool makes the API return an empty `groundingMetadata`
+    # — no chunks, no queries — so there is no way to tell a researched
+    # answer from unsourced model recall, and every source URL is lost.
+    # Verified against the live API: with the schema, chunks=0/queries=0;
+    # without it, the same prompt returns real chunks and queries.
+    embed_schema = grounded
     for _ in range(2):
         body = _build_body(
             system_prompt=system_prompt,
@@ -376,6 +428,10 @@ def _run(
     meta = _grounding_meta(payload)
     meta["model"] = chosen_model
     meta["engine"] = "gemini"
+    # A grounded request whose response reports no searches was answered from
+    # model memory. It is not research, and callers must not present it as
+    # though it were.
+    meta["grounded"] = bool(grounded and (meta["sources"] or meta["queries"]))
     text = _candidate_text(payload)
     if not text:
         return None, meta, (_blocked_reason(payload) or "gemini returned an empty response") + f" ({name})"

@@ -46,6 +46,10 @@ def _meta(
         "model": model,
         "sources": sources or [],
         "queries": queries or [],
+        # Whether the answer was actually backed by web searches. False for
+        # the Claude fallback (it reports none) and for a Gemini answer that
+        # skipped the search tool.
+        "grounded": False,
         "fallback_reason": fallback_reason,
     }
 
@@ -137,12 +141,14 @@ def grounded(
                 thinking_level=thinking_level,
             )
             if error is None and isinstance(data, dict):
-                return data, _meta(
+                engine_meta = _meta(
                     "gemini",
                     model=meta.get("model"),
                     sources=meta.get("sources"),
                     queries=meta.get("queries"),
-                ), None
+                )
+                engine_meta["grounded"] = bool(meta.get("grounded"))
+                return data, engine_meta, None
             gemini_error = error or "gemini returned no object"
         else:
             gemini_error = "no Gemini API key configured"
