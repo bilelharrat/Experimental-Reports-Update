@@ -207,7 +207,15 @@ struct CompanyResearchView: View {
     private func overviewSection(_ company: CompanyDetail) -> some View {
         Section {
             HStack(spacing: 12) {
-                MonogramAvatar(name: company.displayName(lang: language.language), size: 52)
+                MonogramAvatar(
+                    name: company.displayName(lang: language.language),
+                    ticker: company.ticker,
+                    companyId: company.id,
+                    logoUrl: company.logoUrl,
+                    logoDomain: company.logoDomain,
+                    website: company.website,
+                    size: 52
+                )
                 VStack(alignment: .leading, spacing: 3) {
                     Text(company.displayName(lang: language.language))
                         .font(.headline)

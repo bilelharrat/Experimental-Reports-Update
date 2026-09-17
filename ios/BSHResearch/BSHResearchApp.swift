@@ -10,6 +10,7 @@ struct BSHResearchApp: App {
     @StateObject private var askPersona = AskPersonaStore()
     @StateObject private var router = DeepLinkRouter()
     @StateObject private var dataCache = AppDataCache.shared
+    @StateObject private var welcomeTour = WelcomeTourStore()
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +22,7 @@ struct BSHResearchApp: App {
                 .environmentObject(askPersona)
                 .environmentObject(router)
                 .environmentObject(dataCache)
+                .environmentObject(welcomeTour)
                 .environmentObject(ResearchDeskStore.shared)
                 .task {
                     async let cachePreload: Void = dataCache.preloadAll(lang: language.language)
@@ -54,6 +56,7 @@ struct BSHResearchApp: App {
                 .environmentObject(askPersona)
                 .environmentObject(router)
                 .environmentObject(dataCache)
+                .environmentObject(welcomeTour)
                 .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
                 .id(language.language)
                 .preferredColorScheme(appearance.appearance.colorScheme)
@@ -72,6 +75,7 @@ struct BSHResearchApp: App {
                 .environmentObject(askPersona)
                 .environmentObject(router)
                 .environmentObject(dataCache)
+                .environmentObject(welcomeTour)
                 .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
                 .id(language.language)
                 .preferredColorScheme(appearance.appearance.colorScheme)

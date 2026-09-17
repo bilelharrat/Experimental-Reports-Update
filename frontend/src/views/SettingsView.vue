@@ -16,6 +16,7 @@ import { useT } from "../i18n.js";
 import Monogram from "../components/Monogram.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { appLanguage, setAppLanguage } from "../state.js";
+import { openWelcomeTour } from "../welcomeTour.js";
 
 const t = useT();
 
@@ -316,6 +317,20 @@ async function importDeskState(event) {
               {{ appearanceLabel(option) }}
             </button>
           </div>
+        </div>
+        <div class="mt-5 flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
+          <div class="min-w-0">
+            <div class="text-callout text-ink-secondary">{{ t("settings.welcome_tour") }}</div>
+            <div class="text-footnote text-ink-muted">{{ t("settings.welcome_tour_help") }}</div>
+          </div>
+          <button
+            type="button"
+            class="btn-bordered btn-sm shrink-0"
+            data-testid="settings-replay-tour"
+            @click="openWelcomeTour"
+          >
+            {{ t("settings.welcome_tour_replay") }}
+          </button>
         </div>
         <label class="mt-5 flex items-center justify-between gap-3 rounded-subbox px-1 py-2 text-callout text-ink-secondary">
           <span>{{ t("settings.compact_density") }}</span>

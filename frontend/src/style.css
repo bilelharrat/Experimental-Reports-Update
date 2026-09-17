@@ -1633,6 +1633,150 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
   box-shadow: var(--shadow-sheet);
 }
 
+/* Welcome tour — a guided walkthrough, not a slideshow. The welcome card is
+   the iOS "Welcome to" sheet; every step after it drives the app to the real
+   screen, dims everything but the control it is describing, and puts the
+   callout beside it (Apple's in-app coach marks). */
+.welcome-tour-scrim {
+  cursor: default;
+  background-color: transparent;
+  transition: background-color 0.3s var(--ease-standard);
+}
+
+.welcome-tour-scrim.is-flat {
+  background-color: rgb(0 0 0 / 0.24);
+}
+
+.dark .welcome-tour-scrim.is-flat {
+  background-color: rgb(0 0 0 / 0.34);
+}
+
+/* The cutout: an enormous ring shadow dims the page everywhere except here. */
+.welcome-tour-spotlight {
+  position: fixed;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 9999px rgb(0 0 0 / 0.16),
+    0 0 0 2px rgb(var(--color-accent) / 0.9),
+    0 0 0 5px rgb(var(--color-accent) / 0.22),
+    0 0 26px -2px rgb(var(--color-accent-glow) / 0.65);
+  transition:
+    top 0.4s var(--ease-emphasized),
+    left 0.4s var(--ease-emphasized),
+    width 0.4s var(--ease-emphasized),
+    height 0.4s var(--ease-emphasized),
+    border-radius 0.4s var(--ease-emphasized);
+}
+
+.dark .welcome-tour-spotlight {
+  box-shadow:
+    0 0 0 9999px rgb(0 0 0 / 0.26),
+    0 0 0 2px rgb(var(--color-accent) / 0.95),
+    0 0 0 5px rgb(var(--color-accent) / 0.26),
+    0 0 30px -2px rgb(var(--color-accent-glow) / 0.7);
+}
+
+.welcome-tour-spotlight.is-still {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-tour-spotlight {
+    transition: none;
+  }
+}
+
+.welcome-tour-callout {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+  max-height: min(92vh, 720px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: rgb(var(--color-surface));
+  outline: none;
+  transition:
+    top 0.4s var(--ease-emphasized),
+    left 0.4s var(--ease-emphasized);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-tour-callout {
+    transition: none;
+  }
+}
+
+.welcome-tour-callout.is-anchored {
+  border-radius: 16px;
+}
+
+.welcome-tour-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-bottom: 0.25rem;
+}
+.welcome-tour-hero-tile {
+  @apply flex h-[88px] w-[88px] items-center justify-center rounded-[22px] text-ink-primary;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.98), rgb(var(--color-surface-muted)));
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 12px 28px -10px rgb(var(--color-accent-glow) / 0.45);
+}
+
+.dark .welcome-tour-hero-tile {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.04));
+  box-shadow:
+    0 0 0 0.5px rgb(255 255 255 / 0.14),
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 12px 28px -10px rgb(0 0 0 / 0.6);
+}
+
+.welcome-tour-row-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-row bg-accent-soft text-accent-ink;
+}
+
+.welcome-tour-glyph {
+  @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px] bg-accent-soft text-accent-ink;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-accent) / 0.12);
+}
+
+.welcome-tour-glyph.is-warren {
+  @apply bg-transparent;
+  box-shadow: none;
+}
+
+.welcome-tour-tip {
+  @apply flex items-center gap-3 rounded-row px-3 py-2.5;
+  background-color: rgb(var(--color-fill-tertiary));
+}
+
+.welcome-tour-tip-icon {
+  @apply flex h-6 w-6 shrink-0 items-center justify-center text-accent-ink;
+}
+
+.welcome-tour-tip-dot {
+  @apply block h-1.5 w-1.5 rounded-full bg-accent;
+}
+
+.welcome-tour-dots {
+  @apply flex items-center justify-center gap-2;
+}
+
+.welcome-tour-dot {
+  @apply h-2 w-2 rounded-full;
+  background-color: rgb(var(--color-text-primary) / 0.18);
+  transition:
+    background-color 0.2s var(--ease-standard),
+    transform 0.2s var(--ease-standard);
+}
+
+.welcome-tour-dot[aria-selected="true"] {
+  @apply bg-accent;
+  transform: scale(1.15);
+}
+
 /* Lucide draws at 2px; SF Symbols at these sizes read nearer 1.75. */
 .lucide {
   stroke-width: 1.75;

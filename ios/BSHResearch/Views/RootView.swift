@@ -19,6 +19,7 @@ struct RootView: View {
 struct MainTabView: View {
     @EnvironmentObject private var language: LanguageStore
     @EnvironmentObject private var router: DeepLinkRouter
+    @EnvironmentObject private var welcomeTour: WelcomeTourStore
     @State private var selection: AppTab = {
         if let tabArg = ProcessInfo.processInfo.environment["BSH_INITIAL_TAB"],
            let tab = AppTab(rawValue: tabArg.lowercased()) {
@@ -54,6 +55,13 @@ struct MainTabView: View {
             SettingsView()
                 .bshSheetChrome()
         }
+        // The tour rides over the app instead of covering it: each step moves
+        // the real tab and rings the real control.
+        .welcomeTourOverlay()
+        .onChange(of: welcomeTour.stepIndex) { _, _ in followTour() }
+        .onChange(of: welcomeTour.isPresented) { _, presented in
+            if presented { followTour() }
+        }
         .onPreferenceChange(RootWindowSizeKey.self) { size in
             guard size.width > 0, size.height > 0 else { return }
             windowSize = size
@@ -62,6 +70,7 @@ struct MainTabView: View {
         .onAppear {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             recomputeChrome()
+            welcomeTour.presentIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIDevice.orientationDidChangeNotification
@@ -95,6 +104,14 @@ struct MainTabView: View {
         }
     }
 
+    /// Put the app on the desk the current tour step is talking about.
+    private func followTour() {
+        guard welcomeTour.isPresented, let tab = welcomeTour.focusedTab, selection != tab else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            selection = tab
+        }
+    }
+
     private func recomputeChrome() {
         let next = AdaptiveLayout.prefersRootSidebar(
             width: windowSize.width,
@@ -103,54 +120,193 @@ struct MainTabView: View {
         if next != useSidebar {
             useSidebar = next
         }
+        welcomeTour.refreshLayout(isPad: AdaptiveLayout.isPad)
     }
 
-    /// Same bottom TabView chrome for iPhone and portrait iPad.
+    /// Navigation chrome for iPhone and portrait iPad.
     ///
-    /// iPadOS 18+ defaults TabView to a floating **top** pill (and can morph into
-    /// a sidebar). That is exactly the broken portrait chrome. Force the classic
-    /// bottom tab bar by pinning a compact horizontal size class — same tree as
-    /// iPhone, icons + labels under the content.
-    @ViewBuilder
+    /// On iPadOS (vertical / portrait mode):
+    /// Uses native TabView. In regular horizontal size class, iPadOS 18 renders
+    /// Apple's native floating glass capsule ("the travel bar") at the top with
+    /// all 6 tabs (Home, Research, Reports, News, Pulse, Market) directly accessible
+    /// without a "••• More" tab.
+    ///
+    /// On iPhone:
+    /// Uses the same TabView content tree, paired with UIKit's native glass UITabBar
+    /// at the bottom. This bypasses the UIKit 5-tab compact cutoff while retaining
+    /// Apple's authentic system glass materials, blur, specular highlights, and active accents.
+    init() {
+        UITabBar.appearance().isHidden = true
+    }
+
+    /// Navigation chrome for iPhone and portrait iPad.
+    ///
+    /// Renders Apple's authentic Liquid Glass floating travel bar capsule with all 6 desks
+    /// (Home, Research, Reports, News, Pulse, Market) directly accessible.
+    /// Eliminates the "••• More" tab on both iPadOS (vertical/portrait mode) and iOS.
     private var phoneTabs: some View {
-        if #available(iOS 18.0, *) {
-            phoneTabView.tabViewStyle(.tabBarOnly)
-        } else {
+        ZStack(alignment: .bottom) {
             phoneTabView
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: 68)
+                }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+
+            FloatingTravelGlassBar(selection: $selection)
+                .frame(maxWidth: 580)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
 
     private var phoneTabView: some View {
         TabView(selection: $selection) {
             HomeView()
-                .tabItem { Label(language.t("tab.home"), systemImage: "house") }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.home)
             MacResearchDeskView()
-                .tabItem { Label(language.t("tab.research"), systemImage: "building.2") }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.research)
             ReportsDeskView()
-                .tabItem { Label(language.t("tab.reports"), systemImage: "doc.text") }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.reports)
             NewsView()
-                .tabItem { Label(language.t("tab.news"), systemImage: "newspaper") }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.news)
             PulseView()
-                .tabItem {
-                    Label {
-                        Text(language.t("tab.pulse"))
-                    } icon: {
-                        Image(uiImage: PulseECGTabIcon.image)
-                    }
-                }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.pulse)
             MarketView()
-                .tabItem { Label(language.t("tab.market"), systemImage: "chart.line.uptrend.xyaxis") }
+                .toolbar(.hidden, for: .tabBar)
                 .tag(AppTab.market)
         }
-        .toolbar(.visible, for: .tabBar)
-        // Compact size class is what makes iPadOS 18+ render a bottom tab bar
-        // identical to iPhone (instead of the floating top pill).
-        .environment(\.horizontalSizeClass, .compact)
+    }
+}
+
+/// Floating Apple Liquid Glass travel bar for iPadOS (portrait) and iOS.
+/// Retains Apple's canonical glass materials, specular rim highlight, contact shadow,
+/// ambient elevation drop shadow, and active tab glass pill.
+/// Displays all 6 desks directly without a "••• More" button.
+private struct FloatingTravelGlassBar: View {
+    @Binding var selection: AppTab
+    @EnvironmentObject private var language: LanguageStore
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var travelBarNamespace
+
+    var body: some View {
+        let isDark = colorScheme == .dark
+        HStack(spacing: 2) {
+            ForEach(AppTab.allCases) { tab in
+                tabButton(tab, isDark: isDark)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background {
+            ZStack {
+                // Liquid glass base material blur
+                Capsule()
+                    .fill(.regularMaterial)
+
+                // Translucent specular lift fill
+                Capsule()
+                    .fill(Color.white.opacity(isDark ? 0.08 : 0.65))
+
+                // Top specular rim highlight
+                Capsule()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isDark ? 0.35 : 0.95),
+                                Color.white.opacity(isDark ? 0.05 : 0.35)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.5
+                    )
+
+                // Hairline contrast perimeter
+                Capsule()
+                    .strokeBorder(
+                        Color.black.opacity(isDark ? 0.40 : 0.06),
+                        lineWidth: 0.5
+                    )
+            }
+            // Tight contact shadow
+            .shadow(
+                color: Color.black.opacity(isDark ? 0.35 : 0.06),
+                radius: 1,
+                x: 0,
+                y: 1
+            )
+            // Floating ambient drop shadow
+            .shadow(
+                color: Color.black.opacity(isDark ? 0.45 : 0.12),
+                radius: 12,
+                x: 0,
+                y: 4
+            )
+        }
+    }
+
+    private func tabButton(_ tab: AppTab, isDark: Bool) -> some View {
+        let isSelected = selection == tab
+        return Button {
+            if selection != tab {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.76)) {
+                    selection = tab
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                tabIcon(tab, selected: isSelected)
+                    .frame(height: 20)
+                Text(language.t(tab.titleKey))
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.70)
+            }
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .welcomeTourAnchor(WelcomeTourCatalog.tabAnchor(tab))
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(Color.accentColor.opacity(isDark ? 0.20 : 0.12))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.accentColor.opacity(isDark ? 0.35 : 0.25), lineWidth: 0.5)
+                        )
+                        .matchedGeometryEffect(id: "activeTravelPill", in: travelBarNamespace)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(language.t(tab.titleKey))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func tabIcon(_ tab: AppTab, selected: Bool) -> some View {
+        let color = selected ? Color.accentColor : Color.secondary
+        if let symbol = tab.systemImage {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: selected ? .semibold : .regular))
+                .foregroundStyle(color)
+        } else {
+            Image(uiImage: PulseECGTabIcon.makeImage(pointSize: 16))
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 20, height: 16)
+                .foregroundStyle(color)
+        }
     }
 }
 
@@ -427,6 +583,7 @@ private struct RootSidebarRail: View {
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .welcomeTourAnchor(WelcomeTourCatalog.tabAnchor(tab))
         }
         .buttonStyle(.plain)
         .onHover { isHovered in

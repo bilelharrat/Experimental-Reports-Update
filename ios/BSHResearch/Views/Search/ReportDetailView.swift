@@ -335,7 +335,14 @@ struct ReportDetailView: View {
     private func statusSection(_ report: ReportDetail) -> some View {
         Section {
             HStack(spacing: 12) {
-                MonogramAvatar(name: report.companyName ?? report.companyId ?? reportId, size: 40)
+                MonogramAvatar(
+                    name: report.companyName ?? report.companyId ?? reportId,
+                    ticker: report.companyId,
+                    companyId: report.companyId,
+                    logoUrl: report.logoUrl,
+                    logoDomain: report.logoDomain,
+                    size: 40
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(report.reportType ?? language.t("research.report"))
                         .font(.headline)

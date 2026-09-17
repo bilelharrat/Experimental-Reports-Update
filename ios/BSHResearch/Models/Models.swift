@@ -36,13 +36,18 @@ struct Company: Identifiable, Decodable, Hashable {
     let nameZh: String?
     let companyNews: [CompanyNewsDTO]?
     let recentNews: [CompanyNewsDTO]?
+    let website: String?
+    let logoDomain: String?
+    let logoUrl: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, ticker, status, sector
+        case id, name, ticker, status, sector, website
         case companyType = "company_type"
         case nameZh = "name_zh"
         case companyNews = "company_news"
         case recentNews = "recent_news"
+        case logoDomain = "logo_domain"
+        case logoUrl = "logo_url"
     }
 
     func displayName(lang: AppLanguage) -> String {

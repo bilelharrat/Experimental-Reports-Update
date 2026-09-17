@@ -237,6 +237,50 @@ final class MacAppStore: ObservableObject {
 
     // MARK: - Terminal Polish, Command Palette & Shortcuts
     @Published var showShortcutSheet: Bool = false
+
+    // MARK: - Welcome tour (first launch)
+    /// v2: the tour walks the terminal instead of paging through cards.
+    static let welcomeTourVersion = 2
+    static let welcomeTourSeenKey = "bsh.mac.welcomeTourVersionSeen"
+    @Published var showWelcomeTour: Bool = false
+    /// Which step the walkthrough is on. The selected desk follows it, because
+    /// the tour moves the real terminal rather than describing it.
+    @Published var welcomeTourStep: Int = 0 {
+        didSet { followWelcomeTour() }
+    }
+
+    var needsWelcomeTour: Bool {
+        UserDefaults.standard.integer(forKey: Self.welcomeTourSeenKey) < Self.welcomeTourVersion
+    }
+
+    /// Runs after bootstrap and after a later sign-in. Never while the login sheet
+    /// is up: the tour would fight the sheet for the window.
+    func presentWelcomeTourIfNeeded() {
+        guard needsWelcomeTour, session != nil, !showLoginSheet, !showWelcomeTour else { return }
+        welcomeTourStep = 0
+        showWelcomeTour = true
+    }
+
+    /// Put the terminal on the desk the current step is talking about.
+    private func followWelcomeTour() {
+        let pages = MacWelcomeTourCatalog.pages
+        guard showWelcomeTour, pages.indices.contains(welcomeTourStep) else { return }
+        guard let tab = pages[welcomeTourStep].tab, selectedTab != tab else { return }
+        selectedTab = tab
+    }
+
+    /// Any way out counts as seen: Get started, Skip or Esc.
+    func completeWelcomeTour() {
+        UserDefaults.standard.set(Self.welcomeTourVersion, forKey: Self.welcomeTourSeenKey)
+        showWelcomeTour = false
+        welcomeTourStep = 0
+    }
+
+    /// Replay from Settings: start over without touching the seen version.
+    func replayWelcomeTour() {
+        welcomeTourStep = 0
+        showWelcomeTour = true
+    }
     @Published var showDeckIntakeSheet: Bool = false
     @Published var droppedDeckURL: URL? = nil
     @Published private(set) var isOfflineMode: Bool = false
@@ -545,6 +589,7 @@ final class MacAppStore: ObservableObject {
         if let raw = defaults.string(forKey: "bsh.launchBlotterTab"), let tab = MacBlotterTab(rawValue: raw) { blotterTab = tab }
             if let cid = defaults.string(forKey: "bsh.launchCompany"), let company = companies.first(where: { $0.id == cid }) { selectCompany(company) }
             if defaults.bool(forKey: "bsh.launchPalette") { openCommandPalette() }
+            if defaults.bool(forKey: "bsh.launchWelcome") { showWelcomeTour = true }
             if defaults.bool(forKey: "bsh.launchFirmSearch") { showFirmSearch = true }
             if defaults.bool(forKey: "bsh.launchDecision"), let company = selectedCompany ?? companies.first { requestDecision(for: company) }
             if defaults.bool(forKey: "bsh.launchICReview"), let report = reports.first(where: \.canOpen) { openICReview(report: report) }

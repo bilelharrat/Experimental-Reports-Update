@@ -2917,6 +2917,12 @@ def get_company_founder_dossier(company_id: str) -> dict:
     return founder_dossier.get_or_synthesize_founder_dossier(company_id)
 
 
+@router.get("/companies/{company_id}/founder-radar")
+def get_company_founder_radar(company_id: str) -> dict:
+    """Alias of ``founder-dossier`` — the iOS/iPadOS Team tab shipped against this path."""
+    return get_company_founder_dossier(company_id)
+
+
 @router.post("/companies/{company_id}/founder-dossier/deep-search")
 def post_company_founder_deep_search(request: Request, company_id: str) -> dict:
     _require_permission(request, "tasks:action")

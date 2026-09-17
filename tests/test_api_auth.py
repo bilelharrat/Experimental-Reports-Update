@@ -190,7 +190,8 @@ def test_index_html_has_anon_dev_meta_when_enabled(client, monkeypatch):
     assert 'content="1"' in r.text
 
 
-def test_index_html_omits_anon_dev_meta_when_disabled(client):
+def test_index_html_omits_anon_dev_meta_when_disabled(client, monkeypatch):
+    monkeypatch.delenv("BSH_ALLOW_ANON_DEV", raising=False)
     r = client.get("/")
     if r.status_code == 503:
         pytest.skip("frontend build missing")

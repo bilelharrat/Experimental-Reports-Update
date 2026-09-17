@@ -69,6 +69,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
     public let patentsOrPapersCount: Int?
     public let githubHandle: String?
     public let linkedinUrl: String?
+    public let profileUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case name, role, bio, education
@@ -78,6 +79,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
         case patentsOrPapersCount = "patents_papers_count"
         case githubHandle = "github_handle"
         case linkedinUrl = "linkedin_url"
+        case profileUrl = "profile_url"
     }
 
     public init(from decoder: Decoder) throws {
@@ -92,6 +94,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
         patentsOrPapersCount = try? c.decodeIfPresent(Int.self, forKey: .patentsOrPapersCount)
         githubHandle = try? c.decodeIfPresent(String.self, forKey: .githubHandle)
         linkedinUrl = try? c.decodeIfPresent(String.self, forKey: .linkedinUrl)
+        profileUrl = try? c.decodeIfPresent(String.self, forKey: .profileUrl)
     }
 }
 
@@ -252,6 +255,8 @@ public struct MacReport: Identifiable, Hashable, Codable {
     public let previewUrls: [String: String]?
     public let memoFiles: [MacMemoFile]?
     public let failurePhase: String?
+    public let logoUrl: String?
+    public let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind
@@ -264,6 +269,8 @@ public struct MacReport: Identifiable, Hashable, Codable {
         case previewUrls = "preview_urls"
         case memoFiles = "memo_files"
         case failurePhase = "failure_phase"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     public var isCancelled: Bool {

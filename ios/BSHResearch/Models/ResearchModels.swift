@@ -36,6 +36,9 @@ struct ReportSummary: Decodable, Identifiable, Hashable {
     let previewUrls: [String: String]?
     let resumeAvailable: Bool?
 
+    let logoUrl: String?
+    let logoDomain: String?
+
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind
         case companyId = "company_id"
@@ -47,6 +50,8 @@ struct ReportSummary: Decodable, Identifiable, Hashable {
         case downloadUrls = "download_urls"
         case previewUrls = "preview_urls"
         case resumeAvailable = "resume_available"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     var isTerminal: Bool {
@@ -87,6 +92,8 @@ struct ReportDetail: Decodable, Identifiable {
     let createdAt: String?
     let updatedAt: String?
     let analysisArtifacts: [AnalysisArtifact]?
+    let logoUrl: String?
+    let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind, content, warnings
@@ -103,6 +110,8 @@ struct ReportDetail: Decodable, Identifiable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case analysisArtifacts = "analysis_artifacts"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     func bodyText(lang: AppLanguage) -> String {
@@ -130,7 +139,9 @@ struct ReportDetail: Decodable, Identifiable {
             streamUrl: streamUrl,
             downloadUrls: downloadUrls,
             previewUrls: previewUrls,
-            resumeAvailable: resumeAvailable
+            resumeAvailable: resumeAvailable,
+            logoUrl: logoUrl,
+            logoDomain: logoDomain
         )
     }
 
@@ -228,6 +239,8 @@ struct CompanyDetail: Decodable, Identifiable {
     let nameZh: String?
     let descriptionZh: String?
     let traderSnapshot: TraderSnapshot?
+    let logoUrl: String?
+    let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, ticker, status, sector, industry, description, website
@@ -235,6 +248,8 @@ struct CompanyDetail: Decodable, Identifiable {
         case nameZh = "name_zh"
         case descriptionZh = "description_zh"
         case traderSnapshot = "trader_snapshot"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     var isPublic: Bool {
@@ -279,5 +294,7 @@ extension ReportDetail {
         self.createdAt = macReport.createdAt
         self.updatedAt = macReport.updatedAt
         self.analysisArtifacts = nil
+        self.logoUrl = macReport.logoUrl
+        self.logoDomain = macReport.logoDomain
     }
 }

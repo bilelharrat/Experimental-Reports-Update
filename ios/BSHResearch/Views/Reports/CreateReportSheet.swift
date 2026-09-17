@@ -139,7 +139,7 @@ struct CreateReportSheet: View {
         Section(header: Text(language.t("reports.group_by_company"))) {
             if let company = selectedCompany {
                 HStack(spacing: 12) {
-                    MonogramAvatar(name: company.displayName(lang: language.language), size: 36)
+                    MonogramAvatar(company: company, size: 36)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(company.displayName(lang: language.language))
                             .font(.headline)

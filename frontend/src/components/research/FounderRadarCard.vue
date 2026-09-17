@@ -91,6 +91,11 @@ const hasPeople = computed(
   () => founders.value.length || board.value.length || headcount.value || traction.value,
 );
 
+/** LinkedIn if the record has one, otherwise whatever profile it does have. */
+function personLink(person) {
+  return person?.linkedin_url || person?.profile_url || null;
+}
+
 function initials(name) {
   const parts = String(name || "").split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -193,8 +198,8 @@ function repoLabel(url) {
               </span>
               <span class="flex-1" />
               <a
-                v-if="person.linkedin_url"
-                :href="person.linkedin_url"
+                v-if="personLink(person)"
+                :href="personLink(person)"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="mac-c-secondary shrink-0"
@@ -280,8 +285,8 @@ function repoLabel(url) {
               </span>
               <span class="flex-1" />
               <a
-                v-if="person.linkedin_url"
-                :href="person.linkedin_url"
+                v-if="personLink(person)"
+                :href="personLink(person)"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="mac-c-secondary shrink-0"
