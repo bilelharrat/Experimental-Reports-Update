@@ -6019,12 +6019,95 @@ def _spine_piece_error(
     return None
 
 
-def _spine_handoff_contract(plan, pieces_dir: Path) -> str:
-    file_lines = "\n".join(
-        f"- `{path.name}` — {what}: "
-        + ", ".join(f"`{key}`" for key in keys)
-        for _stem, _target, keys, _required, what, path in plan
-    )
+def _schema_limit_lines(node: dict, keys: tuple[str, ...]) -> list[str]:
+    """Every bound a piece's own sub-schema puts on its values, in words.
+
+    Under the handoff the model returns a RECEIPT, so the only schema the
+    CLI shows it is the manifest's. The spine's own limits are enforced
+    here, after the files land, and were never stated anywhere the writer
+    could read them — the contract even told it that "the schema limits in
+    your instructions still apply" when there were none in its
+    instructions. The 2026-09-17 Figure AI run paid three separate piece
+    retries for marginal overruns (21 items against 20, 115 characters
+    against 40, 132 against 100): good guesses at a number nobody had
+    given it. Generated from the schema so the prompt cannot drift from
+    what the validator enforces.
+    """
+    lines: list[str] = []
+
+    def bounds(schema: dict) -> str:
+        parts: list[str] = []
+        if isinstance(schema.get("maxLength"), int):
+            parts.append(f"at most {schema['maxLength']} characters")
+        if isinstance(schema.get("minItems"), int) and isinstance(
+            schema.get("maxItems"), int
+        ):
+            low, high = schema["minItems"], schema["maxItems"]
+            parts.append(
+                f"exactly {low} items"
+                if low == high
+                else f"{low}-{high} items"
+            )
+        elif isinstance(schema.get("maxItems"), int):
+            parts.append(f"at most {schema['maxItems']} items")
+        elif isinstance(schema.get("minItems"), int):
+            parts.append(f"at least {schema['minItems']} items")
+        enum = schema.get("enum")
+        if isinstance(enum, list) and len(enum) <= 8:
+            parts.append("one of " + "/".join(str(v) for v in enum))
+        for bound, word in (("minimum", "at least"), ("maximum", "at most")):
+            if isinstance(schema.get(bound), (int, float)):
+                parts.append(f"{word} {schema[bound]}")
+        return ", ".join(parts)
+
+    def walk(schema: dict, label: str, depth: int = 0) -> None:
+        # Depth 5 reaches `calculations[].inputs[].name`, which a live run
+        # overran at 132 characters against 100. A shallower walk would
+        # have left exactly that field unstated.
+        if not isinstance(schema, dict) or depth > 5:
+            return
+        text = bounds(schema)
+        if text:
+            lines.append(f"{label}: {text}")
+        children = schema.get("properties") or {}
+        # Nine scorecard dimensions declare the identical shape. Printing
+        # each one cost ~40 lines of prompt saying the same four things,
+        # so siblings that are structurally equal collapse to one.
+        shapes = {
+            json.dumps(v, sort_keys=True, default=str)
+            for v in children.values()
+            if isinstance(v, dict)
+        }
+        if len(children) > 2 and len(shapes) == 1:
+            first = next(iter(children))
+            walk(children[first], f"{label}.<each>", depth + 1)
+            return
+        for child, child_schema in children.items():
+            walk(child_schema, f"{label}.{child}", depth + 1)
+        items = schema.get("items")
+        if isinstance(items, dict):
+            walk(items, f"{label}[]", depth + 1)
+
+    declared = node.get("properties") or {}
+    for key in keys:
+        child = declared.get(key)
+        if isinstance(child, dict):
+            walk(child, key)
+    return lines
+
+
+def _spine_handoff_contract(plan, pieces_dir: Path, schema: dict) -> str:
+    blocks = []
+    for _stem, target, keys, _required, what, path in plan:
+        head = (
+            f"- `{path.name}` — {what}: "
+            + ", ".join(f"`{key}`" for key in keys)
+        )
+        limits = _schema_limit_lines(_schema_at(schema, target), keys)
+        blocks.append(
+            "\n".join([head] + [f"    {line}" for line in limits])
+        )
+    file_lines = "\n".join(blocks)
     example_stem, _t, example_keys, _r, _w, example_path = plan[0]
     return f"""\
 ## How the spine reaches us (read this twice)
@@ -6050,8 +6133,15 @@ scenarios.
 
 Write each file ONCE, with a single write, the moment that part is
 settled. Never read a file back, never measure it with `wc`, `awk`, `jq`
-or any other shell command, and never trim it to a length. The schema
-limits in your instructions still apply to every value.
+or any other shell command, and never trim it to a length.
+
+The limits listed under each file above are the ones checked here after
+the file lands, and they are the ONLY place those numbers appear — your
+reply carries a receipt, so the CLI never shows you the spine's own
+schema. Write inside them the first time. A value that overruns costs a
+whole retry for that part. Where a field holds a number and a sibling
+field holds the reasoning, keep them apart: the short field takes the
+figure alone, the long one takes the explanation.
 
 When every file is written, return only:
 {{"pieces": [{{"file": "{example_path.name}"}}, ...]}}
@@ -6138,7 +6228,7 @@ def _run_english_spine_via_pieces(
 
     totals: dict[str, Any] = {}
     result, error = _run_memo_local_json_artifact(
-        prompt=body + _spine_handoff_contract(plan, pieces_dir),
+        prompt=body + _spine_handoff_contract(plan, pieces_dir, schema),
         schema=_MEMO_SPINE_MANIFEST_SCHEMA,
         run_dir=run_dir,
         progress=progress,
