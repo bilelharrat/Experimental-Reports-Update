@@ -164,21 +164,25 @@ to rediscover, both measured against the live API:
    `groundingMetadata` — no chunks, no queries — so every source URL is lost
    and a researched answer is indistinguishable from unsourced recall.
    `run_grounded_json` therefore puts the schema in the prompt instead.
-2. **Grounding is the model's decision, and it is not reliable.** Whether it
-   calls `google_search` varies with both the thinking level and the prompt.
-   `medium` grounds far more often than `low` or `high` (hence
-   `BSH_GEMINI_GROUNDED_THINKING`), but on a long schema-carrying prompt for
-   a company the model already knows, identical requests grounded only 2
-   times in 5. **Retrying does not fix it** — resampling up to three times
-   measured the same 2/5, so the decision is sticky per prompt rather than
-   random per call. A short, unstructured question about the same company
-   grounds reliably, which points at prompt shape as the real fix: do the
-   research in a natural-language grounded call, then structure the result
-   in a second, cheap, ungrounded call. That split is not built yet.
+2. **A grounded call is two calls, and must stay that way.** Whether the
+   model calls `google_search` is its own decision, and asking for a search
+   and schema JSON in one request measured only 2 grounded responses in 5:
+   a long schema-carrying prompt reads as a formatting task, so it answers
+   from memory. Retrying does not help (resampling three times measured the
+   same 2/5 — the decision is sticky per prompt, not random per call), but
+   removing the schema does. `run_grounded_json` therefore researches in
+   prose with the search tool and no schema, then converts those notes to
+   the schema in a second ungrounded, tool-less call. That took the weekly
+   scan and the founder dossier from 0/1 and 2/5 to 3/3 each.
 
-   Until it is, `meta["grounded"]` reports whether any search actually ran,
-   and `founder_dossier` keys `is_deep_audited` off the source list, so an
-   ungrounded answer is shown as unsourced rather than as research.
+   `BSH_GEMINI_GROUNDED_THINKING` (default `medium`) still matters for the
+   research step; `low` and `high` both ground far less often.
+
+   `meta["grounded"]` reports whether any search actually ran. Callers must
+   keep honouring it — `founder_dossier` keys `is_deep_audited` off the
+   source list, and `weekly_stocks` treats an ungrounded scan as a failed
+   one, because "this week's movers" answered from memory is stale data
+   wearing this week's confidence.
 
 `response_schema` also takes an OpenAPI-flavored subset of JSON Schema and
 400s on keywords outside it (`additionalProperties`, which our Claude-era

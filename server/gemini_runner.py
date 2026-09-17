@@ -268,13 +268,29 @@ _UNSUPPORTED_SCHEMA_KEYS = frozenset(
 
 
 def _sanitize_schema(value: Any) -> Any:
-    """Drop JSON Schema keywords the Gemini response schema rejects."""
+    """Rewrite a JSON Schema into the subset ``response_schema`` accepts.
+
+    Two incompatibilities, both of which 400 rather than being ignored:
+    keywords outside the subset, and union types. `{"type": ["string",
+    "null"]}` is ordinary JSON Schema for a nullable field and is how the
+    Claude-era schemas here spell one, but the proto behind response_schema
+    takes a single type plus a `nullable` flag.
+    """
     if isinstance(value, dict):
-        return {
+        out = {
             k: _sanitize_schema(v)
             for k, v in value.items()
             if k not in _UNSUPPORTED_SCHEMA_KEYS
         }
+        declared = out.get("type")
+        if isinstance(declared, list):
+            concrete = [str(x) for x in declared if str(x).lower() != "null"]
+            if len(concrete) < len(declared):
+                out["nullable"] = True
+            # More than one concrete type has no representation here; the
+            # first is the closest single-type approximation.
+            out["type"] = concrete[0] if concrete else "string"
+        return out
     if isinstance(value, list):
         return [_sanitize_schema(item) for item in value]
     return value
@@ -305,7 +321,9 @@ def _build_body(
     temperature: float | None,
     max_output_tokens: int | None,
 ) -> dict:
-    prompt = user_prompt + (_schema_instructions(schema) if embed_schema else "")
+    # An empty schema means the research step of a grounded call, which must
+    # carry no schema text at all — that is what suppresses the web search.
+    prompt = user_prompt + (_schema_instructions(schema) if (embed_schema and schema) else "")
     generation_config: dict[str, Any] = {"thinkingConfig": {"thinkingLevel": thinking}}
     if temperature is not None:
         generation_config["temperature"] = temperature
@@ -437,8 +455,13 @@ def _single_call(
     grounded: bool,
     temperature: float | None,
     max_output_tokens: int | None,
-) -> tuple[dict | None, dict, str | None]:
-    """One request, including the schema-rejection degradation."""
+    want_text: bool = False,
+) -> tuple[Any, dict, str | None]:
+    """One request, including the schema-rejection degradation.
+
+    ``want_text=True`` returns the model's raw text instead of parsed JSON —
+    the research step of a grounded call asks for prose on purpose.
+    """
     chosen_model = model
     # Grounded calls MUST carry the schema in the prompt rather than in
     # `responseSchema`. Setting a response schema alongside the
@@ -447,7 +470,7 @@ def _single_call(
     # answer from unsourced model recall, and every source URL is lost.
     # Verified against the live API: with the schema, chunks=0/queries=0;
     # without it, the same prompt returns real chunks and queries.
-    embed_schema = grounded
+    embed_schema = grounded or want_text or not schema
     for _ in range(2):
         body = _build_body(
             system_prompt=system_prompt,
@@ -492,6 +515,8 @@ def _single_call(
     text = _candidate_text(payload)
     if not text:
         return None, meta, (_blocked_reason(payload) or "gemini returned an empty response") + f" ({name})"
+    if want_text:
+        return text, meta, None
     parsed = _parse_json_payload(text)
     if parsed is None:
         return None, meta, f"gemini output didn't parse as JSON (name={name}): {text[:300]}"
@@ -531,6 +556,52 @@ def run_structured_prompt(
     return data, error
 
 
+RESEARCH_INSTRUCTION = (
+    "\n\nResearch this now using Google Search, then write your findings as "
+    "plain prose. Be exhaustive: every fact you can source, with the numbers, "
+    "dates and names attached, and say explicitly which points you could not "
+    "confirm. Do not produce JSON, a table, or any structured format — prose "
+    "only. This is the research step; formatting happens separately."
+)
+
+STRUCTURE_SYSTEM_PROMPT = (
+    "You convert research notes into one JSON object. You add nothing: every "
+    "value comes from the notes, and a field the notes do not support is "
+    "omitted or null. Do not call tools. Output the JSON object only."
+)
+
+
+def _structure_research(
+    *,
+    research_text: str,
+    system_prompt: str,
+    schema: dict,
+    name: str,
+    timeout_sec: int,
+    model: str,
+    key: str,
+    max_output_tokens: int | None,
+) -> tuple[dict | None, str | None]:
+    """Second step of a grounded call: research prose in, schema JSON out."""
+    data, _meta, error = _single_call(
+        system_prompt=STRUCTURE_SYSTEM_PROMPT,
+        user_prompt=(
+            f"Original task, for context:\n{system_prompt.strip()}\n\n"
+            f"Research notes to convert:\n---\n{research_text}\n---"
+        ),
+        schema=schema,
+        name=f"{name}_structure",
+        timeout_sec=timeout_sec,
+        model=model,
+        key=key,
+        thinking=DEFAULT_THINKING,
+        grounded=False,
+        temperature=None,
+        max_output_tokens=max_output_tokens,
+    )
+    return data, error
+
+
 def run_grounded_json(
     *,
     system_prompt: str,
@@ -549,19 +620,65 @@ def run_grounded_json(
     (``[{"title", "url"}]``), ``queries`` (the searches the model ran),
     ``model`` and ``engine``. ``meta`` is populated even on a parse failure,
     so a caller can still report what was searched.
+    so a caller can still report what was searched.
+
+    This runs as TWO calls, and that is the whole point. Asking for schema
+    JSON and a web search in one request measured 2 grounded responses in 5:
+    the model reads a long schema-carrying prompt as a formatting task and
+    answers from memory. The same prompt with no schema attached grounds
+    every time. So step one researches in prose with the search tool and no
+    schema, and step two — ungrounded, cheap, no tools — converts those
+    notes to the schema. Two Flash calls beat one that silently invents.
     """
-    return _run(
+    key = api_key()
+    if key is None:
+        return None, {}, (
+            "Gemini API key not configured. Set GEMINI_API_KEY in .env "
+            "(get one at https://aistudio.google.com/apikey)."
+        )
+    chosen_model = (model or default_model()).strip() or DEFAULT_MODEL
+
+    # Step 1 — research, grounded, with no schema anywhere near the prompt.
+    research, meta, error = _single_call(
         system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        schema=schema,
-        name=name,
+        user_prompt=user_prompt + RESEARCH_INSTRUCTION,
+        schema={},
+        name=f"{name}_research",
         timeout_sec=timeout_sec,
-        model=model,
-        thinking_level=thinking_level,
+        model=chosen_model,
+        key=key,
+        thinking=(thinking_level or default_thinking_level(grounded=True)),
         grounded=True,
         temperature=temperature,
         max_output_tokens=max_output_tokens,
+        want_text=True,
     )
+    if error is not None:
+        return None, meta, error
+    research_text = str(research or "").strip()
+    if not research_text:
+        return None, meta, f"gemini research step returned nothing ({name})"
+    if not meta.get("grounded"):
+        logger.warning(
+            "gemini_runner: %s researched without searching — the result is "
+            "model recall, not research",
+            name,
+        )
+
+    # Step 2 — structure. No tools and no search: nothing new can enter here.
+    data, structure_error = _structure_research(
+        research_text=research_text,
+        system_prompt=system_prompt,
+        schema=schema,
+        name=name,
+        timeout_sec=timeout_sec,
+        model=chosen_model,
+        key=key,
+        max_output_tokens=max_output_tokens,
+    )
+    if structure_error is not None:
+        return None, meta, structure_error
+    return data, meta, None
 
 
 def health_check(*, timeout_sec: int = 30) -> dict:

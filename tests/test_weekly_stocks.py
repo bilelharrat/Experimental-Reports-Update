@@ -362,20 +362,16 @@ def test_weekly_generate_summary_runs_phased_pipeline(tmp_weekly, monkeypatch):
     calls = []
     tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
 
-    def fake_run_web_research_json(**kwargs):
+    def fake_grounded(**kwargs):
         calls.append(kwargs)
         name = kwargs["name"]
         if name == "weekly_scan":
-            return _sample_scan(), None
+            return _sample_scan(), {"engine": "gemini", "grounded": True, "sources": [{"title": "x", "url": "https://e.com"}], "queries": ["q"], "fallback_reason": None}, None
         ticker = name.removeprefix("weekly_stock_").upper()
         assert ticker in tickers
-        return _sample_stock(ticker, tickers.index(ticker) + 1), None
+        return _sample_stock(ticker, tickers.index(ticker) + 1), {"engine": "gemini", "grounded": True, "sources": [{"title": "x", "url": "https://e.com"}], "queries": ["q"], "fallback_reason": None}, None
 
-    monkeypatch.setattr(
-        weekly_stocks.claude_runner,
-        "run_web_research_json",
-        fake_run_web_research_json,
-    )
+    monkeypatch.setattr(weekly_stocks.ai_engine, "grounded", fake_grounded)
     progress = job_progress.ProgressLog(weekly_stocks.progress_path())
 
     summary, err = weekly_stocks.generate_summary(progress=progress)
@@ -384,8 +380,14 @@ def test_weekly_generate_summary_runs_phased_pipeline(tmp_weekly, monkeypatch):
     assert summary["stocks"][0]["ticker"] == "AAA"
     assert len(summary["stocks"]) == 6
     assert calls[0]["name"] == "weekly_scan"
-    assert calls[0]["timeout_sec"] <= 115
-    assert all(call["timeout_sec"] <= 115 for call in calls[1:])
+    # These run behind a refresh button, so both engines stay on a
+    # UI-shaped cap rather than ai_engine's batch default.
+    assert calls[0]["gemini_timeout_sec"] == weekly_stocks.SCAN_TIMEOUT_SEC
+    assert calls[0]["claude_timeout_sec"] == weekly_stocks.SCAN_TIMEOUT_SEC
+    assert all(
+        call["gemini_timeout_sec"] == weekly_stocks.DETAIL_TIMEOUT_SEC
+        for call in calls[1:]
+    )
 
     progress_text = weekly_stocks.progress_path().read_text(encoding="utf-8")
     assert '"type": "candidates"' in progress_text
@@ -410,11 +412,13 @@ def test_fill_missing_summary_zh_translates_english_narrative(monkeypatch):
         payload = json.loads(
             kwargs["user_prompt"].split("INPUT:\n", 1)[1]
         )
-        return {key: f"中文：{value[:20]}" for key, value in payload.items()}, None
+        return (
+            {key: f"中文：{value[:20]}" for key, value in payload.items()},
+            {"engine": "gemini"},
+            None,
+        )
 
-    monkeypatch.setattr(
-        weekly_stocks.claude_runner, "run_structured_prompt", fake_structured
-    )
+    monkeypatch.setattr(weekly_stocks.ai_engine, "structured", fake_structured)
     summary = {
         "week_label": "Week of July 20-24, 2026",
         "week_label_en": "Week of July 20-24, 2026",
@@ -471,11 +475,9 @@ def test_fill_missing_summary_zh_keeps_scan_chinese_and_survives_failure(
     scan = {"market_pulse_zh": "扫描给出的真实中文叙述。"}
 
     def failing_structured(**kwargs):
-        return None, "claude unavailable"
+        return None, {"engine": "gemini"}, "no engine available"
 
-    monkeypatch.setattr(
-        weekly_stocks.claude_runner, "run_structured_prompt", failing_structured
-    )
+    monkeypatch.setattr(weekly_stocks.ai_engine, "structured", failing_structured)
     weekly_stocks._fill_missing_summary_zh(summary, scan)
 
     # Scan-provided Chinese untouched; failed translation keeps the fallback
@@ -531,21 +533,17 @@ def test_detail_call_retries_once_on_transient_error(tmp_weekly, monkeypatch):
     tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
     detail_attempts = {}
 
-    def fake_run_web_research_json(**kwargs):
+    def fake_grounded(**kwargs):
         name = kwargs["name"]
         if name == "weekly_scan":
-            return _sample_scan(), None
+            return _sample_scan(), {"engine": "gemini", "grounded": True, "sources": [{"title": "x", "url": "https://e.com"}], "queries": ["q"], "fallback_reason": None}, None
         ticker = name.removeprefix("weekly_stock_").upper()
         detail_attempts[ticker] = detail_attempts.get(ticker, 0) + 1
         if ticker == "AAA" and detail_attempts[ticker] == 1:
-            return None, "Connection reset by peer"
-        return _sample_stock(ticker, tickers.index(ticker) + 1), None
+            return None, {"engine": "gemini"}, "Connection reset by peer"
+        return _sample_stock(ticker, tickers.index(ticker) + 1), {"engine": "gemini", "grounded": True, "sources": [{"title": "x", "url": "https://e.com"}], "queries": ["q"], "fallback_reason": None}, None
 
-    monkeypatch.setattr(
-        weekly_stocks.claude_runner,
-        "run_web_research_json",
-        fake_run_web_research_json,
-    )
+    monkeypatch.setattr(weekly_stocks.ai_engine, "grounded", fake_grounded)
     assert weekly_stocks.claude_runner.is_transient_claude_error(
         "Connection reset by peer"
     )
@@ -558,3 +556,27 @@ def test_detail_call_retries_once_on_transient_error(tmp_weekly, monkeypatch):
     assert not aaa.get("is_fallback")
     assert summary["scan_fallback"] is False
     assert summary["fallback_stock_count"] == 0
+
+
+def test_an_ungrounded_scan_is_treated_as_a_failed_scan(tmp_weekly, monkeypatch):
+    """"This week's movers" is a claim about the live market. A model that
+    answered from memory would name stale movers with this week's
+    confidence — worse than the static watchlist, which announces itself."""
+
+    def ungrounded(**kwargs):
+        meta = {"engine": "gemini", "grounded": False, "sources": [], "queries": []}
+        if kwargs["name"] == "weekly_scan":
+            return _sample_scan(), meta, None
+        ticker = kwargs["name"].removeprefix("weekly_stock_").upper()
+        return _sample_stock(ticker, 1), meta, None
+
+    monkeypatch.setattr(weekly_stocks.ai_engine, "grounded", ungrounded)
+    summary, err = weekly_stocks.generate_summary()
+
+    assert err is None, "an ungrounded scan degrades, it does not error"
+    # The dashboard is flagged unverified and seeded from the static
+    # watchlist, exactly as it is when the scan errors outright.
+    assert summary["scan_fallback"] is True
+    draft = weekly_stocks.load_draft() or {}
+    reasons = " ".join(str(e.get("error")) for e in (draft.get("errors") or []))
+    assert "without searching" in reasons

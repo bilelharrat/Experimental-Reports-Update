@@ -118,35 +118,69 @@ def test_request_matches_the_rest_contract(monkeypatch, key):
     assert "tools" not in body
 
 
-def test_grounded_calls_enable_google_search(monkeypatch, key):
+GROUNDING = {
+    "webSearchQueries": ["acme founders"],
+    "groundingChunks": [
+        {"web": {"uri": "https://example.com/a", "title": "Example"}},
+        {"web": {"uri": "https://example.com/a", "title": "Duplicate"}},
+        {"web": {"uri": "https://example.com/b", "title": ""}},
+    ],
+}
+
+
+def _grounded_pair(research="Acme was founded by Dana Reeve.", structured='{"headline": "x"}'):
+    """The two responses a grounded call now consumes: research, then structure."""
+    return [
+        _response(200, _envelope(research, grounding=GROUNDING)),
+        _response(200, _envelope(structured)),
+    ]
+
+
+def test_a_grounded_call_researches_then_structures(monkeypatch, key):
+    """One request asking for both a search and schema JSON measured 2
+    grounded responses in 5 — the model treats a schema-carrying prompt as
+    a formatting task. The research step must carry no schema at all."""
     calls: list[dict] = []
-    grounding = {
-        "webSearchQueries": ["acme founders"],
-        "groundingChunks": [
-            {"web": {"uri": "https://example.com/a", "title": "Example"}},
-            {"web": {"uri": "https://example.com/a", "title": "Duplicate"}},
-            {"web": {"uri": "https://example.com/b", "title": ""}},
-        ],
-    }
-    _stub_post(
-        monkeypatch,
-        [_response(200, _envelope('{"headline": "x"}', grounding=grounding))],
-        calls,
-    )
+    _stub_post(monkeypatch, _grounded_pair(), calls)
 
     data, meta, error = gemini_runner.run_grounded_json(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="team"
     )
 
     assert error is None and data == {"headline": "x"}
-    assert calls[0]["body"]["tools"] == [{"google_search": {}}]
-    # Duplicate URIs collapse; a blank title falls back to the URL.
+    assert len(calls) == 2
+
+    research, structure = calls[0]["body"], calls[1]["body"]
+    # Step 1: searching, and no schema anywhere — not as responseSchema, and
+    # not as schema text in the prompt.
+    assert research["tools"] == [{"google_search": {}}]
+    assert "responseSchema" not in research["generationConfig"]
+    assert "headline" not in research["contents"][0]["parts"][0]["text"]
+    # Step 2: schema-constrained, and no search tool to invent from.
+    assert "tools" not in structure
+    assert structure["generationConfig"]["responseSchema"] == SCHEMA
+    # The research prose is what gets structured.
+    assert "Dana Reeve" in structure["contents"][0]["parts"][0]["text"]
+
+    # Sources come from the research step: duplicates collapse, a blank
+    # title falls back to the URL.
     assert meta["sources"] == [
         {"title": "Example", "url": "https://example.com/a"},
         {"title": "https://example.com/b", "url": "https://example.com/b"},
     ]
     assert meta["queries"] == ["acme founders"]
     assert meta["engine"] == "gemini"
+    assert meta["grounded"] is True
+
+
+def test_a_failed_research_step_never_reaches_the_structure_step(monkeypatch, key):
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(403, {"error": {"message": "no key"}})], calls)
+    data, _meta, error = gemini_runner.run_grounded_json(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="team"
+    )
+    assert data is None and "no key" in error
+    assert len(calls) == 1
 
 
 # ---- response handling ----------------------------------------------------
@@ -479,7 +513,13 @@ def test_claude_policy_availability_ignores_the_gemini_key(monkeypatch, key):
 def test_an_ungrounded_answer_is_reported_as_ungrounded(monkeypatch, key):
     """The model may answer a grounded request from memory. That is recall,
     not research, and callers key `is_deep_audited` off this."""
-    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))])
+    _stub_post(
+        monkeypatch,
+        [
+            _response(200, _envelope("I already know this.")),
+            _response(200, _envelope('{"headline": "x"}')),
+        ],
+    )
     data, meta, error = gemini_runner.run_grounded_json(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
@@ -489,27 +529,44 @@ def test_an_ungrounded_answer_is_reported_as_ungrounded(monkeypatch, key):
 
 
 def test_a_searched_answer_is_reported_as_grounded(monkeypatch, key):
-    grounding = {
-        "webSearchQueries": ["acme board"],
-        "groundingChunks": [{"web": {"uri": "https://example.com/a", "title": "Ex"}}],
-    }
-    _stub_post(
-        monkeypatch, [_response(200, _envelope('{"headline": "x"}', grounding=grounding))]
-    )
+    _stub_post(monkeypatch, _grounded_pair())
     _data, meta, _error = gemini_runner.run_grounded_json(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
     assert meta["grounded"] is True
 
 
-def test_grounded_calls_default_to_the_level_that_searches(monkeypatch, key):
+def test_the_research_step_uses_the_level_that_searches(monkeypatch, key):
     calls: list[dict] = []
-    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))], calls)
+    _stub_post(monkeypatch, _grounded_pair(), calls)
     gemini_runner.run_grounded_json(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
-    thinking = calls[0]["body"]["generationConfig"]["thinkingConfig"]["thinkingLevel"]
-    assert thinking == "medium"
-    # And a grounded call must not send a response schema — that empties
-    # groundingMetadata.
-    assert "responseSchema" not in calls[0]["body"]["generationConfig"]
+    research_cfg = calls[0]["body"]["generationConfig"]
+    assert research_cfg["thinkingConfig"]["thinkingLevel"] == "medium"
+    # The structure step has nothing to reason about, so it stays cheap.
+    assert calls[1]["body"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "low"
+
+
+def test_union_types_are_collapsed_for_the_response_schema(monkeypatch, key):
+    """`{"type": ["string", "null"]}` is ordinary JSON Schema and is how the
+    Claude-era schemas here spell a nullable field, but response_schema's
+    proto takes one type plus a nullable flag and 400s on the list."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))], calls)
+    schema = {
+        "type": "object",
+        "properties": {
+            "note": {"type": ["string", "null"]},
+            "rows": {"type": "array", "items": {"type": ["integer", "null"]}},
+            "plain": {"type": "string"},
+        },
+    }
+    gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=schema, name="t"
+    )
+    sent = calls[0]["body"]["generationConfig"]["responseSchema"]
+    assert sent["properties"]["note"] == {"type": "string", "nullable": True}
+    assert sent["properties"]["rows"]["items"] == {"type": "integer", "nullable": True}
+    # A field that was never a union is untouched.
+    assert sent["properties"]["plain"] == {"type": "string"}
