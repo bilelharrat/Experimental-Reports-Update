@@ -378,3 +378,34 @@ def test_grounded_fallback_reports_no_sources(monkeypatch, key):
     assert error is None and meta["engine"] == "claude"
     assert meta["sources"] == []
     assert "boom" in meta["fallback_reason"]
+
+
+# ---- diagnostics ----------------------------------------------------------
+
+
+def test_diagnostics_reports_engine_config_without_spending_a_call(monkeypatch, key):
+    """The settings surface needs to answer 'is my key live?' without paying
+    for a generation to find out."""
+    from starlette.testclient import TestClient
+
+    from server.main import app
+
+    monkeypatch.setattr(
+        gemini_runner.httpx,
+        "post",
+        lambda *_a, **_kw: pytest.fail("diagnostics must not call the model"),
+    )
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
+    body = TestClient(app).get("/api/diagnostics").json()
+    assert body["gemini_key_configured"] is True
+    assert body["gemini_model"] == "gemini-3.8-flash"
+    assert body["ai_engine_policy"] == "gemini"
+
+
+def test_diagnostics_reports_a_missing_key(no_key):
+    from starlette.testclient import TestClient
+
+    from server.main import app
+
+    body = TestClient(app).get("/api/diagnostics").json()
+    assert body["gemini_key_configured"] is False

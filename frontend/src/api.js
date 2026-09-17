@@ -414,6 +414,10 @@ export const api = {
     const query = qs.toString();
     return request(`/api/companies/${id}/news-feed${query ? `?${query}` : ""}`);
   },
+  refreshCompanyNewsFeed: (id, lang) => {
+    const qs = lang ? `?lang=${encodeURIComponent(lang)}` : "";
+    return request(`/api/companies/${id}/news-feed/refresh${qs}`, { method: "POST" });
+  },
   getCompanyIndustryView: (id) =>
     request(`/api/companies/${id}/industry-view`),
   getCompanyProfile: (companyId, { quote = true } = {}) =>

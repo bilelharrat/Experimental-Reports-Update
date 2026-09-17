@@ -435,9 +435,17 @@ def health() -> dict:
 @app.get("/api/diagnostics", dependencies=[Depends(require_api_token)])
 def diagnostics() -> dict:
     """Quick health check for env / config."""
+    from server import ai_engine, gemini_runner
+
     return {
         "env_file_exists": (ROOT_DIR / ".env").exists(),
         "api_token_configured": bool(_expected_token()),
+        # Whether the Gemini-backed surfaces (Team dossier, desk note,
+        # company news sweep) will run on Gemini or fall back to Claude.
+        # Reports configuration only — it spends nothing to answer.
+        "ai_engine_policy": ai_engine.policy(),
+        "gemini_key_configured": gemini_runner.is_available(),
+        "gemini_model": gemini_runner.default_model(),
     }
 
 

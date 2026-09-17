@@ -14,10 +14,12 @@ with quotes and alerts.
 
 The optional **written note** (``write_note``) is the one model-assisted
 layer: a short bilingual narrative generated from the frozen payload via
-``claude_runner.run_structured_prompt`` and stored back into the archived
-JSON under ``note``. The numbers stay the source of truth — a Claude
-outage leaves the brief intact, and rebuilding a brief drops the old note
-because it described the previous tape.
+``ai_engine.structured`` (Gemini Flash, Claude fallback) and stored back
+into the archived JSON under ``note``. The numbers stay the source of
+truth — a model outage leaves the brief intact, and rebuilding a brief
+drops the old note because it described the previous tape. The note
+records which engine wrote it, so a fallback is visible rather than
+passing as a normal result.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from server import claude_runner, desk_store, live_quotes
+from server import ai_engine, desk_store, live_quotes
 
 logger = logging.getLogger(__name__)
 
@@ -346,18 +348,25 @@ def write_note(date: str | None = None, length: str = "short") -> dict:
     if brief is None:
         raise ValueError("No archived brief for that date — build one first")
     is_long = length == "long"
-    data, err = claude_runner.run_structured_prompt(
+    data, meta, err = ai_engine.structured(
         system_prompt=LONG_NOTE_SYSTEM_PROMPT if is_long else NOTE_SYSTEM_PROMPT,
         user_prompt=_note_prompt(brief),
         schema=LONG_NOTE_SCHEMA if is_long else NOTE_SCHEMA,
         name="morning_brief_note_long" if is_long else "morning_brief_note",
         timeout_sec=420 if is_long else 180,
+        # The long note is a 600-1000 word sectioned report in two
+        # languages; the short one is four bullets. Only the long one is
+        # worth paying for extra reasoning.
+        thinking_level="medium" if is_long else "low",
     )
     if err is not None or not isinstance(data, dict):
         raise RuntimeError(err or "Empty note response")
     note = {
         "generated_at": _iso(),
         "length": length,
+        "engine": meta.get("engine"),
+        "model": meta.get("model"),
+        "engine_fallback_reason": meta.get("fallback_reason"),
         "headline_en": str(data.get("headline_en") or "").strip(),
         "headline_zh": str(data.get("headline_zh") or "").strip(),
     }

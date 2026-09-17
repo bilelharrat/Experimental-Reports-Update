@@ -5584,6 +5584,22 @@ def get_company_news_feed(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/companies/{company_id}/news-feed/refresh")
+def post_company_news_feed_refresh(
+    request: Request,
+    company_id: str,
+    lang: str | None = None,
+) -> dict:
+    """Sweep the live web for news this company's feed is missing."""
+    _require_permission(request, "tasks:action")
+    from . import company_news_research
+
+    try:
+        return company_news_research.sweep_company_news(company_id, lang=lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/companies/{company_id}/industry-view")
 def get_company_industry_view(company_id: str) -> dict:
     try:

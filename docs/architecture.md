@@ -129,6 +129,42 @@ other AI-driven surfaces exist and are deliberately independent of both:
   sessions with document staging, under `data/consoles/`.
 - **Deep search** (`server/companies_ai.py`) — company search via the
   Claude CLI with WebSearch; cached per query in `data/cache/`.
+- **Team dossier** (`server/founder_dossier.py`) — the Research Desk Team
+  tab. Two layers: a record layer that reshapes people already on the
+  company record, and a research layer (the Refresh button) that runs a
+  web-grounded pass and fills in the blanks. Cached under
+  `data/founder_dossiers/`; reads replay the cache and never call a model.
+- **Company news sweep** (`server/company_news_research.py`) — the refresh
+  behind the company news feed. Appends genuinely new rows to the record's
+  `recent_news`, which `context_store.company_news` already assembles.
+
+## The second engine: Gemini Flash
+
+Most AI surfaces shell out to the `claude` CLI (`server/claude_runner.py`),
+which spends the user's Claude Code subscription. Three surfaces do not:
+
+| Surface | Module | Why Gemini |
+|---|---|---|
+| Team dossier refresh | `founder_dossier.py` | Web-grounded, needs machine-readable source URLs |
+| Morning Brief written note | `market_brief.py` | Short, frequent, no tools needed |
+| Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
+
+`server/gemini_runner.py` is the backend — the Gemini `generateContent`
+REST API over `httpx`, no new dependency. It mirrors
+`claude_runner.run_structured_prompt`'s `(data, error)` contract, and adds
+`run_grounded_json` for Google Search-grounded calls that return the
+sources the model read.
+
+`server/ai_engine.py` owns the policy (`BSH_AI_ENGINE`), and this is the
+part to keep enforcing: **the fallback is never silent.** Every call
+returns a `meta` dict naming the engine that produced the answer and why
+Gemini was skipped, and each call site persists it — `note.engine` on the
+desk note, `sweep.engine` on the news feed, `engine` on the dossier. A
+Claude-fallback dossier also may not set `is_deep_audited`, because the CLI
+path returns no machine-readable sources to evidence the audit with. A
+change that drops that provenance is a defect: it turns a degraded answer
+into one that looks normal.
+
 
 "Serena" names the research-analyst persona whose memo/research flows the
 Investment Memo feature implements; `serena_analysis.py` holds her
