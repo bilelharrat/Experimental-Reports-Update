@@ -9700,7 +9700,17 @@ Task:
 
 
 def _memo_sectional_repair_enabled() -> bool:
-    return os.environ.get("BSH_MEMO_SECTIONAL_REPAIR", "0") == "1"
+    """Repair section by section rather than re-emitting the package.
+
+    Default ON since 2026-09-17. The whole-package repair must return the
+    entire package in one structured response; at 6,700 words that was
+    merely slow, and at 16,000 it does not finish — a live run's repair
+    had every section under its cap by minute eight and was killed by the
+    900-second timeout at minute fifteen, losing all of it. A per-section
+    repair re-emits about 2,000 words per call instead of the whole
+    memo.
+    """
+    return os.environ.get("BSH_MEMO_SECTIONAL_REPAIR", "1") == "1"
 
 
 def run_memo_section_repair(

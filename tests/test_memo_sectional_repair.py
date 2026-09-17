@@ -40,11 +40,19 @@ def _package() -> dict:
     }
 
 
-def test_flag_helper_defaults_off(monkeypatch):
+def test_flag_helper_defaults_on(monkeypatch):
+    """Default flipped 2026-09-17.
+
+    The whole-package repair must return the entire memo in one
+    structured response. At 16,000 words it does not finish: a live
+    repair had every section under its cap by minute eight and was killed
+    by the 900-second timeout at minute fifteen, losing all of it and the
+    run with it. Per-section repair re-emits ~2,000 words per call.
+    """
     monkeypatch.delenv("BSH_MEMO_SECTIONAL_REPAIR", raising=False)
-    assert claude_runner._memo_sectional_repair_enabled() is False
-    monkeypatch.setenv("BSH_MEMO_SECTIONAL_REPAIR", "1")
     assert claude_runner._memo_sectional_repair_enabled() is True
+    monkeypatch.setenv("BSH_MEMO_SECTIONAL_REPAIR", "0")
+    assert claude_runner._memo_sectional_repair_enabled() is False
 
 
 def test_section_repair_prompt_schema_and_forced_id(tmp_path, monkeypatch):

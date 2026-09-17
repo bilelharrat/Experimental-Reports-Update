@@ -3890,17 +3890,50 @@ def _run_fast_synthesis(
             ),
             validation_errors=last_validation_errors[:10],
         )
-        repair_result, repair_error = (
-            claude_runner.run_memo_package_structure_repair(
-                run_dir=run_dir,
-                company_name=company_name,
-                run_id=run_id,
-                package_path=invalid_path,
-                validation_errors=last_validation_errors,
-                progress=phase3_progress,
+        repaired_package = None
+        if claude_runner._memo_sectional_repair_enabled() and isinstance(
+            last_invalid_candidate, dict
+        ):
+            # Word-budget overruns are per-section by construction, and the
+            # whole-package pass cannot carry a 16,000-word memo in one
+            # response. Try the per-section repair first; it re-emits only
+            # the sections the errors name.
+            sectional, sectional_reason = (
+                claude_runner.run_memo_package_sectional_repair(
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    package=last_invalid_candidate,
+                    findings=last_validation_errors,
+                    progress=phase3_progress,
+                    stream=stream,
+                )
             )
-        )
-        repaired_package = (
+            if isinstance(sectional, dict):
+                repaired_package = sectional
+            else:
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_sectional_repair_fallback",
+                    message=(
+                        "Per-section repair unavailable "
+                        f"({str(sectional_reason)[:300]}); falling back to "
+                        "the whole-package pass"
+                    ),
+                )
+        repair_result, repair_error = (None, None)
+        if repaired_package is None:
+            repair_result, repair_error = (
+                claude_runner.run_memo_package_structure_repair(
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    package_path=invalid_path,
+                    validation_errors=last_validation_errors,
+                    progress=phase3_progress,
+                )
+            )
+        repaired_package = repaired_package or (
             repair_result.get("memo_package")
             if not repair_error and isinstance(repair_result, dict)
             else None
