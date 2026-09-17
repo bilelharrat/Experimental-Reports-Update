@@ -5982,6 +5982,28 @@ def _spine_piece_plan(
     return plan
 
 
+def _keep_unparsed_piece(path: Path, raw: str) -> Path | None:
+    """Save text that would not parse, before the retry overwrites it.
+
+    A re-ask writes the same filename, so by the time anyone looks the
+    only copy of the defect is gone. `valuation_returns` piece 1 failed
+    to parse on BOTH 2026-09-17 runs — Figure AI at line 10, Databricks
+    at line 11, same section, same piece — and neither copy survived, so
+    a defect that has now happened twice still cannot be diagnosed.
+    """
+    try:
+        for index in range(1, 10):
+            keep = path.with_name(
+                f"{path.stem}.invalid-{index}{path.suffix}"
+            )
+            if not keep.exists():
+                keep.write_text(raw, encoding="utf-8")
+                return keep
+    except OSError:  # a full disk must never fail a run over forensics
+        logger.warning("could not preserve unparsed piece %s", path)
+    return None
+
+
 def _spine_piece_error(
     path: Path, stem: str, keys: tuple[str, ...], required: tuple[str, ...]
 ) -> str | None:
@@ -5995,9 +6017,11 @@ def _spine_piece_error(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
+        kept = _keep_unparsed_piece(path, raw)
         return (
             f"`{path.name}` is not valid JSON: {exc.msg} at line "
             f"{exc.lineno} column {exc.colno}"
+            + (f" (kept as `{kept.name}`)" if kept else "")
         )
     if not isinstance(data, dict):
         return f"`{path.name}` is not a JSON object"
@@ -7901,9 +7925,11 @@ def _section_piece_error(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
+        kept = _keep_unparsed_piece(path, raw)
         return (
             f"piece {number} (`{path.name}`) is not valid JSON: {exc.msg} "
             f"at line {exc.lineno} column {exc.colno}"
+            + (f" (kept as `{kept.name}`)" if kept else "")
         )
     if not isinstance(data, dict):
         return f"piece {number} (`{path.name}`) is not a JSON object"

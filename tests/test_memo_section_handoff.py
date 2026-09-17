@@ -391,3 +391,64 @@ def test_other_sections_still_answer_inline(tmp_path, monkeypatch):
     assert "## How this section reaches us" not in captured["prompt"]
     assert captured["schema"] is claude_runner._MEMO_ENGLISH_SECTION_SCHEMA
     assert captured.get("allowed_tools") is None
+
+
+def test_an_unparseable_piece_is_kept_for_diagnosis(tmp_path):
+    """The retry writes the same filename, so the defect erases itself.
+
+    `valuation_returns` piece 1 failed to parse on both 2026-09-17 runs —
+    Figure AI at line 10, Databricks at line 11, same section, same piece.
+    Neither copy survived, so a repeat defect still has no evidence.
+    """
+    path = tmp_path / "01.json"
+    bad = '{"piece": 1, "blocks": [\n{"type": "heading"},\n},\n]}'
+    path.write_text(bad, encoding="utf-8")
+
+    error = claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert error and "not valid JSON" in error
+    assert "kept as `01.invalid-1.json`" in error
+    kept = tmp_path / "01.invalid-1.json"
+    assert kept.read_text(encoding="utf-8") == bad
+
+    # A second failure on the same piece keeps its own copy.
+    path.write_text(bad + " ", encoding="utf-8")
+    error = claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert "kept as `01.invalid-2.json`" in error
+    assert (tmp_path / "01.invalid-2.json").exists()
+
+
+def test_keeping_the_evidence_never_fails_the_run(tmp_path, monkeypatch):
+    """Forensics is not worth losing a memo over."""
+    path = tmp_path / "01.json"
+    path.write_text("{oops", encoding="utf-8")
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    # patched only after the fixture is on disk
+    monkeypatch.setattr(claude_runner.Path, "write_text", boom)
+    error = claude_runner._section_piece_error(path, 1, "heading")
+    assert error and "not valid JSON" in error
+    assert "kept as" not in error
+
+
+def test_a_good_piece_leaves_no_debris(tmp_path):
+    path = tmp_path / "01.json"
+    path.write_text(
+        json.dumps(
+            {
+                "piece": 1,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": "1. What the price assumes", "zh": "1."},
+                    },
+                    {"type": "paragraph", "text": {"en": "Body.", "zh": "正文。"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert not list(tmp_path.glob("*.invalid-*.json"))
