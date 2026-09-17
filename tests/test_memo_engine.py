@@ -194,3 +194,46 @@ def test_a_claude_run_still_refuses_without_the_cli(tmp_path, monkeypatch):
         progress_message="m", timeout_label="t", timeout_sec=60,
     )
     assert data is None and "not on PATH" in error
+
+
+# ---- the run directory ----------------------------------------------------
+
+
+def test_run_analysis_artifacts_are_found_in_their_subdirectory(tmp_path):
+    """Most memo stages pass the RUN directory, and the artifacts the package
+    stage is told to build on are written to `<run_dir>/analysis/*.md`. A flat
+    listing finds none of them — which returned an 85-byte empty package on
+    the first live run."""
+    run = tmp_path / "run"
+    (run / "analysis").mkdir(parents=True)
+    (run / "analysis" / "market_sizing.md").write_text("TAM is $4B.", encoding="utf-8")
+    (run / "analysis" / "exit_paths.md").write_text("Strategic buyers.", encoding="utf-8")
+    (run / "manifest.md").write_text("run manifest", encoding="utf-8")
+
+    text = memo_engine.inline_research([run])
+    assert "TAM is $4B." in text
+    assert "Strategic buyers." in text
+    # Labelled by folder so an analysis artifact is distinguishable.
+    assert "analysis/market_sizing.md" in text
+    # And they outrank the run's own loose files.
+    assert text.index("TAM is $4B.") < text.index("run manifest")
+
+
+def test_run_plumbing_and_output_are_not_fed_back_in(tmp_path):
+    """The event stream is enormous and the rendered DOCX is what the run is
+    producing, not source material for it."""
+    run = tmp_path / "run"
+    (run / "logs").mkdir(parents=True)
+    (run / "memo").mkdir()
+    (run / "previews").mkdir()
+    (run / "logs" / "stream.jsonl").write_text('{"huge": "stream"}', encoding="utf-8")
+    (run / "logs" / "memo_package.json").write_text('{"prior": "package"}', encoding="utf-8")
+    (run / "memo" / "out.docx").write_bytes(b"docx bytes")
+    (run / "previews" / "p.png").write_bytes(b"png")
+    (run / "analysis").mkdir()
+    (run / "analysis" / "keep.md").write_text("real analysis", encoding="utf-8")
+
+    text = memo_engine.inline_research([run])
+    assert "real analysis" in text
+    for leaked in ("huge", "prior", "docx bytes"):
+        assert leaked not in text

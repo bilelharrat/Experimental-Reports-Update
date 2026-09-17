@@ -49,6 +49,12 @@ PER_FILE_BUDGET_CHARS = 60_000
 
 TEXT_SUFFIXES = {".md", ".txt", ".yaml", ".yml", ".json", ".csv"}
 
+# Inside a memo run directory these are machine plumbing or this run's own
+# output, never source material: the event stream is enormous and the
+# rendered DOCX/previews are what the run is trying to produce.
+_SKIP_DIRS = {"logs", "previews", "previews_cn", "memo", "__pycache__"}
+_SKIP_SUFFIXES = {".docx", ".pdf.tmp", ".jsonl", ".png", ".jpg", ".jpeg", ".zip"}
+
 _RUN_ENGINE: dict[str, str] = {}
 _RUN_ENGINE_LOCK = threading.Lock()
 
@@ -168,8 +174,17 @@ def inline_research(
         try:
             if not directory or not Path(directory).is_dir():
                 continue
-            for path in sorted(Path(directory).iterdir()):
-                if not path.is_file() or path.name.startswith("index.yaml"):
+            root = Path(directory)
+            # Walk, don't list. Many stages pass the memo RUN directory, and
+            # the artifacts the package stage is told to read are written to
+            # `<run_dir>/analysis/*.md`. A flat listing of the run dir finds
+            # none of them, and the package comes back empty.
+            for path in sorted(root.rglob("*")):
+                if not path.is_file():
+                    continue
+                if any(part in _SKIP_DIRS for part in path.relative_to(root).parts[:-1]):
+                    continue
+                if path.name.startswith("index.yaml") or path.suffix.lower() in _SKIP_SUFFIXES:
                     continue
                 if path.name.endswith(".progress.jsonl"):
                     continue
@@ -185,9 +200,13 @@ def inline_research(
         name = path.name.lower()
         if name in {"fact_ledger.md", "recent_news.md", "decision_record.md"}:
             return (0, name)
-        if name.endswith("_analysis.md"):
+        # The run's own analysis artifacts: the package stage is written to
+        # build on these, so they outrank raw sources.
+        if path.parent.name.lower() == "analysis":
             return (1, name)
-        return (2, name)
+        if name.endswith("_analysis.md"):
+            return (2, name)
+        return (3, name)
 
     blocks: list[str] = []
     skipped: list[str] = []
@@ -203,7 +222,12 @@ def inline_research(
             skipped.append(f"{path.name} (context budget reached)")
             continue
         used += len(text)
-        blocks.append(f"=== FILE: {path.name} ===\n{text}")
+        label = (
+            f"{path.parent.name}/{path.name}"
+            if path.parent.name.lower() == "analysis"
+            else path.name
+        )
+        blocks.append(f"=== FILE: {label} ===\n{text}")
 
     if not blocks and not skipped:
         return "- No research files found."
@@ -267,8 +291,11 @@ def run_artifact(
     )
 
 
-# A memo stage returns long structured prose, often bilingual.
-MEMO_MAX_OUTPUT_TOKENS = 32_000
+# A memo package is a whole investment memo as one JSON object — every
+# section, every analysis artifact, and in the bilingual stage both
+# languages. 32k truncated it mid-document on a live run; this is the
+# model's ceiling.
+MEMO_MAX_OUTPUT_TOKENS = 64_000
 
 
 def memo_thinking_level() -> str:

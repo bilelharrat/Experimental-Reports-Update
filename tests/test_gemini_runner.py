@@ -570,3 +570,53 @@ def test_union_types_are_collapsed_for_the_response_schema(monkeypatch, key):
     assert sent["properties"]["rows"]["items"] == {"type": "integer", "nullable": True}
     # A field that was never a union is untouched.
     assert sent["properties"]["plain"] == {"type": "string"}
+
+
+def test_a_free_form_object_schema_goes_in_the_prompt(monkeypatch, key):
+    """`{"type": "object", "additionalProperties": true}` means "free-form",
+    and the memo package body is exactly that. response_schema cannot express
+    it, and stripping the keyword leaves an object with no permitted
+    properties — which returned an empty investment memo on a live run."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"memo_package": {"a": 1}}'))], calls)
+    schema = {
+        "type": "object",
+        "properties": {"memo_package": {"type": "object", "additionalProperties": True}},
+    }
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=schema, name="memo"
+    )
+    assert error is None and data == {"memo_package": {"a": 1}}
+    body = calls[0]["body"]
+    assert "responseSchema" not in body["generationConfig"]
+    # The full schema, additionalProperties included, reaches the model as text.
+    assert "additionalProperties" in body["contents"][0]["parts"][0]["text"]
+
+
+def test_an_expressible_schema_still_uses_response_schema(monkeypatch, key):
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "x"}'))], calls)
+    gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    assert "responseSchema" in calls[0]["body"]["generationConfig"]
+
+
+def test_a_truncated_response_says_so_instead_of_a_parse_error(monkeypatch, key):
+    """Truncated output still looks like output. Reporting the parse failure
+    instead of the cause sent a live memo run chasing a JSON bug that was
+    really an output-length limit."""
+    envelope = {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": '{"memo": "half a document'}]},
+                "finishReason": "MAX_TOKENS",
+            }
+        ]
+    }
+    _stub_post(monkeypatch, [_response(200, envelope)])
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="memo English package"
+    )
+    assert data is None
+    assert "output token limit" in error and "max_output_tokens" in error

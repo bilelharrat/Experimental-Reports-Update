@@ -213,6 +213,12 @@ def _grounding_meta(payload: dict) -> dict:
     return {"sources": sources, "queries": queries}
 
 
+def _hit_output_limit(payload: dict) -> bool:
+    candidates = payload.get("candidates")
+    first = candidates[0] if isinstance(candidates, list) and candidates else {}
+    return isinstance(first, dict) and str(first.get("finishReason") or "") == "MAX_TOKENS"
+
+
 def _blocked_reason(payload: dict) -> str | None:
     """A refusal/stop reason worth reporting instead of 'empty response'."""
     feedback = payload.get("promptFeedback")
@@ -265,6 +271,26 @@ _UNSUPPORTED_SCHEMA_KEYS = frozenset(
         "examples",
     }
 )
+
+
+def _schema_is_expressible(value: Any) -> bool:
+    """False when `response_schema` cannot carry this schema's meaning.
+
+    `{"type": "object", "additionalProperties": true}` is how a schema says
+    "a free-form object" — the memo package body is exactly that. The proto
+    behind response_schema has no way to express it, and stripping the
+    keyword (which it otherwise rejects outright) turns the field into an
+    object with no permitted properties, so the model correctly returns an
+    empty one. That silently emptied a whole investment memo. Schemas like
+    this go in the prompt instead, where JSON Schema means what it says.
+    """
+    if isinstance(value, dict):
+        if value.get("additionalProperties") is True:
+            return False
+        return all(_schema_is_expressible(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_schema_is_expressible(item) for item in value)
+    return True
 
 
 def _sanitize_schema(value: Any) -> Any:
@@ -470,7 +496,7 @@ def _single_call(
     # answer from unsourced model recall, and every source URL is lost.
     # Verified against the live API: with the schema, chunks=0/queries=0;
     # without it, the same prompt returns real chunks and queries.
-    embed_schema = grounded or want_text or not schema
+    embed_schema = grounded or want_text or not schema or not _schema_is_expressible(schema)
     for _ in range(2):
         body = _build_body(
             system_prompt=system_prompt,
@@ -517,6 +543,14 @@ def _single_call(
         return None, meta, (_blocked_reason(payload) or "gemini returned an empty response") + f" ({name})"
     if want_text:
         return text, meta, None
+    # A truncated response often still *looks* like output. Reporting the
+    # parse failure instead of the cause sent a live memo run chasing a JSON
+    # bug that was really an output-length limit.
+    if _hit_output_limit(payload):
+        return None, meta, (
+            f"gemini response hit the output token limit before finishing "
+            f"({name}); raise max_output_tokens"
+        )
     parsed = _parse_json_payload(text)
     if parsed is None:
         return None, meta, f"gemini output didn't parse as JSON (name={name}): {text[:300]}"
