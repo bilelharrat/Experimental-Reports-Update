@@ -1,5 +1,5 @@
 ---
-en_sha256: 457c6898d14219dcf4f1c80efabb8c73ab376f513e1e1215b3cfe9b792c5feee
+en_sha256: b1d52da51706c06b2050a2c8052082e615520aee3a5c78d5ea12d26f43f8478e
 ---
 ---
 stage: late_compact
@@ -147,7 +147,7 @@ subsections:
 
    ```
    Anthropic 这笔投资主要由行业地位（14/15）、收入增长与质量（13/15）
-   和护城河（12/15）支撑；较弱的是估值（6/10）与退出确定性（4/8）。
+   和护城河（12/15）支撑；最单薄的是估值（6/10）与退出确定性（4/8）。
 
    "component": "investment_highlights"
 

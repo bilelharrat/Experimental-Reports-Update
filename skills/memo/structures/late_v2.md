@@ -89,7 +89,7 @@ Company Overview section). Content per subsection:
    "The case" — one short paragraph that says WHICH dimensions carry
    the case and which are weak, with their scores ("Anthropic's case
    rests on market size and growth (14/15), industry position (13/15)
-   and revenue growth and quality (12/15); the weak points are
+   and revenue growth and quality (12/15); it is thinnest on
    business model and unit economics (5/10) and valuation (6/10)."),
    optionally followed by one sentence saying what that pattern
    means. Then ONE `bullets` block with `"component":

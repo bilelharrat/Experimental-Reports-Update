@@ -5402,8 +5402,17 @@ def _render_case_summary_lines(
     highlights, rendered right after the scorecard so the executive
     summary opens its highlights subsection from one shared text.
     Strong dimensions are the pinned highlight dimensions in pinned
-    order (falling back to the top three score-to-weight ratios); weak
-    points are the two lowest ratios."""
+    order (falling back to the top three score-to-weight ratios); the
+    two thinnest are the lowest ratios, ties broken by the heavier
+    weight first.
+
+    The closing clause says "thinnest", not "weak", on purpose. This
+    sentence ranks: it names the bottom two whatever they scored. The
+    dimension scan a few lines below bands by an absolute threshold, so
+    it calls anything at or above 0.50 `adequate`. On the 2026-09-17
+    compact run business model landed at exactly 6/12 and the memo
+    called it a weak point in one line and adequate in the next. A
+    comparative word cannot contradict a threshold word."""
     ratios: list[tuple[float, str, int, int]] = []
     for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
         entry = dimensions.get(dimension)
@@ -5437,7 +5446,11 @@ def _render_case_summary_lines(
         dimension
         for _r, dimension, _s, _w in sorted(
             ratios,
-            key=lambda r: (r[0], memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1])),
+            key=lambda r: (
+                r[0],
+                -r[3],
+                memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
+            ),
         )
         if dimension not in strong
     ][:2]
@@ -5456,7 +5469,7 @@ def _render_case_summary_lines(
         "Case summary (the executive summary's Investment highlights "
         "subsection OPENS with this sentence, with the company's name in "
         "place of 'The case'): \"The case rests on "
-        f"{strong_text}; the weak points are {weak_text}.\""
+        f"{strong_text}; it is thinnest on {weak_text}.\""
     ]
     if isinstance(highlights, list) and highlights:
         lines.append(

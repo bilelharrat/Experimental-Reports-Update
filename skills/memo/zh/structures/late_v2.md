@@ -1,5 +1,5 @@
 ---
-en_sha256: 8a90cd15f4b0e5d06db6da0143b8c338e6950d016cac05227590cd3e3122b050
+en_sha256: 6d4da8cf48fcd71c964cbcee267e36c6b422eed1d55b5489eb95e91d7bf42efe
 ---
 ---
 stage: late
@@ -85,7 +85,7 @@ subsections:
    概述句开篇，用公司名替换 "The case" —— 一小段话说明哪些维度支撑
    本案、哪些维度薄弱，并附各自分数（"Anthropic's case rests on market
    size and growth (14/15), industry position (13/15) and revenue
-   growth and quality (12/15); the weak points are business model and
+   growth and quality (12/15); it is thinnest on business model and
    unit economics (5/10) and valuation (6/10)."），之后可选地加一句
    说明这一格局意味着什么。然后是一个 `bullets` 块，带 `"component":
    "investment_highlights"`，且恰好三项，每项对应一条已钉定的亮点，

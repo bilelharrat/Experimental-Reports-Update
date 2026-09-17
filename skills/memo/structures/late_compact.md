@@ -162,7 +162,7 @@ Content per subsection:
 
    ```
    Anthropic's case rests on industry position (14/15), revenue growth
-   and quality (13/15) and moat (12/15); it is weakest on valuation
+   and quality (13/15) and moat (12/15); it is thinnest on valuation
    (6/10) and exit certainty (4/8).
 
    "component": "investment_highlights"
