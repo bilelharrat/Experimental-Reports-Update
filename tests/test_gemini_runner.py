@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 import httpx
+from pathlib import Path
 import pytest
 
 from server import ai_engine, gemini_runner
@@ -668,3 +669,35 @@ def test_a_parse_failure_shows_how_the_output_ends(monkeypatch, key):
     assert data is None
     assert "ends:" in error and error.rstrip("'\"").endswith("x" * 40)
     assert "chars" in error
+
+
+def test_a_raw_control_character_inside_a_string_is_accepted(monkeypatch, key):
+    """The default decoder rejects a whole 27KB document over one literal tab
+    in a Chinese paragraph — which is what a live section unit hit."""
+    text = '{"headline": "第一行' + "\t" + '第二行"}'  # a real TAB inside the string
+    assert "\t" in text and "\\t" not in text
+    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh"
+    )
+    assert error is None
+    assert data == {"headline": "第一行\t第二行"}
+
+
+def test_a_parse_failure_names_the_decoder_reason_and_keeps_the_raw_output(
+    monkeypatch, key, tmp_path
+):
+    import re as _re
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    _stub_post(monkeypatch, [_response(200, _envelope('{"a": 1,, "b": 2}'))])
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA,
+        name="memo Chinese package (section x)",
+    )
+    assert data is None
+    assert "Expecting" in error, error
+    match = _re.search(r"raw output kept at (\S+?);", error)
+    assert match, error
+    assert Path(match.group(1)).read_text(encoding="utf-8") == '{"a": 1,, "b": 2}'

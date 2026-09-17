@@ -31,6 +31,7 @@ import logging
 import os
 import random
 import re
+from pathlib import Path
 import time
 from typing import Any
 
@@ -92,16 +93,25 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
 _BAD_QUOTE_RE = re.compile(r'(?<=[^\s,:\[\]{}])"(?=[^\s,:\[\]{}])')
 
 
-def _loads_object(text: str) -> dict | None:
-    """`json.loads` that accepts only an object, with the quote repair."""
+def _loads_object(text: str) -> tuple[dict | None, str | None]:
+    """`json.loads` that accepts only an object, with the quote repair.
+
+    Returns ``(object, None)`` or ``(None, decoder reason)``. ``strict=False``
+    lets a raw tab or newline inside a string value through: the grammar
+    forbids them, but a 27KB Chinese section came back with one, and the
+    default decoder rejects the whole document over it.
+    """
+    reason: str | None = None
     for candidate in (text, _BAD_QUOTE_RE.sub(r'\\"', text)):
         try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
+            parsed = json.loads(candidate, strict=False)
+        except json.JSONDecodeError as exc:
+            reason = reason or f"{exc.msg} at line {exc.lineno} column {exc.colno}"
             continue
         if isinstance(parsed, dict):
-            return parsed
-    return None
+            return parsed, None
+        reason = reason or f"top-level JSON is {type(parsed).__name__}, not an object"
+    return None, reason
 
 
 class GeminiUnavailableError(RuntimeError):
@@ -145,21 +155,46 @@ def _parse_json_payload(text: str) -> dict | None:
     in the prompt instead of ``responseFormat``) sometimes wraps it in a
     fence or a sentence, so the fence and first-object fallbacks stay.
     """
+    return _parse_json_payload_reason(text)[0]
+
+
+def _parse_json_payload_reason(text: str) -> tuple[dict | None, str | None]:
+    """Like ``_parse_json_payload`` but also says why parsing failed."""
     candidate = (text or "").strip()
     if not candidate:
-        return None
-    parsed = _loads_object(candidate)
+        return None, "empty response"
+    parsed, reason = _loads_object(candidate)
     if parsed is not None:
-        return parsed
+        return parsed, None
     fenced = _FENCE_RE.findall(candidate)
     if fenced:
-        parsed = _loads_object(max(fenced, key=len).strip())
+        parsed, _ = _loads_object(max(fenced, key=len).strip())
         if parsed is not None:
-            return parsed
+            return parsed, None
     match = _JSON_OBJ_RE.search(candidate)
     if match:
-        return _loads_object(match.group(0))
-    return None
+        parsed, _ = _loads_object(match.group(0))
+        if parsed is not None:
+            return parsed, None
+    return None, reason
+
+
+def _dump_unparseable(name: str, text: str) -> str | None:
+    """Keep the raw output of a failed parse on disk; return its path.
+
+    A head-and-tail excerpt in the error is not enough to diagnose a 27KB
+    document, and the model's output is gone once the error is returned.
+    """
+    import tempfile
+    import time as _time
+
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name)[:80]
+    path = Path(tempfile.gettempdir()) / f"bsh_gemini_unparsed_{safe}_{int(_time.time())}.txt"
+    try:
+        path.write_text(text, encoding="utf-8")
+    except OSError:
+        return None
+    return str(path)
 
 
 def _looks_like_schema_rejection(error: str) -> bool:
@@ -569,11 +604,14 @@ def _single_call(
             f"gemini response hit the output token limit before finishing "
             f"({name}); raise max_output_tokens"
         )
-    parsed = _parse_json_payload(text)
+    parsed, reason = _parse_json_payload_reason(text)
     if parsed is None:
+        dump = _dump_unparseable(name, text)
         return None, meta, (
-            f"gemini output didn't parse as JSON (name={name}, {len(text)} chars); "
-            f"starts: {text[:160]!r} … ends: {text[-160:]!r}"
+            f"gemini output didn't parse as JSON (name={name}, {len(text)} chars): "
+            f"{reason or 'unknown reason'}"
+            + (f"; raw output kept at {dump}" if dump else "")
+            + f"; starts: {text[:120]!r} … ends: {text[-120:]!r}"
         )
     return parsed, meta, None
 

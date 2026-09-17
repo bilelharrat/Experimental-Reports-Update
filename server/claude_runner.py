@@ -9599,20 +9599,44 @@ def run_memo_fast_bilingual_package_parallel(
         max_workers=workers, thread_name_prefix="memo-bilingual"
     ) as pool:
         futures = {
-            pool.submit(_run_unit_with_events, unit_id, label, path): (label, source)
+            pool.submit(_run_unit_with_events, unit_id, label, path): (
+                unit_id, label, path, source,
+            )
             for unit_id, label, path, source in units
         }
-        for future, (label, source) in futures.items():
+        for future, (unit_id, label, path, source) in futures.items():
             try:
                 unit, error = future.result()
             except Exception as exc:  # noqa: BLE001
                 unit, error = None, f"{label} crashed: {exc}"
+            if error is not None:
+                # One more go at the unit before anything drastic. A unit is
+                # a few thousand words; the alternative below re-translates
+                # the whole memo in one response.
+                logger.warning(
+                    "bilingual unit %s failed, retrying once: %s", unit_id, error
+                )
+                try:
+                    unit, error = _run_unit_with_events(unit_id, label, path)
+                except Exception as exc:  # noqa: BLE001
+                    unit, error = None, f"{label} crashed on retry: {exc}"
             results.append((label, unit, error))
             if error is None:
                 _adopt_zh_translations(source, unit)
 
     failed = [f"{label}: {error}" for label, _, error in results if error]
     if failed:
+        if memo_engine.run_engine(run_dir) == "gemini":
+            # The monolithic pass asks for the entire bilingual package in
+            # one response. On a memo of any real length that is past
+            # Gemini's 64k output ceiling, so "falling back" to it turns a
+            # one-unit failure into a certain one that names the wrong cause.
+            return None, (
+                "Chinese translation failed for "
+                + "; ".join(failed[:3])
+                + " (the monolithic fallback cannot fit a full memo in one "
+                "Gemini response, so it was not attempted)"
+            )
         return _fallback("; ".join(failed[:3]))
 
     cost = sum(

@@ -397,3 +397,96 @@ def test_a_gemini_run_always_takes_the_per_section_wave(tmp_path, monkeypatch):
     assert claude_runner._memo_english_parallel_enabled(None) is False
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
     assert claude_runner._memo_english_parallel_enabled(cla) is True
+
+
+# ---- Chinese translation on Gemini -----------------------------------------
+
+
+def _bilingual_package():
+    def loc(en):
+        return {"en": en, "zh": ""}
+    return {
+        "schema_version": 1,
+        "company": {"id": "acme", "name": "Acme"},
+        "run": {"run_id": "r1", "date": "2026-09-17"},
+        "sources": [{"id": "S1", "title": loc("Filing"), "url": "https://x"}],
+        "sections": [
+            {"id": "executive_summary", "title": loc("Executive Summary"),
+             "blocks": [{"type": "paragraph", "text": loc("Acme sells widgets.")}]},
+            {"id": "investment_risk", "title": loc("Investment Risk"),
+             "blocks": [{"type": "paragraph", "text": loc("Concentration is high.")}]},
+        ],
+    }
+
+
+def _translated(obj):
+    """A zh-filled copy in the same shape, as a unit call returns it."""
+    import copy
+    out = copy.deepcopy(obj)
+    def fill(x):
+        if isinstance(x, dict):
+            if "en" in x and "zh" in x and isinstance(x["en"], str) and x["en"]:
+                x["zh"] = "中文：" + x["en"]
+            for v in x.values(): fill(v)
+        elif isinstance(x, list):
+            for v in x: fill(v)
+    fill(out)
+    return out
+
+
+def test_a_failed_chinese_unit_is_retried_not_replaced_by_the_whole_package_pass(tmp_path, monkeypatch):
+    """Live: one section unit came back unparseable, and the wave fell back to
+    the monolithic pass, which cannot fit a full memo in one Gemini response
+    and failed on the output ceiling — reporting the wrong cause."""
+    run_dir = tmp_path / "run"; (run_dir / "logs").mkdir(parents=True)
+    memo_engine.register_run_engine(run_dir, "gemini")
+    pkg_path = run_dir / "logs" / "memo_package.en.json"
+    import json
+    pkg_path.write_text(json.dumps(_bilingual_package()), encoding="utf-8")
+
+    calls: dict = {}
+
+    def fake_unit(*, unit_path, **kw):
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        uid = unit.get("id") or "envelope"
+        calls[uid] = calls.get(uid, 0) + 1
+        if uid == "investment_risk" and calls[uid] == 1:
+            return None, "gemini output didn't parse as JSON (name=memo Chinese package (section investment_risk))"
+        return _translated(unit), None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_bilingual_package",
+        lambda **kw: pytest.fail("must not fall back to the whole-package pass on Gemini"),
+    )
+
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=run_dir, company_name="Acme", run_id="r1",
+        english_package_path=pkg_path, timeout_sec=10, max_workers=2,
+    )
+    assert error is None, error
+    assert calls["investment_risk"] == 2, "the failed unit is retried once"
+    assert calls["executive_summary"] == 1
+
+
+def test_a_unit_that_fails_twice_reports_the_real_cause_on_gemini(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run2"; (run_dir / "logs").mkdir(parents=True)
+    memo_engine.register_run_engine(run_dir, "gemini")
+    pkg_path = run_dir / "logs" / "memo_package.en.json"
+    import json
+    pkg_path.write_text(json.dumps(_bilingual_package()), encoding="utf-8")
+    monkeypatch.setattr(
+        claude_runner, "_run_bilingual_unit",
+        lambda *, unit_path, **kw: (None, "Invalid control character at line 3 column 9"),
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_bilingual_package",
+        lambda **kw: pytest.fail("no monolithic fallback on Gemini"),
+    )
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=run_dir, company_name="Acme", run_id="r1",
+        english_package_path=pkg_path, timeout_sec=10, max_workers=2,
+    )
+    assert result is None
+    assert "Invalid control character" in error
+    assert "not attempted" in error
