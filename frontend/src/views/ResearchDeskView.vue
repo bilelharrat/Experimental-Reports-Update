@@ -6,6 +6,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useT } from "../i18n.js";
+import { useMediaQuery } from "../chrome.js";
 import {
   Sparkles,
   Sparkle,
@@ -16,6 +17,8 @@ import {
   FileDown,
   AlertTriangle,
   Building2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-vue-next";
 import MacMonogram from "../components/research/MacMonogram.vue";
 import CompanyDossierView from "../components/research/CompanyDossierView.vue";
@@ -50,6 +53,46 @@ const mobileView = ref("directory"); // 'directory' | 'dossier'
 // HSplitView: directory pane min 230, ideal 270, max 380.
 const paneWidth = ref(270);
 let dragState = null;
+
+// Collapsed, the directory becomes a slim rail holding just the reopen
+// chevron — the same move the iOS master lists make to give the detail the
+// full width. Only above `md`: narrower windows already swap panes with the
+// segmented control, so there is nothing to collapse.
+const DIRECTORY_COLLAPSED_KEY = "bsh.researchDirectoryCollapsed";
+const DIRECTORY_RAIL_WIDTH = 44;
+
+const isSplitWidth = useMediaQuery("(min-width: 768px)");
+
+function _initialDirectoryCollapsed() {
+  try {
+    return window.localStorage.getItem(DIRECTORY_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const directoryCollapsedPref = ref(_initialDirectoryCollapsed());
+const directoryCollapsed = computed(
+  () => directoryCollapsedPref.value && isSplitWidth.value,
+);
+
+watch(directoryCollapsedPref, (collapsed) => {
+  try {
+    window.localStorage.setItem(DIRECTORY_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignore — localStorage unavailable
+  }
+});
+
+function toggleDirectory() {
+  directoryCollapsedPref.value = !directoryCollapsedPref.value;
+}
+
+const directoryPaneStyle = computed(() => ({
+  "--pane-w": directoryCollapsed.value
+    ? `${DIRECTORY_RAIL_WIDTH}px`
+    : `${paneWidth.value}px`,
+}));
 
 function onSplitPointerDown(e) {
   dragState = { startX: e.clientX, startWidth: paneWidth.value };
@@ -321,13 +364,30 @@ function onDeckDrop(e) {
     <div class="flex min-h-0 flex-1">
       <!-- Directory pane -->
       <aside
-        class="mac-hairline-r relative flex min-h-0 flex-col"
+        class="glass-panel relative flex min-h-0 flex-col md:my-2 md:ml-2 md:rounded-[18px]"
         :class="mobileView === 'directory' ? 'flex w-full md:w-auto' : 'hidden md:flex'"
-        :style="{ '--pane-w': `${paneWidth}px` }"
+        :style="directoryPaneStyle"
       >
-        <div class="flex min-h-0 flex-1 w-full flex-col md:w-[var(--pane-w)]">
+        <div
+          class="mac-directory-pane flex min-h-0 w-full flex-1 flex-col md:w-[var(--pane-w)] md:overflow-hidden md:rounded-[18px]"
+        >
+          <!-- Collapsed: a rail whose only job is to come back. -->
+          <button
+            v-if="directoryCollapsed"
+            type="button"
+            class="mac-directory-rail focus-ring"
+            :aria-label="t('research_desk.expand_directory')"
+            :title="t('research_desk.expand_directory')"
+            :aria-expanded="false"
+            data-testid="research-directory-expand"
+            @click="toggleDirectory"
+          >
+            <PanelLeftOpen class="h-4 w-4" />
+          </button>
+
+          <template v-else>
           <!-- directoryToolbar: sector popup · spacer · Diffs · count -->
-          <div class="mac-toolbar-strip mac-bar-material mac-hairline-b shrink-0">
+          <div class="mac-toolbar-strip shrink-0">
             <div class="mac-popup min-w-0 max-w-[55%]">
               <select v-model="selectedSector" :aria-label="t('research_desk.sector')">
                 <option v-for="s in sectors" :key="s" :value="s">
@@ -353,10 +413,22 @@ function onDeckDrop(e) {
             <span class="mac-t-caption mac-mono mac-c-secondary shrink-0 select-none">
               {{ filteredCompanies.length }}
             </span>
+
+            <button
+              type="button"
+              class="mac-btn mac-btn--plain shrink-0 !px-1.5"
+              :aria-label="t('research_desk.collapse_directory')"
+              :title="t('research_desk.collapse_directory')"
+              :aria-expanded="true"
+              data-testid="research-directory-collapse"
+              @click="toggleDirectory"
+            >
+              <PanelLeftClose class="h-3.5 w-3.5" />
+            </button>
           </div>
 
           <!-- Toolbar search field (.searchable placement: .toolbar) -->
-          <div class="mac-bar-material mac-hairline-b shrink-0 px-2.5 py-1.5">
+          <div class="mac-hairline-b shrink-0 px-2.5 py-1.5">
             <div class="mac-search relative px-2">
               <Search class="mac-c-secondary h-3.5 w-3.5 shrink-0" />
               <input
@@ -423,7 +495,7 @@ function onDeckDrop(e) {
 
           <!-- MacPitchDeckDropBanner on the bar material -->
           <div
-            class="mac-bar-material mac-hairline-t relative shrink-0"
+            class="mac-hairline-t relative shrink-0"
             :style="isDeckDragTargeted ? { background: 'color-mix(in srgb, var(--mac-accent) 10%, transparent)' } : {}"
             @dragover="onDeckDragOver"
             @dragleave="onDeckDragLeave"
@@ -446,7 +518,7 @@ function onDeckDrop(e) {
                 }"
               />
               <span
-                class="mac-t-caption min-w-0 flex-1 truncate"
+                class="mac-t-caption min-w-0 flex-1 leading-snug"
                 :style="{
                   color: isDeckDragTargeted
                     ? 'var(--mac-accent)'
@@ -465,10 +537,12 @@ function onDeckDrop(e) {
               </button>
             </div>
           </div>
+          </template>
         </div>
 
         <!-- HSplitView drag handle -->
         <div
+          v-if="!directoryCollapsed"
           class="absolute -right-[3px] top-0 z-10 hidden h-full w-[6px] md:block"
           style="cursor: col-resize"
           @pointerdown="onSplitPointerDown"

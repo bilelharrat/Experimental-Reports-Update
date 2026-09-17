@@ -3682,93 +3682,78 @@ select.yf-range-item:hover {
 }
 
 /* ===========================================================================
-   Mac Research Desk — the web twin of the macOS terminal's design system.
-   Values are sampled from the running Mac app on macOS 26 (see MacDesign.swift
-   and MacGlassStyles.swift): pure #FFF/#1E1E1E surfaces separated by a 9%
-   label hairline, 4.5% label tiles, SF type scale in points, capsule controls,
-   and the levitating glass selection pill. Scoped under .mac-desk so the rest
-   of the site keeps Summit Glass.
+   Mac Research Desk — the web twin of the macOS terminal's design system
+   (see MacDesign.swift, MacGlassStyles.swift): hairline-separated surfaces,
+   the SF type scale in points, capsule controls, and the levitating glass
+   selection pill.
+
+   The *shapes* are the Mac's; the *palette* is Summit Glass. Every --mac-*
+   token below resolves to an app token, so the desk reads as the same app as
+   the chrome around it — one blue, one ground, one glass — and dark mode
+   follows from .dark instead of a second set of samples.
 --------------------------------------------------------------------------- */
 
 .mac-desk {
-  /* NSColor samples, light (aqua) */
-  --mac-canvas: #ffffff;                   /* windowBackgroundColor */
-  --mac-card: #ffffff;                     /* controlBackgroundColor */
-  --mac-label: rgba(0, 0, 0, 0.847);       /* labelColor */
-  --mac-secondary: rgba(0, 0, 0, 0.498);   /* secondaryLabelColor */
-  --mac-tertiary: rgba(0, 0, 0, 0.259);    /* tertiaryLabelColor */
-  --mac-quaternary: rgba(0, 0, 0, 0.098);  /* quaternaryLabelColor */
-  --mac-hairline: rgba(0, 0, 0, 0.076);    /* Color.primary.opacity(0.09) */
-  --mac-tile: rgba(0, 0, 0, 0.038);        /* Color.primary.opacity(0.045) */
-  --mac-accent: #007aff;                   /* controlAccentColor */
-  --mac-blue: #0088ff;
-  --mac-green: #34c759;
-  --mac-red: #ff383c;
-  --mac-orange: #ff8d28;
-  --mac-yellow: #ffcc00;
-  --mac-purple: #cb30e0;
+  /* Surfaces and label hierarchy: the app's ground and ink. Cards sit on
+     `surface` over the `canvas` page ground, exactly as elsewhere. */
+  --mac-canvas: rgb(var(--color-canvas));
+  --mac-card: rgb(var(--color-surface));
+  --mac-label: rgb(var(--color-text-primary));
+  --mac-secondary: rgb(var(--color-text-muted));
+  --mac-tertiary: rgb(var(--color-text-subtle));
+  --mac-quaternary: rgb(var(--color-text-subtle) / 0.45);
+  --mac-hairline: rgb(var(--color-border-subtle));
+  --mac-tile: rgb(var(--color-fill-tertiary));
+
+  /* Summit blue, not Apple's system blue: selection, tints and focus rings
+     match the sidebar, toolbar and buttons outside the desk. */
+  --mac-accent: rgb(var(--color-accent));
+  --mac-blue: rgb(var(--color-accent-ink));   /* a tint drawn as text/icons */
+
+  /* Status hues are the app's semantic tokens (already the Apple palette). */
+  --mac-green: rgb(var(--color-success));
+  --mac-red: rgb(var(--color-danger));
+  --mac-orange: rgb(var(--color-warning));
+  --mac-yellow: rgb(var(--color-notice));
+  --mac-purple: rgb(var(--color-purple));
+  --mac-teal: rgb(var(--color-teal));
+  --mac-indigo: rgb(var(--color-info));
+  --mac-gray: rgb(var(--color-text-muted));
   --mac-pink: #ff2d55;
-  --mac-teal: #00c3d0;
   --mac-cyan: #00c0e8;
   --mac-mint: #00c8b3;
-  --mac-indigo: #6155f5;
-  --mac-gray: #8e8e93;
-  --mac-bar: rgba(255, 255, 255, 0.8);     /* .bar material over the canvas */
-  --mac-menu-bg: rgba(246, 246, 246, 0.72);
-  --mac-menu-edge: rgba(0, 0, 0, 0.1);
-  --mac-menu-rim: rgba(255, 255, 255, 0.45);
-  --mac-field-bg: rgba(0, 0, 0, 0.05);
-  --mac-btn-bg: #ffffff;
-  --mac-btn-hover: rgba(0, 0, 0, 0.035);
-  --mac-btn-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
-  --mac-pill-fill: rgba(255, 255, 255, 0.62);
-  --mac-pill-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-  --mac-pill-contact: 0 0.5px 1px rgba(0, 0, 0, 0.06);
-  --mac-pill-drop: 0 8px 10px rgba(0, 0, 0, 0.13);
-  --mac-thumb-drop: 0 2px 4px rgba(0, 0, 0, 0.16);
 
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    system-ui, "Helvetica Neue", Arial, sans-serif;
+  /* Materials: the same bar, menu and pill glass the chrome is built from. */
+  --mac-bar: var(--material-bar);
+  --mac-menu-bg: var(--material-menu);
+  --mac-menu-edge: rgb(var(--color-border-subtle));
+  --mac-menu-rim: rgba(255, 255, 255, 0.45);
+  --mac-field-bg: rgb(var(--color-fill-secondary));
+  --mac-btn-bg: rgb(var(--color-surface));
+  --mac-btn-hover: rgb(var(--color-fill-tertiary));
+  --mac-btn-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
+
+  /* The selection pill is the sidebar glider's material, so a selected row
+     here and a selected desk in the rail are the same object. */
+  --mac-pill-fill: var(--glass-pill);
+  --mac-pill-rim: var(--glass-rim);
+  --mac-pill-contact: var(--glass-edge);
+  --mac-pill-drop: var(--pill-shadow);
+  --mac-thumb-drop: var(--pill-shadow);
+
   color: var(--mac-label);
   background: var(--mac-canvas);
 }
 
 .dark .mac-desk {
-  /* NSColor samples, darkAqua */
-  --mac-canvas: #1e1e1e;
-  --mac-card: #1e1e1e;
-  --mac-label: rgba(255, 255, 255, 0.847);
-  --mac-secondary: rgba(255, 255, 255, 0.549);
-  --mac-tertiary: rgba(255, 255, 255, 0.247);
-  --mac-quaternary: rgba(255, 255, 255, 0.098);
-  --mac-hairline: rgba(255, 255, 255, 0.076);
-  --mac-tile: rgba(255, 255, 255, 0.038);
-  --mac-accent: #007aff;
-  --mac-blue: #0091ff;
-  --mac-green: #30d158;
-  --mac-red: #ff4245;
-  --mac-orange: #ff9230;
-  --mac-yellow: #ffd600;
-  --mac-purple: #db34f2;
+  /* Everything above re-resolves through .dark on its own; these are the
+     literals that have no app token. */
+  --mac-menu-rim: rgba(255, 255, 255, 0.12);
   --mac-pink: #ff375f;
-  --mac-teal: #00d2e0;
   --mac-cyan: #3cd3fe;
   --mac-mint: #00dac3;
-  --mac-indigo: #6d7cff;
-  --mac-gray: #98989d;
-  --mac-bar: rgba(30, 30, 30, 0.75);
-  --mac-menu-bg: rgba(40, 40, 40, 0.78);
-  --mac-menu-edge: rgba(0, 0, 0, 0.55);
-  --mac-menu-rim: rgba(255, 255, 255, 0.12);
-  --mac-field-bg: rgba(255, 255, 255, 0.065);
-  --mac-btn-bg: rgba(255, 255, 255, 0.135);
-  --mac-btn-hover: rgba(255, 255, 255, 0.06);
+  --mac-btn-bg: rgb(var(--color-fill-secondary));
   --mac-btn-edge: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
-  --mac-pill-fill: rgba(255, 255, 255, 0.1);
-  --mac-pill-rim: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --mac-pill-contact: 0 0.5px 1px rgba(0, 0, 0, 0.3);
-  --mac-pill-drop: 0 8px 10px rgba(0, 0, 0, 0.5);
-  --mac-thumb-drop: 0 2px 5px rgba(0, 0, 0, 0.45);
 }
 
 /* macOS is an app, not a page: arrow cursor on controls, no tap highlights. */
@@ -4127,6 +4112,32 @@ select.yf-range-item:hover {
 .mac-stattile.is-compact { padding: 10px; }
 
 /* --- Overlay scrollbars --------------------------------------------------- */
+/* --- Directory pane (collapsible) ---------------------------------------- */
+.mac-directory-pane {
+  transition: width 0.28s var(--ease-emphasized);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mac-directory-pane {
+    transition: none;
+  }
+}
+
+/* Collapsed, the pane is only wide enough for the chevron that reopens it. */
+.mac-directory-rail {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+  border: none;
+  background: transparent;
+  color: var(--mac-secondary);
+  transition: color 0.12s ease;
+}
+.mac-directory-rail:hover { color: var(--mac-label); }
+
 .mac-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--mac-label) 28%, transparent) transparent; }
 .mac-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .mac-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--mac-label) 25%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
@@ -4148,54 +4159,5 @@ select.yf-range-item:hover {
 .mac-desk input[type="range"] { accent-color: var(--mac-accent); }
 .mac-desk input[type="checkbox"] { accent-color: var(--mac-accent); width: 14px; height: 14px; }
 
-/* --- Summit → Mac token bridge -------------------------------------------
-   Shared components (memo studio, report customizer) are written against the
-   Summit Glass semantic tokens. Inside the Mac desk those tokens re-resolve
-   to the sampled macOS palette, so nested Summit-styled markup re-tones to
-   the Mac look without per-component edits. Values are the flat composites
-   of the alpha tokens above over the canvas. */
-.mac-desk {
-  --color-canvas: 255 255 255;
-  --color-surface: 255 255 255;
-  --color-surface-muted: 246 246 246;
-  --color-surface-raised: 255 255 255;
-  --color-border-subtle: 236 236 236;
-  --color-border-strong: 209 209 209;
-  --color-text-primary: 38 38 38;
-  --color-text-secondary: 110 110 110;
-  --color-text-muted: 128 128 128;
-  --color-text-subtle: 175 175 175;
-  --color-fill: 235 235 235;
-  --color-fill-secondary: 240 240 240;
-  --color-fill-tertiary: 245 245 245;
-  --color-accent: 0 122 255;
-  --color-accent-hover: 20 134 255;
-  --color-accent-soft: 229 241 255;
-  --color-accent-ink: 0 96 214;
-  --color-success: 52 199 89;
-  --color-danger: 255 56 60;
-  --color-warning: 255 141 40;
-}
-
-.dark .mac-desk {
-  --color-canvas: 30 30 30;
-  --color-surface: 30 30 30;
-  --color-surface-muted: 41 41 41;
-  --color-surface-raised: 44 44 44;
-  --color-border-subtle: 47 47 47;
-  --color-border-strong: 66 66 66;
-  --color-text-primary: 221 221 221;
-  --color-text-secondary: 154 154 154;
-  --color-text-muted: 140 140 140;
-  --color-text-subtle: 100 100 100;
-  --color-fill: 52 52 52;
-  --color-fill-secondary: 47 47 47;
-  --color-fill-tertiary: 42 42 42;
-  --color-accent: 0 122 255;
-  --color-accent-hover: 30 140 255;
-  --color-accent-soft: 18 42 71;
-  --color-accent-ink: 100 176 255;
-  --color-success: 48 209 88;
-  --color-danger: 255 66 69;
-  --color-warning: 255 146 48;
-}
+/* Shared Summit-styled components nested in the desk (memo studio, report
+   customizer) need no token bridge: the desk now speaks their palette. */
