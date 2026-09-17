@@ -4328,13 +4328,16 @@ def _run_memo_local_json_artifact(
         # Claude one, and only the model differs. The cancel/limiter guards
         # above still apply either way.
         if memo_engine.run_engine(run_dir) == "gemini":
+            # `model` / `effort` here are the Claude quality tier's role
+            # overrides ("sonnet", "medium"). They mean nothing to Gemini —
+            # at the customizer's default tier they would have asked Google
+            # for a model called "sonnet" — so the engine picks its own.
             return memo_engine.run_artifact(
                 prompt=prompt,
                 schema=schema,
                 add_dirs=add_dirs,
                 timeout_label=timeout_label,
                 timeout_sec=timeout_sec,
-                model=model,
             )
         data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,
@@ -5811,6 +5814,23 @@ Return only the JSON matching the attached schema.
     )
 
 
+def _memo_english_parallel_enabled(run_dir: Path | None = None) -> bool:
+    """Whether the English package is written as a spine plus per-section
+    workers, or as one monolithic call.
+
+    Claude keeps the operator's flag: the wave is benchmarked but still
+    opt-in there. A Gemini run always takes the wave, because a single
+    call is where its depth went — the monolithic pass asks one response
+    to carry the whole memo, and on Gemini that came back at ~2,700 words
+    against the ~12,200 the benchmarked (wave) Claude memos carry. Same
+    prompts, same stage graph; only the number of calls the memo is spread
+    across differs.
+    """
+    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1":
+        return True
+    return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
+
+
 def _memo_artifacts_async_enabled() -> bool:
     return (
         os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
@@ -7255,7 +7275,7 @@ def run_memo_fast_english_package_parallel(
     # any other structure has no monolithic twin, so degrading to it would
     # silently ship the wrong report shape.
     monolithic_ok = structure.meta() == memo_structure.LATE.meta()
-    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+    if not _memo_english_parallel_enabled(run_dir):
         if pinned_spine_path is not None:
             return None, (
                 "a pinned studio spine requires BSH_MEMO_ENGLISH_PARALLEL=1; "

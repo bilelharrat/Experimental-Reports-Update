@@ -344,3 +344,56 @@ def test_auth_failure_reason_matches_the_cli_wordings():
         assert claude_runner.auth_failure_reason(text)
     assert claude_runner.auth_failure_reason("claude timed out after 900s") is None
     assert claude_runner.auth_failure_reason("") is None
+
+
+# ---- model and path ---------------------------------------------------------
+
+
+def test_the_claude_tier_model_never_reaches_gemini(tmp_path, monkeypatch):
+    """The funnel's `model` is the Claude quality tier's role override
+    ("sonnet" at the customizer's default tier). Passed through, Google
+    would be asked for a model called "sonnet"."""
+    monkeypatch.delenv("BSH_MEMO_GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("BSH_GEMINI_MODEL", raising=False)
+    seen: dict = {}
+    monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
+    monkeypatch.setattr(
+        memo_engine.gemini_runner, "run_structured_prompt",
+        lambda **kw: (seen.update(kw) or ({"ok": True}, None)),
+    )
+    run_dir = tmp_path / "r"; run_dir.mkdir()
+    memo_engine.register_run_engine(run_dir, "gemini")
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact_inner",
+        lambda **kw: pytest.fail("gemini run must not spawn the CLI"),
+    )
+    claude_runner._run_memo_local_json_artifact(
+        prompt="p", schema=SCHEMA, run_dir=run_dir, progress=None,
+        progress_message="m", timeout_label="t", timeout_sec=60,
+        model="sonnet", effort="medium",
+    )
+    assert seen["model"] == "gemini-3.8-flash"
+
+
+def test_memos_can_pin_their_own_gemini_model(monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_GEMINI_MODEL", "gemini-3.8-pro")
+    assert memo_engine.memo_gemini_model() == "gemini-3.8-pro"
+    monkeypatch.delenv("BSH_MEMO_GEMINI_MODEL")
+    monkeypatch.delenv("BSH_GEMINI_MODEL", raising=False)
+    assert memo_engine.memo_gemini_model() == "gemini-3.8-flash"
+
+
+def test_a_gemini_run_always_takes_the_per_section_wave(tmp_path, monkeypatch):
+    """One monolithic call is where a Gemini memo's depth went (~2,700
+    words against the ~12,200 of the benchmarked wave memos). Claude keeps
+    the operator's flag."""
+    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    gem = tmp_path / "g"; gem.mkdir()
+    cla = tmp_path / "c"; cla.mkdir()
+    memo_engine.register_run_engine(gem, "gemini")
+    memo_engine.register_run_engine(cla, "claude")
+    assert claude_runner._memo_english_parallel_enabled(gem) is True
+    assert claude_runner._memo_english_parallel_enabled(cla) is False
+    assert claude_runner._memo_english_parallel_enabled(None) is False
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    assert claude_runner._memo_english_parallel_enabled(cla) is True

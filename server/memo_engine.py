@@ -353,10 +353,22 @@ def run_artifact(
         schema=schema,
         name=timeout_label,
         timeout_sec=timeout_sec,
-        model=model,
+        model=model or memo_gemini_model(),
         thinking_level=memo_thinking_level(),
         max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
     )
+
+
+def memo_gemini_model() -> str:
+    """The Gemini model memo stages run on.
+
+    ``BSH_MEMO_GEMINI_MODEL`` pins it for memos alone; otherwise the
+    app-wide ``BSH_GEMINI_MODEL`` / ``gemini-3.8-flash``. Callers must not
+    pass the Claude quality tier's role model here — "sonnet" is not a
+    Gemini model.
+    """
+    raw = str(os.environ.get("BSH_MEMO_GEMINI_MODEL") or "").strip()
+    return raw or gemini_runner.default_model()
 
 
 # A memo package is a whole investment memo as one JSON object — every
