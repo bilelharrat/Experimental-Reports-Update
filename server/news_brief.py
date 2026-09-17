@@ -61,6 +61,8 @@ REFRESH_LIMIT_DEFAULT = 16
 REFRESH_LIMIT_MAX = 24
 # How often the loop wakes to check whether a refresh is due.
 REFRESH_CHECK_SECONDS = 600
+# How soon to retry after a refresh that wrote nothing at all.
+FAILED_RETRY_MINUTES = 15
 # Basic (no-AI) briefing shape.
 BASIC_MAX_PARAGRAPHS = 6
 BASIC_MAX_WORDS = 450
@@ -796,6 +798,21 @@ def _mark_refreshed(at: datetime | None = None) -> None:
     _write_json(_state_path(), {"last_refresh_at": _iso(at)})
 
 
+def _mark_refresh_failed() -> None:
+    """Back the clock off to a short retry instead of a full interval.
+
+    A run that wrote nothing has not refreshed anything, and must not buy
+    itself the full ``BSH_NEWS_BRIEF_REFRESH_HOURS`` of silence: that is how
+    a single bad window (an expired key, a model outage) leaves every story
+    showing "No AI briefing yet" for six hours with nothing retrying. The
+    clock is set so the next attempt is ``FAILED_RETRY_MINUTES`` away rather
+    than reset — still backed off enough not to hammer a broken model.
+    """
+    interval = timedelta(hours=refresh_interval_hours())
+    retry_in = min(timedelta(minutes=FAILED_RETRY_MINUTES), interval)
+    _mark_refreshed(_now() - interval + retry_in)
+
+
 def last_refresh_at() -> datetime | None:
     raw = str((_read_json(_state_path()) or {}).get("last_refresh_at") or "").strip()
     if not raw:
@@ -878,7 +895,6 @@ def start_refresh(
             "planned": 0,
             "note": "nothing_to_write" if tape_known else "no_headlines",
         }
-    _mark_refreshed()
     if background:
         threading.Thread(
             target=_run_refresh,
@@ -916,6 +932,12 @@ def _run_refresh(plan: list[dict]) -> None:
             _REFRESH_STATE["running"] = False
             _REFRESH_STATE["finished_at"] = _iso()
             _PLANNED_KEYS.clear()
+        # The schedule clock is set here, from the outcome — a run that wrote
+        # nothing gets a short retry instead of the full interval.
+        if written:
+            _mark_refreshed()
+        else:
+            _mark_refresh_failed()
     if written:
         _notify("AI briefs ready", f"{written} headline briefs refreshed", {"count": written})
 

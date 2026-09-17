@@ -505,3 +505,37 @@ def test_fetch_article_text_truncates(monkeypatch):
     assert final == "https://example.com/long"
     assert len(text) <= 201
     assert text.endswith("…")
+
+
+def test_a_refresh_that_wrote_nothing_does_not_buy_a_full_interval(monkeypatch):
+    """One bad window (expired key, model outage) must not leave every story
+    on the no-AI fallback for the whole refresh interval with nothing
+    retrying — that is what marking the clock before the work did."""
+    monkeypatch.setattr(
+        news_brief.ai_engine,
+        "structured",
+        lambda **kwargs: (None, {"engine": "gemini"}, "engine down"),
+    )
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.start_refresh(
+        items=[{"title": "Story A"}, {"title": "Story B"}], background=False
+    )
+
+    status = news_brief.refresh_status()
+    assert status["failed"] == 2 and status["done"] == 0
+    # Next attempt is the short retry, not a full interval away.
+    due = news_brief.seconds_until_due()
+    assert due is not None
+    assert due <= news_brief.FAILED_RETRY_MINUTES * 60 + 5
+
+
+def test_a_refresh_that_wrote_something_resets_the_clock(stub_claude, monkeypatch):
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.start_refresh(
+        items=[{"title": "Story A"}, {"title": "Story B"}], background=False
+    )
+    status = news_brief.refresh_status()
+    assert status["done"] == 2 and status["failed"] == 0
+    due = news_brief.seconds_until_due()
+    # A successful run buys the full interval.
+    assert due > news_brief.FAILED_RETRY_MINUTES * 60
