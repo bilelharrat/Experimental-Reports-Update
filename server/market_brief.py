@@ -470,6 +470,10 @@ DEFAULT_MORNING_LENGTH = "long"
 
 _MORNING_LOCK = threading.Lock()
 _MORNING_LOOP_STARTED = False
+# Set while a scheduled run is in flight. The long note takes ~90s, and the
+# page has nothing to show for that time unless it can tell the difference
+# between "no brief today" and "the brief is being written right now".
+_MORNING_RUNNING = threading.Event()
 
 
 def morning_enabled() -> bool:
@@ -519,10 +523,17 @@ def _write_morning_state(payload: dict) -> None:
 def morning_due(now: datetime | None = None) -> bool:
     """True when today's brief should be written and has not been.
 
-    Local time, because "morning" is the reader's morning. A run is due once
-    the hour has arrived and no run has completed for today's date; a brief
-    that already carries a note is not rewritten, so restarting the server
-    all morning does not spend a call each time.
+    Local time, because "morning" is the reader's morning.
+
+    The presence of a note decides this, not the fact that a run happened:
+    ``build_brief`` deliberately drops the note when the snapshot is rebuilt
+    (it described the previous tape), so a "Build brief" click after the
+    morning run leaves the desk with no brief for the rest of the day. Keying
+    off the recorded run date alone meant the schedule saw its own completed
+    run and refused to write another.
+
+    A run that FAILED today still holds the loop off, so a broken model or
+    market feed is not retried every five minutes.
     """
     if not morning_enabled():
         return False
@@ -530,10 +541,13 @@ def morning_due(now: datetime | None = None) -> bool:
     if current.hour < morning_hour():
         return False
     today = current.strftime("%Y-%m-%d")
-    if str(_read_morning_state().get("last_run_date") or "") == today:
-        return False
     existing = load_brief(today)
-    return not (isinstance(existing, dict) and existing.get("note"))
+    if isinstance(existing, dict) and existing.get("note"):
+        return False
+    state = _read_morning_state()
+    if str(state.get("last_run_date") or "") == today and not state.get("ok"):
+        return False
+    return True
 
 
 def run_morning_brief(now: datetime | None = None) -> dict | None:
@@ -546,6 +560,7 @@ def run_morning_brief(now: datetime | None = None) -> dict | None:
     current = now or datetime.now().astimezone()
     today = current.strftime("%Y-%m-%d")
     length = morning_length()
+    _MORNING_RUNNING.set()
     try:
         build_brief()
         brief = write_note(length=length)
@@ -560,6 +575,8 @@ def run_morning_brief(now: datetime | None = None) -> dict | None:
             {"last_run_date": today, "length": length, "ok": False, "error": str(exc)[:300]}
         )
         return None
+    finally:
+        _MORNING_RUNNING.clear()
 
 
 def morning_status() -> dict:
@@ -569,6 +586,7 @@ def morning_status() -> dict:
         "enabled": morning_enabled(),
         "hour": morning_hour(),
         "length": morning_length(),
+        "running": _MORNING_RUNNING.is_set(),
         "last_run_date": state.get("last_run_date"),
         "last_run_ok": state.get("ok"),
         "last_error": state.get("error"),

@@ -900,13 +900,42 @@ select.field-sm {
   text-wrap: balance;
 }
 
-/* ~68 characters is the comfortable measure for continuous prose; the
-   surrounding page is far wider than that. */
+/* The measure applies to the parts that span the card: the headline, the
+   short note's bullets, the source footer. Section prose gets its measure
+   from the column it sits in instead. */
 .morning-brief-measure {
   max-width: 68ch;
 }
 
-.morning-brief-section + .morning-brief-section {
+/* Sections fill the card. One column of 14px text across a ~1000px card is
+   a 140-character line, so on wide screens they run two across: each column
+   keeps a readable measure and more of an eight-section brief is visible
+   without scrolling. Sections are self-contained, so row-major order reads
+   naturally — unlike CSS multi-column, which would send the reader down one
+   full column and back up. */
+.morning-brief-sections {
+  @apply grid gap-0;
+}
+
+@media (min-width: 1024px) {
+  .morning-brief-sections {
+    @apply grid-cols-2;
+    column-gap: 2.25rem;
+  }
+}
+
+/* On a wide desk display two columns stretch back past 110 characters a
+   line, so a third keeps the measure near 80 while still filling the card. */
+@media (min-width: 1600px) {
+  .morning-brief-sections {
+    @apply grid-cols-3;
+  }
+}
+
+/* Every section carries its own rule rather than only the ones after a
+   sibling: in a grid the second column has no preceding sibling to hang a
+   separator off. */
+.morning-brief-section {
   @apply mt-3.5 pt-3.5;
   border-top: 1px solid rgb(var(--color-border-subtle));
 }
@@ -937,6 +966,58 @@ select.field-sm {
 .morning-brief-foot {
   @apply mt-3.5 pt-3 text-caption1 text-ink-muted;
   border-top: 1px solid rgb(var(--color-border-subtle));
+}
+
+/* Morning brief, while it is being written. The long note takes ~90s, so the
+   card shows the shape of the report it is about to hold rather than a
+   spinner on an empty box: a sheen travels across placeholder lines, the way
+   the Mac's loading cards do. */
+.morning-brief-skeleton-line {
+  @apply rounded-full;
+  background-color: rgb(var(--color-fill-tertiary));
+  position: relative;
+  overflow: hidden;
+}
+
+.morning-brief-skeleton-line::after {
+  content: "";
+  @apply absolute inset-0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(var(--color-surface) / 0.75) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: morning-brief-sheen 1.6s var(--ease-standard) infinite;
+}
+
+@keyframes morning-brief-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* The design language requires motion to respect the system setting: the
+   placeholder still reads as "loading" through its own breathing opacity. */
+@media (prefers-reduced-motion: reduce) {
+  .morning-brief-skeleton-line::after {
+    animation: none;
+  }
+
+  .morning-brief-skeleton-line {
+    animation: morning-brief-breathe 2s ease-in-out infinite;
+  }
+}
+
+@keyframes morning-brief-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 /* Quaternary tile: label / value / detail. */

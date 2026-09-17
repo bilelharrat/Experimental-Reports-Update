@@ -354,6 +354,7 @@ export const api = {
     request(`/api/market-brief${date ? `?date=${encodeURIComponent(date)}` : ""}`, {
       timeoutMs: 15000,
     }),
+  marketBriefSchedule: () => request("/api/market-brief/schedule", { timeoutMs: 10000 }),
   marketBriefArchive: () => request("/api/market-brief/archive", { timeoutMs: 10000 }),
   runMarketBrief: () =>
     request("/api/market-brief/run", { method: "POST", timeoutMs: 45000 }),

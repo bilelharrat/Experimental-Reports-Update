@@ -61,6 +61,37 @@ const noteWriting = ref(false);
 // a quick numbers-only read.
 const noteLength = ref("long");
 
+// The morning schedule writes the note on the server, and the long one takes
+// ~90s. Without this the page is indistinguishable from "there is no brief".
+const noteScheduleRunning = ref(false);
+let noteSchedulePoll = null;
+
+const noteBuilding = computed(() => noteWriting.value || noteScheduleRunning.value);
+
+async function pollNoteSchedule() {
+  try {
+    const state = await api.marketBriefSchedule();
+    const wasRunning = noteScheduleRunning.value;
+    noteScheduleRunning.value = Boolean(state?.running);
+    // It finished while we were watching: pick up what it wrote.
+    if (wasRunning && !noteScheduleRunning.value) await loadBrief(briefDate.value || null);
+  } catch {
+    noteScheduleRunning.value = false;
+  }
+}
+
+function startNoteSchedulePolling() {
+  if (noteSchedulePoll) return;
+  pollNoteSchedule();
+  noteSchedulePoll = window.setInterval(pollNoteSchedule, 10000);
+}
+
+function stopNoteSchedulePolling() {
+  if (!noteSchedulePoll) return;
+  window.clearInterval(noteSchedulePoll);
+  noteSchedulePoll = null;
+}
+
 const noteSectionCount = computed(() => {
   const note = brief.value?.note;
   if (!note) return 0;
@@ -202,6 +233,7 @@ function applyRefreshState(state) {
 async function initializeWeeklySummary() {
   await Promise.all([loadSummary(), loadMarketDesk(), loadBrief(), loadLedger()]);
   await attachActiveWeeklyRefresh();
+  startNoteSchedulePolling();
 }
 
 async function loadBrief(date = null) {
@@ -662,6 +694,7 @@ onBeforeUnmount(() => {
     activeRefreshContext = null;
   }
   closeStream();
+  stopNoteSchedulePolling();
 });
 </script>
 
@@ -865,7 +898,35 @@ onBeforeUnmount(() => {
               {{ t("pulse.brief_as_of", { when: (brief.generated_at && refreshedAtLabel(brief.generated_at)) || brief.date }) }}
             </p>
             <article
-              v-if="brief.note"
+              v-if="noteBuilding"
+              class="morning-brief mt-2.5"
+              data-testid="brief-note-loading"
+              aria-busy="true"
+              :aria-label="t('pulse.note_building')"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="section-label">{{ t("pulse.note_label") }}</span>
+                <span class="chip bg-accent/10 text-accent-ink">
+                  <Loader2 class="mr-1 inline h-3 w-3 animate-spin" />
+                  {{ t("pulse.note_building") }}
+                </span>
+              </div>
+              <div class="morning-brief-skeleton-line mt-2.5 h-6 w-4/5 max-w-[36rem]"></div>
+              <div class="morning-brief-skeleton-line mt-1.5 h-3.5 w-2/5 max-w-[18rem]"></div>
+              <div class="morning-brief-sections mt-3.5">
+                <section v-for="n in 4" :key="`note-skel-${n}`" class="morning-brief-section">
+                  <div class="morning-brief-skeleton-line h-4 w-3/5"></div>
+                  <div class="morning-brief-skeleton-line mt-2 h-3 w-full"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-full"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-11/12"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-4/5"></div>
+                </section>
+              </div>
+              <p class="morning-brief-foot">{{ t("pulse.note_building_hint") }}</p>
+            </article>
+
+            <article
+              v-else-if="brief.note"
               class="morning-brief mt-2.5"
               data-testid="brief-note"
             >
@@ -897,13 +958,17 @@ onBeforeUnmount(() => {
               </ul>
 
               <div
-                v-for="(section, i) in pickArray(brief.note, 'sections')"
-                :key="`note-sec-${i}`"
-                class="morning-brief-section morning-brief-measure"
-                :class="{ 'mt-3.5': i === 0 }"
+                v-if="pickArray(brief.note, 'sections').length"
+                class="morning-brief-sections"
               >
-                <h4 class="morning-brief-section-title">{{ section.title }}</h4>
-                <p class="morning-brief-body">{{ section.body }}</p>
+                <section
+                  v-for="(section, i) in pickArray(brief.note, 'sections')"
+                  :key="`note-sec-${i}`"
+                  class="morning-brief-section"
+                >
+                  <h4 class="morning-brief-section-title">{{ section.title }}</h4>
+                  <p class="morning-brief-body">{{ section.body }}</p>
+                </section>
               </div>
 
               <!-- A long note makes claims about the world, so it shows what
