@@ -580,3 +580,27 @@ def test_an_ungrounded_scan_is_treated_as_a_failed_scan(tmp_weekly, monkeypatch)
     draft = weekly_stocks.load_draft() or {}
     reasons = " ".join(str(e.get("error")) for e in (draft.get("errors") or []))
     assert "without searching" in reasons
+
+
+def test_the_dashboard_never_shows_one_ticker_twice(tmp_weekly, monkeypatch):
+    """Candidates are deduped before research, but a detail pass can return a
+    different company than the candidate it was asked about — which is how a
+    live run showed GNRC twice, at +34.2% and +23.9%."""
+
+    def collides(**kwargs):
+        meta = {"engine": "gemini", "grounded": True, "sources": [], "queries": ["q"]}
+        if kwargs["name"] == "weekly_scan":
+            return _sample_scan(), meta, None
+        # Every detail pass insists the company is GNRC.
+        ticker = kwargs["name"].removeprefix("weekly_stock_").upper()
+        detail = _sample_stock(ticker, 1)
+        detail["ticker"] = "GNRC"
+        detail["name"] = "Generac Holdings Inc."
+        return detail, meta, None
+
+    monkeypatch.setattr(weekly_stocks.ai_engine, "grounded", collides)
+    summary, err = weekly_stocks.generate_summary()
+
+    assert err is None
+    tickers = [s.get("ticker") for s in summary["stocks"]]
+    assert tickers == ["GNRC"], f"one row per ticker, got {tickers}"

@@ -1235,14 +1235,24 @@ def _assemble_summary(
     stocks: list[dict[str, Any]],
     errors: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    ranked = sorted(
+    # Candidates are deduped by ticker before research, but a detail pass can
+    # come back naming a different company than the candidate it was asked
+    # about — two candidates then collapse onto one ticker and the dashboard
+    # shows the same name twice with two different weekly moves. Keep the
+    # best-scoring row per ticker.
+    by_ticker: dict[str, dict[str, Any]] = {}
+    for item in sorted(
         stocks,
         key=lambda item: (
             _number(item.get("score"), 0),
             _number(item.get("weekly_change_pct"), 0),
         ),
         reverse=True,
-    )[:8]
+    ):
+        key = _clean_ticker(item.get("ticker")) or str(item.get("name") or "").strip().lower()
+        if key and key not in by_ticker:
+            by_ticker[key] = item
+    ranked = list(by_ticker.values())[:8]
     for index, stock in enumerate(ranked, start=1):
         stock["rank"] = index
     watchlist = scan.get("watchlist") if isinstance(scan.get("watchlist"), list) else []
