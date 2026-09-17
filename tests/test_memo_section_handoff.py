@@ -534,3 +534,50 @@ def test_a_closed_piece_still_faces_every_check(tmp_path):
     error = claude_runner._section_piece_error(path, 2, "Some heading")
     assert error is not None
     assert "not valid JSON" not in error
+
+
+# The same dropped brace, mid-file instead of at the end. 2026-09-17,
+# Elorian `business_financials` piece 1: the writer closed the block's
+# inner `text` object, wrote the comma that separates block from block,
+# and never closed the block — so the parser complained about the NEXT
+# line ("expecting property name"), several lines after the real defect.
+REAL_MIDFILE_BRACE = (
+    '{"piece": 1, "blocks": [\n'
+    '{"type": "heading", "level": 2, "text": {"en": "1. How it makes '
+    'money", "zh": "1. 如何赚钱"}},\n'
+    '{"type": "paragraph", "text": {"en": "The strongest demand signal '
+    'is a sentence.", "zh": ""},\n'          # <- block never closed
+    '{"type": "paragraph", "text": {"en": "Zero revenue at seed is '
+    'normal.", "zh": ""}}\n'
+    "]}\n"
+)
+
+
+def test_a_brace_dropped_mid_file_is_repaired(tmp_path):
+    path = tmp_path / "01.json"
+    path.write_text(REAL_MIDFILE_BRACE, encoding="utf-8")
+    error = claude_runner._section_piece_error(path, 1, "1. How it makes money")
+    assert error is None, error
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [b["type"] for b in data["blocks"]] == [
+        "heading", "paragraph", "paragraph",
+    ]
+    # both paragraphs survive — the defect was punctuation, not content
+    assert "strongest demand signal" in data["blocks"][1]["text"]["en"]
+    assert "Zero revenue at seed" in data["blocks"][2]["text"]["en"]
+    assert (tmp_path / "01.invalid-1.json").exists()
+
+
+def test_the_mid_file_repair_adds_one_character(tmp_path):
+    closed = claude_runner._closed_unclosed_json(REAL_MIDFILE_BRACE)
+    assert closed is not None
+    _data, text = closed
+    stripped = REAL_MIDFILE_BRACE.rstrip()
+    assert len(text) == len(stripped) + 1
+    assert sorted(text) == sorted(stripped + "}")
+
+
+def test_the_repair_gives_up_on_a_big_file(tmp_path):
+    """A bounded search, not an open one."""
+    huge = "{\n" + "\n".join('  "k%d": 1,' % i for i in range(500)) + "\n"
+    assert claude_runner._closed_unclosed_json(huge) is None

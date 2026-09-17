@@ -5990,33 +5990,41 @@ def _spine_piece_plan(
 
 
 def _closed_unclosed_json(raw: str) -> tuple[Any, str] | None:
-    """Parse text that is valid JSON except for a missing closer.
+    """Parse text that is valid JSON except for a dropped closing brace.
 
-    2026-09-17, RadixArk, `risks` piece 3. The whole file was intact and
-    every string complete; the writer closed the last block's inner
-    `text` object and went straight to closing the array, dropping ONE
-    `}`. The same shape had already cost two silent retries
-    (`valuation_returns` on the Figure AI and Databricks runs, both near
-    the end of the file) and was only diagnosable once the invalid piece
-    was kept.
+    The writer closes a block's inner `text` object and then forgets to
+    close the block itself. Seen three times, in three places:
 
-    The missing closer sits INSIDE the trailing run of `}` and `]`, not
-    after it, so appending cannot fix it — it has to be inserted. This
-    tries one closer at each position in that trailing run, then two,
-    and nothing else: it never edits content, only adds structural
-    punctuation near the end, and the caller still runs every check on
-    the result, which is what catches a wrong guess.
+    - 2026-09-17 RadixArk `risks` piece 3 — dropped at the END, before
+      the array closed;
+    - 2026-09-17 Elorian `business_financials` piece 1 — dropped MID
+      FILE, before a trailing comma, so the parser reported "expecting
+      property name" on the NEXT line;
+    - and twice before that, on `valuation_returns`, invisibly, because
+      the invalid piece was not kept.
+
+    In every case the file was whole and every string complete: one
+    character was missing. So try inserting a single closer at each line
+    boundary (before a trailing comma, where there is one), then two,
+    and nothing else. It never edits content, and the caller still runs
+    every structural check on the result — which is what catches a wrong
+    guess.
     """
     trimmed = raw.rstrip()
-    if not trimmed:
+    if not trimmed or len(trimmed.splitlines()) > 400:
         return None
-    # the trailing run of structural punctuation, bounded so a pathological
-    # file cannot turn this into a search
-    floor = max(0, len(trimmed) - 24)
-    cut = len(trimmed)
-    while cut > floor and trimmed[cut - 1] in "}] \t\n\r,":
-        cut -= 1
-    spots = range(cut, len(trimmed) + 1)
+
+    def _spots(text: str) -> list[int]:
+        """End of each line, before any trailing comma or whitespace."""
+        out: list[int] = []
+        pos = 0
+        for line in text.split("\n"):
+            cut = len(line)
+            while cut > 0 and line[cut - 1] in " \t\r,":
+                cut -= 1
+            out.append(pos + cut)
+            pos += len(line) + 1
+        return out
 
     def _try(text: str) -> tuple[Any, str] | None:
         try:
@@ -6024,17 +6032,19 @@ def _closed_unclosed_json(raw: str) -> tuple[Any, str] | None:
         except json.JSONDecodeError:
             return None
 
-    for pos in spots:
+    for spot in _spots(trimmed):
         for closer in ("}", "]"):
-            hit = _try(trimmed[:pos] + closer + trimmed[pos:])
+            hit = _try(trimmed[:spot] + closer + trimmed[spot:])
             if hit is not None:
                 return hit
-    for pos in spots:
+    for spot in _spots(trimmed):
         for first in ("}", "]"):
-            once = trimmed[:pos] + first + trimmed[pos:]
-            for pos2 in range(pos, len(once) + 1):
+            once = trimmed[:spot] + first + trimmed[spot:]
+            for spot2 in _spots(once):
+                if spot2 < spot:
+                    continue
                 for second in ("}", "]"):
-                    hit = _try(once[:pos2] + second + once[pos2:])
+                    hit = _try(once[:spot2] + second + once[spot2:])
                     if hit is not None:
                         return hit
     return None
