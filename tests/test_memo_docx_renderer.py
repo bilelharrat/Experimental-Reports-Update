@@ -1584,3 +1584,51 @@ def test_repair_is_noop_on_valid_package():
     repaired, repairs = memo_docx_renderer.repair_package_structure(package)
     assert repairs == []
     assert repaired == package
+
+
+def _why_it_matters_cell(package: dict) -> dict:
+    """The `Why it matters` value cell of the first risk card."""
+    for section in package["sections"]:
+        if section.get("id") != "investment_risk":
+            continue
+        for block in section.get("blocks") or []:
+            if block.get("component") != "risk_register":
+                continue
+            for row in block["rows"]:
+                if str(row[0].get("en", "")).lower().startswith("why it matters"):
+                    return row[1]
+    raise AssertionError("no risk register in the fixture")
+
+
+def test_risk_lint_accepts_a_services_business_consequence():
+    """A live Gemini run failed three retries and a repair pass on this exact
+    sentence. It IS an economic consequence — discounts on contracts — in
+    the vocabulary of a services business rather than a SaaS one."""
+    package = copy.deepcopy(_package())
+    cell = _why_it_matters_cell(package)
+    cell["en"] = (
+        "Automated code generation and AI testing suites reduce billable hours "
+        "for embedded software maintenance. Enterprise clients can demand 15% to "
+        "25% productivity discounts on time-and-materials contracts."
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert not [e for e in errors if "economic consequence" in e], errors
+
+
+def test_risk_lint_rejects_an_operational_cause_and_says_what_it_wants():
+    """The message is fed back to the retry and the repair pass, so a model
+    that believes it stated a consequence must be told what would satisfy
+    the rule — a bare "must state one" gave it nothing to act on."""
+    package = copy.deepcopy(_package())
+    cell = _why_it_matters_cell(package)
+    cell["en"] = (
+        "The engineering team is small and several senior people have left "
+        "this year, which slows delivery on the roadmap considerably."
+    )
+    errors = [
+        e for e in memo_docx_renderer.english_package_validation_errors(package)
+        if "economic consequence" in e
+    ]
+    assert len(errors) == 1
+    assert "revenue, margin, cost" in errors[0]
+    assert "not only the operational cause" in errors[0]

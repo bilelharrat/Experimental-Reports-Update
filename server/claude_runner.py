@@ -388,6 +388,37 @@ _TRANSIENT_CLAUDE_ERROR_MARKERS = (
 )
 
 
+# The CLI reports a dead login as an ordinary exit-1 with this text. It is
+# not a provider limit, but it must halt a memo run the same way one does:
+# every parallel pass would otherwise spawn, fail identically and retry,
+# turning a five-second diagnosis into a five-minute doomed run.
+_AUTH_FAILURE_MARKERS = (
+    "failed to authenticate",
+    "oauth session expired",
+    "not logged in",
+    "invalid authentication credentials",
+    "please run /login",
+)
+
+CLAUDE_NOT_SIGNED_IN_ERROR = (
+    "Claude CLI is not signed in (OAuth session expired). Run `claude` in a "
+    "terminal and log in, then retry — or generate this memo with the Gemini "
+    "engine, which does not use the CLI."
+)
+
+
+def auth_failure_reason(value: Any) -> str | None:
+    """Return text if a CLI failure is a dead login rather than a real error."""
+    if value is None:
+        return None
+    lowered = str(value).strip().lower()
+    if not lowered:
+        return None
+    if any(marker in lowered for marker in _AUTH_FAILURE_MARKERS):
+        return str(value).strip()
+    return None
+
+
 def provider_limit_reason(
     value: Any, *, include_bare_claude_exit: bool = False
 ) -> str | None:
@@ -4321,6 +4352,14 @@ def _run_memo_local_json_artifact(
             append_system_prompt=append_system_prompt,
             tools=tools,
         )
+        if data is None and auth_failure_reason(error):
+            # Halt siblings through the same registry a provider limit uses;
+            # they will read this message back from _memo_run_halt_error.
+            with _LIVE_CLAUDE_PROCS_LOCK:
+                _PROVIDER_LIMITED_RUN_DIRS.setdefault(
+                    str(run_dir), CLAUDE_NOT_SIGNED_IN_ERROR
+                )
+            return None, CLAUDE_NOT_SIGNED_IN_ERROR
         if data is None and provider_limit_reason(error):
             with _LIVE_CLAUDE_PROCS_LOCK:
                 _PROVIDER_LIMITED_RUN_DIRS.setdefault(str(run_dir), str(error))

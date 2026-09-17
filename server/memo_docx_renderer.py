@@ -777,16 +777,27 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                     f"{location}: Why it matters must name the fact, failure "
                     "mode, and economic consequence"
                 )
+            # "pric" covers price/pricing; discount, fee, billing, profit,
+            # burn and churn are the vocabulary of services and SaaS risks —
+            # "15-25% productivity discounts on time-and-materials
+            # contracts" is an economic consequence, and a live run failed
+            # three retries and a repair pass on exactly that sentence.
             if not re.search(
-                r"\b(?:revenue|margin|cash|valuation|price|return|dilut|"
+                r"\b(?:revenue|margin|cash|valuation|pric|return|dilut|"
                 r"capital|exit|control|loss|multiple|growth|financ|cost|"
-                r"conversion)\w*\b",
+                r"conversion|discount|fee|billing|profit|burn|churn)\w*\b",
                 why_text,
                 re.IGNORECASE,
             ):
+                # The message is fed back to the retry and to the repair
+                # pass, so it has to say what would satisfy it: a model that
+                # believes it stated a consequence cannot act on a bare
+                # "must state one".
                 errors.append(
                     f"{location}: Why it matters must state an economic "
-                    "consequence"
+                    "consequence — name the effect with a financial term "
+                    "(revenue, margin, cost, cash, pricing, valuation, "
+                    "dilution or exit value), not only the operational cause"
                 )
         watch_row = row_texts[row_index["what we watch"]]
         if watch_row and watch_row[0].lower().startswith("what we watch"):

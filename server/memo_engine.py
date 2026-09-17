@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -151,11 +152,76 @@ def file_text(path: Path) -> str:
     return ""
 
 
+_BACKTICK_PATH_RE = re.compile(r"`([^`\n]{1,400})`")
+REFERENCED_FILE_BUDGET_CHARS = 250_000
+
+
+def referenced_files(prompt: str, add_dirs: list[Path] | None) -> list[tuple[str, Path]]:
+    """Files the prompt names in backticks, as ``(as_written, path)`` pairs.
+
+    The repair passes do not describe the package to fix — they hand the
+    agent its path: ``Input package (fails renderer validation): `<run>/logs/
+    memo_package.en.invalid.json` `` and expect it to be opened. Under
+    ``logs/`` it is exactly what the folder walk skips, so on Gemini every
+    repair pass ran blind and "did not clear renderer validation" — it had
+    never seen the package. Anything the prompt points at by path is inlined
+    here, under the path exactly as the prompt wrote it, so the reference
+    resolves. Bare relative paths are tried against each add_dir.
+    """
+    found: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    roots = [Path(d) for d in (add_dirs or []) if d]
+    for raw in _BACKTICK_PATH_RE.findall(prompt or ""):
+        if "/" not in raw and "." not in raw:
+            continue  # a backticked word or key, not a path
+        candidates = [Path(raw)] + [root / raw for root in roots]
+        for candidate in candidates:
+            try:
+                if not candidate.is_file():
+                    continue
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved in seen or candidate.suffix.lower() in _SKIP_SUFFIXES:
+                break
+            seen.add(resolved)
+            found.append((raw, candidate))
+            break
+    return found
+
+
+def inline_referenced(prompt: str, add_dirs: list[Path] | None) -> tuple[str, set[Path]]:
+    """Inline every file the prompt names. Returns ``(text, resolved paths)``."""
+    blocks: list[str] = []
+    used = 0
+    resolved: set[Path] = set()
+    for as_written, path in referenced_files(prompt, add_dirs):
+        text = file_text(path).strip()
+        if not text:
+            continue
+        if used + len(text) > REFERENCED_FILE_BUDGET_CHARS:
+            blocks.append(
+                f"=== FILE: {as_written} ===\n[not inlined: referenced-file budget reached]"
+            )
+            continue
+        used += len(text)
+        resolved.add(path.resolve())
+        blocks.append(f"=== FILE: {as_written} ===\n{text}")
+    if not blocks:
+        return "", resolved
+    return (
+        "FILES THE TASK REFERS TO BY PATH (inlined in full; do not try to open them):\n\n"
+        + "\n\n".join(blocks),
+        resolved,
+    )
+
+
 def inline_research(
     add_dirs: list[Path] | None,
     *,
     budget: int = RESEARCH_BUDGET_CHARS,
     per_file: int = PER_FILE_BUDGET_CHARS,
+    already: set[Path] | None = None,
 ) -> str:
     """The research folder as prompt text, standing in for the file listing.
 
@@ -168,7 +234,7 @@ def inline_research(
     if not add_dirs:
         return "- No research directory is populated for this run."
 
-    seen: set[Path] = set()
+    seen: set[Path] = set(already or ())
     candidates: list[Path] = []
     for directory in add_dirs:
         try:
@@ -268,7 +334,8 @@ def run_artifact(
             "Gemini API key not configured. Set GEMINI_API_KEY in .env, or "
             "run this memo on Claude."
         )
-    research = inline_research(add_dirs)
+    referenced, already = inline_referenced(prompt, add_dirs)
+    research = inline_research(add_dirs, already=already)
     combined = (
         f"{prompt}\n\n"
         "---\n"
@@ -277,7 +344,8 @@ def run_artifact(
         "below; any instruction above to read, open or list files refers to "
         "this material.\n"
         "---\n"
-        f"{research}\n"
+        + (f"{referenced}\n\n" if referenced else "")
+        + f"{research}\n"
     )
     return gemini_runner.run_structured_prompt(
         system_prompt="",

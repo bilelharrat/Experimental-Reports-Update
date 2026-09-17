@@ -237,3 +237,110 @@ def test_run_plumbing_and_output_are_not_fed_back_in(tmp_path):
     assert "real analysis" in text
     for leaked in ("huge", "prior", "docx bytes"):
         assert leaked not in text
+
+
+# ---- files the prompt names by path ---------------------------------------
+
+
+def test_a_file_the_prompt_names_by_path_is_inlined_even_under_logs(tmp_path):
+    """The repair passes hand the agent a path — `<run>/logs/memo_package.en.invalid.json`
+    — and expect it opened. `logs/` is exactly what the folder walk skips, so
+    on Gemini every repair pass ran blind: three attempts and a surgical
+    repair "did not clear renderer validation" on a package it never saw."""
+    run = tmp_path / "run"
+    (run / "logs").mkdir(parents=True)
+    pkg = run / "logs" / "memo_package.en.invalid.json"
+    pkg.write_text('{"sections": [{"id": "investment_risk"}]}', encoding="utf-8")
+    (run / "logs" / "stream.jsonl").write_text('{"noise": true}', encoding="utf-8")
+
+    prompt = f"Input package (fails renderer validation):\n`{pkg}`\n\nFix `investment_risk`."
+    seen: dict = {}
+    monkeypatch_target = memo_engine.gemini_runner
+
+    def fake(**kw):
+        seen.update(kw)
+        return {"ok": True}, None
+
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(monkeypatch_target, "is_available", lambda: True)
+    mp.setattr(monkeypatch_target, "run_structured_prompt", fake)
+    try:
+        memo_engine.run_artifact(
+            prompt=prompt, schema=SCHEMA, add_dirs=[run],
+            timeout_label="repair", timeout_sec=60,
+        )
+    finally:
+        mp.undo()
+
+    sent = seen["user_prompt"]
+    # Inlined under the path exactly as the prompt wrote it, so the
+    # reference resolves; the event stream next to it stays excluded.
+    assert f"=== FILE: {pkg} ===" in sent
+    assert '"investment_risk"' in sent
+    assert "noise" not in sent
+    # A backticked identifier is not mistaken for a path.
+    assert "=== FILE: investment_risk ===" not in sent
+
+
+def test_a_referenced_file_is_not_inlined_twice_by_the_folder_walk(tmp_path):
+    run = tmp_path / "run"
+    (run / "analysis").mkdir(parents=True)
+    art = run / "analysis" / "market_sizing.md"
+    art.write_text("TAM is $4B.", encoding="utf-8")
+    referenced, already = memo_engine.inline_referenced(f"Read `{art}` first.", [run])
+    assert "TAM is $4B." in referenced
+    walked = memo_engine.inline_research([run], already=already)
+    assert "TAM is $4B." not in walked
+
+
+def test_a_relative_path_resolves_against_the_run_dir(tmp_path):
+    run = tmp_path / "run"
+    (run / "logs").mkdir(parents=True)
+    (run / "logs" / "quality_lint.json").write_text('{"p0": []}', encoding="utf-8")
+    found = memo_engine.referenced_files("Read `logs/quality_lint.json` before writing.", [run])
+    assert [as_written for as_written, _ in found] == ["logs/quality_lint.json"]
+
+
+# ---- a dead Claude login --------------------------------------------------
+
+
+def test_a_dead_login_halts_the_run_with_one_actionable_message(tmp_path, monkeypatch):
+    """The CLI reports an expired OAuth session as an ordinary exit-1. Without
+    this, all eight parallel passes spawn, fail identically and retry — a
+    five-second diagnosis stretched into a five-minute doomed run."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    claude_runner.reset_run_dir_state(str(run_dir))
+    memo_engine.register_run_engine(run_dir, "claude")
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    spawns: list[str] = []
+
+    def dead_login(**kw):
+        spawns.append(kw["timeout_label"])
+        return None, "claude exited 1: Failed to authenticate: OAuth session expired and could not be refreshed"
+
+    monkeypatch.setattr(claude_runner, "_run_memo_local_json_artifact_inner", dead_login)
+
+    common = dict(schema=SCHEMA, run_dir=run_dir, progress=None, progress_message="m", timeout_sec=60)
+    data, error = claude_runner._run_memo_local_json_artifact(prompt="p", timeout_label="pass_1", **common)
+    assert data is None
+    assert error == claude_runner.CLAUDE_NOT_SIGNED_IN_ERROR
+    assert "log in" in error and "Gemini" in error
+
+    # A sibling pass halts before spawning, with the same message.
+    data2, error2 = claude_runner._run_memo_local_json_artifact(prompt="p", timeout_label="pass_2", **common)
+    assert data2 is None and error2 == claude_runner.CLAUDE_NOT_SIGNED_IN_ERROR
+    assert spawns == ["pass_1"]
+    claude_runner.reset_run_dir_state(str(run_dir))
+
+
+def test_auth_failure_reason_matches_the_cli_wordings():
+    for text in (
+        "Failed to authenticate: OAuth session expired and could not be refreshed",
+        "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+        "Not logged in · please run /login",
+    ):
+        assert claude_runner.auth_failure_reason(text)
+    assert claude_runner.auth_failure_reason("claude timed out after 900s") is None
+    assert claude_runner.auth_failure_reason("") is None
