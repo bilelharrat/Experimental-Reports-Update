@@ -232,9 +232,13 @@ def _build_body(
     if temperature is not None:
         generation_config["temperature"] = temperature
     if not embed_schema:
-        generation_config["responseFormat"] = {
-            "text": {"mimeType": "application/json", "schema": schema}
-        }
+        # The long-standing v1beta pair. The newer `responseFormat.text` shape
+        # exists on this endpoint too but takes an enum mime type, not the
+        # string — a rejection of either lands on the embed-schema retry in
+        # `_run`, so a shape change on Google's side degrades instead of
+        # failing the call.
+        generation_config["responseMimeType"] = "application/json"
+        generation_config["responseSchema"] = schema
     body: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": generation_config,

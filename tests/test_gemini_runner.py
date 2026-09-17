@@ -113,10 +113,8 @@ def test_request_matches_the_rest_contract(monkeypatch, key):
     assert body["systemInstruction"]["parts"][0]["text"] == "You are a desk editor."
     assert body["contents"][0]["parts"][0]["text"] == "Write it."
     assert body["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "low"
-    assert body["generationConfig"]["responseFormat"]["text"] == {
-        "mimeType": "application/json",
-        "schema": SCHEMA,
-    }
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert body["generationConfig"]["responseSchema"] == SCHEMA
     assert "tools" not in body
 
 
@@ -269,9 +267,10 @@ def test_schema_rejection_retries_with_the_schema_in_the_prompt(monkeypatch, key
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
     assert error is None and data == {"headline": "recovered"}
-    assert "responseFormat" in calls[0]["body"]["generationConfig"]
-    # Second attempt drops responseFormat and carries the schema as text.
-    assert "responseFormat" not in calls[1]["body"]["generationConfig"]
+    assert "responseSchema" in calls[0]["body"]["generationConfig"]
+    # Second attempt drops the schema field and carries the schema as text.
+    assert "responseSchema" not in calls[1]["body"]["generationConfig"]
+    assert "responseMimeType" not in calls[1]["body"]["generationConfig"]
     assert json.dumps(SCHEMA, indent=2) in calls[1]["body"]["contents"][0]["parts"][0]["text"]
 
 
