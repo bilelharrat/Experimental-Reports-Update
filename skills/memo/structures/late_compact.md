@@ -218,12 +218,21 @@ Content per subsection:
    what has to change for it to turn positive. Any dimension banded
    `weak` ends with "→ see Key risks", and MUST appear in subsection 4.
 
-4. Key risks: 700-900 words. Open with one sentence naming the single
-   risk that carries the thesis. Then ONE `bullets` block, `"component":
-   "key_risks"`, with one item per pinned risk rated 6/10 or higher, in
-   pinned order, and never fewer than three. Every dimension the scan
-   banded `weak` must be covered by one of these items — that is the
-   check the reader is relying on.
+4. Key risks: 800-900 words, and that budget is the binding one. Open
+   with one sentence naming the single risk that carries the thesis.
+   Then ONE `bullets` block, `"component": "key_risks"`, with the THREE
+   highest-rated pinned risks, in pinned order — plus, only if a
+   dimension the scan banded `weak` is not already covered by those
+   three, one further item per uncovered weak dimension, to a maximum of
+   FIVE items in total. Every weak dimension must be covered by one of
+   these items or by the scan line pointing at the risk register; that
+   is the check the reader is relying on.
+
+   Do not write one item per pinned risk. The register in the risks
+   section carries all of them at full length; this subsection carries
+   the ones a reader who stops here must know about. (Written as one
+   item per risk it came to 2,039 words on a live run and blew the
+   section's cap by itself.)
 
    Each item opens with "<Area label> — <pinned summary verbatim>." and
    then EXPLAINS it in three or four sentences, in this order:
