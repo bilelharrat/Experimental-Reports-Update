@@ -3004,34 +3004,38 @@ def _spine_calculations_schema() -> dict[str, Any]:
     (each with its source id, another note, or "assumption"), the
     arithmetic with the numbers in it, the result, and its meaning.
     Sections cite them inline as [C#]; the docx renders an appendix."""
+    # These are v2-only pins and they are the founder's "how was this
+    # number calculated?" made durable, so the caps are generous: the
+    # 16,000-word run wanted 13 notes, results of 118 characters and
+    # meanings of 307, against caps cut for a memo half the length.
     return {
         "type": "array",
         "minItems": 1,
-        "maxItems": 12,
+        "maxItems": 18,
         "items": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 "id": {"type": "string", "pattern": "^C[1-9][0-9]?$"},
-                "label": {"type": "string", "maxLength": 80},
+                "label": {"type": "string", "maxLength": 140},
                 "inputs": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 6,
+                    "maxItems": 8,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "name": {"type": "string", "maxLength": 60},
-                            "value": {"type": "string", "maxLength": 40},
+                            "name": {"type": "string", "maxLength": 100},
+                            "value": {"type": "string", "maxLength": 80},
                             "ref": {"type": "string", "maxLength": 24},
                         },
                         "required": ["name", "value", "ref"],
                     },
                 },
-                "formula": {"type": "string", "maxLength": 200},
-                "result": {"type": "string", "maxLength": 60},
-                "meaning": {"type": "string", "maxLength": 220},
+                "formula": {"type": "string", "maxLength": 360},
+                "result": {"type": "string", "maxLength": 140},
+                "meaning": {"type": "string", "maxLength": 360},
             },
             "required": ["id", "label", "inputs", "formula", "result", "meaning"],
         },
@@ -3145,6 +3149,10 @@ def memo_fast_english_spine_schema(
                 # so the caps were shaping the pin sheet rather than
                 # catching a blowout. v1's stay where they are.
                 "key_metrics": _spine_key_metrics_schema_v2(),
+                "recommendation_sentence": {
+                    "type": "string",
+                    "maxLength": 400,
+                },
                 "stage": {
                     "type": "string",
                     "enum": ["early", "growth", "late"],
@@ -3226,7 +3234,7 @@ def memo_fast_english_spine_schema(
                     "properties": {
                         "low": {"type": "string", "maxLength": 24},
                         "high": {"type": "string", "maxLength": 24},
-                        "basis": {"type": "string", "maxLength": 160},
+                        "basis": {"type": "string", "maxLength": 300},
                     },
                     "required": ["low", "high", "basis"],
                 },
@@ -3235,8 +3243,8 @@ def memo_fast_english_spine_schema(
                     "additionalProperties": False,
                     "properties": {
                         "valuation": {"type": "string", "maxLength": 40},
-                        "basis": {"type": "string", "maxLength": 120},
-                        "holding_period": {"type": "string", "maxLength": 24},
+                        "basis": {"type": "string", "maxLength": 300},
+                        "holding_period": {"type": "string", "maxLength": 60},
                     },
                     "required": ["valuation", "basis"],
                 },
