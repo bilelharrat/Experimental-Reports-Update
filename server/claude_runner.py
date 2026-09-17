@@ -7544,7 +7544,26 @@ class SpeculativeEnglish:
             section_note=section_note,
             structure=self._structure,
         )
-        if error is None and isinstance(result, dict) and self._on_section:
+        # The delta check may have condemned this whole wave while the
+        # section was still drafting. Handing it to the hook anyway starts
+        # a Chinese translation of prose nobody will ship: on the
+        # 2026-09-17 Figure AI run five chases were dispatched two to
+        # three minutes AFTER the discard, costing $1.77 to translate
+        # sections already thrown away.
+        with self._lock:
+            doomed = self._early_abandoned
+        if doomed:
+            if self._stream is not None:
+                self._stream.emit(
+                    "stage",
+                    stage="memo_early_section_not_forwarded",
+                    message=(
+                        f"{section_id} finished after its wave was "
+                        "discarded; not translating it"
+                    ),
+                    section=section_id,
+                )
+        elif error is None and isinstance(result, dict) and self._on_section:
             try:
                 self._on_section(section_id, result["section"])
             except Exception:  # noqa: BLE001

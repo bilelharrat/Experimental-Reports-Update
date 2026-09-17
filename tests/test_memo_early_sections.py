@@ -362,3 +362,50 @@ def test_wrapper_respins_all_sections_after_stale_pins(tmp_path, monkeypatch):
     assert section_calls.count("executive_summary") == 1
     assert section_calls.count("company_overview") == 2
     assert result["memo_package"]["company"]["name"] == "Generalist, Inc."
+
+
+def test_a_discarded_wave_is_not_translated(tmp_path, monkeypatch):
+    """2026-09-17, Figure AI. The delta check condemned the speculative
+    spine at 04:57:12, and five sections still drafting against it finished
+    two to three minutes later. Each was handed to the chase hook anyway,
+    so the run paid $1.77 to translate prose it had already thrown away. A
+    section that lands after its wave is discarded goes nowhere.
+    """
+    import threading
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    gate = threading.Event()
+    section_calls: list[str] = []
+
+    def blocking_section(*, section_id, **_kw):
+        section_calls.append(section_id)
+        # Hold every section mid-draft until the wave is condemned, the
+        # way a live section holds while the delta check runs.
+        gate.wait(timeout=10)
+        return {"section": {"id": section_id, "blocks": []}}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_english_section", blocking_section
+    )
+    hooked: list[str] = []
+    spec = _speculator(
+        tmp_path,
+        on_section=lambda section_id, _s: hooked.append(section_id),
+    )
+    for pass_id in _PASS_IDS:
+        spec.note_pass_result(pass_id, True)
+    spec.consume()
+    spec._abandon_early_sections("pins stale: a late pass moved a pin")
+    gate.set()
+    for future in list(spec._early_futures.values()):
+        future.result(timeout=10)
+    spec.shutdown()
+
+    # The drafts still ran — they were already paid for — but not one of
+    # them was forwarded for translation.
+    assert section_calls, "sections should still have been attempted"
+    assert hooked == []
