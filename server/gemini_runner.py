@@ -303,11 +303,14 @@ def _build_body(
     grounded: bool,
     embed_schema: bool,
     temperature: float | None,
+    max_output_tokens: int | None,
 ) -> dict:
     prompt = user_prompt + (_schema_instructions(schema) if embed_schema else "")
     generation_config: dict[str, Any] = {"thinkingConfig": {"thinkingLevel": thinking}}
     if temperature is not None:
         generation_config["temperature"] = temperature
+    if max_output_tokens is not None:
+        generation_config["maxOutputTokens"] = max_output_tokens
     if not embed_schema:
         # The long-standing v1beta pair. The newer `responseFormat.text` shape
         # exists on this endpoint too but takes an enum mime type, not the
@@ -386,6 +389,7 @@ def _run(
     thinking_level: str | None,
     grounded: bool,
     temperature: float | None,
+    max_output_tokens: int | None,
 ) -> tuple[dict | None, dict, str | None]:
     key = api_key()
     if key is None:
@@ -409,6 +413,7 @@ def _run(
         thinking=thinking,
         grounded=grounded,
         temperature=temperature,
+        max_output_tokens=max_output_tokens,
     )
     if error is None and grounded and not meta.get("grounded"):
         logger.warning(
@@ -431,6 +436,7 @@ def _single_call(
     thinking: str,
     grounded: bool,
     temperature: float | None,
+    max_output_tokens: int | None,
 ) -> tuple[dict | None, dict, str | None]:
     """One request, including the schema-rejection degradation."""
     chosen_model = model
@@ -451,6 +457,7 @@ def _single_call(
             grounded=grounded,
             embed_schema=embed_schema,
             temperature=temperature,
+            max_output_tokens=max_output_tokens,
         )
         payload, error, status = _post(
             body, model=chosen_model, key=key, timeout_sec=timeout_sec
@@ -502,6 +509,7 @@ def run_structured_prompt(
     thinking_level: str | None = None,
     grounded: bool = False,
     temperature: float | None = None,
+    max_output_tokens: int | None = None,
 ) -> tuple[dict | None, str | None]:
     """Text-in / structured-JSON-out, mirroring ``claude_runner`` s contract.
 
@@ -518,6 +526,7 @@ def run_structured_prompt(
         thinking_level=thinking_level,
         grounded=grounded,
         temperature=temperature,
+        max_output_tokens=max_output_tokens,
     )
     return data, error
 
@@ -532,6 +541,7 @@ def run_grounded_json(
     model: str | None = None,
     thinking_level: str | None = None,
     temperature: float | None = None,
+    max_output_tokens: int | None = None,
 ) -> tuple[dict | None, dict, str | None]:
     """Grounded research call: Google Search on, structured JSON out.
 
@@ -550,6 +560,7 @@ def run_grounded_json(
         thinking_level=thinking_level,
         grounded=True,
         temperature=temperature,
+        max_output_tokens=max_output_tokens,
     )
 
 

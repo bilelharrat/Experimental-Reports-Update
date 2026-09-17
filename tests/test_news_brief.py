@@ -47,6 +47,11 @@ def _part(lang: str, **overrides):
         "why_it_matters": f"The {lang} investment read. " * 20,
         "context": ["Prior round closed in March", "Competes with NextNav"],
         "watch_next": ["APAC revenue disclosure at Q3"],
+        "key_figures": [
+            f"Revenue rose 40% year on year in the {lang} period.",
+            "  ",
+            "Headcount reached 180, up from 120 a year earlier.",
+        ],
     }
     data.update(overrides)
     return data
@@ -591,3 +596,29 @@ def test_a_refresh_that_wrote_something_resets_the_clock(stub_claude, monkeypatc
     due = news_brief.seconds_until_due()
     # A successful run buys the full interval.
     assert due > news_brief.FAILED_RETRY_MINUTES * 60
+
+
+def test_key_figures_are_carried_onto_the_ai_briefing(stub_claude, monkeypatch):
+    """The news UI has always rendered a Key figures block, but until the
+    schema gained the field only the no-AI basic briefing filled it."""
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    written = news_brief.write_brief(title="Headline", company="ZaiNar")
+
+    en = written["en"]
+    assert en["key_figures"] == [
+        "Revenue rose 40% year on year in the en period.",
+        "Headcount reached 180, up from 120 a year earlier.",
+    ]
+    # iOS and older bilingual callers read the language-suffixed key.
+    assert en["key_figures_en"] == en["key_figures"]
+    assert written["zh"]["key_figures_zh"][0].endswith("zh period.")
+
+
+def test_the_briefing_call_asks_for_room_and_reasoning(stub_claude, monkeypatch):
+    """Length was the ask: on the default ceiling and low reasoning the model
+    returned roughly half the requested word count."""
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.write_brief(title="Headline")
+    call = stub_claude[0]
+    assert call["max_output_tokens"] == news_brief.BRIEF_MAX_OUTPUT_TOKENS
+    assert call["thinking_level"] == news_brief.BRIEF_THINKING == "medium"

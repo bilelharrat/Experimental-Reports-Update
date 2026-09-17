@@ -79,10 +79,15 @@ def structured(
     timeout_sec: int = 180,
     gemini_model: str | None = None,
     thinking_level: str | None = None,
+    max_output_tokens: int | None = None,
     claude_model: str | None = None,
     claude_effort: str | None = None,
 ) -> tuple[dict | None, dict, str | None]:
-    """Text-in / JSON-out with no web access. Returns ``(data, meta, error)``."""
+    """Text-in / JSON-out with no web access. Returns ``(data, meta, error)``.
+
+    ``max_output_tokens`` raises Gemini's output ceiling for long-form work;
+    the Claude path has no equivalent knob and ignores it.
+    """
     chosen = policy()
     gemini_error: str | None = None
 
@@ -96,6 +101,7 @@ def structured(
                 timeout_sec=timeout_sec,
                 model=gemini_model,
                 thinking_level=thinking_level,
+                max_output_tokens=max_output_tokens,
             )
             if error is None and isinstance(data, dict):
                 return data, _meta(

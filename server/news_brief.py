@@ -50,7 +50,13 @@ MAX_BULLETS = 8
 MAX_SOURCES = 8
 # One call writes both languages — roughly twice the old single-language
 # output — so the wall sits well above the old 90s.
-BRIEF_TIMEOUT_SEC = 240
+BRIEF_TIMEOUT_SEC = 300
+# A 900-1300 word body in English AND Chinese, plus key figures, context and
+# watch-next lists, runs well past a default output ceiling.
+BRIEF_MAX_OUTPUT_TOKENS = 16000
+# Depth, not just length: on `low` the model returned roughly half the
+# requested word count regardless of how the prompt asked.
+BRIEF_THINKING = "medium"
 FETCH_TIMEOUT_SEC = 5.0
 ARTICLE_MAX_CHARS = 12_000
 DEFAULT_MODEL = "sonnet"
@@ -94,7 +100,8 @@ _LOOP_STARTED = False
 SYSTEM_PROMPT = (
     "You are a senior markets analyst writing a long-form briefing for an "
     "investment desk that has already seen the headline. The reader should "
-    "finish this and not need the original article.\n"
+    "finish this and not need the original article, and should not need a "
+    "second source for the basic facts.\n"
     "You are given the materials directly — do NOT call tools, search, or "
     "fetch. Write immediately from what is provided.\n"
     "Write the briefing twice in this one response: `en` in English and `zh` "
@@ -102,21 +109,40 @@ SYSTEM_PROMPT = (
     "the Chinese as a native markets writer would, not as a literal "
     "translation of the English, and keep tickers and company names in "
     "their usual form.\n"
+    "LENGTH IS A REQUIREMENT, NOT A SUGGESTION. A short briefing is a "
+    "failed one. Do not summarize; develop the analysis. Do not stop early "
+    "because the material feels thin — draw out the implications, the "
+    "mechanism, and the comparisons instead.\n"
     "In each language:\n"
-    "- 'what_happened': 5-7 substantial paragraphs (550-850 English words, "
-    "the same depth in Chinese). Cover the event, the numbers, who said "
-    "what, how it compares to prior periods or expectations, and any "
-    "second-order facts the materials support. Do not restate the headline.\n"
-    "- 'why_it_matters': 3-4 paragraphs on the investment read: who is "
-    "affected (company, competitors, customers, lenders), through which "
-    "mechanism (revenue, margin, multiple, regulation, cost of capital), "
-    "and on what timeline.\n"
-    "- 'context': 5-8 bullets of background a reader needs (prior events, "
-    "competitive position, relevant financials, ownership, regulation).\n"
-    "- 'watch_next': 4-6 specific, checkable upcoming markers with dates "
-    "or windows when the materials give them.\n"
+    "- 'what_happened': 7-10 substantial paragraphs, 900-1300 English words, "
+    "the same depth in Chinese. Every paragraph is 4+ sentences. Cover the "
+    "event in full; every number given and what it is measured against "
+    "(prior period, consensus, guidance, peers); who said what, quoted or "
+    "paraphrased closely; the sequence of events and when each happened; "
+    "how this compares to the same company or sector previously; and the "
+    "second-order facts the materials support. Do not restate the headline "
+    "and do not open with a summary sentence — start with the substance.\n"
+    "- 'why_it_matters': 4-6 paragraphs, 400-600 English words, on the "
+    "investment read. Name who is affected (the company, named competitors, "
+    "customers, suppliers, lenders, the sector), the mechanism by which each "
+    "is affected (revenue, unit economics, margin, multiple, regulation, "
+    "cost of capital, competitive position), the direction and rough size of "
+    "the effect, the timeline over which it shows up, and what would have to "
+    "be true for the opposite read to be right.\n"
+    "- 'key_figures': 5-9 of the most important numbers, each as a complete "
+    "sentence carrying the figure, its units, the period it covers and its "
+    "comparison point. Never a bare number.\n"
+    "- 'context': 6-10 bullets of background the reader needs and the "
+    "article assumes: prior events in this story, competitive position, "
+    "relevant financials, ownership and balance sheet, regulation, and the "
+    "macro backdrop. Each bullet is a full sentence or two, not a fragment.\n"
+    "- 'watch_next': 5-7 specific, checkable upcoming markers, with dates or "
+    "windows when the materials give them, and for each one say what "
+    "outcome would confirm or break the read above.\n"
     "- Assert only what the materials support. Where they are thin, say so "
-    "plainly instead of padding or guessing.\n"
+    "plainly and explain what is missing — that is analysis too. Never pad "
+    "with generic market commentary, and never invent figures, quotes or "
+    "dates to reach the length.\n"
     "Put the article URL (if any) and any other cited URLs in 'sources' once, "
     "for both languages.\n"
     "No hype, no disclaimers, no greetings, no markdown headers."
@@ -129,6 +155,7 @@ _LANGUAGE_BRIEF_SCHEMA = {
         "headline": {"type": "string"},
         "what_happened": {"type": "string"},
         "why_it_matters": {"type": "string"},
+        "key_figures": {"type": "array", "items": {"type": "string"}},
         "context": {"type": "array", "items": {"type": "string"}},
         "watch_next": {"type": "array", "items": {"type": "string"}},
     },
@@ -560,6 +587,7 @@ def _ai_payload(
     why = str(part.get("why_it_matters") or "").strip()
     context = _clean_lines(part.get("context"))
     watch_next = _clean_lines(part.get("watch_next"))
+    key_figures = _clean_lines(part.get("key_figures"))
     return {
         "key": key,
         "lang": language,
@@ -582,6 +610,9 @@ def _ai_payload(
         "why_it_matters": why,
         "context": context,
         "watch_next": watch_next,
+        # The news UI has always rendered a Key figures block; until now only
+        # the no-AI basic briefing filled it.
+        "key_figures": key_figures,
         "confidence": confidence,
         "sources": sources,
         "article_chars": article_chars,
@@ -591,6 +622,7 @@ def _ai_payload(
         f"why_it_matters_{language}": why,
         f"context_{language}": context,
         f"watch_next_{language}": watch_next,
+        f"key_figures_{language}": key_figures,
     }
 
 
@@ -657,6 +689,10 @@ def _write_brief_locked(key: str, row: dict) -> dict[str, dict]:
         schema=BRIEF_SCHEMA,
         name="news_brief",
         timeout_sec=BRIEF_TIMEOUT_SEC,
+        # One call writes a long body in BOTH languages plus three lists, so
+        # the default output ceiling is the binding constraint on length.
+        max_output_tokens=BRIEF_MAX_OUTPUT_TOKENS,
+        thinking_level=BRIEF_THINKING,
         claude_model=brief_model(),
         claude_effort=brief_effort(),
     )
