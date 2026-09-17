@@ -3,6 +3,37 @@ type: other
 label:
   en: Other
   zh: 其他
+scorecard:
+  early:
+    market_size_growth: 20
+    industry_position: 5
+    moat: 10
+    revenue_growth_quality: 10
+    business_model_ue: 10
+    team_governance: 25
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
+  growth:
+    market_size_growth: 15
+    industry_position: 12
+    moat: 13
+    revenue_growth_quality: 15
+    business_model_ue: 12
+    team_governance: 13
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
+  late:
+    market_size_growth: 15
+    industry_position: 15
+    moat: 15
+    revenue_growth_quality: 15
+    business_model_ue: 10
+    team_governance: 10
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
 research_focus:
   all: >-
     This company does not fit the fund's five AI and robotics focus

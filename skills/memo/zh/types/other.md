@@ -1,11 +1,42 @@
 ---
-en_sha256: 2e26075fd7ae836ef7a29a7e7f8c39c82803e3944c7df7bfedc6b39c13a05a69
+en_sha256: e7c86637a83f69a5a5b66456b5b201e669e2e71ff4b25b4d29358d052953de7c
 ---
 ---
 type: other
 label:
   en: Other
   zh: 其他
+scorecard:
+  early:
+    market_size_growth: 20
+    industry_position: 5
+    moat: 10
+    revenue_growth_quality: 10
+    business_model_ue: 10
+    team_governance: 25
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
+  growth:
+    market_size_growth: 15
+    industry_position: 12
+    moat: 13
+    revenue_growth_quality: 15
+    business_model_ue: 12
+    team_governance: 13
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
+  late:
+    market_size_growth: 15
+    industry_position: 15
+    moat: 15
+    revenue_growth_quality: 15
+    business_model_ue: 10
+    team_governance: 10
+    valuation: 10
+    exit_certainty: 5
+    risk_reward: 5
 research_focus:
   all: >-
     这家公司不属于基金的五个 AI 与机器人重点类型。采用通用框架：市场空间

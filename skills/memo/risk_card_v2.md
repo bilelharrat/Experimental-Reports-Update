@@ -20,9 +20,10 @@ table. Structure, in order:
      verdict, how big — and the fourth is the explanation:
        1. `Risk Type` / `风险类型` — the area the pin sheet files the
           risk under, as its label: Market / Technology / Competition /
-          Commercialization / Concentration / Team, governance &
-          regulation / Valuation & exit (Chinese 市场 / 技术 / 竞争 /
-          商业化 / 集中度 / 团队、治理与监管 / 估值与退出). Not a sentence.
+          Moat & defensibility / Commercialization / Concentration /
+          Team, governance & regulation / Valuation & exit (Chinese
+          市场 / 技术 / 竞争 / 护城河与壁垒 / 商业化 / 集中度 /
+          团队、治理与监管 / 估值与退出). Not a sentence.
        2. `Verdict` / `一句话结论` — the pinned risk summary VERBATIM:
           one plain sentence with at most one number.
        3. `Impact` / `影响有多大` — the pinned impact VERBATIM: what the

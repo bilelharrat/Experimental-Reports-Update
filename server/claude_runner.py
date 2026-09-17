@@ -6538,7 +6538,7 @@ against the stragglers when they land.
      Plain text only: no asterisks or other markdown. The executive summary repeats the
      headline and evidence verbatim.
    - each risk ALSO carries `area` — which aspect it concentrates on:
-     market / technology / competition / commercialization /
+     market / technology / competition / moat / commercialization /
      concentration / team_governance_regulatory / valuation_exit — and
      `impact`: what it costs the investment in plain words with the ONE
      number that sizes it ("the base case returns 0.9x — a loss even if

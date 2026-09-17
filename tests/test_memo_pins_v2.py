@@ -825,3 +825,32 @@ def test_tied_thinnest_dimensions_break_by_weight_not_key_order():
     assert thinnest.index("risk-reward balance (10/20)") < (
         thinnest.index("business model and unit economics (6/12)")
     )
+
+
+def test_moat_is_a_risk_area():
+    """2026-09-17, RadixArk: the spine chose `area: "moat"` for the memo's
+    central risk — "the asset the price is paid for does not belong to
+    RadixArk" — was rejected by the enum, and on retry filed it under
+    `competition`, which is not what the argument says. Moat is weighted
+    as high as 18, the heaviest dimension in three type files, and had
+    nowhere to file a risk."""
+    assert "moat" in memo_structure.RISK_AREA_KEYS
+    labels = memo_structure.RISK_AREA_LABELS["moat"]
+    assert labels["en"] and labels["zh"]
+    # every scored dimension the exec summary can call weak needs a home
+    assert set(memo_structure.RISK_AREA_KEYS) <= set(
+        memo_structure.RISK_AREA_LABELS
+    )
+
+
+def test_the_spine_prompt_offers_every_risk_area():
+    """The enum is enforced server-side; if the prompt omits an area the
+    writer never learns it exists and can only be rejected for guessing."""
+    import inspect
+
+    from server import claude_runner
+
+    source = inspect.getsource(claude_runner.run_memo_fast_english_spine)
+    listed = source.split("which aspect it concentrates on", 1)[1][:400]
+    for area in memo_structure.RISK_AREA_KEYS:
+        assert area in listed, area

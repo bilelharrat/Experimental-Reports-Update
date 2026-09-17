@@ -24,12 +24,20 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 4
+  early:
+    market_size_growth: 17
+    industry_position: 8
+    moat: 13
+    revenue_growth_quality: 7
+    business_model_ue: 12
+    team_governance: 27
+    valuation: 8
+    exit_certainty: 4
+    risk_reward: 4
 section_emphasis:
   thesis_market: 1.25
   business_financials: 1.15
-  company_team: 1.1
-  valuation_returns: 0.9
-  investment_decision: 0.85
+  company_team: 1.15
 research_focus:
   all: >-
     This is a frontier-model lab. Read every number through four

@@ -24,11 +24,20 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 3
+  early:
+    market_size_growth: 17
+    industry_position: 6
+    moat: 11
+    revenue_growth_quality: 11
+    business_model_ue: 14
+    team_governance: 25
+    valuation: 8
+    exit_certainty: 4
+    risk_reward: 4
 section_emphasis:
   thesis_market: 1.2
   business_financials: 1.2
   company_team: 0.9
-  valuation_returns: 0.9
 research_focus:
   all: >-
     This is an AI application company — a product built on top of a

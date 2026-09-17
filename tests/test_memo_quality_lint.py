@@ -699,3 +699,39 @@ def test_voice_contract_names_the_phrases_the_gate_rejects():
     assert "every multiple we use" in contract
     assert "What the gap\n    costs us" in contract
     assert "in a table header, not in a table cell" in contract
+
+
+def test_benchmark_gap_prose_is_not_a_packet_label(tmp_path):
+    """2026-09-17, RadixArk: the memo's only P0 was the correct technical
+    term for the thing it was analysing.
+
+    `Benchmark gaps?` was written to catch a copied packet HEADER. Bare
+    "benchmark gap" is ordinary English for a measured performance
+    difference, and the ai_infra type file tells the competitive pass to
+    benchmark against NVIDIA's stack and the open-source engines — so the
+    memo is required to produce the phrase the linter rejected.
+    """
+    path = tmp_path / "benchmark-prose.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "IV. Competitive position",
+            "SGLang runs about 29% ahead of vLLM on prefix-heavy agentic "
+            "traffic, and the benchmark gap on unique-prompt workloads is "
+            "already down to 1-4%.",
+        ],
+    )
+    result = memo_quality_lint.lint_memo_docx(path)
+    assert not [
+        f for f in result.findings if f.code == "packet_process_label"
+    ]
+
+
+def test_a_copied_benchmark_header_is_still_caught(tmp_path):
+    path = tmp_path / "benchmark-header.docx"
+    _save_docx(
+        path,
+        paragraphs=["IV. Competitive position", "Benchmark Gaps", "Body."],
+    )
+    result = memo_quality_lint.lint_memo_docx(path)
+    assert any(f.code == "packet_process_label" for f in result.findings)

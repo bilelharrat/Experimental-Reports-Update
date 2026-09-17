@@ -1,5 +1,5 @@
 ---
-en_sha256: 0c146ebd72d288a03a1a4d8892caab6f87eafed1251a7d00379dd92a731649d4
+en_sha256: b4eba006669e1ea697ddd1fa80cfce93b249766468641a3ada65b28adf16549f
 ---
 ---
 type: robotics
@@ -27,12 +27,20 @@ scorecard:
     valuation: 8
     exit_certainty: 4
     risk_reward: 5
+  early:
+    market_size_growth: 19
+    industry_position: 2
+    moat: 9
+    revenue_growth_quality: 8
+    business_model_ue: 16
+    team_governance: 28
+    valuation: 8
+    exit_certainty: 5
+    risk_reward: 5
 section_emphasis:
   company_team: 1.15
   business_financials: 1.25
   thesis_market: 1.15
-  valuation_returns: 0.85
-  investment_decision: 0.85
 research_focus:
   all: >-
     这是一家机器人与具身智能（Embodied AI）公司——涵盖人形机器人、移动操作臂、

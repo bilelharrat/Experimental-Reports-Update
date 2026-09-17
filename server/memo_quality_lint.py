@@ -148,7 +148,18 @@ _PACKET_PROCESS_LABEL_PATTERNS = (
     re.compile(r"\bNo-go\b", re.IGNORECASE),
     re.compile(r"\bprohibited visual\b", re.IGNORECASE),
     re.compile(r"\bMust-prove\b", re.IGNORECASE),
-    re.compile(r"\bBenchmark gaps?\b", re.IGNORECASE),
+    # A copied packet HEADER reads "Benchmark Gaps" on its own line or
+    # followed by a colon. Bare "benchmark gap" is the ordinary English
+    # for a measured performance difference, and AI-infrastructure memos
+    # are required to produce exactly that — the ai_infra type file tells
+    # the competitive pass to "Benchmark against NVIDIA's own stack ...
+    # and the leading open-source engines". On the 2026-09-17 RadixArk
+    # run this rejected "the benchmark gap on unique-prompt traffic is
+    # already 1-4%", the correct term for the thing being analysed, and
+    # was the memo's only P0. Same failure as the bare "confidence:"
+    # above: the writer cannot see what the trigger is.
+    re.compile(r"^\s*Benchmark gaps?\s*:?\s*$", re.IGNORECASE),
+    re.compile(r"\bBenchmark gaps?\s*:", re.IGNORECASE),
     re.compile(r"\bReadiness Reviews?\b", re.IGNORECASE),
     re.compile(r"\bWaivers?\b", re.IGNORECASE),
     re.compile(r"\bMemo Uses?\b", re.IGNORECASE),
