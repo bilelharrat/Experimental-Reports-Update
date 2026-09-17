@@ -48,6 +48,19 @@ THINKING_LEVELS = ("low", "medium", "high")
 MAX_ATTEMPTS = 3
 RETRY_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
+# A 400 can mean the schema was rejected OR that the key is bad, the model
+# name is wrong, the prompt is malformed. Only the first is worth retrying
+# without the schema; the rest would just spend a second doomed call and log
+# a misleading reason.
+_SCHEMA_REJECTION_HINTS = (
+    "schema",
+    "response_format",
+    "responseformat",
+    "response_mime",
+    "responsemimetype",
+    "response_json",
+)
+
 _JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
 _FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
 
@@ -114,6 +127,11 @@ def _parse_json_payload(text: str) -> dict | None:
         except json.JSONDecodeError:
             return None
     return None
+
+
+def _looks_like_schema_rejection(error: str) -> bool:
+    lowered = (error or "").lower()
+    return any(hint in lowered for hint in _SCHEMA_REJECTION_HINTS)
 
 
 def _candidate_text(payload: dict) -> str:
@@ -336,10 +354,11 @@ def _run(
             body, model=chosen_model, key=key, timeout_sec=timeout_sec
         )
         if error is not None:
-            # A 400 on the schema-constrained attempt is usually the schema
-            # itself (a JSON Schema keyword the API won't take). Retry once
-            # with the schema in the prompt instead of losing the call.
-            if status == 400 and not embed_schema:
+            # A 400 naming the schema is one the API would take without it
+            # (a JSON Schema keyword it won't accept). Retry once with the
+            # schema in the prompt instead of losing the call. A 400 about
+            # anything else — a bad key above all — is not retried.
+            if status == 400 and not embed_schema and _looks_like_schema_rejection(error):
                 logger.warning(
                     "gemini_runner: %s rejected the response schema (%s); "
                     "retrying with the schema embedded in the prompt",

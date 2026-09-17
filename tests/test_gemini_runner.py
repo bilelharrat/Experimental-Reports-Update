@@ -409,3 +409,19 @@ def test_diagnostics_reports_a_missing_key(no_key):
 
     body = TestClient(app).get("/api/diagnostics").json()
     assert body["gemini_key_configured"] is False
+
+
+def test_a_bad_key_is_not_mistaken_for_a_schema_rejection(monkeypatch, key):
+    """Both arrive as HTTP 400. Retrying an auth failure without the schema
+    spends a second doomed call and logs the wrong reason."""
+    calls: list[dict] = []
+    _stub_post(
+        monkeypatch,
+        [_response(400, {"error": {"message": "API key not valid. Please pass a valid API key."}})],
+        calls,
+    )
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    assert data is None and "API key not valid" in error
+    assert len(calls) == 1
