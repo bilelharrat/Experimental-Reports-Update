@@ -223,7 +223,16 @@ gate works in both directions, because Gemini misses the length either
 way: under the contract the first live run came back a quarter over
 (13,958 English words), and a renderer-validation retry inflated the same
 sections to 18,084. A revision is kept only when it lands closer to the
-band than the draft it replaces. Claude prompts are byte-identical to before; profiles that carry
+band than the draft it replaces.
+
+The monolithic pass is not a fallback on Gemini, for the same reason: one
+response cannot carry the memo, so degrading to it would deliver a memo a
+quarter the length without saying so. A Gemini spine or section that fails
+draws a second sample — nearly always sampling noise, a dropped or doubled
+bracket in 26KB of JSON, which `gemini_runner` also repairs from the
+decoder's own position — and if that fails too the run stops and says why.
+Claude keeps its single attempt and its fallback, where the monolithic
+pass carries the full memo. Claude prompts are byte-identical to before; profiles that carry
 their own ranges (growth, early, late v2) are read as written, and the
 compact profile's ceilings are left alone.
 

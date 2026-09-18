@@ -774,6 +774,19 @@ def test_brackets_inside_strings_do_not_mislead_the_repair():
     assert parsed == good
 
 
+def test_an_extra_closing_bracket_is_removed_when_that_is_the_edit_that_parses():
+    """The structure-repair pass of the same run wrote one `]` too many
+    after a table's rows. Inserting the owed `}` there reads fine for a
+    while and then leaves the document a level off; deleting parses."""
+    good = {"a": [[1], [2]], "b": {"c": "d"}}
+    text = json.dumps(good)
+    extra = text.replace('[[1], [2]]', '[[1], [2]]]', 1)
+    assert extra != text
+    parsed, reason = gemini_runner._loads_object(extra)
+    assert reason is None
+    assert parsed == good
+
+
 def test_a_document_that_ends_early_is_not_mistaken_for_a_dropped_bracket():
     """Truncation is the output-limit case, reported as such — not patched."""
     parsed, reason = gemini_runner._loads_object('{"a": [1, 2')

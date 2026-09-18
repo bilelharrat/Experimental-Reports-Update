@@ -247,6 +247,8 @@ _SOURCE_KEY_SYNONYMS = {
     # sources. Renaming is lossless, so repair it instead of failing the run.
     "label": "title",
     "source_class": "class",
+    "evidence_class": "class",
+    "source_type": "class",
     "detail": "treatment",
     "name": "title",
 }
@@ -259,6 +261,8 @@ _BLOCK_KEY_SYNONYMS = {
     # The block's type under another name; without it the block reads as an
     # untyped paragraph and fails as "text is required" (22 blocks in one run).
     "kind": "type",
+    # The component slug under the analysis passes' word for it.
+    "slug": "component",
     # A table's header row.
     "columns": "headers",
     "column_headers": "headers",
@@ -283,6 +287,13 @@ _BLOCK_TYPE_SYNONYMS = {
     "header": "heading",
     "subheading": "heading",
     "subheader": "heading",
+    # Compound types the model invents for a titled paragraph, or a table
+    # with its commentary in the same block; the prose half of a table is
+    # split out into the paragraph that follows it before the main pass.
+    "header_and_prose": "paragraph",
+    "heading_and_prose": "paragraph",
+    "table_and_prose": "table",
+    "table_with_prose": "table",
 }
 
 
@@ -308,6 +319,23 @@ def _repair_localized(node: dict, key: str, repairs: list[str], where: str) -> N
     ):
         node[key] = {"en": value, "zh": ""}
         repairs.append(f"{where}: wrapped plain string as bilingual en value")
+
+
+def _decode_serialized_list(
+    block: dict, key: str, repairs: list[str], where: str
+) -> None:
+    """Decode a list the model serialized as a JSON string inside the block
+    — the escaping the section prompt warns against, seen live on a
+    table's ``headers`` and ``rows``."""
+    value = block.get(key)
+    if isinstance(value, str) and value.lstrip().startswith("["):
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return
+        if isinstance(decoded, list):
+            block[key] = decoded
+            repairs.append(f"{where}.{key}: decoded a list serialized as a string")
 
 
 def _adopt_items_synonym(block: dict, repairs: list[str], where: str) -> None:
@@ -434,15 +462,30 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
         if isinstance(blocks, list):
             kept = []
             for b_index, block in enumerate(blocks):
-                if (
-                    isinstance(block, dict)
-                    and str(block.get("type") or "").strip().lower() == "table"
-                    and not (block.get("headers") or block.get("rows"))
-                ):
-                    repairs.append(
-                        f"{where_section}.blocks[{b_index}]: dropped empty table"
-                    )
+                if not isinstance(block, dict):
+                    kept.append(block)
                     continue
+                where = f"{where_section}.blocks[{b_index}]"
+                raw_type = str(block.get("type") or "").strip().lower()
+                if _BLOCK_TYPE_SYNONYMS.get(raw_type, raw_type) == "table":
+                    for key in ("headers", "rows"):
+                        _decode_serialized_list(block, key, repairs, where)
+                    if not (block.get("headers") or block.get("rows")):
+                        repairs.append(f"{where}: dropped empty table")
+                        continue
+                    # "table_and_prose": the commentary becomes the
+                    # paragraph after the table, which is what it was.
+                    prose = block.pop("content", None)
+                    if isinstance(prose, (str, dict)) and _content_text(prose):
+                        kept.append(block)
+                        kept.append({"type": "paragraph", "text": prose})
+                        repairs.append(
+                            f"{where}: split its prose into a paragraph "
+                            "after the table"
+                        )
+                        continue
+                    if prose is not None:
+                        block["content"] = prose
                 kept.append(block)
             if len(kept) != len(blocks):
                 blocks[:] = kept
@@ -456,9 +499,30 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                     repairs.append(
                         f"{where}: renamed {old_key!r} to {new_key!r}"
                     )
+            # Prose under `content`, with the block's `text` carrying what
+            # is really its title (nine blocks of one live valuation
+            # section). The prose is the text; the short line above it is
+            # the title. A list under `content` is never prose.
+            content = block.get("content")
+            if isinstance(content, (str, dict)) and _content_text(content):
+                if not _content_text(block.get("text")):
+                    block["text"] = block.pop("content")
+                    repairs.append(f"{where}: moved 'content' into 'text'")
+                elif not _content_text(block.get("title")):
+                    block["title"] = block.pop("text")
+                    block["text"] = block.pop("content")
+                    repairs.append(
+                        f"{where}: moved 'content' into 'text' and the "
+                        "line it carried as text into 'title'"
+                    )
             raw_kind = str(block.get("type") or "paragraph").strip().lower()
             kind = _BLOCK_TYPE_SYNONYMS.get(raw_kind, raw_kind)
-            if kind != str(block.get("type") or "paragraph"):
+            if not str(block.get("type") or "").strip():
+                # The validator reads an untyped block as a paragraph; say so
+                # in the package rather than leave every reader to default it.
+                block["type"] = kind
+                repairs.append(f"{where}.type: untyped block read as {kind!r}")
+            elif kind != str(block.get("type")):
                 block["type"] = kind
                 repairs.append(f"{where}.type: normalized {raw_kind!r} to {kind!r}")
             if kind == "paragraph" and not _content_text(
@@ -474,6 +538,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             elif kind == "paragraph":
                 _repair_localized(block, "text", repairs, f"{where}.text")
                 _repair_localized(block, "body", repairs, f"{where}.body")
+                _repair_localized(block, "title", repairs, f"{where}.title")
             elif kind == "bullets":
                 _adopt_items_synonym(block, repairs, where)
                 block["items"] = _repair_localized_list(

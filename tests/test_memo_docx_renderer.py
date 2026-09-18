@@ -1879,3 +1879,111 @@ def test_a_source_classed_in_only_one_of_its_two_fields_is_completed():
         for e in memo_docx_renderer.english_package_validation_errors(repaired)
         if e.startswith("sources[")
     ] == []
+
+
+
+def test_a_source_classed_under_the_analysis_passes_word_for_it_is_completed():
+    """`evidence_class` is the passes' vocabulary; a run's sources arrived
+    with nothing else (Koch, 2026-09-18, second run)."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[{"id": "S1", "title": "Registry", "as_of": "2026-09-18",
+                  "url": "https://www.kochinc.com", "evidence_class": "company-reported"}],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    source = repaired["sources"][0]
+    assert source["class"] == "company reported"
+    assert source["treatment"]["en"] == "Weighted as company reported."
+    assert "evidence_class" not in source
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []
+
+
+def test_an_untyped_component_block_with_prose_under_content_becomes_a_titled_paragraph():
+    """Nine valuation blocks arrived as {"slug", "text": <title>, "content":
+    <prose>} with no type: the component unrecognised, the prose invisible."""
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"slug": "deal_terms",
+             "text": {"en": "Deal Terms & Governance Mechanics", "zh": ""},
+             "content": "Koch's capital structure presents institutional barriers."},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert block["type"] == "paragraph"
+    assert block["component"] == "deal_terms"
+    assert block["title"]["en"] == "Deal Terms & Governance Mechanics"
+    assert block["text"]["en"] == "Koch's capital structure presents institutional barriers."
+    assert "slug" not in block and "content" not in block
+    assert any("moved 'content' into 'text'" in r for r in repairs)
+    # Coverage is by declaration, so the rename is what makes the component
+    # count — attempt 1 of that run failed on exactly this.
+    assert memo_docx_renderer._memo_component_coverage(repaired)["deal_terms"] is True
+
+
+def test_a_list_under_content_is_never_taken_for_prose():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "content": ["one", "two"], "items": ["one", "two"]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert [i["en"] for i in block["items"]] == ["one", "two"]
+    assert "text" not in block
+
+
+
+def test_a_table_and_prose_block_is_split_into_the_table_and_its_paragraph():
+    """Five valuation blocks arrived as one invented type carrying a table
+    and its commentary together, with the arrays serialized as strings —
+    the shape that ended attempt 2 of the second Koch run."""
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"id": "deal_terms_block", "type": "table_and_prose",
+             "component": "deal_terms", "title": "Deal Mechanics",
+             "headers": '["Parameter", "Term"]',
+             "rows": '[["Mandate", "Pass; $0 committed [s7]"]]',
+             "content": "Koch maintains a closed capital structure."},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table, prose = repaired["sections"][0]["blocks"]
+    assert table["type"] == "table" and table["component"] == "deal_terms"
+    assert [h["en"] if isinstance(h, dict) else h for h in table["headers"]] == [
+        "Parameter", "Term"
+    ]
+    assert len(table["rows"]) == 1 and "content" not in table
+    assert prose["type"] == "paragraph"
+    assert prose["text"]["en"] == "Koch maintains a closed capital structure."
+    assert any("decoded a list serialized" in r for r in repairs)
+    assert any("split its prose" in r for r in repairs)
+    block_errors = [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if ".blocks[" in e
+    ]
+    assert block_errors == []
+
+
+def test_a_header_and_prose_block_becomes_a_titled_paragraph():
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"id": "sotp", "type": "header_and_prose",
+             "title": "Sum-of-the-Parts Framework",
+             "content": "Valuing Koch requires segregating cyclical processing."},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert block["type"] == "paragraph"
+    assert block["title"]["en"] == "Sum-of-the-Parts Framework"
+    assert block["text"]["en"] == "Valuing Koch requires segregating cyclical processing."
+    assert "content" not in block
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if ".blocks[" in e
+    ] == []

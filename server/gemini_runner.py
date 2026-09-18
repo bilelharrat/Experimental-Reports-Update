@@ -106,7 +106,7 @@ def _loads_object(text: str) -> tuple[dict | None, str | None]:
     stripped = _strip_stray_tokens(text)
     if stripped is not None:
         candidates.append(stripped)
-    closed = _close_dropped_brackets(text)
+    closed = _repair_closers(text)
     if closed is not None:
         candidates.append(closed)
     for candidate in candidates:
@@ -187,20 +187,31 @@ def _innermost_open(text: str, end: int) -> str | None:
     return stack[-1] if stack else None
 
 
-def _close_dropped_brackets(text: str, *, limit: int = 25) -> str | None:
-    """Restore a closing bracket the model dropped mid-document.
+def _error_pos(text: str) -> int | None:
+    """Where the decoder stops, or None when the text parses."""
+    try:
+        json.loads(text, strict=False)
+    except json.JSONDecodeError as exc:
+        return exc.pos
+    return None
+
+
+def _repair_closers(text: str, *, limit: int = 25) -> str | None:
+    """Repair a closing bracket the model dropped or doubled mid-document.
 
     A 26KB risk section (Koch, Inc., 2026-09-18) closed a table block with
     ``}`` while its ``rows`` array was still open — one ``]`` short, every
-    other bracket in the document balanced — and the whole section was lost
-    to it; the structure-repair pass of the same run dropped a ``}`` the
-    same way. The decoder points at the exact spot: it reports "Expecting
-    ',' delimiter" at a closer of the wrong kind for the innermost open
-    container. Inserting the closer it was owed there is the only edit
-    made, and nothing inside a string ever qualifies. A document that
-    simply ends early is not this shape and is left to the output-limit
-    handling. Returns the repaired text, or None if nothing of that shape
-    sits at the failure position.
+    other bracket balanced — and the whole section was lost to it. The
+    structure-repair pass of the same run wrote one ``]`` too many after a
+    table's rows. Both read the same to the decoder: "Expecting ','
+    delimiter" at a closer of the wrong kind for the innermost open
+    container. Whether the owed closer is missing or the found one is
+    surplus cannot be told at that spot, so both edits are tried and the
+    one the decoder gets further past is kept — a full parse wins
+    outright. Only that one character is ever touched, and nothing inside
+    a string qualifies. A document that simply ends early is not this
+    shape and is left to the output-limit handling. Returns the repaired
+    text, or None if nothing of that shape sits at the failure position.
     """
     changed = False
     for _ in range(limit):
@@ -213,11 +224,18 @@ def _close_dropped_brackets(text: str, *, limit: int = 25) -> str | None:
             found = text[exc.pos]
             open_kind = _innermost_open(text, exc.pos)
             if found == "}" and open_kind == "[":
-                text = text[: exc.pos] + "]" + text[exc.pos :]
+                owed = "]"
             elif found == "]" and open_kind == "{":
-                text = text[: exc.pos] + "}" + text[exc.pos :]
+                owed = "}"
             else:
                 return text if changed else None
+            inserted = text[: exc.pos] + owed + text[exc.pos :]
+            deleted = text[: exc.pos] + text[exc.pos + 1 :]
+            progress = [(_error_pos(candidate), candidate) for candidate in (inserted, deleted)]
+            for pos, candidate in progress:
+                if pos is None:
+                    return candidate
+            text = max(progress, key=lambda item: item[0])[1]
             changed = True
     return text if changed else None
 
