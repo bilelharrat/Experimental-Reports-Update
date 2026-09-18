@@ -1245,13 +1245,13 @@ def test_a_revision_that_fails_or_lands_no_closer_leaves_the_draft_standing(
 
     assert error is None
     # Round 1 failed and drew its second sample (a Gemini section always
-    # does); round 2 landed further out. Every attempt was made against the
-    # same standing draft, and none replaced it.
-    assert attempts == [floor // 2, floor // 2, floor // 2]
+    # does); rounds 2 and 3 landed further out. Every attempt was made
+    # against the same standing draft, and none replaced it.
+    assert attempts == [floor // 2] * (memo_engine.DEPTH_ROUNDS + 1)
     by_id = {s["id"]: s for s in result["memo_package"]["sections"]}
     assert memo_engine.en_word_count(by_id["investment_risk"]) == floor // 2
     units_dir = kwargs["run_dir"] / "logs" / "english_units"
-    assert len(list(units_dir.glob("investment_risk.length-*.json"))) == 2
+    assert len(list(units_dir.glob("investment_risk.length-*.json"))) == memo_engine.DEPTH_ROUNDS
 
 
 def test_a_claude_wave_is_never_gated(tmp_path, monkeypatch):

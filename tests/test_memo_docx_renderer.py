@@ -1961,7 +1961,7 @@ def test_a_table_and_prose_block_is_split_into_the_table_and_its_paragraph():
     assert prose["type"] == "paragraph"
     assert prose["text"]["en"] == "Koch maintains a closed capital structure."
     assert any("decoded a list serialized" in r for r in repairs)
-    assert any("split its prose" in r for r in repairs)
+    assert any("moved its 'content' into a paragraph after the table" in r for r in repairs)
     block_errors = [
         e for e in memo_docx_renderer.english_package_validation_errors(repaired)
         if ".blocks[" in e
@@ -1987,3 +1987,69 @@ def test_a_header_and_prose_block_becomes_a_titled_paragraph():
         e for e in memo_docx_renderer.english_package_validation_errors(repaired)
         if ".blocks[" in e
     ] == []
+
+
+
+def _block_errors(package: dict) -> list[str]:
+    return [
+        e for e in memo_docx_renderer.english_package_validation_errors(package)
+        if ".blocks[" in e
+    ]
+
+
+def test_a_titled_paragraph_group_serialized_as_a_string_is_expanded():
+    """`content_block`: a title over a list of paragraphs, the list itself
+    serialized as a JSON string (four blocks of one live executive summary)."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"id": "thesis", "type": "content_block", "title": "Sponsor Thesis",
+             "paragraphs": '["BSH evaluates Koch through a growth-equity lens.", "The verdict is a pass."]'},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    first, second = repaired["sections"][0]["blocks"]
+    assert first["type"] == "paragraph" and first["id"] == "thesis"
+    # A two-word capitalized title reads as a proper noun and stays plain.
+    assert memo_docx_renderer._content_text(first["title"]) == "Sponsor Thesis"
+    assert first["text"]["en"] == "BSH evaluates Koch through a growth-equity lens."
+    assert second == {"type": "paragraph", "text": {"en": "The verdict is a pass.", "zh": ""}}
+    assert any("read unknown type 'content_block' as 'paragraph'" in r for r in repairs)
+    assert _block_errors(repaired) == []
+
+
+def test_a_table_with_intro_and_footnote_prose_gets_its_paragraphs_around_it():
+    """`table_block`: the key-metrics table with an intro before it and a
+    footnote after it, arrays serialized as strings."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"id": "kms", "type": "table_block", "component": "key_metrics_snapshot",
+             "title": "Key Metrics Snapshot",
+             "intro": "The snapshot below details baseline parameters.",
+             "headers": '["Metric", "Value"]',
+             "rows": '[["Headcount", "100,000+"]]',
+             "footnote": "Revenue matches mega-cap peers; the balance sheet is opaque."},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    intro, table, footnote = repaired["sections"][0]["blocks"]
+    assert intro["type"] == "paragraph"
+    assert intro["text"]["en"] == "The snapshot below details baseline parameters."
+    assert table["type"] == "table" and table["component"] == "key_metrics_snapshot"
+    assert len(table["rows"]) == 1 and "intro" not in table and "footnote" not in table
+    assert footnote["text"]["en"].startswith("Revenue matches")
+    assert _block_errors(repaired) == []
+
+
+def test_an_unknown_type_is_read_from_the_blocks_fields():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "key_points", "items": ["Scale", "Patience"]},
+            {"type": "section_header", "level": 2, "text": "Moat"},
+            {"type": "narrative_block", "content": "The moat is capital patience."},
+            {"type": "divider"},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    kinds = [b["type"] for b in repaired["sections"][0]["blocks"]]
+    assert kinds == ["bullets", "heading", "paragraph", "spacer"]
+    assert _block_errors(repaired) == []

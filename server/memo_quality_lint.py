@@ -379,6 +379,14 @@ _BODY_TREATMENT_SPEAK_PATTERNS = (
 # disclosures-component coverage patterns in memo_docx_renderer.
 _DISCLOSURE_LANGUAGE_PATTERNS = (
     re.compile(r"\bnot an offer to (?:sell|purchase)\b", re.IGNORECASE),
+    # The commonest legal phrasing of the same sentence — "does not
+    # constitute an offer to buy or sell, nor a solicitation of an offer
+    # to purchase" — was the one finding left on a live Gemini run.
+    re.compile(
+        r"\b(?:does not|do not|shall not|not) constitute an offer\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bsolicitation of an offer\b", re.IGNORECASE),
     re.compile(r"\boffer to sell securities\b", re.IGNORECASE),
     re.compile(r"\bdefinitive subscription documents\b", re.IGNORECASE),
     re.compile(r"\baccredited investors\b", re.IGNORECASE),

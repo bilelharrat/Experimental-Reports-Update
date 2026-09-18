@@ -338,6 +338,97 @@ def _decode_serialized_list(
             repairs.append(f"{where}.{key}: decoded a list serialized as a string")
 
 
+# Prose a table block carries alongside its rows, and where it belongs.
+_TABLE_PROSE_BEFORE = ("intro", "lead", "preface")
+_TABLE_PROSE_AFTER = ("content", "commentary", "footnote", "note", "discussion")
+_SERIALIZED_LIST_KEYS = ("headers", "columns", "rows", "items", "bullets", "paragraphs")
+_CONTENT_KEYS = ("text", "content", "body", "paragraphs", "items", "bullets", "headers", "rows", "title", "level")
+
+
+def _infer_block_type(block: dict) -> str:
+    """The type a block's own fields imply — for a name the renderer does not
+    know. The model names its block types freely (``content_block``,
+    ``table_block``, ``table_and_prose`` …, a new one on each run); what it
+    puts in them is stable."""
+    if block.get("headers") or block.get("rows"):
+        return "table"
+    if isinstance(block.get("items"), list) or isinstance(block.get("bullets"), list):
+        return "bullets"
+    if block.get("paragraphs") is not None:
+        return "paragraph"
+    if block.get("level") is not None and not _content_text(
+        block.get("content") or block.get("body")
+    ):
+        return "heading"
+    if not any(block.get(key) for key in _CONTENT_KEYS):
+        return "spacer"
+    return "paragraph"
+
+
+def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
+    """Normalize one block before the main pass; return the block(s) it
+    stands for.
+
+    Decodes lists serialized as strings, renames the field synonyms, reads
+    an unknown type off the block's fields, moves a table's intro and
+    footnote prose into the paragraphs around it, expands a titled group
+    of paragraphs into paragraphs, and drops an empty table. Each of these
+    shapes cost a live generation attempt on a Gemini run.
+    """
+    for old_key, new_key in _BLOCK_KEY_SYNONYMS.items():
+        if old_key in block and not block.get(new_key):
+            block[new_key] = block.pop(old_key)
+            repairs.append(f"{where}: renamed {old_key!r} to {new_key!r}")
+    for key in _SERIALIZED_LIST_KEYS:
+        _decode_serialized_list(block, key, repairs, where)
+    raw_type = str(block.get("type") or "").strip().lower()
+    kind = _BLOCK_TYPE_SYNONYMS.get(raw_type, raw_type)
+    if raw_type and kind not in SUPPORTED_BLOCK_TYPES:
+        kind = _infer_block_type(block)
+        block["type"] = kind
+        repairs.append(
+            f"{where}.type: read unknown type {raw_type!r} as {kind!r} from its fields"
+        )
+    elif raw_type and kind != raw_type:
+        block["type"] = kind
+        repairs.append(f"{where}.type: normalized {raw_type!r} to {kind!r}")
+    out: list[dict] = []
+    if kind == "table":
+        if not (block.get("headers") or block.get("rows")):
+            repairs.append(f"{where}: dropped empty table")
+            return []
+        for key in _TABLE_PROSE_BEFORE:
+            prose = block.pop(key, None)
+            if isinstance(prose, (str, dict)) and _content_text(prose):
+                out.append({"type": "paragraph", "text": prose})
+                repairs.append(f"{where}: moved its {key!r} into a paragraph before the table")
+            elif prose is not None:
+                block[key] = prose
+        out.append(block)
+        for key in _TABLE_PROSE_AFTER:
+            prose = block.pop(key, None)
+            if isinstance(prose, (str, dict)) and _content_text(prose):
+                out.append({"type": "paragraph", "text": prose})
+                repairs.append(f"{where}: moved its {key!r} into a paragraph after the table")
+            elif prose is not None:
+                block[key] = prose
+        return out
+    paragraphs = block.get("paragraphs")
+    if kind == "paragraph" and isinstance(paragraphs, list) and paragraphs:
+        del block["paragraphs"]
+        carried = {k: v for k, v in block.items() if k not in ("text", "content", "body")}
+        for item in paragraphs:
+            if isinstance(item, (str, dict)) and _content_text(item):
+                para: dict = {"type": "paragraph", "text": item}
+                if not out:
+                    para = {**carried, **para}
+                out.append(para)
+        if out:
+            repairs.append(f"{where}: expanded {len(out)} paragraph(s) it carried as a list")
+            return out
+    return [block]
+
+
 def _adopt_items_synonym(block: dict, repairs: list[str], where: str) -> None:
     """Move a bullet list filed under the block's own name into ``items``.
 
@@ -460,35 +551,15 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
         # regeneration attempt follows; dropping the block is what a human
         # editor would do. Seen live from the per-section wave on Gemini.
         if isinstance(blocks, list):
-            kept = []
+            kept: list = []
             for b_index, block in enumerate(blocks):
                 if not isinstance(block, dict):
                     kept.append(block)
                     continue
-                where = f"{where_section}.blocks[{b_index}]"
-                raw_type = str(block.get("type") or "").strip().lower()
-                if _BLOCK_TYPE_SYNONYMS.get(raw_type, raw_type) == "table":
-                    for key in ("headers", "rows"):
-                        _decode_serialized_list(block, key, repairs, where)
-                    if not (block.get("headers") or block.get("rows")):
-                        repairs.append(f"{where}: dropped empty table")
-                        continue
-                    # "table_and_prose": the commentary becomes the
-                    # paragraph after the table, which is what it was.
-                    prose = block.pop("content", None)
-                    if isinstance(prose, (str, dict)) and _content_text(prose):
-                        kept.append(block)
-                        kept.append({"type": "paragraph", "text": prose})
-                        repairs.append(
-                            f"{where}: split its prose into a paragraph "
-                            "after the table"
-                        )
-                        continue
-                    if prose is not None:
-                        block["content"] = prose
-                kept.append(block)
-            if len(kept) != len(blocks):
-                blocks[:] = kept
+                kept.extend(
+                    _expand_block(block, repairs, f"{where_section}.blocks[{b_index}]")
+                )
+            blocks[:] = kept
         for b_index, block in enumerate(blocks if isinstance(blocks, list) else []):
             if not isinstance(block, dict):
                 continue

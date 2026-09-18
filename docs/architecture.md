@@ -218,7 +218,7 @@ does. `memo_engine` tells each Gemini section worker the length its Claude
 twin writes (the Round-2 reference split across the sections;
 `BSH_MEMO_GEMINI_WORDS` moves the total, 0 disables it), and a
 deterministic gate after the section wave sends any section outside its
-band back to its worker with the draft to revise, two rounds at most. The
+band back to its worker with the draft to revise, three rounds at most. The
 gate works in both directions, because Gemini misses the length either
 way: under the contract the first live run came back a quarter over
 (13,958 English words), and a renderer-validation retry inflated the same

@@ -436,6 +436,32 @@ def test_linter_allows_mandatory_disclosure_language(tmp_path):
     assert "outlines the key risks" in meta[0].snippet
 
 
+def test_linter_allows_the_common_legal_disclosure_phrasing(tmp_path):
+    """"does not constitute an offer to buy or sell, nor a solicitation of an
+    offer to purchase" is the same mandatory sentence in its commonest
+    form; it was the one finding left on a live Gemini run."""
+    path = tmp_path / "disclosure-constitute.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "V. Financial Forecast & Valuation",
+            (
+                "This document is distributed to qualified institutional "
+                "buyers exclusively for informational purposes. This document "
+                "does not constitute an offer to buy or sell, nor a "
+                "solicitation of an offer to purchase, any securities."
+            ),
+            "This document outlines the key risks.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    meta = [f for f in result.findings if f.code == "meta_process_language"]
+
+    assert len(meta) == 1
+    assert "outlines the key risks" in meta[0].snippet
+
+
 def test_linter_blocks_internal_questionnaire_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(

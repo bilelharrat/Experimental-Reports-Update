@@ -476,7 +476,9 @@ _LATE_V1_WORDS: dict[str, int] = {
 LENGTH_BAND = (0.90, 1.15)
 
 # Revision passes an out-of-band section gets before its draft stands as-is.
-DEPTH_ROUNDS = 2
+# Each trim takes roughly a sixth off; a valuation section that came back
+# 63% over (5,220 against a 3,680 ceiling, Koch 2026-09-18) needed three.
+DEPTH_ROUNDS = 3
 
 _WORD_RANGE_RE = re.compile(r"(\d[\d,]*)\s*[-–—]\s*(\d[\d,]*)\s+words", re.IGNORECASE)
 
