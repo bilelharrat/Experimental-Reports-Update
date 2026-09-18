@@ -551,11 +551,28 @@ def section_word_targets(run_dir: Path | str | None, structure) -> dict[str, Wor
     return targets
 
 
+# Block keys that name structure, not content: never words the reader gets.
+_STRUCTURAL_KEYS = frozenset(
+    {
+        "type", "id", "component", "slug", "level", "style", "align", "kind",
+        "format", "variant", "source_ids", "citations", "series", "zh",
+    }
+)
+
+
 def en_word_count(section: dict | None) -> int:
     """English words in a section's blocks — prose, bullets, table cells and
-    captions alike. Counts the way the renderer's compact-ceiling gate
-    counts (``memo_docx_renderer._section_en_word_count``), so the two
-    gates never disagree about a section's length."""
+    captions alike.
+
+    A localized string counts its ``en`` half. A raw worker draft — whose
+    strings are still plain, under whatever keys the model chose (``text``,
+    ``content``, ``title``, cells), because the repair step wraps them as
+    ``{"en", "zh"}`` only later — counts the strings themselves, so the gate
+    reads the draft the worker actually returned: a live run measured five
+    full sections as 0 before this. On a repaired package this counts
+    exactly as the renderer's compact-ceiling gate does
+    (``memo_docx_renderer._section_en_word_count``).
+    """
     words = 0
 
     def walk(value) -> None:
@@ -563,12 +580,15 @@ def en_word_count(section: dict | None) -> int:
         if isinstance(value, dict):
             if "en" in value:
                 words += len(str(value.get("en") or "").split())
-            else:
-                for item in value.values():
+                return
+            for key, item in value.items():
+                if key not in _STRUCTURAL_KEYS:
                     walk(item)
         elif isinstance(value, (list, tuple)):
             for item in value:
                 walk(item)
+        elif isinstance(value, str):
+            words += len(value.split())
 
     walk((section or {}).get("blocks") or [])
     return words
@@ -586,6 +606,8 @@ to its consequence, fill each table row with the specific figure or name the
 research material gives, and treat every component the section spec names in
 full. Reach the length with substance only — no restating the shared fact
 sheet, no recap of what the section has already said, no invented numbers.
+Stay inside the band: past {target.high:,} words the section is over-long
+for its reader, so stop adding once every component has its full treatment.
 """
 
 

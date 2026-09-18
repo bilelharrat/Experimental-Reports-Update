@@ -659,6 +659,28 @@ def test_en_word_count_counts_prose_bullets_and_table_cells():
     assert memo_engine.en_word_count(None) == 0
 
 
+def test_en_word_count_reads_a_raw_worker_draft_too():
+    """Gemini's raw drafts carry plain strings under whatever keys the model
+    chose; the repair step localizes them only later. The gate must count
+    the draft as returned — a live run measured five full sections as 0."""
+    raw = {
+        "blocks": [
+            {"type": "header", "level": 2, "text": "Executive framing"},
+            {"id": "block_exec_thesis", "type": "paragraph", "content": "one two three four"},
+            {"slug": "time_base_integrity", "title": "Timing", "content": "five six"},
+            {
+                "type": "table",
+                "title": "Board",
+                "headers": ["Name", "Role"],
+                "rows": [["Ada", "Chair"]],
+            },
+            {"type": "bullet_list", "items": ["seven eight nine"]},
+            {"type": "chart", "series": [{"name": "ARR", "values": [1, 2]}]},
+        ]
+    }
+    assert memo_engine.en_word_count(raw) == 17
+
+
 def test_a_gemini_section_worker_drafts_under_the_length_contract(tmp_path, monkeypatch):
     prompts: list[str] = []
 
