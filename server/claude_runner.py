@@ -8815,8 +8815,23 @@ Number and date conventions (fixed — every section must match):
 """
 
 
-def _memo_zh_compact_enabled() -> bool:
-    return os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1"
+def _memo_zh_compact_enabled(run_dir: Path | None = None) -> bool:
+    """Whether a translation unit returns only its Chinese strings, or
+    re-emits the whole unit with the English copied back.
+
+    Claude keeps the operator's flag. A Gemini run always takes the compact
+    method, for the same reason it always takes the English wave: the
+    legacy method's output is the whole unit twice over, and Gemini's
+    64k-token response is a hard ceiling rather than a budget. Once the
+    length contract brought the English up to the Claude reference, the
+    risk unit hit that ceiling and its translation failed outright
+    (live, 2026-09-18). Compact halves the output and splits a unit over
+    BSH_MEMO_ZH_SPLIT_CHARS into two parallel calls; any compact failure
+    still falls back to the legacy method per unit.
+    """
+    if os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1":
+        return True
+    return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
 
 
 def _memo_zh_split_chars() -> int:
@@ -9102,7 +9117,7 @@ def _run_bilingual_unit(
     progress,
     timeout_sec: int,
 ) -> tuple[dict | None, str | None]:
-    if _memo_zh_compact_enabled():
+    if _memo_zh_compact_enabled(run_dir):
         unit, compact_error = _run_bilingual_unit_compact(
             run_dir=run_dir,
             company_name=company_name,

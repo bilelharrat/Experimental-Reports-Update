@@ -400,6 +400,23 @@ def test_a_gemini_run_always_takes_the_per_section_wave(tmp_path, monkeypatch):
     assert claude_runner._memo_english_parallel_enabled(cla) is True
 
 
+def test_a_gemini_run_always_takes_the_compact_chinese_method(tmp_path, monkeypatch):
+    """The legacy method re-emits the whole unit, English included. Once the
+    length contract brought the English up to the Claude reference, that
+    doubled output hit Gemini's 64k response ceiling and the risk unit's
+    translation failed outright. Claude keeps the operator's flag."""
+    monkeypatch.delenv("BSH_MEMO_ZH_COMPACT", raising=False)
+    gem = tmp_path / "g"; gem.mkdir()
+    cla = tmp_path / "c"; cla.mkdir()
+    memo_engine.register_run_engine(gem, "gemini")
+    memo_engine.register_run_engine(cla, "claude")
+    assert claude_runner._memo_zh_compact_enabled(gem) is True
+    assert claude_runner._memo_zh_compact_enabled(cla) is False
+    assert claude_runner._memo_zh_compact_enabled(None) is False
+    monkeypatch.setenv("BSH_MEMO_ZH_COMPACT", "1")
+    assert claude_runner._memo_zh_compact_enabled(cla) is True
+
+
 # ---- Chinese translation on Gemini -----------------------------------------
 
 
