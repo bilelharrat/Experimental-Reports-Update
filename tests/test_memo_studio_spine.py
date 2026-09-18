@@ -91,7 +91,7 @@ def test_standalone_spine_writes_payload_with_extras(tmp_path, monkeypatch):
     kwargs = _standalone_kwargs(tmp_path)
 
     payload, error = claude_runner.run_memo_english_spine_standalone(
-        **kwargs, missing_pass_ids=["competitive_rights"]
+        **kwargs, missing_pass_ids=["competitive_position"]
     )
 
     assert error is None
@@ -99,7 +99,7 @@ def test_standalone_spine_writes_payload_with_extras(tmp_path, monkeypatch):
     assert "studio_extras" in captured["prompt"]
     assert "conclusion_options" in captured["prompt"]
     # Failed passes reuse the speculative-missing prompt block.
-    assert "`competitive_rights`" in captured["prompt"]
+    assert "`competitive_position`" in captured["prompt"]
     spine_path = kwargs["run_dir"] / "logs" / "english_units" / "spine.json"
     on_disk = json.loads(spine_path.read_text(encoding="utf-8"))
     assert set(on_disk) == {
@@ -159,6 +159,33 @@ def test_standalone_spine_shape_guard(tmp_path, monkeypatch):
 def test_pipeline_spine_prompt_stays_extras_free(tmp_path, monkeypatch):
     """One-Click byte-identity guard: the pipeline's own spine call must
     not mention studio extras."""
+    captured: dict = {}
+
+    def fake_runner(**kw):
+        captured.update(kw)
+        return {}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_runner
+    )
+    run_dir = tmp_path / "memo-run"
+    (run_dir / "logs").mkdir(parents=True)
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name="G",
+        common_context="ctx",
+        add_dirs=[run_dir],
+    )
+    assert "studio_extras" not in captured["prompt"]
+    # The pipeline spine delivers its parts as files, so the CLI gets the
+    # receipt schema; the studio path above keeps the inline contract.
+    assert captured["schema"] is claude_runner._MEMO_SPINE_MANIFEST_SCHEMA
+
+
+def test_pipeline_spine_inline_still_uses_the_base_schema(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("BSH_MEMO_SPINE_HANDOFF", "0")
     captured: dict = {}
 
     def fake_runner(**kw):

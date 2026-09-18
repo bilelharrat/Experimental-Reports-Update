@@ -381,35 +381,6 @@ public enum MacCompanyLogoResolver {
     ]
 
     public static let highResLogos: [String: String] = [
-        // Curated GitHub high-res avatars & official PNG assets (256x256 / 512x512)
-        "openai": "https://avatars.githubusercontent.com/openai?s=256",
-        "open-artificial-intelligence": "https://avatars.githubusercontent.com/openai?s=256",
-        "open-artificial-intelligence-inc": "https://avatars.githubusercontent.com/openai?s=256",
-        "anthropic": "https://avatars.githubusercontent.com/anthropics?s=256",
-        "anthropic-pbc": "https://avatars.githubusercontent.com/anthropics?s=256",
-        "google": "https://assets.parqet.com/logos/symbol/GOOG?format=png&size=512",
-        "google-llc": "https://assets.parqet.com/logos/symbol/GOOG?format=png&size=512",
-        "alphabet": "https://assets.parqet.com/logos/symbol/GOOG?format=png&size=512",
-        "ko": "https://assets.parqet.com/logos/symbol/KO?format=png&size=512",
-        "coca-cola": "https://assets.parqet.com/logos/symbol/KO?format=png&size=512",
-        "coca-cola-co": "https://assets.parqet.com/logos/symbol/KO?format=png&size=512",
-        "oxy": "https://assets.parqet.com/logos/symbol/OXY?format=png&size=512",
-        "occidental-petroleum": "https://assets.parqet.com/logos/symbol/OXY?format=png&size=512",
-        "occidental-petroleum-corp": "https://assets.parqet.com/logos/symbol/OXY?format=png&size=512",
-        "occidental-petroleum-corp-de": "https://assets.parqet.com/logos/symbol/OXY?format=png&size=512",
-        "tsm": "https://assets.parqet.com/logos/symbol/TSM?format=png&size=512",
-        "tsmc": "https://assets.parqet.com/logos/symbol/TSM?format=png&size=512",
-        "taiwan-semiconductor": "https://assets.parqet.com/logos/symbol/TSM?format=png&size=512",
-        "taiwan-semiconductor-manufacturing": "https://assets.parqet.com/logos/symbol/TSM?format=png&size=512",
-        "stripe": "https://avatars.githubusercontent.com/stripe?s=256",
-        "databricks": "https://avatars.githubusercontent.com/databricks?s=256",
-        "mistral": "https://avatars.githubusercontent.com/mistralai?s=256",
-        "mistral-ai": "https://avatars.githubusercontent.com/mistralai?s=256",
-        "perplexity": "https://avatars.githubusercontent.com/perplexity-ai?s=256",
-        "perplexity-ai": "https://avatars.githubusercontent.com/perplexity-ai?s=256",
-        "spacex": "https://avatars.githubusercontent.com/spacex?s=256",
-        "midjourney": "https://avatars.githubusercontent.com/midjourney?s=256",
-        "huggingface": "https://avatars.githubusercontent.com/huggingface?s=256",
         "cerebras": "https://avatars.githubusercontent.com/Cerebras?s=256",
         "anduril": "https://avatars.githubusercontent.com/anduril?s=256",
         "deepseek": "https://avatars.githubusercontent.com/deepseek-ai?s=256",
@@ -418,26 +389,8 @@ public enum MacCompanyLogoResolver {
         "figure-ai": "https://avatars.githubusercontent.com/Figure-AI?s=256",
         "groq": "https://avatars.githubusercontent.com/groq?s=256",
         "coreweave": "https://avatars.githubusercontent.com/coreweave?s=256",
-        "xai": "https://avatars.githubusercontent.com/xai-org?s=256",
-        "scale-ai": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://scale.com&size=128",
-        "scale": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://scale.com&size=128",
         "oasis-security": "https://cdn.prod.website-files.com/652ba09e4e7b1ba97dd01e7b/65c1f63438246a4ad5bcbed5_O%20(4).png",
         "oasissecurity": "https://cdn.prod.website-files.com/652ba09e4e7b1ba97dd01e7b/65c1f63438246a4ad5bcbed5_O%20(4).png",
-        "oasys-now": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://oasysnow.com&size=128",
-        "oasysnow": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://oasysnow.com&size=128",
-        "cienet-technologies-beijing-co-ltd": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-        "cienet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-        "cienet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-        "clenet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-        "clenet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-        "ceinet-data-co-ltd-中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "ceinet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "ceinet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "celnet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "celnet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-        "ate": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
-        "alten": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
         "zainar-inc": "https://zainartech.com/favicon.ico?favicon.d517f128.ico",
         "zainar": "https://zainartech.com/favicon.ico?favicon.d517f128.ico"
     ]
@@ -455,32 +408,16 @@ public enum MacCompanyLogoResolver {
 
     public static func isSvgUrl(_ urlString: String) -> Bool {
         let lower = urlString.lowercased()
-        if lower.contains("assets.parqet.com/logos/symbol") {
-            if lower.contains("format=png") {
-                return false
-            }
+        if lower.hasSuffix(".svg") || lower.contains(".svg?") || lower.contains("/svg") {
             return true
         }
-        if lower.hasSuffix(".svg") || lower.contains(".svg?") || lower.contains("/svg") {
+        if lower.contains("assets.parqet.com/logos/symbol") {
             return true
         }
         if lower.contains("simple-icons:") || lower.contains("iconify.design") {
             return true
         }
         return false
-    }
-
-    public static func sanitizeParqetUrl(_ raw: String, size: Int = 512) -> String {
-        guard raw.contains("assets.parqet.com/logos/symbol") else { return raw }
-        if raw.contains("format=") { return raw }
-        let sep = raw.contains("?") ? "&" : "?"
-        return "\(raw)\(sep)format=png&size=\(size)"
-    }
-
-    public static func parqetLogoUrl(ticker: String?, size: Int = 512) -> String? {
-        guard let t = ticker?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !t.isEmpty else { return nil }
-        guard let encoded = t.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
-        return "https://assets.parqet.com/logos/symbol/\(encoded)?format=png&size=\(size)"
     }
 
     public static func googleFaviconUrl(domain: String?) -> String? {
@@ -552,61 +489,30 @@ public enum MacCompanyLogoResolver {
             candidates.append(url)
         }
 
+        let rawUrl = logoUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isRawSvg = rawUrl.map { isSvgUrl($0) } ?? false
+
+        // 1. If explicit non-SVG logo URL is provided, try it first
+        if let rawUrl, !isRawSvg {
+            add(rawUrl)
+        }
+
+        // 2. Curated high-resolution raster logos
         let cid = (companyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanName = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanNameAlpha = cleanName.filter { $0.isLetter || $0.isNumber }
-
-        // 1. Domain-based Google Favicon V2 (guaranteed crisp PNG raster)
-        if let domain = resolveDomain(logoDomain: logoDomain, website: website, ticker: ticker, companyId: companyId, name: name),
-           let gFav = googleFaviconUrl(domain: domain) {
-            add(gFav)
-        }
-
-        // 2. Curated high-resolution raster logos (256px / 512px)
         if !cid.isEmpty, let u = highResLogos[cid] {
-            add(sanitizeParqetUrl(u, size: 512))
-        }
-        if !cleanNameAlpha.isEmpty, let u = highResLogos[cleanNameAlpha] {
-            add(sanitizeParqetUrl(u, size: 512))
-        }
-        for (key, u) in highResLogos {
-            let cleanKey = key.filter { $0.isLetter || $0.isNumber }
-            if !cleanKey.isEmpty && (cleanNameAlpha == cleanKey || cleanName.contains(key)) {
-                add(sanitizeParqetUrl(u, size: 512))
-                break
-            }
+            add(u)
         }
 
-        // 3. Ticker Parqet vector PNG at 512px
-        var effectiveTicker = (ticker ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if effectiveTicker.isEmpty && cid.count <= 5 && (tickerDomainMap[cid.uppercased()] != nil || slugDomainMap[cid] != nil) {
-            effectiveTicker = cid.uppercased()
-        }
-        if effectiveTicker.isEmpty && cleanNameAlpha.count <= 5 && tickerDomainMap[cleanNameAlpha.uppercased()] != nil {
-            effectiveTicker = cleanNameAlpha.uppercased()
-        }
-        if !effectiveTicker.isEmpty {
-            add(parqetLogoUrl(ticker: effectiveTicker, size: 512))
-        }
-
-        // 4. If explicit logo URL is provided (sanitize Parqet to 512px PNG or keep raster)
-        if let rawUrl = logoUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !rawUrl.isEmpty {
-            if rawUrl.contains("assets.parqet.com/logos/symbol") {
-                add(sanitizeParqetUrl(rawUrl, size: 512))
-            } else if !isSvgUrl(rawUrl) {
-                add(rawUrl)
-            }
-        }
-
-        // 5. Additional fallback CDNs (Google S2 128px, DuckDuckGo ICO, Clearbit)
-        if let domain = resolveDomain(logoDomain: logoDomain, website: website, ticker: effectiveTicker.isEmpty ? ticker : effectiveTicker, companyId: companyId, name: name) {
-            add(googleS2FaviconUrl(domain: domain))
+        // 3. Domain-based CDN candidates (Google 128px PNG, DuckDuckGo ICO, Google S2, Clearbit)
+        if let domain = resolveDomain(logoDomain: logoDomain, website: website, ticker: ticker, companyId: companyId, name: name) {
+            add(googleFaviconUrl(domain: domain))
             add(duckduckgoFaviconUrl(domain: domain))
+            add(googleS2FaviconUrl(domain: domain))
             add("https://logo.clearbit.com/\(domain)")
         }
 
-        // 5. Raw SVG URL as last-ditch candidate
-        if let rawUrl = logoUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !rawUrl.isEmpty, isSvgUrl(rawUrl) {
+        // 4. Raw SVG URL as a last-ditch candidate
+        if let rawUrl, isRawSvg {
             add(rawUrl)
         }
 
@@ -727,8 +633,6 @@ public struct MacMonogram: View {
                 ZStack {
                     Color.white
                     Image(uiImage: image)
-                        .interpolation(.high)
-                        .antialiased(true)
                         .resizable()
                         .scaledToFit()
                         .padding(size * 0.08)
@@ -744,7 +648,7 @@ public struct MacMonogram: View {
                 fallbackBadge
             }
         }
-        .task(id: "\(companyId ?? "")-\(ticker ?? "")-\(logoUrl ?? "")-\(logoDomain ?? "")-\(name)") {
+        .task(id: "\(companyId ?? "")-\(ticker ?? "")-\(logoUrl ?? "")-\(logoDomain ?? "")") {
             await loadImage()
         }
     }
@@ -771,36 +675,12 @@ public struct MacMonogram: View {
     private func loadImage() async {
         guard showLogo else { return }
 
-        var effTicker = ticker
-        var effCid = companyId
-        var effLogoUrl = logoUrl
-        var effDomain = logoDomain
-        var effWeb = website
-
-        if (effTicker == nil || effTicker?.isEmpty == true) || (effCid == nil || effCid?.isEmpty == true) {
-            let n = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let cleanN = n.filter { $0.isLetter || $0.isNumber }
-            if let match = AppDataCache.shared.companies.first(where: {
-                $0.id.lowercased() == n ||
-                $0.id.filter { $0.isLetter || $0.isNumber } == cleanN ||
-                ($0.name?.lowercased() == n) ||
-                ($0.name?.lowercased().filter { $0.isLetter || $0.isNumber } == cleanN) ||
-                ($0.ticker?.lowercased() == n)
-            }) {
-                if effTicker == nil || effTicker?.isEmpty == true { effTicker = match.ticker }
-                if effCid == nil || effCid?.isEmpty == true { effCid = match.id }
-                if effDomain == nil || effDomain?.isEmpty == true { effDomain = match.logoDomain }
-                if effWeb == nil || effWeb?.isEmpty == true { effWeb = match.website }
-                if effLogoUrl == nil || effLogoUrl?.isEmpty == true { effLogoUrl = match.logoUrl }
-            }
-        }
-
         let candidates = MacCompanyLogoResolver.resolveCandidateUrls(
-            logoUrl: effLogoUrl,
-            logoDomain: effDomain,
-            website: effWeb,
-            ticker: effTicker,
-            companyId: effCid,
+            logoUrl: logoUrl,
+            logoDomain: logoDomain,
+            website: website,
+            ticker: ticker,
+            companyId: companyId,
             name: name
         )
         guard !candidates.isEmpty else { return }

@@ -8,21 +8,28 @@ import time
 from server import claude_runner, memo_analysis
 
 
-def test_phase2_has_twelve_passes():
+def test_phase2_has_eight_passes():
+    """Eight, not twelve: passes reading the same evidence were merged so
+    Phase 3 gets fewer, better-prioritised findings. Eight also fits under
+    the ten-subprocess cap, so nothing queues behind the pin-feeding set."""
     ids = [spec.pass_id for spec in memo_analysis._FAST_MEMO_PASSES]
-    assert len(ids) == 12
-    assert len(set(ids)) == 12
+    assert len(ids) == 8
+    assert len(set(ids)) == 8
+    assert len(ids) <= claude_runner._memo_run_max_procs()
     for new_pass in (
         "market_sizing",
         "team_governance",
-        "valuation_comps",
-        "exit_paths",
+        "valuation_exit",
+        "numbers_integrity",
     ):
         assert new_pass in ids
+    # The adversarial pass stays on its own: it argues against what the
+    # others conclude.
+    assert "alternative_explanations" in ids
     # every artifact filename is unique and registered in the rail's
     # thread map so job history rows get labels
     filenames = [spec.artifact_filename for spec in memo_analysis._FAST_MEMO_PASSES]
-    assert len(set(filenames)) == 12
+    assert len(set(filenames)) == 8
     for filename in filenames:
         assert filename in claude_runner._MEMO_ANALYSIS_PASSES, filename
 
@@ -30,8 +37,8 @@ def test_phase2_has_twelve_passes():
 def test_pin_feeding_passes_are_real_passes():
     ids = {spec.pass_id for spec in memo_analysis._FAST_MEMO_PASSES}
     assert claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES <= ids
-    assert "valuation_comps" in claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
-    assert "exit_paths" in claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
+    assert "valuation_exit" in claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
+    assert "numbers_integrity" in claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
 
 
 def test_run_max_procs_clamp(monkeypatch):

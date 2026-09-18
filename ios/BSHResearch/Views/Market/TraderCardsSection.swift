@@ -11,11 +11,14 @@ struct TraderCardsSection: View {
     @State private var refreshing = false
     @State private var refreshStatus = ""
     @State private var refreshError: String?
+    @State private var confirmRefresh = false
 
     var body: some View {
         Section {
             Button {
-                Task { await refresh() }
+                // A trader refresh re-runs the Claude snapshot passes, so
+                // it asks first (owner policy 2026-09-15).
+                confirmRefresh = true
             } label: {
                 HStack {
                     Label(
@@ -67,6 +70,16 @@ struct TraderCardsSection: View {
             if let at = snapshot?.refreshedAt {
                 Text(language.t("trader.refreshed_at").replacingOccurrences(of: "{t}", with: String(at.prefix(16)).replacingOccurrences(of: "T", with: " ")))
             }
+        }
+        .confirmationDialog(
+            language.t("tokens.confirm"),
+            isPresented: $confirmRefresh,
+            titleVisibility: .visible
+        ) {
+            Button(language.t("tokens.confirm_continue")) {
+                Task { await refresh() }
+            }
+            Button(language.t("common.cancel"), role: .cancel) {}
         }
     }
 

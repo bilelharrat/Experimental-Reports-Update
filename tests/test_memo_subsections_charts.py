@@ -138,7 +138,9 @@ def _v2_gen_section(
                 },
             }
         )
-        if section_id == risk_id and sub.en == "Risk cards":
+        # late_v2 calls the subsection "Risk cards"; compact calls it
+        # "Risk register" — both carry per-risk cards since 2026-09-16.
+        if section_id == risk_id and sub.en in ("Risk cards", "Risk register"):
             for card_number, rating in enumerate((9, 8, 7, 6), start=1):
                 blocks.extend(_risk_card(card_number, rating))
     if section_id == exec_id:

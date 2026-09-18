@@ -38,6 +38,8 @@ struct MacFounderRadarView: View {
         VStack(alignment: .leading, spacing: 18) {
             MacCardHeader("Founders & team", subtitle: "People from the company record, prior companies and exits, and open-source velocity when a repo is known.", systemImage: "person.3") {
                 Button {
+                    // No token confirmation: the deep search rebuilds the
+                    // dossier from the company record and calls no model.
                     Task {
                         await store.deepSearchFounder(for: company.id)
                     }

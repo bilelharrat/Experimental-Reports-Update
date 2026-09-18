@@ -693,8 +693,16 @@ def _lint_blocks(
                         "meta_process_language",
                         match.group(0),
                         (
-                            "Rewrite writer/process language as direct "
-                            "investment judgment."
+                            "Delete the self-reference and keep the "
+                            "judgment: \"every multiple in this memo\" -> "
+                            "\"every multiple we use\"; \"the margin risk "
+                            "that carries this memo\" -> \"the margin risk "
+                            "that carries the investment case\"; \"What the "
+                            "gap costs the analysis\" -> \"What the gap "
+                            "costs us\". Never name the memo, the analysis, "
+                            "the document, the framework or the section — "
+                            "name the investment instead. Table headers and "
+                            "table cells count."
                         ),
                     )
                 )

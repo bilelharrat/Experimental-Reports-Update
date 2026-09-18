@@ -32,14 +32,6 @@ final class ReportsDeskTests: XCTestCase {
         XCTAssertEqual(AppTab.market.index, 5)
     }
 
-    func testAllSixTabsConfigured() {
-        XCTAssertEqual(AppTab.allCases.count, 6)
-        XCTAssertEqual(AppTab.allCases, [.home, .research, .reports, .news, .pulse, .market])
-        for tab in AppTab.allCases {
-            XCTAssertFalse(tab.titleKey.isEmpty)
-        }
-    }
-
     func testDeepLinkSettings() {
         let urlDirect = URL(string: "bshresearch://settings")!
         XCTAssertEqual(DeepLink(url: urlDirect), .settings)

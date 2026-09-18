@@ -505,6 +505,103 @@ def _subprocess_output_tail(*parts: str | None, limit: int = 600) -> str:
     return text[-limit:] if text else ""
 
 
+# The CLI's own name for "the model could not return a valid structured
+# response, and I have run out of retries". It surfaces as a plain exit 1
+# with empty stderr, so without this it reads as an infrastructure failure
+# — on 2026-09-16 it killed a $14.60 run twice over, reported only as
+# "claude exited 1".
+MEMO_STRUCTURED_OUTPUT_EXHAUSTED = "error_max_structured_output_retries"
+
+# The CLI's rejection notices, which arrive as ordinary tool results and
+# are otherwise discarded. There are two, and they mean opposite things:
+# the schema one is an object submitted incomplete (say it again properly),
+# the unparseable one is a tool call whose JSON was cut off (say less).
+_SCHEMA_REJECTION_MARKER = "Output does not match required schema"
+_UNPARSEABLE_INPUT_MARKER = "could not be parsed as JSON"
+_SENT_BYTES_RE = re.compile(r"first \d+ of (\d+) bytes")
+
+# Every message this module produces for the failure opens with this, so
+# callers can recognise it without matching prose. `is_structured_output_
+# failure` is the supported test.
+MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE = (
+    "never returned output matching the schema"
+)
+
+
+def is_structured_output_failure(error: str | None) -> bool:
+    """True when this error is "the CLI rejected every structured answer"."""
+    return MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE in str(error or "")
+
+
+def _note_schema_rejection(state: dict, text: str | None) -> None:
+    """Keep the CLI's own complaint about a structured-output attempt.
+
+    Without this the transcript's only record of WHY a call failed is
+    thrown away, and the failure reports as a bare "claude exited 1". On
+    2026-09-16 that silence was filled with a guess — "the response was
+    too large to close its JSON" — which the transcripts do not support:
+    the rejections read "must have required property 'key_findings'", and
+    passes that succeeded wrote MORE output tokens than the ones that
+    died. Record the reason; do not infer one.
+    """
+    if not text:
+        return
+    unparseable = _UNPARSEABLE_INPUT_MARKER in text
+    if not unparseable and _SCHEMA_REJECTION_MARKER not in text:
+        return
+    state["last_schema_rejection"] = text.strip()[:600]
+    state["schema_rejection_count"] = (
+        state.get("schema_rejection_count", 0) + 1
+    )
+    if unparseable:
+        # "You sent (first 200 of 33330 bytes)" — the size of the tool call
+        # the CLI could not parse. The spine shrank 33,330 -> 27,850 across
+        # four attempts on 2026-09-16 and never fit, which is what "the ask
+        # is too big" looks like when it is actually true.
+        match = _SENT_BYTES_RE.search(text)
+        if match:
+            state.setdefault("unparsed_input_bytes", []).append(
+                int(match.group(1))
+            )
+
+
+def _structured_output_exhausted_error(
+    result_event: dict | None, state: dict | None = None
+) -> str | None:
+    """A readable error when the CLI gave up on structured output."""
+    if not isinstance(result_event, dict):
+        return None
+    if result_event.get("subtype") != MEMO_STRUCTURED_OUTPUT_EXHAUSTED:
+        return None
+    rejection = (state or {}).get("last_schema_rejection")
+    count = (state or {}).get("schema_rejection_count") or 0
+    head = f"the model {MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE}"
+    sizes = (state or {}).get("unparsed_input_bytes") or []
+    if sizes:
+        # This one really is a size failure: the tool call itself was cut
+        # off mid-JSON, so no amount of retrying the same ask can fit it.
+        shrank = (
+            f", down from {sizes[0]:,} across {len(sizes)} attempts"
+            if len(sizes) > 1 and sizes[0] > sizes[-1]
+            else ""
+        )
+        return (
+            f"{head}: its answer never parsed as JSON. The last attempt "
+            f"sent {sizes[-1]:,} bytes in one tool call{shrank}, so the ask "
+            "is too big for one call — split what it must return."
+        )
+    if rejection:
+        attempts = f"{count} rejected attempt(s)" if count else "every attempt"
+        return f"{head} ({attempts}); the CLI's last complaint was: {rejection}"
+    usage = result_event.get("usage")
+    tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+    size = f", after writing {tokens} output tokens" if tokens else ""
+    return (
+        f"{head}{size}, and the transcript recorded no rejection notice to "
+        "explain why"
+    )
+
+
 def _claude_exit_error(
     returncode: int | None, *output_parts: str | None, limit: int = 600
 ) -> str:
@@ -1716,6 +1813,7 @@ def _process_search_event(event: dict, progress, state: dict) -> None:
                     content_str = "\n".join(text_pieces)
                 else:
                     content_str = content if isinstance(content, str) else ""
+                _note_schema_rejection(state, content_str)
                 progress.emit(
                     "claude_action",
                     action="tool_result",
@@ -1866,6 +1964,11 @@ def _consume_stream_json_process(
 
     if proc.returncode and proc.returncode != 0:
         result_event = state.get("result_event") or {}
+        structured_error = _structured_output_exhausted_error(
+            result_event, state
+        )
+        if structured_error:
+            return None, f"claude exited {proc.returncode}: {structured_error}"
         result_text = (
             result_event.get("result")
             if isinstance(result_event.get("result"), str)
@@ -2403,6 +2506,7 @@ def _process_pdf_translation_event(event: dict, progress, state: dict) -> None:
                     content_str = "\n".join(text_pieces)
                 else:
                     content_str = content if isinstance(content, str) else ""
+                _note_schema_rejection(state, content_str)
                 progress.emit(
                     "claude_action",
                     action="tool_result",
@@ -2683,6 +2787,10 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "source_treatment_assumptions.md": "Source treatment and assumptions",
     "risk_sensitivities.md": "Risk and valuation sensitivities",
     "market_sizing.md": "Market sizing / TAM",
+    "numbers_integrity.md": "Numbers & time-base integrity",
+    "valuation_and_exit.md": "Valuation & exit",
+    "competitive_position.md": "Competitive position",
+    "adoption_and_distribution.md": "Adoption & distribution",
     "team_governance.md": "Team & governance",
     "valuation_comps.md": "Valuation comparables",
     "exit_paths.md": "Exit paths",
@@ -2926,7 +3034,7 @@ def _spine_scenario_object_schema() -> dict[str, Any]:
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "narrative": {"type": "string", "maxLength": 240},
+                    "narrative": {"type": "string", "maxLength": 320},
                     "exit_year": {"type": "string", "maxLength": 8},
                     "exit_revenue": {"type": "string", "maxLength": 24},
                     "exit_multiple": {"type": "string", "maxLength": 16},
@@ -2947,34 +3055,38 @@ def _spine_calculations_schema() -> dict[str, Any]:
     (each with its source id, another note, or "assumption"), the
     arithmetic with the numbers in it, the result, and its meaning.
     Sections cite them inline as [C#]; the docx renders an appendix."""
+    # These are v2-only pins and they are the founder's "how was this
+    # number calculated?" made durable, so the caps are generous: the
+    # 16,000-word run wanted 13 notes, results of 118 characters and
+    # meanings of 307, against caps cut for a memo half the length.
     return {
         "type": "array",
         "minItems": 1,
-        "maxItems": 12,
+        "maxItems": 18,
         "items": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 "id": {"type": "string", "pattern": "^C[1-9][0-9]?$"},
-                "label": {"type": "string", "maxLength": 80},
+                "label": {"type": "string", "maxLength": 140},
                 "inputs": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 6,
+                    "maxItems": 8,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "name": {"type": "string", "maxLength": 60},
-                            "value": {"type": "string", "maxLength": 40},
+                            "name": {"type": "string", "maxLength": 100},
+                            "value": {"type": "string", "maxLength": 80},
                             "ref": {"type": "string", "maxLength": 24},
                         },
                         "required": ["name", "value", "ref"],
                     },
                 },
-                "formula": {"type": "string", "maxLength": 200},
-                "result": {"type": "string", "maxLength": 60},
-                "meaning": {"type": "string", "maxLength": 220},
+                "formula": {"type": "string", "maxLength": 360},
+                "result": {"type": "string", "maxLength": 140},
+                "meaning": {"type": "string", "maxLength": 360},
             },
             "required": ["id", "label", "inputs", "formula", "result", "meaning"],
         },
@@ -3002,10 +3114,34 @@ def _spine_highlights_schema() -> dict[str, Any]:
                     "type": "array",
                     "minItems": 2,
                     "maxItems": 3,
-                    "items": {"type": "string", "maxLength": 260},
+                    "items": {"type": "string", "maxLength": 360},
                 },
             },
             "required": ["dimension", "headline", "evidence"],
+        },
+    }
+
+
+def _spine_key_metrics_schema_v2() -> dict[str, Any]:
+    """The v1 key-metric list with caps sized for the 16,000-word memo."""
+    base = MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"]["shared_facts"][
+        "properties"
+    ]["key_metrics"]
+    item = base["items"]
+    return {
+        **base,
+        "maxItems": 20,
+        "items": {
+            **item,
+            "properties": {
+                **item["properties"],
+                "name": {"type": "string", "maxLength": 180},
+                "value": {"type": "string", "maxLength": 300},
+                "source_ids": {
+                    **item["properties"]["source_ids"],
+                    "maxItems": 6,
+                },
+            },
         },
     }
 
@@ -3018,8 +3154,16 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
         "properties"
     ]["risks"]
     item = base["items"]
+    low, high = memo_structure.RISK_COUNT_V2
     return {
         **base,
+        # The risk register is now the longest section of the compact
+        # memo (2,800 words, a card per pinned risk) and the live spine
+        # wanted eight risks against a cap of six. v1 keeps its own.
+        # The bound lives in memo_structure so the renderer's card gate
+        # reads the same number.
+        "minItems": low,
+        "maxItems": high,
         "items": {
             **item,
             "properties": {
@@ -3028,7 +3172,7 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
                     "type": "string",
                     "enum": list(memo_structure.RISK_AREA_KEYS),
                 },
-                "impact": {"type": "string", "maxLength": 160},
+                "impact": {"type": "string", "maxLength": 340},
             },
             "required": ["summary", "rating", "likelihood", "area", "impact"],
         },
@@ -3054,6 +3198,16 @@ def memo_fast_english_spine_schema(
             **shared_facts,
             "properties": {
                 **shared_facts["properties"],
+                # The pin caps were cut for a 6,700-word memo. Against the
+                # 16,000-word profile the live spine asked for 27 metrics
+                # with names of 103-139 characters and values of 166-199,
+                # so the caps were shaping the pin sheet rather than
+                # catching a blowout. v1's stay where they are.
+                "key_metrics": _spine_key_metrics_schema_v2(),
+                "recommendation_sentence": {
+                    "type": "string",
+                    "maxLength": 400,
+                },
                 "stage": {
                     "type": "string",
                     "enum": ["early", "growth", "late"],
@@ -3098,8 +3252,25 @@ def memo_fast_english_spine_schema(
                                             "type": "string",
                                             "maxLength": 180,
                                         },
+                                        # The founder's ask (2026-09-16):
+                                        # every dimension the case turns on
+                                        # must be readable in one place with
+                                        # ITS number and where that number
+                                        # came from — not hunted for across
+                                        # the report. This is what the
+                                        # executive summary's dimension scan
+                                        # prints, one line per dimension.
+                                        "evidence": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "maxItems": 2,
+                                            "items": {
+                                                "type": "string",
+                                                "maxLength": 420,
+                                            },
+                                        },
                                     },
-                                    "required": ["score", "why"],
+                                    "required": ["score", "why", "evidence"],
                                 }
                                 for dimension in (
                                     memo_structure.SCORECARD_DIMENSION_KEYS
@@ -3118,7 +3289,7 @@ def memo_fast_english_spine_schema(
                     "properties": {
                         "low": {"type": "string", "maxLength": 24},
                         "high": {"type": "string", "maxLength": 24},
-                        "basis": {"type": "string", "maxLength": 160},
+                        "basis": {"type": "string", "maxLength": 400},
                     },
                     "required": ["low", "high", "basis"],
                 },
@@ -3127,8 +3298,8 @@ def memo_fast_english_spine_schema(
                     "additionalProperties": False,
                     "properties": {
                         "valuation": {"type": "string", "maxLength": 40},
-                        "basis": {"type": "string", "maxLength": 120},
-                        "holding_period": {"type": "string", "maxLength": 24},
+                        "basis": {"type": "string", "maxLength": 400},
+                        "holding_period": {"type": "string", "maxLength": 60},
                     },
                     "required": ["valuation", "basis"],
                 },
@@ -3371,6 +3542,34 @@ _MEMO_ENGLISH_SECTION_SCHEMA: dict[str, Any] = {
     },
     "required": ["section"],
 }
+
+# The receipt a section worker returns when it delivers its subsections as
+# files (see _run_english_section_via_pieces). It is deliberately tiny: the
+# whole point is that no content travels through the response.
+_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "section_id": {"type": "string"},
+        "pieces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "piece": {"type": "integer"},
+                    "file": {"type": "string"},
+                },
+                "required": ["piece", "file"],
+            },
+        },
+    },
+    "required": ["section_id", "pieces"],
+}
+
+# A section worker that delivers files needs Write; the default section
+# grant is read-only.
+_MEMO_SECTION_HANDOFF_TOOLS = "Read,Write,Bash,Grep,Glob"
 
 MEMO_PACKAGE_SOURCES_CONTRACT = """\
 ## Renderer Sources Contract (hard requirement — validated before rendering)
@@ -4010,7 +4209,56 @@ SKILL: bsh-investment-memo-latestage-v1 source standard
 """
 
 
-def _research_file_listing(research_dir: Path | None) -> str:
+MEMO_EVIDENCE_SELECTION_FILE = "evidence_selection.json"
+
+
+def memo_evidence_selection_path(run_dir: Path) -> Path:
+    return Path(run_dir) / "logs" / MEMO_EVIDENCE_SELECTION_FILE
+
+
+def write_memo_evidence_selection(
+    run_dir: Path, analysis_ids: list[str] | None
+) -> None:
+    """Pin which analysed documents this run may read.
+
+    ``None`` (no file) means every document in the company's research
+    folder, which is the default and what every run did before the
+    customizer offered a choice. An explicit list names the analysis
+    records to keep; anything else is left out, and so is the raw source
+    behind it — deselecting a document means the run does not see it.
+    """
+    if analysis_ids is None:
+        return
+    path = memo_evidence_selection_path(run_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"analysis_ids": sorted(set(analysis_ids))}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def memo_evidence_selection(run_dir: Path | None) -> set[str] | None:
+    """The run's pinned analysis ids, or None when it may read everything."""
+    if run_dir is None:
+        return None
+    path = memo_evidence_selection_path(run_dir)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        logger.warning("unreadable evidence selection: %s", path, exc_info=True)
+        return None
+    ids = payload.get("analysis_ids")
+    if not isinstance(ids, list):
+        return None
+    return {str(i) for i in ids}
+
+
+def _research_file_listing(
+    research_dir: Path | None,
+    selected_ids: set[str] | None = None,
+) -> str:
     """Annotated listing of the company research folder for memo prompts.
 
     Uploaded files carry their upload date (and label / folder grouping)
@@ -4055,12 +4303,17 @@ def _research_file_listing(research_dir: Path | None) -> str:
         )
 
     # Source ids covered by an analysis: those originals are excluded.
+    # An analysis the run was not given stays excluded too, along with the
+    # source behind it — leaving the raw file in would defeat the choice.
     covered_ids: set[str] = set()
+    dropped_ids: set[str] = set()
     for entry in entries_by_id.values():
         target = entry.get("analysis_of")
         if not target:
             continue
         target = str(target)
+        if selected_ids is not None and str(entry.get("id")) not in selected_ids:
+            dropped_ids.add(str(entry.get("id")))
         if target.startswith("fld"):
             for member in entries_by_id.values():
                 if member.get("folder_id") == target:
@@ -4078,6 +4331,8 @@ def _research_file_listing(research_dir: Path | None) -> str:
             continue
         if str(entry.get("id")) in covered_ids:
             continue  # represented by its analysis file below/above
+        if str(entry.get("id")) in dropped_ids:
+            continue  # the analyst left this document out of the run
         uploaded = str(entry.get("uploaded_at") or "")[:10]
         analysis_of = entry.get("analysis_of")
         if analysis_of:
@@ -4188,16 +4443,36 @@ def _memo_role_env(kind: str, role: str) -> str | None:
 MEMO_QUALITY_LEVELS = ("best", "balanced", "economy")
 
 _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
-    # Everything on the CLI default model/effort.
-    "best": {},
-    # Research, verification, and translation move to Sonnet; the
-    # English writing wave (spine/sections/artifacts/repair) keeps the
-    # default model but at medium effort, so the prose the founder reads
-    # comes from the top model with a smaller thinking budget. The
-    # writing roles share one (model, effort) pair to keep the section
-    # wave's shared prompt cache intact.
+    # Top model for everything the founder reads, but effort spent where it
+    # changes the memo. Measured on the 2026-09-14 Anthropic run: 64% of the
+    # analysis passes' output tokens were thinking, and the passes fill every
+    # schema cap regardless — they are extracting and classifying evidence
+    # from a fixed research corpus (zero web searches on that run), not
+    # reasoning their way to a verdict. Medium effort is the right budget for
+    # that job; the writing wave, which does reason, keeps high.
+    #
+    # Effort is PINNED here rather than left to the CLI default on purpose:
+    # the default reads ~/.claude/settings.json, so a personal UI preference
+    # was silently setting the effort of every server-side memo run.
+    "best": {
+        "ANALYSIS_PASS": (None, "medium"),
+        "ENGLISH": (None, "high"),
+        "SPINE": (None, "high"),
+        "SECTION": (None, "high"),
+        "ARTIFACTS": (None, "high"),
+        "REPAIR": (None, "high"),
+        "SPINE_CHECK": ("sonnet", "medium"),
+        # Translation is transformation, not authorship: the English is
+        # already decided, so the top model at medium effort is enough.
+        "TRANSLATION": (None, "medium"),
+    },
+    # Research and verification move to Sonnet; the English writing wave
+    # keeps the default model at medium effort, so the prose the founder
+    # reads still comes from the top model. The writing roles share one
+    # (model, effort) pair to keep the section wave's shared prompt cache
+    # intact.
     "balanced": {
-        "ANALYSIS_PASS": ("sonnet", None),
+        "ANALYSIS_PASS": ("sonnet", "medium"),
         "ENGLISH": (None, "medium"),
         "SPINE": (None, "medium"),
         "SECTION": (None, "medium"),
@@ -4206,19 +4481,22 @@ _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
         "SPINE_CHECK": ("sonnet", "medium"),
         "TRANSLATION": ("sonnet", "medium"),
     },
-    # Everything on Sonnet. The writing roles share one (model, effort)
-    # pair to keep the section wave's shared prompt cache intact.
+    # Everything on Sonnet. The writing roles share one (model, effort) pair
+    # to keep the section wave's shared prompt cache intact. Effort is pinned
+    # for the same reason as "best": an unpinned economy run was inheriting
+    # the desktop effort setting and thinking as hard as a best run.
     "economy": {
-        "ANALYSIS_PASS": ("sonnet", None),
-        "ENGLISH": ("sonnet", None),
-        "SPINE": ("sonnet", None),
-        "SECTION": ("sonnet", None),
-        "ARTIFACTS": ("sonnet", None),
-        "REPAIR": ("sonnet", None),
-        "SPINE_CHECK": ("sonnet", "medium"),
+        "ANALYSIS_PASS": ("sonnet", "low"),
+        "ENGLISH": ("sonnet", "medium"),
+        "SPINE": ("sonnet", "medium"),
+        "SECTION": ("sonnet", "medium"),
+        "ARTIFACTS": ("sonnet", "medium"),
+        "REPAIR": ("sonnet", "medium"),
+        "SPINE_CHECK": ("sonnet", "low"),
         "TRANSLATION": ("sonnet", "medium"),
     },
 }
+
 
 _MEMO_RUN_QUALITY: dict[str, str] = {}
 _MEMO_RUN_QUALITY_LOCK = threading.Lock()
@@ -4246,6 +4524,11 @@ def _memo_run_quality(run_dir: Path | None) -> str:
 def _memo_quality_override(
     role: str, run_dir: Path | None
 ) -> tuple[str | None, str | None]:
+    # No run context means no tier: callers outside a memo run (and the
+    # tests that exercise a bare prompt) keep the CLI defaults rather than
+    # inheriting the "best" pins.
+    if run_dir is None:
+        return (None, None)
     tier = _MEMO_QUALITY_TIERS[_memo_run_quality(run_dir)]
     return tier.get(role, (None, None))
 
@@ -4765,38 +5048,67 @@ Return only the JSON object matching the attached schema: `type`,
     }
 
 
-def run_memo_fast_analysis_pass(
+# Effort floors for individual Phase-2 passes.
+#
+# market_sizing carries by far the longest, most procedural focus text —
+# collect every external estimate, keep the ones that disagree, explain the
+# definition mismatch, then build and reconcile an internal derivation. On
+# 2026-09-16 that pass ran at medium effort and returned placeholder text
+# ("test" / "a" / "b") while the other seven passes, with much shorter
+# instructions, were fine. The instruction load is the difference, so it
+# gets a floor.
+#
+# A floored pass no longer shares the wave's prompt cache: cache entries are
+# scoped to (model, effort). One pass out of eight paying its own context is
+# a cheap price for an answer that is actually about the market.
+MEMO_PASS_EFFORT_FLOOR: dict[str, str] = {
+    "market_sizing": "high",
+}
+
+_EFFORT_ORDER: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+
+def _memo_pass_effort(pass_id: str, effort: str | None) -> str | None:
+    """Raise ``effort`` to this pass's floor, never lower it."""
+    floor = MEMO_PASS_EFFORT_FLOOR.get(pass_id)
+    if floor is None:
+        return effort
+    if effort is None:
+        return floor
+    try:
+        if _EFFORT_ORDER.index(effort) >= _EFFORT_ORDER.index(floor):
+            return effort
+    except ValueError:
+        # An effort the CLI knows and we do not: leave the caller's choice.
+        return effort
+    return floor
+
+
+def memo_fast_pass_common_context(
     *,
-    run_dir: Path,
+    run_dir: Path | None = None,
     company_name: str,
     company_slug: str,
     run_id: str,
-    pass_id: str,
-    pass_label: str,
-    artifact_filename: str,
-    focus: str,
     settings_path: Path,
     companies_yaml_path: Path,
     research_dir: Path | None = None,
     lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
-    progress=None,
-    timeout_sec: int = 900,
-    type_focus: str | None = None,
-    type_label: str | None = None,
-) -> tuple[dict | None, str | None]:
-    """Run one narrow memo-analysis pass as its own Claude subprocess.
+) -> str:
+    """The run-wide context every Phase-2 analysis pass shares.
 
-    ``type_focus`` is the company-type research addendum for this pass
-    (skills/memo/types/<type>.md ``research_focus``); passes share no
-    prompt cache, so it rides the per-pass prompt at no cost."""
-    type_block = (
-        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
-        f"{type_focus.strip()}\n"
-        if type_focus and type_focus.strip()
-        else ""
-    )
+    Build it ONCE per run and hand the same string to every pass: it rides
+    ``--append-system-prompt``, which lands on the CLI's system-prompt cache
+    breakpoint, so the twelve concurrent passes pay to cache the registry
+    entry, research listing, fact ledger, recent news and decision record
+    once between them instead of twelve times in twelve user messages. It is
+    only a cache hit while the bytes are identical, which is why this is a
+    function of run-wide inputs only — nothing per-pass may enter it, and the
+    caller must not rebuild it per pass (the ledger and news files can change
+    mid-phase and would split the cache).
+    """
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
@@ -4818,14 +5130,12 @@ def run_memo_fast_analysis_pass(
         if lessons_path and lessons_path.exists()
         else ""
     )
-    prompt = f"""\
+    return f"""\
 You are running one independent fast-path analysis pass for a BSH LP-facing
-investment memo.
+investment memo. The pass you are running is named in the user message.
 
 Company: {company_name} (`{company_slug}`)
 Run id: {run_id}
-Pass: {pass_label} (`{pass_id}`)
-Artifact later written by server: `analysis/{artifact_filename}`
 
 Registry entry:
 {registry_block}
@@ -4833,7 +5143,7 @@ Registry entry:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 {_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
 BSH background:
 `{settings_path}`
@@ -4842,9 +5152,6 @@ Scope check: `{scope}`
 Warnings:
 {warning_text}
 
-Focus for this pass:
-{focus}
-{type_block}
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
 - For every `supporting_evidence` item retrieved from the web, set `url` to
@@ -4866,6 +5173,77 @@ Rules:
 - This is a sell-side LP memo input. Convert evidence into investment judgment,
   but do not draft final memo prose.
 """
+
+
+def run_memo_fast_analysis_pass(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    pass_id: str,
+    pass_label: str,
+    artifact_filename: str,
+    focus: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    research_dir: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 900,
+    type_focus: str | None = None,
+    type_label: str | None = None,
+    common_context: str | None = None,
+) -> tuple[dict | None, str | None]:
+    """Run one narrow memo-analysis pass as its own Claude subprocess.
+
+    ``common_context`` is the run-wide block from
+    ``memo_fast_pass_common_context``; passing the same string to every pass
+    is what lets them share one prompt-cache entry. It is rebuilt here when
+    a caller omits it (resume paths, tests), which still works but pays for
+    the context once per pass.
+
+    ``type_focus`` is the company-type research addendum for this pass
+    (skills/memo/types/<type>.md ``research_focus``); it is per-pass, so it
+    stays in the user message and never touches the shared block."""
+    type_block = (
+        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
+        f"{type_focus.strip()}\n"
+        if type_focus and type_focus.strip()
+        else ""
+    )
+    shared = common_context or memo_fast_pass_common_context(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    # Only what differs between passes lives here. Everything else is in the
+    # cached system-prompt block above.
+    prompt = f"""\
+Pass: {pass_label} (`{pass_id}`)
+Artifact later written by server: `analysis/{artifact_filename}`
+
+Focus for this pass:
+{focus}
+{type_block}
+Run this pass now under the rules in your system prompt, and return only the
+JSON object matching the attached schema.
+
+Your FIRST structured answer must be the real one. Do not submit a
+placeholder or a probe to see whether the schema accepts it — a summary
+of "test", or a single finding of "a"/"b", is thrown away and the whole
+pass is run again from the start. If you are unsure of the shape, read
+the schema; do not test it with a throwaway answer.
+"""
     add_dirs = [settings_path.parent, companies_yaml_path.parent]
     if research_dir and research_dir.exists():
         add_dirs.append(research_dir)
@@ -4880,8 +5258,11 @@ Rules:
         timeout_label=f"memo pass {pass_id}",
         timeout_sec=timeout_sec,
         add_dirs=add_dirs,
+        append_system_prompt=shared,
         model=_memo_role_model("ANALYSIS_PASS", run_dir),
-        effort=_memo_role_effort("ANALYSIS_PASS", run_dir),
+        effort=_memo_pass_effort(
+            pass_id, _memo_role_effort("ANALYSIS_PASS", run_dir)
+        ),
     )
 
 
@@ -4954,7 +5335,7 @@ Run context:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 
 Memo Studio packet:
 `{analysis_session_path if analysis_session_path else '(none)'}`
@@ -5098,8 +5479,17 @@ def _render_case_summary_lines(
     highlights, rendered right after the scorecard so the executive
     summary opens its highlights subsection from one shared text.
     Strong dimensions are the pinned highlight dimensions in pinned
-    order (falling back to the top three score-to-weight ratios); weak
-    points are the two lowest ratios."""
+    order (falling back to the top three score-to-weight ratios); the
+    two thinnest are the lowest ratios, ties broken by the heavier
+    weight first.
+
+    The closing clause says "thinnest", not "weak", on purpose. This
+    sentence ranks: it names the bottom two whatever they scored. The
+    dimension scan a few lines below bands by an absolute threshold, so
+    it calls anything at or above 0.50 `adequate`. On the 2026-09-17
+    compact run business model landed at exactly 6/12 and the memo
+    called it a weak point in one line and adequate in the next. A
+    comparative word cannot contradict a threshold word."""
     ratios: list[tuple[float, str, int, int]] = []
     for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
         entry = dimensions.get(dimension)
@@ -5133,7 +5523,11 @@ def _render_case_summary_lines(
         dimension
         for _r, dimension, _s, _w in sorted(
             ratios,
-            key=lambda r: (r[0], memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1])),
+            key=lambda r: (
+                r[0],
+                -r[3],
+                memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
+            ),
         )
         if dimension not in strong
     ][:2]
@@ -5152,7 +5546,7 @@ def _render_case_summary_lines(
         "Case summary (the executive summary's Investment highlights "
         "subsection OPENS with this sentence, with the company's name in "
         "place of 'The case'): \"The case rests on "
-        f"{strong_text}; the weak points are {weak_text}.\""
+        f"{strong_text}; it is thinnest on {weak_text}.\""
     ]
     if isinstance(highlights, list) and highlights:
         lines.append(
@@ -5170,7 +5564,54 @@ def _render_case_summary_lines(
             lines.append(f"{index}. [{cell}] {item.get('headline')}")
             for evidence in item.get("evidence") or []:
                 lines.append(f"   - {evidence}")
+    lines.extend(_render_dimension_scan_lines(dimensions, weights))
     return lines
+
+
+def _render_dimension_scan_lines(dimensions: dict, weights: dict) -> list[str]:
+    """One line per scorecard dimension, for the executive summary's scan.
+
+    Founder's ask, 2026-09-16: the eight things the decision turns on —
+    market size, growth, industry position, moat, team, business model,
+    profitability, IPO outlook — must be readable in ONE place with their
+    numbers, instead of being hunted for across the report. Three
+    highlights only ever carried the three strongest, so the rest were
+    scattered. The band is derived from the score, never written, so the
+    scan cannot disagree with the highlights about what is a strength.
+    """
+    rows: list[str] = []
+    for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
+        entry = dimensions.get(dimension)
+        weight = weights.get(dimension)
+        if not isinstance(entry, dict) or not isinstance(weight, int):
+            continue
+        score = entry.get("score")
+        if not isinstance(score, int):
+            continue
+        band = memo_structure.scorecard_band(score, weight)
+        label = _dimension_label(dimension)
+        evidence = [
+            str(item).strip()
+            for item in (entry.get("evidence") or [])
+            if str(item).strip()
+        ]
+        rows.append(
+            f"- {label} — {score}/{weight}, {band}. "
+            f"{str(entry.get('why') or '').strip()}"
+        )
+        for item in evidence:
+            rows.append(f"    {item}")
+    if not rows:
+        return []
+    return [
+        "Dimension scan (the executive summary prints EVERY line below, in "
+        "this order, after its three highlights — one row per dimension "
+        "with its score, its band and the evidence line, verbatim. A "
+        "dimension banded `weak` must also appear as a named risk. The "
+        "business model and unit economics row states BOTH how the company "
+        "charges and whether it makes money, each with its own number):",
+        *rows,
+    ]
 
 
 def _render_shared_facts_block(
@@ -5432,7 +5873,7 @@ Run context:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 
 Memo Studio packet:
 `{analysis_session_path if analysis_session_path else '(none)'}`
@@ -5475,6 +5916,457 @@ def _memo_english_add_dirs(
     return add_dirs
 
 
+# --- Spine handoff: the pin sheet arrives as files --------------------------
+#
+# The spine is the run's most crowded single answer: envelope, the complete
+# source list, and the whole pin sheet in one tool call. A real accepted
+# spine measures 30,713 characters, and on 2026-09-16 one was rejected four
+# times as unparseable at 33,330 / 31,264 / 28,240 / 27,850 bytes — the
+# model shrinking its own answer and still not fitting. It cost 10.5
+# minutes and a package attempt. Every spine since has been one good
+# paragraph away from the same wall.
+#
+# Same treatment as a memo section, same reason: one agent, writing the
+# same pins with the same cached context, delivering them as files instead
+# of as one oversized tool call. The parts are already separable —
+# `sources` is 12KB of its own, `calculations` 6KB — so each file is small
+# and a rejected one is re-asked alone.
+
+MEMO_SPINE_PIECE_MAX_RETRIES = 3
+
+# (file stem, where it belongs, the keys it carries, what to write)
+_SPINE_PIECES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
+    (
+        "envelope",
+        "package_skeleton",
+        ("schema_version", "company", "run"),
+        "the package envelope: schema_version, company, run",
+    ),
+    (
+        "sources",
+        "package_skeleton",
+        ("sources",),
+        "the COMPLETE source list for the whole memo",
+    ),
+    (
+        "verdict",
+        "shared_facts",
+        (
+            "recommendation_sentence",
+            "decision_history_sentence",
+            "stage",
+            "verdict",
+            "scorecard",
+            "fair_value_range",
+            "entry",
+            "scenarios",
+        ),
+        "the recommendation (and any decision history), stage, verdict "
+        "tier, scorecard, fair-value range, entry terms and the three "
+        "scenarios",
+    ),
+    (
+        "metrics",
+        "shared_facts",
+        ("key_metrics", "source_topics"),
+        "the key metrics sections repeat, and one line per source id",
+    ),
+    (
+        "highlights",
+        "shared_facts",
+        ("highlights",),
+        "the three pinned investment highlights",
+    ),
+    (
+        "risks",
+        "shared_facts",
+        ("risks",),
+        "the full risk list, highest rating first",
+    ),
+    (
+        "calculations",
+        "shared_facts",
+        ("calculations",),
+        "every derived number as a numbered calculation note",
+    ),
+    (
+        "section_notes",
+        "",
+        ("section_notes",),
+        "the optional per-section pointers (write `{}` when you have none)",
+    ),
+)
+
+
+def _memo_spine_handoff_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_SPINE_HANDOFF", "1") == "1"
+
+
+def _memo_spine_pieces_dir(run_dir: Path) -> Path:
+    return _memo_english_units_dir(run_dir) / "spine_pieces"
+
+
+def _schema_at(schema: dict, target: str) -> dict:
+    """The sub-schema a piece's keys live under ("" = the root)."""
+    if not target:
+        return schema
+    node = (schema.get("properties") or {}).get(target)
+    return node if isinstance(node, dict) else {}
+
+
+def _spine_piece_plan(
+    run_dir: Path, schema: dict
+) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...], str, Path]]:
+    """One entry per file: (stem, target, keys, required keys, what, path).
+
+    Keys the structure's schema does not declare are dropped, so a v1 spine
+    (no scorecard, highlights or calculations) writes fewer, smaller files
+    rather than empty ones.
+    """
+    pieces_dir = _memo_spine_pieces_dir(run_dir)
+    plan = []
+    for index, (stem, target, keys, what) in enumerate(_SPINE_PIECES, start=1):
+        node = _schema_at(schema, target)
+        declared = node.get("properties") or {}
+        if declared:
+            present = tuple(key for key in keys if key in declared)
+            required = tuple(
+                key for key in present if key in (node.get("required") or [])
+            )
+        elif node:
+            # A free-form object declares no properties and allows anything
+            # — the v1 `package_skeleton` is one. Filtering by declared keys
+            # would drop the whole envelope, so keep the piece's keys, and
+            # treat them as required when the bucket itself is.
+            present = keys
+            required = (
+                keys if target in (schema.get("required") or []) else ()
+            )
+        else:
+            continue
+        if not present:
+            continue
+        plan.append(
+            (
+                stem,
+                target,
+                present,
+                required,
+                what,
+                pieces_dir / f"{index:02d}_{stem}.json",
+            )
+        )
+    return plan
+
+
+def _spine_piece_error(
+    path: Path, stem: str, keys: tuple[str, ...], required: tuple[str, ...]
+) -> str | None:
+    """Why this spine piece cannot be used, or None when it is good."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"`{path.name}` was never written"
+    except OSError as exc:
+        return f"`{path.name}` could not be read: {exc}"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return (
+            f"`{path.name}` is not valid JSON: {exc.msg} at line "
+            f"{exc.lineno} column {exc.colno}"
+        )
+    if not isinstance(data, dict):
+        return f"`{path.name}` is not a JSON object"
+    missing = [key for key in required if key not in data]
+    if missing:
+        return (
+            f"`{path.name}` is missing "
+            + ", ".join(f"`{key}`" for key in missing)
+        )
+    extra = [key for key in data if key not in keys]
+    if extra:
+        return (
+            f"`{path.name}` carries "
+            + ", ".join(f"`{key}`" for key in extra)
+            + f", which belong in another file (this one holds only "
+            + ", ".join(f"`{key}`" for key in keys)
+            + ")"
+        )
+    return None
+
+
+def _spine_handoff_contract(plan, pieces_dir: Path) -> str:
+    file_lines = "\n".join(
+        f"- `{path.name}` — {what}: "
+        + ", ".join(f"`{key}`" for key in keys)
+        for _stem, _target, keys, _required, what, path in plan
+    )
+    example_stem, _t, example_keys, _r, _w, example_path = plan[0]
+    return f"""\
+## How the spine reaches us (read this twice)
+Do NOT return the spine in your reply. Your reply carries a receipt; the
+spine itself travels as files. A whole spine does not fit in one tool
+call — a previous run's was rejected four times as unparseable at 33,330,
+31,264, 28,240 and 27,850 bytes, shrinking each time and never fitting,
+because the answer was cut off mid-JSON before it arrived.
+
+Write these files under `{pieces_dir}`, one at a time, in this order:
+{file_lines}
+
+Each file holds ONE JSON object carrying exactly its own keys at the top
+level — not nested under `package_skeleton` or `shared_facts`, and not
+wrapped in anything. For `{example_path.name}` that means:
+{{{", ".join(f'"{key}": ...' for key in example_keys)}}}
+
+The content is exactly what you would otherwise have returned inline:
+same fields, same limits, same pins. You are still writing ONE spine, so
+the later files must agree with the earlier ones — the scorecard with the
+verdict, the highlights with the scores, the calculations with the
+scenarios.
+
+Write each file ONCE, with a single write, the moment that part is
+settled. Never read a file back, never measure it with `wc`, `awk`, `jq`
+or any other shell command, and never trim it to a length. The schema
+limits in your instructions still apply to every value.
+
+When every file is written, return only:
+{{"pieces": [{{"file": "{example_path.name}"}}, ...]}}
+matching the attached schema. The receipt names the files you wrote; it
+must never contain the spine's content.
+"""
+
+
+_MEMO_SPINE_MANIFEST_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "pieces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"file": {"type": "string"}},
+                "required": ["file"],
+            },
+        },
+    },
+    "required": ["pieces"],
+}
+
+
+def _assemble_spine(plan) -> dict:
+    spine: dict[str, Any] = {}
+    for _stem, target, keys, required, _what, path in plan:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        bucket = spine.setdefault(target, {}) if target else spine
+        for key in keys:
+            if key not in data:
+                continue
+            # `null` for an OPTIONAL field means "there is nothing here",
+            # which is what a writer naturally puts when a run has no
+            # decision history. Treating it as absent is what it means;
+            # leaving it in costs a retry that only deletes the key. A
+            # required field set to null still fails validation, loudly.
+            if data[key] is None and key not in required:
+                continue
+            bucket[key] = data[key]
+    return spine
+
+
+def _spine_piece_for_schema_error(plan, error: str) -> str | None:
+    """Which file owns a schema error, from its "/a/b/..." path."""
+    head = error.split(":", 1)[0].strip()
+    parts = [part for part in head.split("/") if part]
+    if not parts:
+        return None
+    for _stem, target, keys, _required, _what, path in plan:
+        if target:
+            if len(parts) >= 2 and parts[0] == target and parts[1] in keys:
+                return path.name
+        elif parts[0] in keys:
+            return path.name
+    # "root: must have required property 'shared_facts'" — a whole bucket
+    # is missing, which means one of its files never arrived.
+    for _stem, target, keys, _required, _what, path in plan:
+        if target and f"'{target}'" in error:
+            return path.name
+    return None
+
+
+def _run_english_spine_via_pieces(
+    *,
+    run_dir: Path,
+    body: str,
+    schema: dict,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Draft the spine as per-part files, then assemble and validate here."""
+    pieces_dir = _memo_spine_pieces_dir(run_dir)
+    shutil.rmtree(pieces_dir, ignore_errors=True)
+    pieces_dir.mkdir(parents=True, exist_ok=True)
+    plan = _spine_piece_plan(run_dir, schema)
+    if not plan:
+        return None, "spine handoff: the schema declared no known parts"
+    by_name = {path.name: entry for entry in plan for path in (entry[5],)}
+
+    totals: dict[str, Any] = {}
+    result, error = _run_memo_local_json_artifact(
+        prompt=body + _spine_handoff_contract(plan, pieces_dir),
+        schema=_MEMO_SPINE_MANIFEST_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Pinning memo spine: envelope and shared facts",
+        timeout_label="memo English spine",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+        allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+        model=_memo_role_model("SPINE", run_dir),
+        effort=_memo_role_effort("SPINE", run_dir),
+        append_system_prompt=common_context,
+    )
+    _accumulate_call_cost(totals, result)
+
+    pending: dict[str, str] = {}
+    for stem, _target, keys, required, _what, path in plan:
+        reason = _spine_piece_error(path, stem, keys, required)
+        if reason:
+            pending[path.name] = reason
+    if error and len(pending) == len(plan):
+        return None, error
+    if error and progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_spine_partial_delivery",
+            message=(
+                f"spine: the drafting call failed ({str(error)[:200]}) but "
+                f"{len(plan) - len(pending)} of {len(plan)} parts are on "
+                "disk; asking only for the rest"
+            ),
+        )
+
+    attempts: dict[str, int] = {}
+    while True:
+        while pending:
+            halt_error = _memo_run_halt_error(run_dir)
+            if halt_error:
+                return None, halt_error
+            name = sorted(pending)[0]
+            reason = pending[name]
+            if attempts.get(name, 0) >= MEMO_SPINE_PIECE_MAX_RETRIES:
+                return None, (
+                    f"spine part `{name}` is still unusable after "
+                    f"{MEMO_SPINE_PIECE_MAX_RETRIES} retries ({reason})"
+                )
+            attempts[name] = attempts.get(name, 0) + 1
+            stem, target, keys, _required, what, path = by_name[name]
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_spine_piece_retry",
+                    message=(
+                        f"spine: {reason}; asking for that part again "
+                        f"(attempt {attempts[name]} of "
+                        f"{MEMO_SPINE_PIECE_MAX_RETRIES})"
+                    ),
+                    piece=name,
+                )
+            retry_result, retry_error = _run_memo_local_json_artifact(
+                prompt=(
+                    f"{body}\n"
+                    "## Rewrite ONE part of the spine\n"
+                    "You already wrote this run's spine to files under "
+                    f"`{pieces_dir}`. One of them did not arrive usable:\n\n"
+                    f"- `{path}` — {what}\n"
+                    f"- what went wrong: {reason}\n\n"
+                    "Fix the KIND of mistake, not just the fields named. "
+                    "If a field was the wrong shape — a bilingual "
+                    '{"en": ..., "zh": ...} object where a plain string '
+                    "belongs, a string where an array belongs — then every "
+                    "other field of that kind in this file is probably "
+                    "wrong the same way, whether or not it is listed. "
+                    "Check them all before you write.\n\n"
+                    "Rewrite that ONE file and nothing else. Its siblings "
+                    "are already on disk and are being used as they are — "
+                    "read them if you need to stay consistent with them, "
+                    "and do not rewrite them.\n\n"
+                    f"Write `{path}` once, holding ONE JSON object with "
+                    "exactly these keys at the top level: "
+                    + ", ".join(f"`{key}`" for key in keys)
+                    + ". Every schema limit in your instructions still "
+                    "applies. Do not measure or trim the file with shell "
+                    "commands.\n\nThen return only: "
+                    f'{{"pieces": [{{"file": "{name}"}}]}} '
+                    "matching the attached schema.\n"
+                ),
+                schema=_MEMO_SPINE_MANIFEST_SCHEMA,
+                run_dir=run_dir,
+                progress=progress,
+                progress_message=f"Rewriting spine part {stem}",
+                timeout_label=f"memo English spine ({stem})",
+                timeout_sec=timeout_sec,
+                silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+                add_dirs=add_dirs,
+                allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+                model=_memo_role_model("SPINE", run_dir),
+                effort=_memo_role_effort("SPINE", run_dir),
+                append_system_prompt=common_context,
+            )
+            _accumulate_call_cost(totals, retry_result)
+            reason = _spine_piece_error(path, stem, keys, _required)
+            if reason is None:
+                pending.pop(name)
+            else:
+                if retry_error:
+                    reason = f"{reason} (the rewrite also failed: {retry_error})"
+                pending[name] = reason
+
+        spine = _assemble_spine(plan)
+        schema_errors = _schema_errors(spine, schema)
+        if not schema_errors:
+            break
+        # The CLI would have made the model fix these before answering.
+        # Route each one to the file that owns it so only that part is
+        # rewritten — the whole point of splitting the spine up.
+        routed: dict[str, list[str]] = {}
+        for schema_error in schema_errors:
+            name = _spine_piece_for_schema_error(plan, schema_error)
+            if name is None:
+                return None, (
+                    "spine failed schema validation with an error that "
+                    f"belongs to no single part: {schema_error}"
+                )
+            routed.setdefault(name, []).append(schema_error)
+        for name, part_errors in routed.items():
+            # Show EVERY error for this file, not a window of them. A
+            # window turns one systematic mistake into a game of
+            # whack-a-mole: the model fixes the six fields it was shown,
+            # the next round names six more, and the retry budget is gone
+            # before the mistake is (live 2026-09-16, 03_verdict.json).
+            pending[name] = "it failed schema validation: " + "; ".join(
+                part_errors
+            )
+
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_spine_assembled",
+            message=(
+                f"spine: assembled {len(plan)} parts and validated them "
+                "against the spine schema"
+            ),
+        )
+    spine["claude_cost_usd"] = totals.get("cost")
+    spine["claude_duration_ms"] = totals.get("duration_ms")
+    spine["claude_usage"] = totals.get("usage")
+    spine["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return spine, None
+
+
 def run_memo_fast_english_spine(
     *,
     run_dir: Path,
@@ -5491,6 +6383,7 @@ def run_memo_fast_english_spine(
     schema: dict | None = None,
     extra_instructions: str = "",
     structure: memo_structure.MemoStructure | None = None,
+    handoff: bool = True,
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
@@ -5559,7 +6452,23 @@ against the stragglers when they land.
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.
    - `scorecard`: `total` plus all nine `dimensions`, each with an
-     integer `score` (0 to that dimension's max) and a one-line `why`.
+     integer `score` (0 to that dimension's max), a one-line `why`, and
+     `evidence`: an ARRAY of one or two strings (never a single
+     string, however short — that is the most common way this field is
+     rejected), each a sentence carrying THE number that settles this
+     dimension, what that number measures, and where it came from (a
+     source id, or a calculation note cited as [C#]). The executive
+     summary prints one scan line per dimension from these, so a reader
+     sees market size, growth, industry position, moat, team, business
+     model, profitability and exit outlook in one place instead of
+     hunting for them. For `business_model_ue` the two sentences are
+     fixed: the first is how the company charges and whether that
+     survives the next product shift, the second is whether it makes
+     money — gross margin now, and what has to change for it to turn
+     positive. Both of those go in `evidence`, which is why it holds two
+     strings; `why` stays ONE line for every dimension, this one
+     included. A dimension you score below half its max must also
+     appear in `risks` as a named risk.
      Weights for this stage: {weight_list}. The total MUST equal the sum
      of the nine scores — a deterministic gate recomputes it.
    - `fair_value_range`: `low` and `high` (e.g. "$800M" / "$1.4B") with
@@ -5579,10 +6488,16 @@ against the stragglers when they land.
      this and rejects duplicates). Per item: `dimension` (the scorecard
      key), `headline` (ONE plain verdict sentence a reader can quote,
      at most one number, written for someone who has never seen the
-     company: "Anthropic leads enterprise adoption rather than chasing
-     it."), `evidence` (2-3 sentences, one fact each, with its number
+     company. It must say what is TRUE about this company and why that
+     matters, never the topic it belongs to: "Enterprise channels carry
+     distribution" is a topic and fails; "Distribution does not have to
+     be built, because the three largest clouds already resell it" is a
+     verdict and passes), `evidence` (an ARRAY of 2-3 strings, never one
+     joined string; one fact each,
+     each naming what its number MEASURES before the number appears,
      and where that number comes from — a named source, or our own
-     calculation cited with its [C#] id; never the words "the memo").
+     calculation cited with its [C#] id; never the words "the memo".
+     They read as prose and never open with a label like "Evidence:").
      Plain text only: no asterisks or other markdown. The executive summary repeats the
      headline and evidence verbatim.
    - each risk ALSO carries `area` — which aspect it concentrates on:
@@ -5623,14 +6538,24 @@ Produce ONE JSON object with:
      following the sources contract in your instructions. Sections cite
      these by id and cannot add sources, so include every source any
      section will need.
-2. `shared_facts`: the compact pin sheet handed to every section worker:
+2. `shared_facts`: the compact pin sheet handed to every section worker.
+   EVERY value in it is a PLAIN ENGLISH STRING, never a bilingual
+   `{{"en": ..., "zh": ...}}` object — the pin sheet is an internal fact
+   sheet, and the Chinese memo is translated later from the finished
+   English. This is the single most common way a spine is rejected: the
+   bilingual habit from the block contract leaks into the pins. A field
+   with nothing to report is omitted, never set to an empty object.
    - `recommendation_sentence`: the exact recommendation sentence, verbatim
      as the executive summary must state it. It MUST begin with
      "Recommendation: " — for example "Recommendation: BSH commits $X to
      <target> at <terms>." or "Recommendation: pass on <target> —
      <one-line reason>." It is a recommendation, never a decided action.
-   - `key_metrics`: the metric values sections repeat (name, value, as_of,
-     supporting source ids).
+   - `key_metrics`: the metric values sections repeat. Keys are
+     exactly `name`, `value`, `as_of` and `source_ids` — the last is
+     spelled `source_ids` and holds an array of ids like ["S3", "S7"];
+     a key named `sources` is rejected. Pin the metrics the SECTIONS
+     WILL REPEAT, not every number you found: this is a fact sheet the
+     workers must agree on, not an index.
    - `scenarios`: one line of numbers each for bear, base, and bull.
    - `risks`: the full risk list, ordered by rating highest first — one-line
      summary, `N/10` rating, and High/Medium/Low likelihood per risk.
@@ -5646,15 +6571,30 @@ Produce ONE JSON object with:
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
 {_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record, for_spine=True)}{speculative_block}{feedback_block}
-Return only the JSON matching the attached schema.
 """
+    resolved_schema = (
+        schema
+        if schema is not None
+        else memo_fast_english_spine_schema(structure)
+    )
+    # Memo Studio's standalone spine keeps the inline contract: it may ask
+    # for `studio_extras` under its own schema, and it is the path that
+    # carries a human's card edits — not the place to change how answers
+    # travel.
+    if handoff and schema is None and _memo_spine_handoff_enabled():
+        return _run_english_spine_via_pieces(
+            run_dir=run_dir,
+            body=prompt,
+            schema=resolved_schema,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+    prompt = prompt + "Return only the JSON matching the attached schema.\n"
     return _run_memo_local_json_artifact(
         prompt=prompt,
-        schema=(
-            schema
-            if schema is not None
-            else memo_fast_english_spine_schema(structure)
-        ),
+        schema=resolved_schema,
         run_dir=run_dir,
         progress=progress,
         progress_message="Pinning memo spine: envelope and shared facts",
@@ -5747,6 +6687,7 @@ def run_memo_english_spine_standalone(
         recent_news=load_memo_recent_news(research_dir),
         decision_record=load_memo_decision_record(research_dir),
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
+        handoff=False,
         extra_instructions=(
             _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS if studio_extras else ""
         ),
@@ -6072,15 +7013,16 @@ MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = (
 
 
 def _memo_spine_speculate_after() -> int:
-    """How many of the 12 analysis passes must finish before the spine
-    launches speculatively. Default 9: the typical straggler gap is the
-    last one to three passes. SpeculativeEnglish re-clamps to the run's
-    actual pass count minus one."""
+    """How many of the eight analysis passes must finish before the spine
+    launches speculatively. Default 6 — three quarters of the list, the
+    same share as the 9-of-12 it replaced when Phase 2 was consolidated.
+    SpeculativeEnglish re-clamps to the run's actual pass count minus
+    one, so an older resumed run with twelve passes still speculates."""
     raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_AFTER")
     try:
-        value = int(raw) if raw is not None else 9
+        value = int(raw) if raw is not None else 6
     except (TypeError, ValueError):
-        value = 9
+        value = 6
     return max(4, min(value, 11))
 
 
@@ -6088,18 +7030,16 @@ def _memo_spine_speculate_after() -> int:
 # (key metrics, scenarios, the rated risks' figures). Both observed stale
 # speculation draws (nvda E_v2/E_v3) traced to exactly these passes
 # finishing last — the spine guessed its pins without its own inputs, and
-# the delta check charged ~4 minutes to discard and respin. valuation_comps
-# and exit_paths joined the set with the Phase-2 rebuild: fair-value range
-# and exit/scenario scaffolding are pin inputs. SpeculativeEnglish drops
-# any id absent from the run's actual pass list, so older resumed runs
-# with 8 passes still speculate.
+# the delta check charged ~4 minutes to discard and respin. The fair-value
+# range and the exit/scenario scaffolding are pin inputs too, which is why
+# valuation_exit is here. SpeculativeEnglish drops any id absent from the
+# run's actual pass list, so runs resumed from an older, longer pass list
+# still speculate.
 MEMO_SPINE_PIN_FEEDING_PASSES: frozenset[str] = frozenset(
     {
-        "arithmetic_denominators",
-        "time_base",
+        "numbers_integrity",
         "growth_bridge",
-        "valuation_comps",
-        "exit_paths",
+        "valuation_exit",
     }
 )
 
@@ -6844,6 +7784,530 @@ class SpeculativeEnglish:
         self._pool.shutdown(wait=False)
 
 
+# --- Section handoff: pieces on disk, not one oversized response -----------
+#
+# A section worker used to hand its whole section back as one structured
+# JSON response. The biggest asks outgrew what one response can carry: on
+# 2026-09-16 `executive_summary` wrote 17,189 output tokens and still never
+# closed its JSON, so every token was thrown away and a $14.60 run died.
+#
+# The fix keeps ONE agent per section. Splitting the section across four
+# sub-agents would pay this section's 21-52k token cache creation four
+# times over, and each sub-agent would see only its own slice — the
+# highlights would not know what the risks said. So the same agent writes
+# the same section; only the way the work LEAVES it changes. It writes each
+# numbered subsection to its own file the moment that subsection is done,
+# and returns a short manifest instead of the content. Work is banked as it
+# is written, and one bad piece is re-asked on its own instead of costing
+# the whole section.
+
+# Mirrors memo_docx_renderer._BUDGET_GRACE for sections that declare no
+# explicit hard multiple.
+_BUDGET_GRACE_DEFAULT = 1.10
+
+MEMO_SECTION_PIECE_MAX_RETRIES = 3
+
+_MEMO_SECTION_HANDOFF_DEFAULT = "all"
+_MEMO_SECTION_HANDOFF_ALL = "all"
+
+
+def _memo_section_handoff_ids() -> frozenset[str] | str:
+    """Which sections deliver their subsections as files.
+
+    It started as the executive summary alone, to learn on one section
+    whether an assembled section reads as well as one written whole. Two
+    live runs assembled clean with no piece retries, and then the owner
+    raised the budgets from 6,700 words to 16,000 — every section is now
+    2,300-3,100 words, the size the executive summary was when it started
+    truncating. So the default is `all`.
+
+    `BSH_MEMO_SECTION_HANDOFF` takes `all`, a comma-separated id list, or
+    `off` to send every section back inline.
+    """
+    raw = os.environ.get(
+        "BSH_MEMO_SECTION_HANDOFF", _MEMO_SECTION_HANDOFF_DEFAULT
+    ).strip()
+    if raw.lower() in {"", "0", "off", "none"}:
+        return frozenset()
+    if raw.lower() == _MEMO_SECTION_HANDOFF_ALL:
+        return _MEMO_SECTION_HANDOFF_ALL
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _memo_section_pieces_dir(run_dir: Path, section_id: str) -> Path:
+    return _memo_english_units_dir(run_dir) / "pieces" / section_id
+
+
+def _section_piece_plan(
+    run_dir: Path, section_id: str, section_def
+) -> list[tuple[int, str, str, Path]]:
+    """One (number, English heading, Chinese heading, file) per subsection."""
+    pieces_dir = _memo_section_pieces_dir(run_dir, section_id)
+    return [
+        (
+            number,
+            f"{number}. {sub.en}",
+            f"{number}. {sub.zh}",
+            pieces_dir / f"{number:02d}.json",
+        )
+        for number, sub in enumerate(section_def.subsections, start=1)
+    ]
+
+
+def _section_handoff_enabled(section_id: str, section_def) -> bool:
+    wanted = _memo_section_handoff_ids()
+    if wanted != _MEMO_SECTION_HANDOFF_ALL and section_id not in wanted:
+        return False
+    # Nothing to split without numbered subsections, and one piece is just
+    # the inline path with extra moving parts.
+    return bool(section_def is not None and len(section_def.subsections) > 1)
+
+
+def _normalized_heading(text: str) -> str:
+    """Compare headings without punishing trivia.
+
+    An exact-match gate would burn three retries over a stray colon or a
+    capital letter, so casing, whitespace and trailing punctuation are
+    ignored; a wrong or missing heading still fails.
+    """
+    return re.sub(r"\s+", " ", str(text)).strip().strip(".:：。 ").lower()
+
+
+def _section_piece_error(
+    path: Path, number: int, heading_en: str
+) -> str | None:
+    """Why this piece file cannot be used, or None when it is good."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"piece {number} was never written to `{path.name}`"
+    except OSError as exc:
+        return f"piece {number} (`{path.name}`) could not be read: {exc}"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return (
+            f"piece {number} (`{path.name}`) is not valid JSON: {exc.msg} "
+            f"at line {exc.lineno} column {exc.colno}"
+        )
+    if not isinstance(data, dict):
+        return f"piece {number} (`{path.name}`) is not a JSON object"
+    blocks = data.get("blocks")
+    if not isinstance(blocks, list) or not blocks:
+        return (
+            f"piece {number} (`{path.name}`) has no non-empty `blocks` list"
+        )
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            return (
+                f"piece {number} (`{path.name}`) block {index} is not a "
+                "JSON object"
+            )
+    first = blocks[0]
+    if first.get("type") != "heading":
+        return (
+            f"piece {number} (`{path.name}`) must open with its heading "
+            f'block ("{heading_en}"), not a {first.get("type") or "typeless"} '
+            "block"
+        )
+    text = first.get("text")
+    found = text.get("en") if isinstance(text, dict) else text
+    if _normalized_heading(found or "") != _normalized_heading(heading_en):
+        return (
+            f"piece {number} (`{path.name}`) opens with the heading "
+            f'"{found}" where the scaffold fixes "{heading_en}"'
+        )
+    return None
+
+
+def _section_handoff_contract(
+    section_id: str,
+    plan: list[tuple[int, str, str, Path]],
+    pieces_dir: Path,
+) -> str:
+    file_lines = "\n".join(
+        f'- subsection {number} ("{heading_en}") -> `{path}`'
+        for number, heading_en, _heading_zh, path in plan
+    )
+    manifest_example = ", ".join(
+        f'{{"piece": {number}, "file": "{path.name}"}}'
+        for number, _en, _zh, path in plan
+    )
+    return f"""\
+## How this section reaches us (read this twice)
+Do NOT return the section in your reply. Your reply carries a receipt; the
+section itself travels as files. A section this size does not fit in one
+structured response — a previous run wrote 17,189 tokens of one and the
+response was cut off before its JSON closed, so every word was lost.
+
+Write one file per numbered subsection, in order, as you finish it:
+{file_lines}
+
+Each file holds exactly this, and nothing else:
+{{"piece": <number>, "blocks": [ ... ]}}
+
+`blocks` opens with that subsection's heading block, exactly as the
+scaffold above fixes it, and then carries every block belonging to that
+subsection. These are the same blocks you would otherwise have returned
+inline: same shapes, same bilingual objects, same depth of argument. The
+split is a delivery detail — you are still writing ONE section, and the
+later subsections must stay consistent with what you wrote in the earlier
+ones.
+
+Write each file ONCE, with a single write, the moment that subsection is
+done, then move to the next one. Never read a piece back, never measure it
+with `wc`, `awk`, `jq` or any other shell command, and never trim it to hit
+a length — a live run burned seventeen minutes on shell trim loops chasing
+a limit it was nowhere near. Your word budget lives in the section spec
+above and needs no arithmetic.
+
+When every file is written, return only:
+{{"section_id": "{section_id}", "pieces": [{manifest_example}]}}
+matching the attached schema. The receipt names the files you wrote; it
+must never contain the section's content.
+"""
+
+
+def _section_piece_retry_prompt(
+    *,
+    body: str,
+    section_id: str,
+    number: int,
+    heading_en: str,
+    heading_zh: str,
+    path: Path,
+    reason: str,
+    plan: list[tuple[int, str, str, Path]],
+) -> str:
+    """Re-ask for ONE subsection, leaving its siblings on disk untouched."""
+    siblings = "\n".join(
+        f'- subsection {other} ("{other_en}"): `{other_path}`'
+        for other, other_en, _zh, other_path in plan
+        if other != number
+    )
+    return f"""{body}
+## Rewrite ONE subsection
+You already wrote this section's subsections to files. One of them did not
+arrive usable:
+
+- subsection {number} ("{heading_en}" / "{heading_zh}") -> `{path}`
+- what went wrong: {reason}
+
+Rewrite that ONE subsection and nothing else. Its siblings are already on
+disk and are being used as they are — read them if you need to stay
+consistent with them, and do not rewrite them:
+{siblings}
+
+Write `{path}` once, holding exactly:
+{{"piece": {number}, "blocks": [ ... ]}}
+opening with the heading block {{"type": "heading", "level": 2, "text":
+{{"en": "{heading_en}", "zh": "{heading_zh}"}}}} and then the blocks of
+that subsection. Do not measure or trim the file with shell commands.
+
+Then return only:
+{{"section_id": "{section_id}", "pieces": [{{"piece": {number}, "file": "{path.name}"}}]}}
+matching the attached schema.
+"""
+
+
+def _accumulate_call_cost(totals: dict, result: dict | None) -> None:
+    if not isinstance(result, dict):
+        return
+    cost = result.get("claude_cost_usd")
+    if isinstance(cost, (int, float)):
+        totals["cost"] = (totals.get("cost") or 0.0) + float(cost)
+    duration = result.get("claude_duration_ms")
+    if isinstance(duration, (int, float)):
+        totals["duration_ms"] = (totals.get("duration_ms") or 0) + int(duration)
+    if totals.get("usage") is None:
+        totals["usage"] = result.get("claude_usage")
+
+
+def _run_english_section_via_pieces(
+    *,
+    run_dir: Path,
+    section_id: str,
+    section_def,
+    body: str,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Draft one section as per-subsection files, then assemble it here."""
+    pieces_dir = _memo_section_pieces_dir(run_dir, section_id)
+    # A respin must not inherit the last attempt's files: a stale piece that
+    # happens to parse would be assembled into the new section.
+    shutil.rmtree(pieces_dir, ignore_errors=True)
+    pieces_dir.mkdir(parents=True, exist_ok=True)
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+
+    totals: dict[str, Any] = {}
+    result, error = _run_memo_local_json_artifact(
+        prompt=body + _section_handoff_contract(section_id, plan, pieces_dir),
+        schema=_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Drafting section {section_id}",
+        timeout_label=f"memo English section ({section_id})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+        allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+        model=_memo_role_model("SECTION", run_dir),
+        effort=_memo_role_effort("SECTION", run_dir),
+        append_system_prompt=common_context,
+    )
+    _accumulate_call_cost(totals, result)
+
+    pending: dict[int, str] = {}
+    for number, heading_en, _heading_zh, path in plan:
+        reason = _section_piece_error(path, number, heading_en)
+        if reason:
+            pending[number] = reason
+    if error and len(pending) == len(plan):
+        # Nothing landed, so the call never really started (cancelled run,
+        # missing CLI, immediate timeout). Per-piece retries would only
+        # repeat that failure once per subsection.
+        return None, error
+    if error and progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_partial_delivery",
+            message=(
+                f"{section_id}: the drafting call failed ({str(error)[:200]}) "
+                f"but {len(plan) - len(pending)} of {len(plan)} subsections "
+                "are already on disk; asking only for the rest"
+            ),
+            section_id=section_id,
+        )
+
+    attempts: dict[int, int] = {}
+    while pending:
+        halt_error = _memo_run_halt_error(run_dir)
+        if halt_error:
+            return None, halt_error
+        number = min(pending)
+        reason = pending[number]
+        if attempts.get(number, 0) >= MEMO_SECTION_PIECE_MAX_RETRIES:
+            return None, (
+                f"section {section_id}: subsection {number} is still "
+                f"unusable after {MEMO_SECTION_PIECE_MAX_RETRIES} retries "
+                f"({reason})"
+            )
+        attempts[number] = attempts.get(number, 0) + 1
+        _number, heading_en, heading_zh, path = plan[number - 1]
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_section_piece_retry",
+                message=(
+                    f"{section_id}: {reason}; asking for that subsection "
+                    f"again (attempt {attempts[number]} of "
+                    f"{MEMO_SECTION_PIECE_MAX_RETRIES})"
+                ),
+                section_id=section_id,
+                piece=number,
+            )
+        retry_result, retry_error = _run_memo_local_json_artifact(
+            prompt=_section_piece_retry_prompt(
+                body=body,
+                section_id=section_id,
+                number=number,
+                heading_en=heading_en,
+                heading_zh=heading_zh,
+                path=path,
+                reason=reason,
+                plan=plan,
+            ),
+            schema=_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA,
+            run_dir=run_dir,
+            progress=progress,
+            progress_message=(
+                f"Rewriting {section_id} subsection {number}"
+            ),
+            timeout_label=(
+                f"memo English section ({section_id} piece {number})"
+            ),
+            timeout_sec=timeout_sec,
+            silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+            add_dirs=add_dirs,
+            allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+            model=_memo_role_model("SECTION", run_dir),
+            effort=_memo_role_effort("SECTION", run_dir),
+            append_system_prompt=common_context,
+        )
+        _accumulate_call_cost(totals, retry_result)
+        reason = _section_piece_error(path, number, heading_en)
+        if reason is None:
+            pending.pop(number)
+        else:
+            if retry_error:
+                reason = f"{reason} (the rewrite also failed: {retry_error})"
+            pending[number] = reason
+
+    blocks: list[dict] = []
+    for number, _heading_en, _heading_zh, path in plan:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        blocks.extend(payload["blocks"])
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_assembled",
+            message=(
+                f"{section_id}: assembled {len(plan)} subsection files into "
+                f"{len(blocks)} blocks"
+            ),
+            section_id=section_id,
+        )
+    return (
+        {
+            "section": {"id": section_id, "blocks": blocks},
+            "claude_cost_usd": totals.get("cost"),
+            "claude_duration_ms": totals.get("duration_ms"),
+            "claude_usage": totals.get("usage"),
+        },
+        None,
+    )
+
+
+# --- A small JSON-schema checker -------------------------------------------
+#
+# When a call returns its answer through `--json-schema`, the CLI validates
+# it and makes the model fix what it rejects — on 2026-09-16 the spine was
+# caught that way for an 89-character metric name (cap 80) and a fourth
+# highlight (cap 3), and it corrected both. Anything that leaves through
+# the filesystem instead is validated by nobody, so that enforcement has to
+# be reproduced here or it is simply lost.
+#
+# This covers exactly the keywords these schemas use — type, required,
+# properties, additionalProperties, items, minItems/maxItems,
+# minLength/maxLength, minimum/maximum, enum, pattern — and is checked
+# against the real schema object, so it cannot drift from what the CLI
+# would have enforced.
+
+_JSON_TYPES: dict[str, Any] = {
+    "object": dict,
+    "array": list,
+    "string": str,
+    "boolean": bool,
+    "null": type(None),
+}
+
+
+def _type_matches(value: Any, expected: str) -> bool:
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    python_type = _JSON_TYPES.get(expected)
+    if python_type is None:
+        return True
+    if python_type is bool:
+        return isinstance(value, bool)
+    if python_type in (dict, list, str):
+        return isinstance(value, python_type)
+    return isinstance(value, python_type)
+
+
+def _schema_errors(
+    value: Any, schema: dict, path: str = "", _limit: int = 40
+) -> list[str]:
+    """Validation errors for `value` against `schema`, worded like the CLI's.
+
+    Paths read "/shared_facts/key_metrics/1/name" so a reader (and the
+    piece router) can see which part of the answer is at fault.
+    """
+    errors: list[str] = []
+    where = path or "root"
+
+    expected = schema.get("type")
+    if isinstance(expected, str):
+        if not _type_matches(value, expected):
+            found = type(value).__name__
+            return [f"{where}: must be {expected} (got {found})"]
+    elif isinstance(expected, list):
+        if not any(_type_matches(value, one) for one in expected):
+            return [f"{where}: must be one of {', '.join(expected)}"]
+
+    enum = schema.get("enum")
+    if isinstance(enum, list) and value not in enum:
+        errors.append(f"{where}: must be one of {', '.join(map(str, enum))}")
+
+    if isinstance(value, str):
+        maximum = schema.get("maxLength")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(
+                f"{where}: must NOT have more than {maximum} characters "
+                f"(got {len(value)})"
+            )
+        minimum = schema.get("minLength")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(
+                f"{where}: must NOT have fewer than {minimum} characters "
+                f"(got {len(value)})"
+            )
+        pattern = schema.get("pattern")
+        if isinstance(pattern, str):
+            try:
+                if not re.search(pattern, value):
+                    errors.append(f"{where}: must match the pattern {pattern}")
+            except re.error:  # a schema we cannot check is not a failure
+                pass
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        maximum = schema.get("maximum")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            errors.append(f"{where}: must be at most {maximum} (got {value})")
+        minimum = schema.get("minimum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{where}: must be at least {minimum} (got {value})")
+
+    if isinstance(value, list):
+        maximum = schema.get("maxItems")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(
+                f"{where}: must NOT have more than {maximum} items "
+                f"(got {len(value)})"
+            )
+        minimum = schema.get("minItems")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(
+                f"{where}: must NOT have fewer than {minimum} items "
+                f"(got {len(value)})"
+            )
+        items = schema.get("items")
+        if isinstance(items, dict):
+            for index, item in enumerate(value):
+                if len(errors) >= _limit:
+                    break
+                errors.extend(
+                    _schema_errors(item, items, f"{path}/{index}", _limit)
+                )
+
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        properties = properties if isinstance(properties, dict) else {}
+        for key in schema.get("required") or []:
+            if key not in value:
+                errors.append(f"{where}: must have required property '{key}'")
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in properties:
+                    errors.append(
+                        f"{where}: must NOT have additional properties "
+                        f"('{key}' is not allowed)"
+                    )
+        for key, sub_schema in properties.items():
+            if key in value and isinstance(sub_schema, dict):
+                if len(errors) >= _limit:
+                    break
+                errors.extend(
+                    _schema_errors(value[key], sub_schema, f"{path}/{key}", _limit)
+                )
+
+    return errors[:_limit]
+
 def _run_english_section(
     *,
     run_dir: Path,
@@ -6892,6 +8356,32 @@ languages pre-filled. Every other block goes under its subsection;
 nothing precedes the first heading:
 {scaffold_lines}
 """
+    # The contract prose states a word range for the BASE profile, but a
+    # run's company type re-cuts the budgets between sections
+    # (section_emphasis), so for a typed run the two disagree — live
+    # 2026-09-17: the valuation contract said 1,800-1,900 words while the
+    # effective budget was 1,650, and the section came in at 2,733,
+    # over its cap. The effective number is stated here, last and
+    # explicitly, so there is never any question which one governs.
+    budget_block = ""
+    if section_def is not None and section_def.budget_words:
+        hard_cap = int(
+            section_def.budget_words
+            * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT)
+        )
+        budget_block = f"""
+## Your word budget for this run
+Target: {section_def.budget_words} words of English for this whole
+section, table cells included. Hard cap: {hard_cap} words — a
+deterministic gate rejects the section above it.
+
+These numbers OVERRIDE any range stated in the section contract above:
+that contract is written for the base profile, and this run's company
+type shifts words between sections according to what matters for this
+kind of company. Landing far UNDER the target is as wrong as running
+over — it means a judgment was asserted where it should have been
+explained.
+"""
     note_block = (
         f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
@@ -6935,7 +8425,7 @@ defects:
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
-    prompt = f"""\
+    body = f"""\
 You are drafting ONE SECTION of the English source package. Sibling workers
 draft the other sections in parallel; the shared fact sheet below pins
 everything the sections must agree on. Repeat the pinned recommendation,
@@ -6950,7 +8440,20 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{risk_contract}{note_block}{repair_block}{depth_block}
+{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{depth_block}
+"""
+    if _section_handoff_enabled(section_id, section_def):
+        return _run_english_section_via_pieces(
+            run_dir=run_dir,
+            section_id=section_id,
+            section_def=section_def,
+            body=body,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+    prompt = body + f"""\
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
 matching the attached schema. Pass the section as a real JSON object — never
 serialized as a string inside another field (the escaping roughly doubles the
@@ -6998,6 +8501,21 @@ def _iter_package_strings(value: Any):
         yield value
 
 
+def _error_location(error: str) -> str:
+    """The part of a validation error that names where the defect is.
+
+    Quality-gate findings read "<gate> at <place> (<section title>):
+    "<quoted text>" — <how to fix it>". Only the head locates anything;
+    the quote is the memo's own prose and the tail is generic advice, and
+    either can mention a section by name without being about it.
+    """
+    cut = min(
+        (index for index in (error.find('"'), error.find("\u2014")) if index >= 0),
+        default=-1,
+    )
+    return error if cut < 0 else error[:cut]
+
+
 def _section_for_validation_error(
     package: dict,
     error: str,
@@ -7024,8 +8542,15 @@ def _section_for_validation_error(
                 return section_id
         return None
 
+    # Scan for a section id in the part of the error that says WHERE the
+    # defect is, never in the quoted text or the remediation advice. A
+    # quality-gate finding ends with generic coaching, and on 2026-09-16 one
+    # ending "...named terms, plain risks." routed a defect in
+    # `valuation, returns & exit` to the `risks` section. The repair
+    # rewrote the wrong section, introduced a second violation there, and
+    # the package regenerated from scratch — 8.7 minutes and a full wave.
     for section_id in section_ids:
-        if section_id in lowered:
+        if section_id in _error_location(lowered):
             return section_id
 
     match = re.search(r"missing required memo component (\w+)", lowered)
@@ -7594,6 +9119,57 @@ def run_memo_fast_english_package_parallel(
                 structure=structure,
                 **job,
             )
+            # One section whose answers the CLI kept rejecting used to fail
+            # the whole wave, and with it the run (executive_summary,
+            # 2026-09-16, $14.60 already spent). The transcripts show what
+            # the rejections actually are: the model submits an object
+            # missing its required properties, or sends the JSON as a
+            # string, and the CLI rejects every attempt until its retries
+            # run out. Other workers clear the same stumble on their next
+            # attempt, so one retry is worth making — and it must carry the
+            # CLI's own complaint, which is the only thing that tells the
+            # model what to change.
+            # A section that delivers its subsections as files has already
+            # retried the piece that failed, up to its own limit; re-running
+            # the whole section on top of that just pays twice.
+            hands_off = _section_handoff_enabled(
+                section_id, structure.section(section_id)
+            )
+            if error and not hands_off and is_structured_output_failure(error):
+                retry_job = dict(job)
+                retry_job["section_note"] = (
+                    (retry_job.get("section_note") or "")
+                    + "\n\nYOUR LAST ANSWER NEVER REACHED US. The tool "
+                    "rejected every attempt: "
+                    f"{str(error)[-400:]}\n"
+                    "Return the SAME section — every pinned fact, every "
+                    "subsection — as ONE complete JSON object with every "
+                    "required property present in that one object. Do not "
+                    "send it in pieces across several calls, and do not "
+                    "pass the JSON as a string inside a field."
+                ).strip()
+                if progress is not None:
+                    progress.emit(
+                        "stage",
+                        stage="memo_section_schema_retry",
+                        message=(
+                            f"{section_id}: the tool rejected every "
+                            "structured answer; asking once more for one "
+                            "complete object"
+                        ),
+                        section_id=section_id,
+                    )
+                result, error = _run_english_section(
+                    run_dir=run_dir,
+                    section_id=section_id,
+                    common_context=common_context,
+                    spine_path=spine_path,
+                    add_dirs=add_dirs,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                    structure=structure,
+                    **retry_job,
+                )
             _finish_row(row, phase_name, started, error=error, result=result)
             if error and gemini_run:
                 # Nearly always sampling noise — a dropped bracket in 26KB
@@ -8478,7 +10054,17 @@ Task:
 
 
 def _memo_sectional_repair_enabled() -> bool:
-    return os.environ.get("BSH_MEMO_SECTIONAL_REPAIR", "0") == "1"
+    """Repair section by section rather than re-emitting the package.
+
+    Default ON since 2026-09-17. The whole-package repair must return the
+    entire package in one structured response; at 6,700 words that was
+    merely slow, and at 16,000 it does not finish — a live run's repair
+    had every section under its cap by minute eight and was killed by the
+    900-second timeout at minute fifteen, losing all of it. A per-section
+    repair re-emits about 2,000 words per call instead of the whole
+    memo.
+    """
+    return os.environ.get("BSH_MEMO_SECTIONAL_REPAIR", "1") == "1"
 
 
 def run_memo_section_repair(

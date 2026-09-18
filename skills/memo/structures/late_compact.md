@@ -1,7 +1,7 @@
 ---
 stage: late_compact
 version: 1
-risk_format: bullets
+risk_format: cards
 scorecard:
   market_size_growth: 15
   industry_position: 15
@@ -41,37 +41,54 @@ pseudo_sections:
   numbered: false
 ---
 
-COMPACT late-stage profile — the short memo, modeled on the tightest
-partner-memo style: seven sections, roughly 2,600-3,200 words total,
-almost everything said in verdict-lead bullets ("An IP position that is
-hard to overstate. 120+ patents, 90+ issued, zero rejections."), two
-tables the reader actually needs (Deal Snapshot, Key Metrics Snapshot),
-the scorecard, and at most two charts. Same evidence discipline as the
-full report: the same pin sheet, the same scorecard, the same
-data-honesty rules — LESS information, never worse information. Every
-number that survives into this memo is one the decision turns on; the
-detail lives in the full report, not here. PINS ARE THE FLOOR:
+COMPACT late-stage profile — the fund's main memo: seven sections,
+roughly 15,000-17,000 words, written to be read by someone who is new to
+investing and must still reach the right decision. It is "compact" in
+SHAPE, not in depth: seven sections instead of twelve, two tables the
+reader actually needs (Deal Snapshot, Key Metrics Snapshot), the
+scorecard, the risk register, and at most two charts per section. The
+same evidence discipline as the full report — the same pin sheet, the
+same scorecard, the same data-honesty rules.
+
+Depth is now the point. An earlier version of this profile ran 6,600
+words and the founder's verdict was that the reader could not see what
+the case rested on without hunting through the report. Room exists so
+that every judgment is EXPLAINED: what the number measures, how it was
+worked out, what counts as normal for a company of this type, and what
+would change the answer. Spend the room on explanation, never on new
+claims or on repeating a claim in different words. PINS ARE THE FLOOR:
 compactness cuts commentary, never pinned facts. Every pinned key
 metric (with its exact values), every scenario number, the fair-value
 range, the entry terms, every risk summary verbatim with its rating,
 and each owning section's scorecard sentence ("This dimension scores
 N of M.") must appear in this memo — the pin-echo gate rejects the
 package otherwise, however elegant the prose. Section word budgets are
-CEILINGS, not targets: each section's `budget_words` (in its yaml) is
-the hard maximum for ALL its English text — table cells included — and
-a deterministic gate rejects a section over it. A section past its
-budget cuts commentary — one bullet per point, one clause per
-judgment — until it fits. When in doubt, cut; the full report exists
-for depth. Every section is organized
+SOFT TARGETS, and the gate that rejects a section sits well above them.
+Each section's `budget_words` (in its yaml) is the length to aim at for
+ALL its English text, table cells included; `budget_hard_multiple` is
+what multiple of it a deterministic gate actually rejects at — 1.3x for
+the executive summary, company & team and valuation, 1.5x for the market
+thesis, the financials and the decision, 2x for the risk register, whose
+honest length depends on how many risks there are. Reaching the target
+is a signal to LAND, never to stop mid-argument: finish the point you
+are making, close the section, and move on. A judgment cut off halfway
+through is worse than a section that runs long, so never drop a pinned
+fact, a subsection or a scorecard sentence to come in under a number.
+Coming in far UNDER the target is also a failure, and the more common
+one: it means a judgment was asserted where it should have been
+explained. When a section is short, the fix is never to pad it — it is
+to go back and explain the reasoning behind each verdict that is
+currently only stated. Every section is organized
 under its declared numbered subsections; the run-wide data-honesty,
-navigation, and chart rules ride the shared context. Bullets, not
-paragraphs, are the default: prose only where an argument genuinely
-needs consecutive sentences.
+navigation, and chart rules ride the shared context. Bullets and prose
+both earn their place: a list of parallel facts is bullets, an argument
+that moves from evidence to conclusion is prose.
 
 ## section: executive_summary
 ```yaml
 id: executive_summary
-budget_words: 600
+budget_words: 2600
+budget_hard_multiple: 1.3
 en_title: Executive Summary
 zh_title: 执行摘要
 parity_en: ^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$
@@ -95,14 +112,29 @@ subsections:
   zh: 投资结论与建议
 ```
 
-450-600 words. NO tables. Content per subsection:
+2,400-2,600 words — four to five pages. This is the section partners
+actually read end to end, and many read NOTHING else, so it carries the
+whole case on its own: a reader who stops here must know what the
+company is, what the round asks, where the case is strong AND where it
+is weak on every dimension the decision turns on, how each number was
+worked out, what could break the investment, and what we recommend.
+
+Write it for a reader who is new to investing. Every number is
+introduced by what it measures before it appears; every comparison
+states the rule it is measured against; every verdict is followed by the
+evidence that earns it and, where the number is derived, by how it was
+derived. Explanation is what the room is for — never new claims, never
+the same claim in different words.
+
+Content per subsection:
 
 1. Company profile: one plain-language sentence on what the company
    does and for whom, one on sector/geography, one placing it on the
-   late-stage ladder. ≤60 words.
+   late-stage ladder, and one on the company type and what that type
+   makes decisive. ≤120 words.
 2. The round: round, instrument, size, price, implied stake, and what
    the price already assumes — the entry multiple interpreted in the
-   same breath. 2-3 sentences.
+   same breath. 3-4 sentences.
 3. Investment highlights: OPEN with the pinned case-summary sentence
    from the shared fact sheet, the company's name in place of "The
    case" — which dimensions carry the case and which are weak, with
@@ -112,11 +144,115 @@ subsections:
    renderer bolds it), then the pinned evidence
    sentences, each number introduced by what it measures and where it
    comes from (a named source, or "our own estimate" with its
-   inputs). Never a naked topic label ("Price."), never a new number.
-4. Key risks: ONE `bullets` block, `"component": "key_risks"`, EXACTLY
-   three items — the three highest-rated pinned risks in pinned
-   order, each "<Area label> — <pinned summary verbatim>. Impact:
-   <pinned impact verbatim>. (N/10, <likelihood> likelihood)".
+   inputs). Never a naked topic label ("Price."), never a new number,
+   never a risk, a valuation sensitivity or a recommendation here.
+
+   Each headline is a VERDICT the reader could quote on its own: it
+   states what is true about this company and why that matters, not the
+   topic it belongs to. "Enterprise channels carry distribution" is a
+   topic and fails; "Distribution does not have to be built, because the
+   three largest clouds already resell it" is a verdict and passes. Each
+   headline is followed by TWO evidence sentences (the pin carries 2-3),
+   each a complete sentence naming what its number measures, the number,
+   and where the number came from. Evidence sentences never open with a
+   label such as "Evidence:" — they read as prose.
+
+   Worked example (exactly three; the scorecard dimension shown in
+   brackets is a pinned field, NOT printed in the memo):
+
+   ```
+   Anthropic's case rests on industry position (14/15), revenue growth
+   and quality (13/15) and moat (12/15); it is thinnest on valuation
+   (6/10) and exit certainty (4/8).
+
+   "component": "investment_highlights"
+
+   [industry_position]
+   The technical lead is already proven commercially — this is one of
+   very few companies turning a frontier model into revenue at scale.
+   Run-rate revenue, which measures how fast that conversion is
+   happening, rose from about $9B in December 2025 to $65B in July
+   2026 on the company's own basis of latest month times twelve [S4].
+   The enterprise share, which measures whether that revenue is durable
+   rather than consumer churn, is about 80% of the total on the same
+   disclosure [S4].
+
+   [revenue_growth_quality]
+   Claude Code turned a coding tool into the entry point for agents,
+   and took that position before the industry turned.
+   Claude Code run-rate, which measures how much of the growth is one
+   product, is above $2.5B on the company's basis [S4]. Customers
+   paying more than $1M a year, which measures depth rather than
+   breadth of adoption, doubled between February and April 2026 [S4].
+
+   [moat]
+   Distribution does not have to be built, because the three largest
+   clouds already resell it — an enterprise buys through a vendor it has
+   already approved.
+   Availability across AWS Bedrock, Google Vertex AI and Microsoft
+   Foundry, which measures how many procurement paths exist without a
+   new vendor review, covers all three major clouds, with Microsoft
+   Foundry generally available on 29 June 2026 [S9]. Revenue reaching
+   the company through those channels, which measures how much of the
+   book depends on them, is our own estimate of 25-30% from the
+   disclosed enterprise split [C7].
+   ```
+   After the three highlights, print the DIMENSION SCAN: one `bullets`
+   block, `"component": "dimension_scan"`, containing EVERY line of the
+   pin sheet's dimension scan, in pin order, one bullet per dimension.
+   This exists because a reader must be able to see the eight things the
+   decision turns on — how big the market is, how fast it is growing,
+   where the company ranks, what protects it, how strong the team is,
+   how it makes money, whether it is profitable, and when it could list
+   — in ONE place, with their numbers, instead of hunting for them
+   across the report.
+
+   Each bullet reads: "<Dimension> — <score>/<max>, <band>. <the why
+   line>." followed by the pinned evidence sentence(s), which carry the
+   number, what it measures, and where it came from ([S#] for a source,
+   [C#] for our own calculation). Open the block with one sentence
+   saying what the scan is, so a new reader knows how to read it. The
+   business model and unit economics bullet carries TWO evidence
+   sentences: how the company charges and whether that survives the next
+   product shift, then whether it makes money — gross margin now and
+   what has to change for it to turn positive. Any dimension banded
+   `weak` ends with "→ see Key risks", and MUST appear in subsection 4.
+
+4. Key risks: 800-900 words, and that budget is the binding one. Open
+   with one sentence naming the single risk that carries the thesis.
+   Then ONE `bullets` block, `"component": "key_risks"`, with the THREE
+   highest-rated pinned risks, in pinned order — plus, only if a
+   dimension the scan banded `weak` is not already covered by those
+   three, one further item per uncovered weak dimension, to a maximum of
+   FIVE items in total. Every weak dimension must be covered by one of
+   these items or by the scan line pointing at the risk register; that
+   is the check the reader is relying on.
+
+   Do not write one item per pinned risk. The register in the risks
+   section carries all of them at full length; this subsection carries
+   the ones a reader who stops here must know about. (Written as one
+   item per risk it came to 2,039 words on a live run and blew the
+   section's cap by itself.)
+
+   Each item opens with "<Area label> — <pinned summary verbatim>." and
+   then EXPLAINS it in three or four sentences, in this order:
+
+   - the arithmetic that sizes it, with the numbers in it and the [C#]
+     of the calculation note, so the reader can see how it was worked
+     out rather than taking it on trust;
+   - what counts as normal here, so the reader can judge whether this
+     number is bad ("mature software trades near 8x revenue; a frontier
+     lab can hold more in a strong market, so 9x is high but not
+     absurd") — the company-type lens in your instructions says what
+     normal looks like for this type;
+   - what would have to be true for the risk not to bite, or the
+     mitigation, or "No structural mitigation exists.";
+   - one line naming what to verify: the two or three facts that would
+     settle it.
+
+   Close each item with "Impact: <pinned impact verbatim>. (N/10,
+   <likelihood> likelihood)" and, in the same parentheses, the one
+   reason the likelihood is what it is.
 5. Recommendation: a verdict callout — the pinned recommendation
    sentence verbatim, entry, fair-value range, base-case MOIC·IRR,
    holding period, and the fund placeholders verbatim. With a pinned
@@ -127,7 +263,8 @@ subsections:
 ## section: company_team
 ```yaml
 id: company_team
-budget_words: 750
+budget_words: 2400
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -139,7 +276,7 @@ components:
 - deal_terms
 floor: {}
 pass_affinity:
-- deployment_behavior
+- adoption_distribution
 - team_governance
 title_word_aliases:
 - company, team and deal
@@ -153,7 +290,7 @@ subsections:
   zh: 团队与创始人匹配
 ```
 
-400-550 words. Content per subsection:
+2,200-2,400 words. The founders and the people around them are one of the eight things the decision turns on, so this section argues the team rather than listing it: who they are, what they have already done that predicts this, where the bench is thin, and what the governance structure lets them do that a normal board would not. Every judgment about a person is evidenced — a role held, a result delivered, a departure, a filing — never an impression. Content per subsection:
 
 1. Company & key metrics: 3-4 verdict-lead bullets (founded/HQ/what it
    sells/how it got here — one line each), then the "Key Metrics
@@ -183,7 +320,8 @@ subsections:
 ## section: thesis_market
 ```yaml
 id: thesis_market
-budget_words: 650
+budget_words: 2600
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -196,8 +334,7 @@ components: []
 floor: {}
 pass_affinity:
 - market_sizing
-- replacement_coexistence
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - thesis, market and competition
 - market and competition
@@ -210,7 +347,7 @@ subsections:
   zh: 竞争与护城河
 ```
 
-450-550 words. Content per subsection:
+2,400-2,600 words. This section carries four of the eight dimensions — how big the market is, how fast it is growing, where the company ranks in it, and what protects that rank — so it is the longest of the argument sections. Size the market from every external estimate you have, say which definition the memo adopts and why, and show the arithmetic. Then place the company in it, and only then argue the moat: what it is made of, what would erode it, and how long it holds. Content per subsection:
 
 1. Why this matters now: the investment thesis in 2-3 verdict-lead
    bullets — what market this opens, why the timing is now, why this
@@ -237,7 +374,8 @@ subsections:
 ## section: business_financials
 ```yaml
 id: business_financials
-budget_words: 600
+budget_words: 2300
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -248,9 +386,9 @@ parity_zh: ^\s*(?:(?:iv|4|四)[\.\、]\s*)?(?:业务与财务|商业模式与财
 components: []
 floor: {}
 pass_affinity:
-- arithmetic_denominators
+- numbers_integrity
 - growth_bridge
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - business and financials
 subsections:
@@ -262,7 +400,7 @@ subsections:
   zh: 增长更健康还是更烧钱
 ```
 
-400-500 words. Content per subsection:
+2,200-2,300 words. How the company charges and whether it makes money are two separate questions and this section answers both, in that order, with numbers. Profitability gets its own argument: the gross margin now, what sits inside it, the path to positive, and what breaks that path. A reader who has never seen a cost structure like this one should finish the section able to say whether it works. Content per subsection:
 
 1. How it makes money: who pays, for what, on what pricing, and the
    strongest disclosed proof point — 2-3 verdict-lead bullets. One
@@ -282,7 +420,8 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
-budget_words: 750
+budget_words: 1900
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -294,10 +433,8 @@ components: []
 floor:
   require_valuation_refs: true
 pass_affinity:
-- time_base
-- arithmetic_denominators
-- valuation_comps
-- exit_paths
+- numbers_integrity
+- valuation_exit
 title_word_aliases:
 - valuation, returns and exit
 - valuation and returns
@@ -311,7 +448,7 @@ subsections:
   zh: 退出路径
 ```
 
-450-550 words. Content per subsection:
+1,800-1,900 words. Every number here is derived, so every number here shows its arithmetic and carries the [C#] of its calculation note. Say what the entry price already assumes before you say whether it is fair, and give the reader the comparison that lets them judge the multiple — what companies of this type trade at, and why this one sits where it does against them. The exit outlook belongs here too: when a listing could realistically happen and what has to be true first. Content per subsection:
 
 1. What the price assumes: the entry multiple against the 2-3
    comparables that matter (one bullet each, target first), then the
@@ -334,7 +471,8 @@ subsections:
 ## section: risks
 ```yaml
 id: risks
-budget_words: 500
+budget_words: 2800
+budget_hard_multiple: 2.0
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -347,7 +485,7 @@ floor:
   bullets_or_prose: true
 pass_affinity:
 - alternative_explanations
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - risks
 - risk analysis
@@ -361,26 +499,41 @@ subsections:
   zh: 反面证据
 ```
 
-300-400 words. Content per subsection:
+2,600-2,800 words. This section used to be a paragraph of description
+and the founder could not find the point in it; it is now a REGISTER —
+one card per risk, in the same shape the full report uses, so a reader
+can scan the headings and stop at the one that matters.
 
-1. The center of gravity: one or two sentences naming which single
-   risk carries the thesis.
-2. Risk register: one bullet PER PINNED RISK, ordered by rating
-   highest first, using EXACTLY the pinned risk list. Each bullet:
-   the pinned summary verbatim (it is already a complete verdict
-   sentence), then " — N/10." with the rating, then ONE clause of
-   mitigation or "No structural mitigation exists." Never a topic
-   label, never a new risk the pins do not carry.
-3. Disconfirming evidence: 2-3 bullets with
-   `component: "disconfirming_evidence"` — the strongest facts
-   AGAINST this memo's recommendation, each weighed in one clause.
-   Close the section with its pinned scorecard sentence: "This
-   dimension scores N of M." for 风险收益比.
+Content per subsection:
+
+1. The center of gravity: two or three sentences naming the single risk
+   that carries the thesis, why it outranks the others, and what the
+   investment looks like if it lands.
+2. Risk register: one CARD per pinned risk, ordered by rating highest
+   first, using EXACTLY the pinned risk list — never a new risk the pins
+   do not carry, never a pinned risk left out. The card format is the
+   contract in your instructions: a `heading` titled "Risk N: <the
+   pinned summary>", then the fixed rows. Budget about 300-400 words per
+   card, and spend them on the "Why it matters" row: the arithmetic with
+   its numbers and the [C#] note that shows how it was worked out, then
+   what counts as normal for a company of this type (the company-type
+   lens says what normal looks like), then what would have to be true
+   for the risk not to bite. "What we watch" names the actual signal and
+   the two or three facts that would settle the question — never
+   "monitor execution" or "track traction".
+3. Disconfirming evidence: 3-5 bullets with
+   `component: "disconfirming_evidence"` — the strongest facts AGAINST
+   this memo's recommendation, each weighed in two or three sentences:
+   the fact, why it cuts against us, and why we still hold the
+   recommendation (or, honestly, that it is the reason the rating is
+   what it is). Close the section with its pinned scorecard sentence:
+   "This dimension scores N of M." for 风险收益比.
 
 ## section: investment_decision
 ```yaml
 id: investment_decision
-budget_words: 700
+budget_words: 1400
+budget_hard_multiple: 1.5
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$
@@ -406,7 +559,7 @@ subsections:
   zh: 投后监控与触发条件
 ```
 
-350-450 words. Content per subsection:
+1,300-1,400 words. The shortest section, because by now the case is made: state the recommendation, the terms, what would change it, and what we will watch. No new evidence, no new numbers — anything that matters enough to appear here has already been argued somewhere above. Content per subsection:
 
 1. Scorecard: the "Scorecard" table — the 9 fixed dimensions with
    their weights — 市场空间与增速 15 | 行业地位 15 | 护城河 15 |

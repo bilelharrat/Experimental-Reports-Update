@@ -9,6 +9,7 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "./AiMark.vue";
 import Monogram from "./Monogram.vue";
 import { formatCompactNumber, formatIsoDate, isPendingValue } from "../formatters.js";
@@ -25,6 +26,7 @@ const refreshing = ref(false);
 async function refresh(e) {
   e.stopPropagation();
   if (!props.company.id) return;
+  if (!confirmTokenSpend()) return;
   refreshing.value = true;
   try {
     const updated = await api.refreshCompany(props.company.id);

@@ -21,7 +21,7 @@ from datetime import timedelta
 
 import pytest
 
-from server import claude_runner, news_brief
+from server import auto_update, claude_runner, news_brief
 
 _ENV = (
     "BSH_NEWS_BRIEF_MODEL",
@@ -448,21 +448,34 @@ def test_refresh_limit_caps_the_batch(stub_claude, monkeypatch):
 
 
 def test_schedule_is_due_every_six_hours(monkeypatch):
-    assert news_brief.seconds_until_due() <= 0, "a server that never refreshed is due"
+    # Manual is the default, so the schedule only exists once it is on.
+    assert news_brief.refresh_cadence() == "manual"
+    assert news_brief.seconds_until_due() is None
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
+
+    # A server that never refreshed waits a full interval: booting must
+    # not cost tokens.
+    fresh = news_brief.seconds_until_due()
+    assert fresh is not None and 6 * 3600 - 60 < fresh <= 6 * 3600
+
     news_brief._mark_refreshed(news_brief._now() - timedelta(hours=1))
     wait = news_brief.seconds_until_due()
     assert 5 * 3600 - 60 < wait <= 5 * 3600
     state = json.loads((news_brief.BRIEFS_ROOT / "_refresh_state.json").read_text())
     assert state["last_refresh_at"]
 
-    monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
+    # Back to manual: a stored choice beats the env default either way.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "manual")
     assert news_brief.next_refresh_at() is None
     assert news_brief.refresh_status()["next_refresh_at"] is None
+    assert news_brief.refresh_cadence() == "manual"
 
 
-def test_refresh_loop_needs_an_interval_and_an_engine(monkeypatch):
+def test_refresh_loop_needs_an_engine_but_runs_on_manual(monkeypatch):
     """The gate asks ai_engine, not the Claude CLI: a Gemini key with no CLI
-    installed must still start the loop."""
+    installed must still start the loop. Manual still starts the thread, so
+    moving the bar back to a cadence works without restarting the server;
+    the thread only sleeps."""
     monkeypatch.setattr(news_brief, "_LOOP_STARTED", False)
     monkeypatch.setattr(news_brief, "_refresh_loop", lambda: None)
     monkeypatch.setattr(news_brief.ai_engine, "available", lambda: False)
@@ -470,9 +483,6 @@ def test_refresh_loop_needs_an_interval_and_an_engine(monkeypatch):
 
     monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
     monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
-    assert news_brief.start_refresh_loop() is False
-
-    monkeypatch.delenv("BSH_NEWS_BRIEF_REFRESH_HOURS")
     assert news_brief.start_refresh_loop() is True
     assert news_brief.start_refresh_loop() is False, "idempotent"
 
@@ -568,6 +578,8 @@ def test_a_refresh_that_wrote_nothing_does_not_buy_a_full_interval(monkeypatch):
     """One bad window (expired key, model outage) must not leave every story
     on the no-AI fallback for the whole refresh interval with nothing
     retrying — that is what marking the clock before the work did."""
+    # Origin makes the default cadence manual; the clock only exists on a bar.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
     monkeypatch.setattr(
         news_brief.ai_engine,
         "structured",
@@ -587,6 +599,8 @@ def test_a_refresh_that_wrote_nothing_does_not_buy_a_full_interval(monkeypatch):
 
 
 def test_a_refresh_that_wrote_something_resets_the_clock(stub_claude, monkeypatch):
+    # Origin makes the default cadence manual; the clock only exists on a bar.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
     monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
     news_brief.start_refresh(
         items=[{"title": "Story A"}, {"title": "Story B"}], background=False

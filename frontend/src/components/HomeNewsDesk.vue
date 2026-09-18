@@ -15,7 +15,9 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import WarrenMark from "./WarrenMark.vue";
+import AutoUpdateBar from "./AutoUpdateBar.vue";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import {
@@ -116,6 +118,7 @@ watch(appLanguage, () => {
 });
 
 onMounted(loadRefreshStatus);
+onMounted(loadAutoUpdate);
 onBeforeUnmount(() => {
   if (refreshPollTimer) clearTimeout(refreshPollTimer);
   refreshPollTimer = null;
@@ -203,6 +206,23 @@ function recordTape(list) {
     .catch(() => {});
 }
 
+const autoUpdate = ref(null);
+
+async function loadAutoUpdate() {
+  try {
+    const payload = await api.getAutoUpdates();
+    autoUpdate.value =
+      (payload.channels || []).find((row) => row.id === "news_brief") || null;
+  } catch {
+    autoUpdate.value = null;
+  }
+}
+
+function onCadenceSaved(channel) {
+  autoUpdate.value = channel;
+  loadRefreshStatus();
+}
+
 async function loadRefreshStatus() {
   try {
     refreshStatus.value = await api.newsBriefRefreshStatus();
@@ -228,8 +248,15 @@ async function refreshAllBriefs() {
   if (refreshStarting.value || refreshStatus.value?.running) return;
   const items = tapeItems(assembled.value);
   if (!items.length) return;
-  const hours = refreshStatus.value?.interval_hours || 6;
-  if (!window.confirm(t("news.refresh_all_confirm", { n: items.length, hours }))) return;
+  // 0 hours means the bar is on Manual: say so rather than promising a
+  // schedule that will never run.
+  const hours = Number(refreshStatus.value?.interval_hours) || 0;
+  const schedule =
+    hours > 0
+      ? t("news.refresh_all_schedule_on", { hours })
+      : t("news.refresh_all_schedule_off");
+  const detail = `${t("news.refresh_all_confirm", { n: items.length })} ${schedule}`;
+  if (!confirmTokenSpend(detail)) return;
   refreshStarting.value = true;
   try {
     refreshStatus.value = await api.startNewsBriefRefresh({ items, limit: REFRESH_TOP_N });
@@ -287,7 +314,7 @@ async function openBriefing(row) {
 async function regenerateBrief() {
   const row = selected.value;
   if (!row?.title || briefLoading.value) return;
-  if (!window.confirm(t("news.regenerate_confirm"))) return;
+  if (!confirmTokenSpend(t("news.regenerate_confirm"))) return;
   const requestId = ++briefRequestId;
   briefLoading.value = true;
   briefError.value = "";
@@ -467,6 +494,13 @@ const refreshLabel = computed(() => {
       </div>
     </div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <AutoUpdateBar
+        v-if="autoUpdate"
+        channel-id="news_brief"
+        :channel="autoUpdate"
+        compact
+        @updated="onCadenceSaved"
+      />
       <p class="text-caption1 text-ink-muted">{{ refreshLabel }}</p>
       <button
         type="button"

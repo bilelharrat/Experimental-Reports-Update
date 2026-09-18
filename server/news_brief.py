@@ -38,7 +38,7 @@ from pathlib import Path
 
 import httpx
 
-from server import ai_engine
+from server import ai_engine, auto_update
 from server.link_preview import HEADERS, extract_text_from_html
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,8 @@ ARTICLE_MAX_CHARS = 12_000
 DEFAULT_MODEL = "sonnet"
 DEFAULT_EFFORT = "medium"
 # Scheduled refresh: how often, and how many top-of-tape headlines.
+# The cadence itself lives in server.auto_update (the shared bar).
+AUTO_UPDATE_CHANNEL = "news_brief"
 REFRESH_INTERVAL_HOURS_DEFAULT = 6.0
 REFRESH_LIMIT_DEFAULT = 16
 REFRESH_LIMIT_MAX = 24
@@ -232,16 +234,17 @@ def write_on_open() -> bool:
 
 
 def refresh_interval_hours() -> float:
-    """Hours between scheduled refreshes (``BSH_NEWS_BRIEF_REFRESH_HOURS``).
+    """Hours between scheduled refreshes, from the auto-update bar.
 
-    ``0`` turns the schedule off; users can still start a refresh."""
-    raw = str(os.environ.get("BSH_NEWS_BRIEF_REFRESH_HOURS") or "").strip()
-    if not raw:
-        return REFRESH_INTERVAL_HOURS_DEFAULT
-    try:
-        return max(0.0, float(raw))
-    except ValueError:
-        return REFRESH_INTERVAL_HOURS_DEFAULT
+    The stored choice wins; ``BSH_NEWS_BRIEF_REFRESH_HOURS`` is only the
+    default until someone picks one. ``0`` (manual) turns the schedule
+    off; users can still start a refresh by hand."""
+    return auto_update.interval_hours(AUTO_UPDATE_CHANNEL)
+
+
+def refresh_cadence() -> str:
+    """Which segment of the auto-update bar is lit."""
+    return auto_update.cadence(AUTO_UPDATE_CHANNEL)
 
 
 def refresh_limit(requested: int | None = None) -> int:
@@ -896,12 +899,15 @@ def last_refresh_at() -> datetime | None:
 
 
 def next_refresh_at() -> datetime | None:
-    """When the schedule next writes briefings; None when it is off."""
+    """When the schedule next writes briefings; None when it is manual.
+
+    A server that has never refreshed waits a full interval rather than
+    firing at startup — restarting must not cost tokens."""
     hours = refresh_interval_hours()
     if hours <= 0:
         return None
     last = last_refresh_at()
-    return _now() if last is None else last + timedelta(hours=hours)
+    return (last or _now()) + timedelta(hours=hours)
 
 
 def seconds_until_due() -> float | None:
@@ -920,6 +926,8 @@ def refresh_status() -> dict:
         "last_refresh_at": _iso(last) if last else None,
         "next_refresh_at": _iso(due) if due else None,
         "interval_hours": refresh_interval_hours(),
+        "cadence": refresh_cadence(),
+        "cadence_choices": list(auto_update.CADENCES),
         "limit": refresh_limit(),
         "model": brief_model(),
         "effort": brief_effort(),
@@ -1013,10 +1021,22 @@ def _run_refresh(plan: list[dict]) -> None:
         _notify("AI briefs ready", f"{written} headline briefs refreshed", {"count": written})
 
 
+def start_clock_if_unset() -> None:
+    """Stamp the clock the first time the loop sees this install.
+
+    Without it a fresh server counts as "never refreshed" and would spend
+    the moment it boots."""
+    if last_refresh_at() is None:
+        _mark_refreshed()
+
+
 def _refresh_loop() -> None:
+    start_clock_if_unset()
     while True:
         wait: float | None = None
         try:
+            # Re-read every tick, so moving the bar takes effect without
+            # a restart, in both directions.
             wait = seconds_until_due()
             if wait is not None and wait <= 0:
                 start_refresh(reason="scheduled", background=False)
@@ -1024,7 +1044,7 @@ def _refresh_loop() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("news brief scheduled refresh failed")
         if wait is None or wait <= 0:
-            # Schedule off, nothing recorded yet, or an error: check again later.
+            # Manual, or an error: look again later in case the bar moved.
             time.sleep(REFRESH_CHECK_SECONDS)
         else:
             time.sleep(max(30.0, min(float(REFRESH_CHECK_SECONDS), wait)))
@@ -1033,13 +1053,13 @@ def _refresh_loop() -> None:
 def start_refresh_loop() -> bool:
     """Start the scheduled refresh (FastAPI startup hook). Idempotent.
 
-    Off when ``BSH_NEWS_BRIEF_REFRESH_HOURS=0`` or no engine can run. This
-    asks ``ai_engine``, not the Claude CLI: with a Gemini key and no CLI
-    installed the loop must still start.
-    A server that never refreshed is due at once, but writes nothing until
-    a client has recorded the tape."""
+    The loop runs even on ``manual``, so switching the bar to a cadence
+    takes effect without restarting the server; on ``manual`` it only
+    sleeps. It writes nothing until a client has recorded the tape. The
+    gate asks ``ai_engine``, not the Claude CLI: with a Gemini key and no
+    CLI installed the loop must still start."""
     global _LOOP_STARTED
-    if refresh_interval_hours() <= 0 or not ai_engine.available():
+    if not ai_engine.available():
         return False
     with _LOOP_LOCK:
         if _LOOP_STARTED:
@@ -1093,3 +1113,6 @@ def reset_state_for_tests() -> None:
         _PLANNED_KEYS.clear()
     with _INFLIGHT_LOCK:
         _INFLIGHT.clear()
+
+
+auto_update.register_clock(AUTO_UPDATE_CHANNEL, last_refresh_at)

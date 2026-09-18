@@ -639,6 +639,7 @@ struct NewsDetailView: View {
     let item: NewsItem
     @EnvironmentObject private var language: LanguageStore
     @StateObject private var model: NewsDetailViewModel
+    @State private var confirmRegenerate = false
 
     init(item: NewsItem) {
         self.item = item
@@ -679,7 +680,9 @@ struct NewsDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
-                        Task { await model.generate(lang: language.language, refresh: true) }
+                        // Rewriting a briefing is a paid Claude call, so it
+                        // asks first (owner policy 2026-09-15).
+                        confirmRegenerate = true
                     } label: {
                         Label(language.t("news.regenerate"), systemImage: "arrow.clockwise")
                     }
@@ -693,6 +696,16 @@ struct NewsDetailView: View {
             }
         }
         .task { await model.open(lang: language.language) }
+        .confirmationDialog(
+            language.t("tokens.confirm"),
+            isPresented: $confirmRegenerate,
+            titleVisibility: .visible
+        ) {
+            Button(language.t("tokens.confirm_continue")) {
+                Task { await model.generate(lang: language.language, refresh: true) }
+            }
+            Button(language.t("common.cancel"), role: .cancel) {}
+        }
     }
 
     // MARK: Pieces

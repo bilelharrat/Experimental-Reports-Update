@@ -127,12 +127,12 @@ def test_analysis_pass_prompt_carries_recent_news(tmp_path, monkeypatch):
         research_dir=research,
     )
     claude_runner.run_memo_fast_analysis_pass(**kwargs)
-    assert "## Recent tracked news" in captured["prompt"]
-    assert "Series C" in captured["prompt"]
+    assert "## Recent tracked news" in captured["append_system_prompt"]
+    assert "Series C" in captured["append_system_prompt"]
     captured.clear()
     kwargs["research_dir"] = tmp_path / "research" / "other-co"
     claude_runner.run_memo_fast_analysis_pass(**kwargs)
-    assert "Recent tracked news" not in captured["prompt"]
+    assert "Recent tracked news" not in captured["append_system_prompt"]
 
 
 def test_spine_prompt_carries_recent_news_kwarg(tmp_path, monkeypatch):

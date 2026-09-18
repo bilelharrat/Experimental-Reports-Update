@@ -118,18 +118,16 @@ GOLDEN_TITLE_WORDS = {
     "financial forecast and valuation": "financial_forecast_valuation",
 }
 
+# Phase 2 merged the pairs that read one evidence base, so each section
+# now waits on fewer, broader passes for the same coverage.
 GOLDEN_PASS_AFFINITY = {
-    "company_overview": frozenset(
-        {"deployment_behavior", "gtm_operating_burden"}
-    ),
-    "investment_highlights": frozenset(
-        {"replacement_coexistence", "competitive_rights"}
-    ),
+    "company_overview": frozenset({"adoption_distribution"}),
+    "investment_highlights": frozenset({"competitive_position"}),
     "investment_risk": frozenset(
-        {"alternative_explanations", "competitive_rights"}
+        {"alternative_explanations", "competitive_position"}
     ),
     "financial_forecast_valuation": frozenset(
-        {"arithmetic_denominators", "time_base", "growth_bridge"}
+        {"numbers_integrity", "growth_bridge"}
     ),
 }
 

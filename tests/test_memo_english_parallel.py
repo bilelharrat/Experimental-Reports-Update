@@ -218,6 +218,53 @@ def test_error_mapping_by_quality_gate_context():
     )
 
 
+def test_remediation_advice_never_decides_the_section(monkeypatch):
+    """A finding's coaching tail must not route the repair.
+
+    Live run 2026-09-16: the gate flagged a paragraph in "valuation,
+    returns & exit" and closed with "...named terms, plain risks." The id
+    scan saw "risks", sent the repair to the wrong section, and the repair
+    introduced a second violation there. Two package attempts (8.7m and
+    1.2m) died on the same untouched paragraph.
+    """
+    from server import memo_structure
+
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    # the compact profile the live run used: `valuation_returns`, whose
+    # rendered title is "valuation, returns & exit"
+    structure = memo_structure.active_structure("late", "compact")
+    package = {
+        "sections": [{"id": sid, "blocks": []} for sid in structure.section_ids]
+    }
+    error = (
+        "quality gate sell_side_voice_violation at paragraph 91 "
+        '(v. valuation, returns & exit): "...tilted upward: the bear case '
+        "loses more than half the capital while the bull returns five "
+        "times, so position size matters more than the point estimate. "
+        'Sources: S1, S4, S8" — Rewrite buyer-side, detached, '
+        "treatment-speak, or stock participation slogans as LP co-invest "
+        "English: firm as subject, named terms, plain risks."
+    )
+    assert (
+        claude_runner._section_for_validation_error(package, error, structure)
+        == "valuation_returns"
+    )
+
+
+def test_error_location_stops_at_the_quote_or_the_advice():
+    assert claude_runner._error_location(
+        'gate x at paragraph 9 (vi. risks): "quoted" — advice'
+    ) == "gate x at paragraph 9 (vi. risks): "
+    assert claude_runner._error_location(
+        "gate x at paragraph 9 (vi. risks) — advice about risks"
+    ) == "gate x at paragraph 9 (vi. risks) "
+    # nothing to cut: the whole error locates the defect
+    assert (
+        claude_runner._error_location("missing required section company_overview")
+        == "missing required section company_overview"
+    )
+
+
 def test_error_mapping_by_snippet_search():
     package = _sample_package()
     error = (
@@ -704,6 +751,32 @@ def test_stale_spine_format_forces_full_pass(tmp_path, monkeypatch):
     assert sorted(section_calls) == sorted(claude_runner.MEMO_PACKAGE_SECTION_IDS)
 
 
+def _write_spine_pieces(run_dir, payload, structure=None):
+    """Lay a spine payload out as the per-part files the agent would write.
+
+    Uses the production piece plan, so a test can never disagree with it
+    about which key belongs in which file.
+    """
+    import json as _json
+
+    from server import memo_structure as _ms
+
+    structure = structure or _ms.LATE
+    schema = claude_runner.memo_fast_english_spine_schema(structure)
+    plan = claude_runner._spine_piece_plan(run_dir, schema)
+    for _stem, target, keys, _required, _what, path in plan:
+        bucket = payload.get(target, {}) if target else payload
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            _json.dumps(
+                {key: bucket[key] for key in keys if key in bucket},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    return plan
+
+
 def test_parallel_prompts_share_common_system_prefix(tmp_path, monkeypatch):
     """The shared context must ride --append-system-prompt byte-identically
     on every phase-3 call, and the five section prompts must share their
@@ -715,6 +788,10 @@ def test_parallel_prompts_share_common_system_prefix(tmp_path, monkeypatch):
     def fake_artifact_runner(**kw):
         captured.append(kw)
         schema = kw["schema"]
+        if schema is claude_runner._MEMO_SPINE_MANIFEST_SCHEMA:
+            # the spine delivers its parts as files and returns a receipt
+            _write_spine_pieces(kwargs["run_dir"], _spine_result())
+            return {"pieces": []}, None
         if schema is claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA:
             return _spine_result(), None
         if schema is claude_runner.MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA:

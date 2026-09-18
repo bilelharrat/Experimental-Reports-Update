@@ -63,6 +63,7 @@
 		4C107AB88398DCBE26DE5FE3 /* WatchQuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA93B6873CB36F0E79C69B07 /* WatchQuoteModels.swift */; };
 		519439E98EB34C406D23210D /* BSHBrandMarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F492C4593A13D11E6ACEBD7 /* BSHBrandMarkTests.swift */; };
 		5383F3D0F3A57179F1AC4659 /* AskMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F9D1C463DA63C92CD758CF7 /* AskMark.swift */; };
+		539EDAD1F8D79067DB06A843 /* WelcomeTourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6A937B8B9C0F26F8E0DBE5 /* WelcomeTourView.swift */; };
 		569C6D7AD70E792B59D0C9FB /* MacFirmViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACFE61385D265F08137AB9D /* MacFirmViews.swift */; };
 		56C3BB8190D9F3183781DBB8 /* MacMemoWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2311FBF8D2F3D472AD0A3317 /* MacMemoWindowView.swift */; };
 		5890641482B63D309EEEF7DF /* TraderCardsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F60455E0F9114FD10C1AEC2 /* TraderCardsSection.swift */; };
@@ -105,6 +106,7 @@
 		9E983E57F9D352811AB36C42 /* QuoteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9553387E265F7A1D910BD662 /* QuoteDetailView.swift */; };
 		9EB7640BDAD32349D204B423 /* CompanyResearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7C6EC37E01F28EC550231E /* CompanyResearchView.swift */; };
 		9FB4BD75E89DC6ECA5A92478 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */; };
+		A0246D1C019CF2736F9D8665 /* MacTokenConfirm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */; };
 		A1A1D9DAA73991B30036D26D /* MacDocumentsDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69635BAD109B69CE344E47E2 /* MacDocumentsDeskView.swift */; };
 		A22CD255BD3BB3AA2E7850B1 /* BSHBrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB9B4E4D5E8B378533A6900 /* BSHBrandMark.swift */; };
 		A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */; };
@@ -115,6 +117,7 @@
 		AB61C94F72046809A0284472 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344177AD4528799F2FC1EECD /* TokenStore.swift */; };
 		AC622C9EE8F8ADFA318EF327 /* ResearchDecisionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E9B1FF4BDE40AFF2C086D76 /* ResearchDecisionViews.swift */; };
 		AF50A47647D70FF02CA741F7 /* ResearchDeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7D2EF4DFDF255D269F0CEA /* ResearchDeskModels.swift */; };
+		B1D32A9BD8761122D5925F0A /* MacWelcomeTourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */; };
 		B2369B410AC0244E09DED4D8 /* WatchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ACCD950976A076053A4551E /* WatchConfig.swift */; };
 		B2D8E603AFDDEA60007C15AA /* WatchAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63EA08DF3486A620CDBF452 /* WatchAPIClient.swift */; };
 		B3D12B69477AC3A139CB3CB4 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC38D76A608A00A8ECCAE939 /* QuickLook.framework */; };
@@ -142,6 +145,7 @@
 		D6125342CADF8A7700D8D3A0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414F46B2F3261F6900061B30 /* APIClient.swift */; };
 		D89AF766760E3740856D8358 /* ChangeBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */; };
 		D9D256FC7CA523AA3A39BB11 /* QuoteFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */; };
+		DA1C3F1D8C5078F1896CF7B1 /* WelcomeTourStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241CBB665610B3463EB1965C /* WelcomeTourStore.swift */; };
 		DB9FEC95A8953D40411D066D /* BSHResearchWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DC1AB5C814FAAE9CF924EC8F /* ReportsDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADDC85393E96A7748546C23 /* ReportsDeskView.swift */; };
 		DD7BF8F7B12DA04A055547D2 /* MacGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148276F1C5703DDBD890DD06 /* MacGlassStyles.swift */; };
@@ -161,6 +165,7 @@
 		E72EF46533FD107F18DCD4E7 /* MacMemoStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC9B6657988CA273C4DF6D7 /* MacMemoStudioView.swift */; };
 		E95A9D04B486827C226F2BEA /* WarrenMarkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF7B8BEA465E8B91B6711D0 /* WarrenMarkView.swift */; };
 		EA3FB45F15C16892D3D13004 /* ResearchDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BCEA04C3226EECAF3BFD92 /* ResearchDeskView.swift */; };
+		F020AAD1DEB77ECDE01533E1 /* WelcomeTourTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89013555D0D08065E8C0F3 /* WelcomeTourTests.swift */; };
 		F0B6B4D167F325AF10110CE3 /* MacCopilotSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1A713C68C3867444DCDCB6 /* MacCopilotSidePanel.swift */; };
 		F0D8904C88C5FBBD7CB6D1EE /* MacPortfolioDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8098655118A26868F635652D /* MacPortfolioDeskView.swift */; };
 		F2A54837918DA6F5F66A9121 /* ConsoleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D57C896463B0B354F848C7 /* ConsoleViews.swift */; };
@@ -263,10 +268,12 @@
 		1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPaperDeskReader.swift; sourceTree = "<group>"; };
 		1C02EDE9D932BED155D3318D /* MacConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConfig.swift; sourceTree = "<group>"; };
 		1E28AD281E47530C914DB183 /* BSHResearchWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchWatch.entitlements; sourceTree = "<group>"; };
+		1E6A937B8B9C0F26F8E0DBE5 /* WelcomeTourView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeTourView.swift; sourceTree = "<group>"; };
 		21106F947DF58D75E026B73A /* AlertsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsView.swift; sourceTree = "<group>"; };
 		216EBC6B3A9FB1B90F79C1B1 /* MacCapTableSimulatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCapTableSimulatorView.swift; sourceTree = "<group>"; };
 		22F3A85B88B55AF00BB35F9D /* MacThesisTrackerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacThesisTrackerView.swift; sourceTree = "<group>"; };
 		2311FBF8D2F3D472AD0A3317 /* MacMemoWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMemoWindowView.swift; sourceTree = "<group>"; };
+		241CBB665610B3463EB1965C /* WelcomeTourStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeTourStore.swift; sourceTree = "<group>"; };
 		25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactPageHeader.swift; sourceTree = "<group>"; };
 		268CF0D8CD662D0200D06372 /* DeskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModels.swift; sourceTree = "<group>"; };
 		26B6E410AB0E70844F917AB5 /* MacResearchDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacResearchDeskView.swift; sourceTree = "<group>"; };
@@ -297,9 +304,11 @@
 		47F358126BA591FC21DD698C /* MacBatchEViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBatchEViews.swift; sourceTree = "<group>"; };
 		48B60F4E120240659821A2DE /* MacPortfolioModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPortfolioModels.swift; sourceTree = "<group>"; };
 		48EDA3B79E0F262273FCC6AF /* AppGroupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupStore.swift; sourceTree = "<group>"; };
+		4B89013555D0D08065E8C0F3 /* WelcomeTourTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeTourTests.swift; sourceTree = "<group>"; };
 		4BD2400F66E6BD3272450D48 /* BSHResearchMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchMacApp.swift; sourceTree = "<group>"; };
 		4D8E50635CC5BB34ABD58AF1 /* PositionsEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsEditorView.swift; sourceTree = "<group>"; };
 		4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoPaperDocumentView.swift; sourceTree = "<group>"; };
+		4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWelcomeTourView.swift; sourceTree = "<group>"; };
 		50F8EB6E62001F20BDA552D1 /* MacVCRatiosBlotterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVCRatiosBlotterView.swift; sourceTree = "<group>"; };
 		54E6B7ABCA3736771C303BE8 /* MacReportCustomizerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacReportCustomizerSheet.swift; sourceTree = "<group>"; };
 		55EB68FEA12743F730B3EF27 /* MacThesisEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacThesisEditor.swift; sourceTree = "<group>"; };
@@ -340,6 +349,7 @@
 		8A32C443582FA463A85940FC /* MacQuoteInsightViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQuoteInsightViews.swift; sourceTree = "<group>"; };
 		8ACFE61385D265F08137AB9D /* MacFirmViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFirmViews.swift; sourceTree = "<group>"; };
 		8BF8AA313E4F698A11434B62 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTokenConfirm.swift; sourceTree = "<group>"; };
 		8E1A713C68C3867444DCDCB6 /* MacCopilotSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCopilotSidePanel.swift; sourceTree = "<group>"; };
 		8F492C4593A13D11E6ACEBD7 /* BSHBrandMarkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHBrandMarkTests.swift; sourceTree = "<group>"; };
 		8FB5F0B02965FC29549E1F40 /* ReportsDeskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsDeskTests.swift; sourceTree = "<group>"; };
@@ -475,6 +485,7 @@
 				A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */,
 				8FB5F0B02965FC29549E1F40 /* ReportsDeskTests.swift */,
 				2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */,
+				4B89013555D0D08065E8C0F3 /* WelcomeTourTests.swift */,
 			);
 			path = BSHResearchTests;
 			sourceTree = "<group>";
@@ -523,6 +534,7 @@
 				A4AB1C9482182295529EAEFB /* ReportAnnotationCanvas.swift */,
 				EF88DF1533A8A6075B286615 /* ShareSheet.swift */,
 				60828A495176E99CFDC8B47D /* SparklineView.swift */,
+				1E6A937B8B9C0F26F8E0DBE5 /* WelcomeTourView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -665,6 +677,7 @@
 				22F3A85B88B55AF00BB35F9D /* MacThesisTrackerView.swift */,
 				CBDA5E4C41054BC65EB01BAF /* MacTickerTapeView.swift */,
 				50F8EB6E62001F20BDA552D1 /* MacVCRatiosBlotterView.swift */,
+				4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */,
 				BDF7B8BEA465E8B91B6711D0 /* WarrenMarkView.swift */,
 			);
 			path = Views;
@@ -727,6 +740,7 @@
 				5EDF9ABEDD9285B51751E966 /* ResearchDeskStore.swift */,
 				A13C0FA2A87F5017ED39093F /* Stores.swift */,
 				97532D33F3B7F886867FD114 /* VoiceAskController.swift */,
+				241CBB665610B3463EB1965C /* WelcomeTourStore.swift */,
 			);
 			path = State;
 			sourceTree = "<group>";
@@ -843,6 +857,7 @@
 				56BBE64F3643670F998EE7F6 /* MacQuoteMath.swift */,
 				6069CAAF1B8D8942CE8CF6DE /* MacQuoteModels.swift */,
 				3785397A077E6363BECBCD6E /* MacRootView.swift */,
+				8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */,
 				8B84ABD3DAD08CD48713C5CE /* Views */,
 			);
 			path = BSHResearchMac;
@@ -1030,11 +1045,11 @@
 			projectRoot = "";
 			targets = (
 				F653D4FD11E76E8105D71D49 /* BSHResearch */,
-				CBA57C68A98EB019971FD426 /* BSHResearchWidgets */,
-				5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */,
-				1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */,
 				AD5AEF7CA446B92D83F74CD1 /* BSHResearchMac */,
 				351183CDFF349CE4E893A1DB /* BSHResearchTests */,
+				5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */,
+				1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */,
+				CBA57C68A98EB019971FD426 /* BSHResearchWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -1143,6 +1158,8 @@
 				5890641482B63D309EEEF7DF /* TraderCardsSection.swift in Sources */,
 				A78F0D284C2337AC8220AD97 /* TraderModels.swift in Sources */,
 				2DCB12F4BBC9FCB67E34709F /* VoiceAskController.swift in Sources */,
+				DA1C3F1D8C5078F1896CF7B1 /* WelcomeTourStore.swift in Sources */,
+				539EDAD1F8D79067DB06A843 /* WelcomeTourView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1158,6 +1175,7 @@
 				D9D256FC7CA523AA3A39BB11 /* QuoteFormatTests.swift in Sources */,
 				2238634E9507014EFEFC1F43 /* ReportsDeskTests.swift in Sources */,
 				A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */,
+				F020AAD1DEB77ECDE01533E1 /* WelcomeTourTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1233,7 +1251,9 @@
 				D3EEAC579B115E9375F6F0F3 /* MacThesisEditor.swift in Sources */,
 				2F4F22C7017113B2DA7AD767 /* MacThesisTrackerView.swift in Sources */,
 				BF1E45A0838EE4978674AA98 /* MacTickerTapeView.swift in Sources */,
+				A0246D1C019CF2736F9D8665 /* MacTokenConfirm.swift in Sources */,
 				67539ED53DFA60E4546DF623 /* MacVCRatiosBlotterView.swift in Sources */,
+				B1D32A9BD8761122D5925F0A /* MacWelcomeTourView.swift in Sources */,
 				E95A9D04B486827C226F2BEA /* WarrenMarkView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

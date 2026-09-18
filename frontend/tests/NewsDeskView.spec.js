@@ -177,7 +177,9 @@ describe("NewsDeskView", () => {
     await rewrite.trigger("click");
     await flushPromises();
     expect(confirm).toHaveBeenCalledTimes(2);
-    expect(confirm.mock.calls[0][0]).toContain("uses tokens");
+    expect(confirm.mock.calls[0][0]).toContain("cost tokens");
+    // A cadence is on, so the dialog may promise a schedule.
+    expect(confirm.mock.calls[0][0]).toContain("every 6 hours");
     expect(api.startNewsBriefRefresh).not.toHaveBeenCalled();
     expect(api.postNewsBrief.mock.calls.some(([body]) => body.refresh)).toBe(false);
 
@@ -187,6 +189,34 @@ describe("NewsDeskView", () => {
     expect(api.startNewsBriefRefresh).toHaveBeenCalledTimes(1);
     const [body] = api.startNewsBriefRefresh.mock.calls[0];
     expect(body.items[0].title).toBe("Fed holds rates as inflation cools");
+
+    confirm.mockRestore();
+    wrapper.unmount();
+  });
+
+  it("never promises an automatic refresh while the bar is on Manual", async () => {
+    api.newsBriefRefreshStatus.mockResolvedValue({
+      running: false,
+      cadence: "manual",
+      interval_hours: 0,
+      next_refresh_at: null,
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const wrapper = mountDesk();
+    await flushPromises();
+
+    const refreshAll = wrapper
+      .findAll("button")
+      .find((el) => el.text() === "Refresh AI briefs now");
+    await refreshAll.trigger("click");
+    await flushPromises();
+
+    const shown = confirm.mock.calls[0][0];
+    expect(shown).toContain("cost tokens");
+    expect(shown).toContain("Automatic refresh is off");
+    expect(shown).not.toContain("every 6 hours");
+    expect(shown).not.toContain("every 0 hours");
+    expect(api.startNewsBriefRefresh).not.toHaveBeenCalled();
 
     confirm.mockRestore();
     wrapper.unmount();

@@ -38,6 +38,7 @@ from . import (
     analytics_store,
     annotation_store,
     auth_store,
+    auto_update,
     cache,
     browser_archive,
     buffett_memo_analysis,
@@ -848,6 +849,10 @@ class GenerateRequest(BaseModel):
     # "claude" (default) or "gemini" — same pipeline, prompts, schemas,
     # validation and renderer either way; see server/memo_engine.py.
     engine: str | None = None
+    # Analysis-document ids the run may read. None (the default) means the
+    # whole research folder, which is what every run did before the
+    # customizer offered a choice.
+    evidence_files: list[str] | None = None
 
 
 class MemoPrepRequest(BaseModel):
@@ -1400,6 +1405,10 @@ def get_quote_chart(
 
 class DeskPrefsBody(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
+    # Optional precondition. Omitted entirely -> unconditional save; sent as
+    # null -> "the store was empty when I read it". The two differ, so the
+    # route reads model_fields_set rather than the value alone.
+    base_updated_at: str | None = None
 
 
 class AlertEventsBody(BaseModel):
@@ -1422,12 +1431,35 @@ def get_desk_prefs() -> dict:
 
 @router.put("/desk/prefs")
 def put_desk_prefs(request: Request, body: DeskPrefsBody) -> dict:
-    """Replace the desk prefs blob (frontend owns the key shape)."""
+    """Replace the desk prefs blob (frontend owns the key shape).
+
+    With ``base_updated_at`` the write is conditional: a base that no longer
+    matches the stored stamp is refused with 409 (carrying the current stamp)
+    so the caller re-pulls and merges instead of clobbering an edit made on
+    another device. Callers that omit it keep the unconditional save.
+    """
     _require_permission(request, "desk:write")
+    conditional = "base_updated_at" in body.model_fields_set
     try:
+        if conditional:
+            return desk_store.save_prefs(
+                body.data, expected_updated_at=body.base_updated_at
+            )
         return desk_store.save_prefs(body.data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except desk_store.PrefsConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "desk_prefs_conflict",
+                "updated_at": exc.current_updated_at,
+                "message": (
+                    "Desk prefs changed on another device since you loaded "
+                    "them. Re-pull and merge before saving."
+                ),
+            },
+        ) from exc
 
 
 @router.get("/alerts/events")
@@ -3666,6 +3698,40 @@ class TrackingSettingsBody(BaseModel):
     auto_apply: bool
 
 
+class AutoUpdateCadenceBody(BaseModel):
+    cadence: str
+
+
+@router.get("/auto-updates")
+def list_auto_updates() -> dict:
+    """Every background job that spends tokens, with its cadence bar.
+
+    One shape per channel: the five choices, the one in force, and when
+    it last ran / next runs."""
+    return {
+        "choices": list(auto_update.CADENCES),
+        "channels": auto_update.list_channels(),
+    }
+
+
+@router.put("/auto-updates/{channel_id}")
+def put_auto_update(
+    channel_id: str, request: Request, body: AutoUpdateCadenceBody
+) -> dict:
+    """Move one channel's bar. Takes effect without restarting the server."""
+    _require_permission(request, "tasks:action")
+    try:
+        return auto_update.set_cadence(
+            channel_id, body.cadence, updated_by=_caller_email(request)
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown auto-update channel: {channel_id}"
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 @router.get("/tracking/settings")
 def get_tracking_settings() -> dict:
     """Background sync schedule, models, and the auto-apply switch."""
@@ -4002,6 +4068,7 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 report_mode=payload.report_mode,
                 quality=payload.quality,
                 engine=payload.engine,
+                evidence_files=payload.evidence_files,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(

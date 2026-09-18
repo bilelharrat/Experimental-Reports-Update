@@ -150,7 +150,8 @@ def _spelled_row_count(count: int) -> str:
 # The {section_id} placeholder is filled with the structure's risk-role
 # section at check time, so the repair mapper can attribute the finding.
 _RISK_CARD_FORMAT_HINT = (
-    "section {section_id} must present risks as per-risk cards: 4-6 "
+    "section {section_id} must present risks as per-risk cards: "
+    "{card_range} "
     "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
     "followed by a `table` block with component 'risk_register', layout "
     "'key_value', headers [], and exactly {row_count} two-cell rows labeled "
@@ -750,11 +751,27 @@ def _section_en_word_count(section: dict) -> int:
     return words
 
 
+# How far over its target a section may run before the gate fires, when the
+# profile does not set a per-section multiple of its own.
+_BUDGET_GRACE = 1.10
+
+
 def _word_budget_errors(package: dict) -> list[str]:
-    """Generation-time gate for profiles that declare hard word ceilings
+    """Generation-time gate for profiles that declare word budgets
     (compact only). Prose budgets alone failed twice live (5.2K and
-    5.5K words against a 2.6-3.2K target); the ceiling is deterministic
-    so the retry loop can enforce it."""
+    5.5K words against a 2.6-3.2K target); the gate is deterministic so
+    the retry loop can enforce it.
+
+    `budget_words` is the SOFT target the writer aims at; the gate fires
+    only at `budget_words * budget_hard_multiple`. The two are separate
+    because a section that stops mid-argument to respect a word count is
+    worse than one that runs long: the point of the budget is to keep
+    commentary out, not to truncate an answer. The multiples are per
+    section (owner-set 2026-09-16) because a complete answer costs
+    different amounts in different sections — a risk register that has
+    genuinely found eight risks cannot be as short as a valuation
+    summary, hence risks at 2x against valuation_returns at 1.3x.
+    """
     sections = package.get("sections")
     if not isinstance(sections, list):
         return []
@@ -770,16 +787,22 @@ def _word_budget_errors(package: dict) -> list[str]:
         if section is None:
             continue
         count = _section_en_word_count(section)
-        # 5% grace: a marginal overshoot (618 vs 600 live) is not worth
-        # a full section re-emit; the gate is for real blowouts (1435
-        # vs 750 in the same run).
-        if count > sdef.budget_words * 1.05:
+        # Re-emitting a section has never reliably shortened one:
+        # company_team went 1358 -> 1187 -> 1018 against a 750-word target
+        # over three rounds on 2026-09-16. So the gate fires only at the
+        # hard cap, where the section is long enough to be worth the trim
+        # pass, and everything between the target and the cap is left alone.
+        hard_cap = sdef.budget_words * (
+            sdef.budget_hard_multiple or _BUDGET_GRACE
+        )
+        if count > hard_cap:
             errors.append(
                 f"section {sdef.id} runs {count} English words against its "
-                f"{sdef.budget_words}-word ceiling — this is the COMPACT "
-                "memo: cut commentary (one bullet per point, one clause per "
-                "judgment) until it fits; never cut pinned facts, "
-                "subsection headings, or the scorecard sentences"
+                f"{sdef.budget_words}-word target and its "
+                f"{int(hard_cap)}-word hard cap — this is the COMPACT memo: "
+                "cut commentary (one bullet per point, one clause per "
+                "judgment) until it is under the cap; never cut pinned "
+                "facts, subsection headings, or the scorecard sentences"
             )
     return errors
 
@@ -999,10 +1022,12 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             continue
         cards.append((heading_text, nxt, f"{risk_id} blocks[{index + 1}]"))
     row_count_word = _spelled_row_count(len(row_labels))
-    if not 4 <= len(cards) <= 6:
+    low, high = memo_structure.risk_count_bounds(structure)
+    if not low <= len(cards) <= high:
         errors.append(
             _RISK_CARD_FORMAT_HINT.format(
                 section_id=risk_id,
+                card_range=f"{low}-{high}",
                 row_count=row_count_word,
                 row_list=", ".join(
                     f"'{label}'" for _p, label in row_labels
@@ -1010,7 +1035,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             )
         )
         errors.append(
-            f"{risk_id}: risk register must contain 4-6 material "
+            f"{risk_id}: risk register must contain {low}-{high} material "
             f"risk cards, found {len(cards)}"
         )
         return errors

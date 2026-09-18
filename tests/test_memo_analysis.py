@@ -1043,7 +1043,11 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
     assert ("memo_internal_diligence", "skipped") in phases
     assert any(
         e.get("phase") == "memo_fast_parallel_analysis"
-        and e.get("worker_count") == memo_analysis._memo_fast_max_workers()
+        and e.get("worker_count")
+        == min(
+            memo_analysis._memo_fast_max_workers(),
+            len(memo_analysis._FAST_MEMO_PASSES),
+        )
         for e in phase_events
     )
     scanned = job_progress.scan_progress_state(memo_prep.stream_path(run_dir))
@@ -3168,7 +3172,7 @@ def test_phase3_retries_on_validation_failure_with_feedback(memo_env, monkeypatc
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3246,7 +3250,7 @@ def test_phase3_auto_repairs_mechanical_defects_without_burning_a_retry(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3346,7 +3350,7 @@ def test_phase3_surgical_structure_repair_rescues_exhausted_run(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3494,7 +3498,7 @@ def test_fast_pipeline_repairs_blank_zh_after_bilingual_merge(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3595,7 +3599,7 @@ def test_phase3_retries_on_quality_gate_finding(memo_env, monkeypatch):
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3664,7 +3668,7 @@ def test_phase3_surgical_quality_repair_avoids_regeneration(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3747,7 +3751,7 @@ def test_phase3_sectional_repair_replaces_whole_package_repair(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3856,7 +3860,7 @@ def test_phase2_launches_speculative_spine_and_threads_it_into_phase3(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -3943,7 +3947,7 @@ def test_phase3_threads_previous_attempt_into_parallel_retry(
 
     def fake_analysis_pass(**kwargs):
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": [],
             "supporting_evidence": [],
             "disconfirming_evidence": [],
@@ -4149,7 +4153,7 @@ def test_full_fast_pipeline_end_to_end_survives_adversarial_generation(
         if len(analysis_calls) % 2 == 0:
             return None, "simulated transport failure"
         return {
-            "summary": "s",
+            "summary": "A pass summary long enough to look like work.",
             "key_findings": ["finding"],
             "supporting_evidence": [],
             "disconfirming_evidence": [],

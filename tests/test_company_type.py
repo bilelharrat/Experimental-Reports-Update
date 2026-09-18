@@ -84,9 +84,9 @@ def test_compact_profile_uses_the_parent_stage_overlay():
 
 def test_type_without_overlay_keeps_stage_weights():
     base = memo_structure.load_structure("late", 2)
-    typed = memo_structure.load_structure("late", 2, "ai_infra")
+    typed = memo_structure.load_structure("late", 2, "other")
     assert typed.scorecard == base.scorecard
-    assert typed.company_type == "ai_infra"
+    assert typed.company_type == "other"
     # v1 (no scorecard) never gains one from a type file.
     v1 = memo_structure.load_structure("late", 1, "robotics")
     assert v1.scorecard == {}
@@ -95,7 +95,7 @@ def test_type_without_overlay_keeps_stage_weights():
 def test_active_structure_threads_the_type(monkeypatch):
     typed = memo_structure.active_structure("late", "full", "ai_foundation_model")
     assert typed.company_type == "ai_foundation_model"
-    assert typed.scorecard["moat"] == 17
+    assert typed.scorecard["moat"] == 18
     monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "0")
     assert memo_structure.active_structure("late", "full", "robotics") is (
         memo_structure.LATE
@@ -107,11 +107,11 @@ def test_active_structure_threads_the_type(monkeypatch):
 
 def test_research_focus_combines_all_and_pass_text():
     typed = memo_structure.load_structure("late", 2, "robotics")
-    focus = memo_structure.company_type_research_focus(typed, "deployment_behavior")
-    assert "announced partner -> pilot" in focus
+    focus = memo_structure.company_type_research_focus(typed, "adoption_distribution")
+    assert "paid on-site pilot" in focus
     assert "Deployment reality" in focus  # the `all` block rides every pass
-    generic = memo_structure.company_type_research_focus(typed, "time_base")
-    assert "Deployment reality" in generic and "announced partner" not in generic
+    generic = memo_structure.company_type_research_focus(typed, "growth_bridge")
+    assert "Deployment reality" in generic and "paid on-site pilot" not in generic
     untyped = memo_structure.load_structure("late", 2)
     assert memo_structure.company_type_research_focus(untyped, "market_sizing") == ""
 

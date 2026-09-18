@@ -14,7 +14,20 @@ Final memo prose must:
   scaffolding in the body;
 - make statements directly. Do not write about the memo as an object, do not
   narrate what the memo/document/section/analysis does, and do not use
-  writer-process language;
+  writer-process language. The phrases "this memo", "the memo", "our memo",
+  "this analysis", "the analysis", "our analysis", "this document" and "the
+  framework" must not appear anywhere in the finished text: not in prose, not
+  in a table header, not in a table cell. This holds even when the sentence
+  around them is good investment English. Name the investment instead of the
+  document that describes it:
+  - "it moves the denominator of every multiple in this memo" becomes "it
+    moves the denominator of every multiple we use";
+  - "the margin risk that carries this memo shrinks" becomes "the margin risk
+    that carries the investment case shrinks";
+  - "What the gap costs the analysis" (a table header) becomes "What the gap
+    costs us";
+  - "the analysis assumes 40% gross margins" becomes "we assume 40% gross
+    margins";
 - write in the LP co-invest register: a partner briefing LPs. Use the firm as
   a proper noun for mandate statements ("BSH invests in..." for the category
   the firm backs). State the instrument as deal English ("The SPV is a $10M

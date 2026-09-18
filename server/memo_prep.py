@@ -551,6 +551,7 @@ def bootstrap_memo_run(
     report_mode: str = "full",
     quality: str = "best",
     engine: str | None = None,
+    evidence_files: list[str] | None = None,
     trigger: str | None = None,
     auto_run_id: str | None = None,
 ) -> dict:
@@ -637,6 +638,9 @@ def bootstrap_memo_run(
         run_suffix="buffett-memo-run" if buffett else "memo-run",
     )
     stream = job_progress.ProgressLog(stream_path(run_dir))
+    # Pinned before any phase starts, so resume and every later phase read
+    # the same set of documents the analyst chose at launch.
+    claude_runner.write_memo_evidence_selection(run_dir, evidence_files)
     memo_paths = {
         "en": str(
             run_dir

@@ -183,6 +183,9 @@ def test_common_context_v1_unchanged_and_v2_appends(tmp_path):
 
 
 def test_section_worker_reads_v2_spec(tmp_path, monkeypatch):
+    # the section spec rides the shared prompt body either way; read it
+    # from the inline contract so this test asserts one thing
+    monkeypatch.setenv("BSH_MEMO_SECTION_HANDOFF", "off")
     captured = {}
 
     def fake_run(**kwargs):
@@ -255,6 +258,37 @@ def test_spine_prompt_lists_v2_sections(tmp_path, monkeypatch):
     assert "Twelve section" in prompt
     for section_id in V2_SECTION_IDS:
         assert f"`{section_id}`" in prompt
+    # With the spine handoff on, the CLI is handed a receipt schema and the
+    # real one is enforced server-side, so read the section list from the
+    # structure's schema rather than from the call.
+    notes = claude_runner.memo_fast_english_spine_schema(V2)["properties"][
+        "section_notes"
+    ]["properties"]
+    assert tuple(notes) == V2_SECTION_IDS
+
+
+def test_spine_prompt_lists_v2_sections_inline(tmp_path, monkeypatch):
+    """The same prompt, with the handoff turned off."""
+    monkeypatch.setenv("BSH_MEMO_SPINE_HANDOFF", "0")
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return {}, "stop here"
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_run
+    )
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=tmp_path,
+        company_name="Acme",
+        common_context="ctx",
+        add_dirs=[],
+        structure=V2,
+    )
+    assert "Return only the JSON matching the attached schema." in (
+        captured["prompt"]
+    )
     notes = captured["schema"]["properties"]["section_notes"]["properties"]
     assert tuple(notes) == V2_SECTION_IDS
 

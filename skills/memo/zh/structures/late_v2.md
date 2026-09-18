@@ -1,5 +1,5 @@
 ---
-en_sha256: 364c76275d03d3b4f78e775077b4f1089c0972cf3f6252747d47d0074d127dcb
+en_sha256: 6d4da8cf48fcd71c964cbcee267e36c6b422eed1d55b5489eb95e91d7bf42efe
 ---
 ---
 stage: late
@@ -85,7 +85,7 @@ subsections:
    概述句开篇，用公司名替换 "The case" —— 一小段话说明哪些维度支撑
    本案、哪些维度薄弱，并附各自分数（"Anthropic's case rests on market
    size and growth (14/15), industry position (13/15) and revenue
-   growth and quality (12/15); the weak points are business model and
+   growth and quality (12/15); it is thinnest on business model and
    unit economics (5/10) and valuation (6/10)."），之后可选地加一句
    说明这一格局意味着什么。然后是一个 `bullets` 块，带 `"component":
    "investment_highlights"`，且恰好三项，每项对应一条已钉定的亮点，
@@ -127,8 +127,7 @@ components:
 - deal_terms
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - company overview and stage
 - company overview
@@ -253,8 +252,7 @@ components:
 - key_operating_metrics
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - product, business model and unit economics
 - product and business model
@@ -315,8 +313,7 @@ components:
 - replacement_coexistence
 floor: {}
 pass_affinity:
-- replacement_coexistence
-- competitive_rights
+- competitive_position
 title_word_aliases: []
 subsections:
 - en: Industry map
@@ -366,8 +363,7 @@ components:
 - moat
 floor: {}
 pass_affinity:
-- competitive_rights
-- replacement_coexistence
+- competitive_position
 title_word_aliases:
 - moat and defensibility
 - moat
@@ -412,7 +408,7 @@ components:
 - growth_bridge
 floor: {}
 pass_affinity:
-- arithmetic_denominators
+- numbers_integrity
 - growth_bridge
 title_word_aliases: []
 subsections:
@@ -529,9 +525,8 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- time_base
-- arithmetic_denominators
-- valuation_comps
+- numbers_integrity
+- valuation_exit
 title_word_aliases:
 - valuation analysis
 - valuation
@@ -593,10 +588,9 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- arithmetic_denominators
-- time_base
+- numbers_integrity
 - growth_bridge
-- exit_paths
+- valuation_exit
 title_word_aliases:
 - return and exit analysis
 - return analysis
@@ -664,7 +658,7 @@ floor:
   bullets_or_prose: true
 pass_affinity:
 - alternative_explanations
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - investment risk
 - risk analysis
