@@ -1902,6 +1902,27 @@ def test_a_source_classed_under_the_analysis_passes_word_for_it_is_completed():
     ] == []
 
 
+def test_a_source_typed_rather_than_classed_is_completed():
+    """Six sources arrived as {"type": "corporate_filing", "publisher": ...,
+    "key_points": ...} with neither class nor treatment (Koch, third rerun)."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[{"id": "S1", "title": "Corporate registry", "as_of": "2026-09-18",
+                  "url": "https://www.kochinc.com", "type": "corporate_filing",
+                  "publisher": "Koch, Inc.", "key_points": "Founded 1940."}],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    source = repaired["sources"][0]
+    assert source["class"] == "corporate filing"
+    assert source["treatment"]["en"] == "Weighted as corporate filing."
+    assert "type" not in source
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []
+
+
 def test_an_untyped_component_block_with_prose_under_content_becomes_a_titled_paragraph():
     """Nine valuation blocks arrived as {"slug", "text": <title>, "content":
     <prose>} with no type: the component unrecognised, the prose invisible."""

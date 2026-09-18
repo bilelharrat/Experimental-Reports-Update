@@ -250,6 +250,11 @@ _SOURCE_KEY_SYNONYMS = {
     "source_class": "class",
     "evidence_class": "class",
     "source_type": "class",
+    # A source's type IS its class ("corporate_filing",
+    # "third_party_analyst_estimate"); six sources arrived with nothing else.
+    "type": "class",
+    "category": "class",
+    "kind": "class",
     "detail": "treatment",
     "name": "title",
 }
