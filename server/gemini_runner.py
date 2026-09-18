@@ -106,6 +106,9 @@ def _loads_object(text: str) -> tuple[dict | None, str | None]:
     stripped = _strip_stray_tokens(text)
     if stripped is not None:
         candidates.append(stripped)
+    closed = _close_dropped_brackets(text)
+    if closed is not None:
+        candidates.append(closed)
     for candidate in candidates:
         try:
             parsed = json.loads(candidate, strict=False)
@@ -157,6 +160,65 @@ def _strip_stray_tokens(text: str, *, limit: int = 25) -> str | None:
                 changed = True
                 continue
             return text if changed else None
+    return text if changed else None
+
+
+def _innermost_open(text: str, end: int) -> str | None:
+    """The unclosed container — ``[`` or ``{`` — the decoder is inside at
+    ``end``. String-aware, so brackets inside values never count."""
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in text[:end]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            stack.append(ch)
+        elif ch in "]}" and stack:
+            stack.pop()
+    return stack[-1] if stack else None
+
+
+def _close_dropped_brackets(text: str, *, limit: int = 25) -> str | None:
+    """Restore a closing bracket the model dropped mid-document.
+
+    A 26KB risk section (Koch, Inc., 2026-09-18) closed a table block with
+    ``}`` while its ``rows`` array was still open — one ``]`` short, every
+    other bracket in the document balanced — and the whole section was lost
+    to it; the structure-repair pass of the same run dropped a ``}`` the
+    same way. The decoder points at the exact spot: it reports "Expecting
+    ',' delimiter" at a closer of the wrong kind for the innermost open
+    container. Inserting the closer it was owed there is the only edit
+    made, and nothing inside a string ever qualifies. A document that
+    simply ends early is not this shape and is left to the output-limit
+    handling. Returns the repaired text, or None if nothing of that shape
+    sits at the failure position.
+    """
+    changed = False
+    for _ in range(limit):
+        try:
+            json.loads(text, strict=False)
+            return text if changed else None
+        except json.JSONDecodeError as exc:
+            if exc.msg != "Expecting ',' delimiter" or exc.pos >= len(text):
+                return text if changed else None
+            found = text[exc.pos]
+            open_kind = _innermost_open(text, exc.pos)
+            if found == "}" and open_kind == "[":
+                text = text[: exc.pos] + "]" + text[exc.pos :]
+            elif found == "]" and open_kind == "{":
+                text = text[: exc.pos] + "}" + text[exc.pos :]
+            else:
+                return text if changed else None
+            changed = True
     return text if changed else None
 
 

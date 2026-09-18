@@ -7328,6 +7328,12 @@ def run_memo_fast_english_package_parallel(
     # any other structure has no monolithic twin, so degrading to it would
     # silently ship the wrong report shape.
     monolithic_ok = structure.meta() == memo_structure.LATE.meta()
+    # On Gemini the monolithic pass is not a fallback: one response cannot
+    # carry the memo (~2,700 words against the ~12,200 the wave writes), so
+    # a failed spine or section gets a second sample instead, and if that
+    # fails too the run stops and says so rather than shipping a memo a
+    # quarter the length. Claude keeps its single attempt and its fallback.
+    gemini_run = memo_engine.run_engine(run_dir) == "gemini"
     if not _memo_english_parallel_enabled(run_dir):
         if pinned_spine_path is not None:
             return None, (
@@ -7373,6 +7379,12 @@ def run_memo_fast_english_package_parallel(
                 f"parallel English synthesis failed ({reason[:300]}); "
                 f"refusing the monolithic fallback because it cannot write "
                 f"the {structure.stage} v{structure.version} structure"
+            )
+        if gemini_run:
+            return None, (
+                f"parallel English synthesis failed ({reason[:300]}); the "
+                "monolithic fallback cannot carry a full memo in one Gemini "
+                "response, so it was not attempted — generate the memo again"
             )
         logger.warning(
             "parallel English package falling back to monolithic: %s", reason
@@ -7583,6 +7595,40 @@ def run_memo_fast_english_package_parallel(
                 **job,
             )
             _finish_row(row, phase_name, started, error=error, result=result)
+            if error and gemini_run:
+                # Nearly always sampling noise — a dropped bracket in 26KB
+                # of JSON — and there is no fallback behind it on Gemini.
+                if progress is not None:
+                    progress.emit(
+                        "stage",
+                        stage="memo_section_second_sample",
+                        message=(
+                            f"Section {section_id} failed "
+                            f"({str(error)[:200]}); drawing a second sample"
+                        ),
+                        section=section_id,
+                    )
+                retry_row = f"{row} (second sample)"
+                _plan_row(
+                    retry_row,
+                    3.07,
+                    f"Second sample of the {section_id} section",
+                )
+                started = _start_row(retry_row, phase_name)
+                result, error = _run_english_section(
+                    run_dir=run_dir,
+                    section_id=section_id,
+                    common_context=common_context,
+                    spine_path=spine_path,
+                    add_dirs=add_dirs,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                    structure=structure,
+                    **job,
+                )
+                _finish_row(
+                    retry_row, phase_name, started, error=error, result=result
+                )
             if error is None and isinstance(result, dict) and section_hook:
                 try:
                     section_hook(section_id, result["section"])
@@ -7994,27 +8040,47 @@ def run_memo_fast_english_package_parallel(
             3.01,
             "Pin the package envelope and shared facts",
         )
-        spine_row_started = _start_row(spine_label, "english_spine")
-        spine_result, spine_error = run_memo_fast_english_spine(
-            run_dir=run_dir,
-            company_name=company_name,
-            common_context=common_context,
-            add_dirs=add_dirs,
-            progress=progress,
-            timeout_sec=timeout_sec,
-            validation_feedback=validation_feedback,
-            fact_ledger=load_memo_fact_ledger(research_dir),
-            recent_news=load_memo_recent_news(research_dir),
-            decision_record=load_memo_decision_record(research_dir),
-            structure=structure,
-        )
-        _finish_row(
-            spine_label,
-            "english_spine",
-            spine_row_started,
-            error=spine_error,
-            result=spine_result if isinstance(spine_result, dict) else None,
-        )
+
+        def _spine_call(label: str):
+            row_started = _start_row(label, "english_spine")
+            result, error = run_memo_fast_english_spine(
+                run_dir=run_dir,
+                company_name=company_name,
+                common_context=common_context,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+                validation_feedback=validation_feedback,
+                fact_ledger=load_memo_fact_ledger(research_dir),
+                recent_news=load_memo_recent_news(research_dir),
+                decision_record=load_memo_decision_record(research_dir),
+                structure=structure,
+            )
+            _finish_row(
+                label,
+                "english_spine",
+                row_started,
+                error=error,
+                result=result if isinstance(result, dict) else None,
+            )
+            return result, error
+
+        spine_result, spine_error = _spine_call(spine_label)
+        if (spine_error or not isinstance(spine_result, dict)) and gemini_run:
+            # Same rule as the sections: a second sample before the run can
+            # fail, because on Gemini nothing stands behind the wave.
+            retry_label = f"{spine_label} (second sample)"
+            _plan_row(retry_label, 3.012, "Second sample of the spine")
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_spine_second_sample",
+                    message=(
+                        f"Spine failed ({str(spine_error)[:200]}); drawing "
+                        "a second sample"
+                    ),
+                )
+            spine_result, spine_error = _spine_call(retry_label)
     if spine_error or not isinstance(spine_result, dict):
         return _fallback(spine_error or "spine pass returned no data")
     skeleton = spine_result.get("package_skeleton")

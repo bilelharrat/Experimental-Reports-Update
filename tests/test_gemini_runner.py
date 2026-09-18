@@ -721,3 +721,61 @@ def test_the_stray_token_repair_never_touches_string_content(monkeypatch, key):
     untouchable — and a genuinely broken document still fails honestly."""
     assert gemini_runner._strip_stray_tokens('{"a": "x ] Feature ] y"}') is None
     assert gemini_runner._strip_stray_tokens('{"a": [1, 2') is None
+
+
+
+# ---- a dropped closing bracket ------------------------------------------------
+
+
+def test_a_dropped_closing_bracket_is_restored_from_the_decoder_position():
+    """Live (Koch, 2026-09-18): a 26KB risk section closed a table block with
+    `}` while its rows array was still open — one `]` short, the rest of the
+    document balanced — and the whole section was lost to it."""
+    good = {
+        "section": {
+            "id": "investment_risk",
+            "blocks": [
+                {
+                    "type": "table",
+                    "rows": [
+                        [{"en": "Risk Rating", "zh": "风险评分"}],
+                        [{"en": "9/10", "zh": "9/10"}],
+                    ],
+                },
+                {"type": "heading", "level": 3, "text": {"en": "Risk 2", "zh": "风险 2"}},
+            ],
+        }
+    }
+    text = json.dumps(good, ensure_ascii=False)
+    dropped = text.replace('"9/10"}]]}', '"9/10"}]}', 1)  # the `]` closing rows
+    assert dropped != text
+    parsed, reason = gemini_runner._loads_object(dropped)
+    assert reason is None
+    assert parsed == good
+
+
+def test_a_dropped_closing_brace_is_restored_too():
+    """The structure-repair pass of the same run dropped a `}` before a `]`."""
+    good = {"a": [{"b": 1}, {"c": [1, 2]}], "d": "x"}
+    text = json.dumps(good)
+    dropped = text.replace('"c": [1, 2]}]', '"c": [1, 2]]', 1)
+    assert dropped != text
+    parsed, reason = gemini_runner._loads_object(dropped)
+    assert reason is None
+    assert parsed == good
+
+
+def test_brackets_inside_strings_do_not_mislead_the_repair():
+    good = {"text": "a ] stray } pair [ of { brackets", "rows": [[1], [2]]}
+    text = json.dumps(good)
+    dropped = text.replace("[2]]}", "[2]}", 1)
+    parsed, reason = gemini_runner._loads_object(dropped)
+    assert reason is None
+    assert parsed == good
+
+
+def test_a_document_that_ends_early_is_not_mistaken_for_a_dropped_bracket():
+    """Truncation is the output-limit case, reported as such — not patched."""
+    parsed, reason = gemini_runner._loads_object('{"a": [1, 2')
+    assert parsed is None
+    assert reason
