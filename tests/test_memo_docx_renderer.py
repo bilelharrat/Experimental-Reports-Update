@@ -1757,3 +1757,125 @@ def test_an_empty_row_is_dropped_rather_than_failing_the_package():
     errors = memo_docx_renderer.english_package_validation_errors(repaired)
     assert not [e for e in errors if "must contain cells" in e], errors
 
+
+# ---- shapes that each cost a live generation attempt (Koch, Inc. 2026-09-18)
+
+
+def _shell(sections, sources=None):
+    return {
+        "schema_version": 1,
+        "company": {"name": "Koch, Inc."},
+        "run": {"run_id": "2026-09-18__181245", "language": "en"},
+        "sources": sources
+        if sources is not None
+        else [
+            {
+                "id": "s1",
+                "title": "Corporate registry",
+                "class": "company",
+                "treatment": {"en": "Weighted as company reported.", "zh": ""},
+                "as_of": "2026-09-18",
+            }
+        ],
+        "sections": sections,
+    }
+
+
+def test_a_block_that_names_its_type_kind_is_not_read_as_an_empty_paragraph():
+    """`kind` instead of `type` left 22 blocks reading as untyped paragraphs,
+    failing as "text is required" and ending the run's first attempt."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"kind": "heading", "level": 2, "text": "Scale advantages"},
+            {"kind": "paragraph", "text": "Koch reinvests most of its earnings."},
+            {"kind": "bullets", "items": ["Perpetual capital base"]},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert [b["type"] for b in blocks] == ["heading", "paragraph", "bullets"]
+    assert all("kind" not in b for b in blocks)
+    assert any("renamed 'kind'" in r for r in repairs)
+
+
+def test_a_table_that_calls_its_headers_columns_still_renders():
+    package = _shell([
+        {"id": "company_overview", "blocks": [
+            {"kind": "table", "component": "revenue", "text": "Revenue",
+             "columns": ["Year", "Revenue"], "rows": [["2025", "$125B"]]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][0]
+    assert table["type"] == "table"
+    # A header may stay a plain string when it carries no translatable prose.
+    assert [
+        h["en"] if isinstance(h, dict) else h for h in table["headers"]
+    ] == ["Year", "Revenue"]
+    assert "columns" not in table
+
+
+def test_a_bullet_list_filed_under_its_own_block_name_is_adopted():
+    """`{"type": "bullets", "bullets": [...], "items": null}` failed as
+    "items must be a non-empty list" and ended the run's last attempt."""
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "items": None,
+             "bullets": ["Counter-cyclical balance sheet", "Perpetual capital"]},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert [i["en"] for i in block["items"]] == [
+        "Counter-cyclical balance sheet", "Perpetual capital"
+    ]
+    assert "bullets" not in block
+    assert any("moved 'bullets' into 'items'" in r for r in repairs)
+
+
+def test_a_populated_items_list_is_never_replaced_by_a_synonym():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "items": ["The real list"], "bullets": ["A stray one"]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    assert [i["en"] for i in repaired["sections"][0]["blocks"][0]["items"]] == [
+        "The real list"
+    ]
+
+
+def test_a_source_classed_in_only_one_of_its_two_fields_is_completed():
+    """Both halves are required, and a source fills exactly one of them. The
+    same live run failed once each way."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[
+            # class only (attempt 1)
+            {"id": "s1", "title": "Corporate registry", "as_of": "2026-09-18",
+             "class": "company_reported"},
+            # the slug sitting in treatment, no class (attempt 2)
+            {"id": "s2", "title": "Forbes ranking", "as_of": "2023-11-01",
+             "treatment": {"en": "independent_secondary", "zh": ""}},
+            # a real treatment sentence is left exactly as written
+            {"id": "s3", "title": "Gartner", "as_of": "2024-04-10",
+             "class": "third-party market data",
+             "treatment": {"en": "Discounted; vendor-commissioned.", "zh": ""}},
+        ],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    s1, s2, s3 = repaired["sources"]
+    assert s1["class"] == "company reported"
+    assert s1["treatment"]["en"] == "Weighted as company reported."
+    assert s2["class"] == "independent secondary"
+    assert s2["treatment"]["en"] == "Weighted as independent secondary."
+    assert s3["class"] == "third-party market data"
+    assert s3["treatment"]["en"] == "Discounted; vendor-commissioned."
+    # The stub sections trip content floors of their own; what matters here
+    # is that no source is left incomplete.
+    assert [
+        e
+        for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []

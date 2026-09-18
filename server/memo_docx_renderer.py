@@ -251,6 +251,22 @@ _SOURCE_KEY_SYNONYMS = {
     "name": "title",
 }
 
+# A block names its own fields as often as it names the schema's. Each of
+# these cost a whole generation attempt on one live Gemini run (Koch, Inc.,
+# 2026-09-18: three attempts, a different one of these killing each), so
+# they are renamed rather than allowed to fail the memo.
+_BLOCK_KEY_SYNONYMS = {
+    # The block's type under another name; without it the block reads as an
+    # untyped paragraph and fails as "text is required" (22 blocks in one run).
+    "kind": "type",
+    # A table's header row.
+    "columns": "headers",
+    "column_headers": "headers",
+}
+
+# A bullets or callout list under a key that echoes the block's own type.
+_ITEMS_KEY_SYNONYMS = ("bullets", "points", "list_items", "entries")
+
 _BLOCK_TYPE_SYNONYMS = {
     "bullet": "bullets",
     "bullet_list": "bullets",
@@ -292,6 +308,76 @@ def _repair_localized(node: dict, key: str, repairs: list[str], where: str) -> N
     ):
         node[key] = {"en": value, "zh": ""}
         repairs.append(f"{where}: wrapped plain string as bilingual en value")
+
+
+def _adopt_items_synonym(block: dict, repairs: list[str], where: str) -> None:
+    """Move a bullet list filed under the block's own name into ``items``.
+
+    Live: a bullets block arrived as ``{"type": "bullets", "bullets": [...],
+    "items": null}`` and failed as "items must be a non-empty list", which
+    ended the run's last attempt. A populated ``items`` always wins.
+    """
+    current = block.get("items")
+    if isinstance(current, list) and current:
+        return
+    for key in _ITEMS_KEY_SYNONYMS:
+        candidate = block.get(key)
+        if isinstance(candidate, list) and candidate:
+            block["items"] = candidate
+            block.pop(key, None)
+            repairs.append(f"{where}: moved {key!r} into 'items'")
+            return
+
+
+_SOURCE_CLASS_SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$")
+
+
+def _repair_source_class_and_treatment(
+    source: dict, repairs: list[str], where: str
+) -> None:
+    """Fill a source's ``class`` and ``treatment`` from whichever one arrived.
+
+    A source classes itself in exactly one of these two fields and leaves the
+    other empty, and both halves are required. One live run (Koch, Inc.,
+    2026-09-18) failed twice on this, once each way: every source came back
+    with ``class: "company_reported"`` and no treatment, then on the next
+    attempt with ``treatment: {"en": "company_reported"}`` and no class.
+
+    A bare slug is a class, never a treatment sentence, so it is promoted and
+    the treatment restated as the sentence that field is for. A treatment
+    already written as prose is left exactly as the author wrote it.
+    """
+    class_text = _content_text(source.get("class")).strip()
+    treatment = source.get("treatment")
+    treatment_text = _content_text(treatment).strip()
+
+    def _label(slug: str) -> str:
+        return slug.replace("_", " ").replace("-", " ").strip()
+
+    if not class_text and treatment_text and _SOURCE_CLASS_SLUG_RE.match(
+        treatment_text
+    ):
+        label = _label(treatment_text)
+        source["class"] = label
+        sentence = f"Weighted as {label}."
+        if isinstance(treatment, dict):
+            treatment["en"] = sentence
+        else:
+            source["treatment"] = {"en": sentence, "zh": ""}
+        repairs.append(
+            f"{where}: read class {label!r} from a treatment holding only "
+            "that slug, and restated the treatment"
+        )
+        return
+
+    if class_text and not treatment_text:
+        label = _label(class_text)
+        if _SOURCE_CLASS_SLUG_RE.match(class_text):
+            source["class"] = label
+        source["treatment"] = {"en": f"Weighted as {label}.", "zh": ""}
+        repairs.append(
+            f"{where}: wrote the treatment its class {label!r} implies"
+        )
 
 
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
@@ -364,6 +450,12 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             if not isinstance(block, dict):
                 continue
             where = f"{where_section}.blocks[{b_index}]"
+            for old_key, new_key in _BLOCK_KEY_SYNONYMS.items():
+                if old_key in block and not block.get(new_key):
+                    block[new_key] = block.pop(old_key)
+                    repairs.append(
+                        f"{where}: renamed {old_key!r} to {new_key!r}"
+                    )
             raw_kind = str(block.get("type") or "paragraph").strip().lower()
             kind = _BLOCK_TYPE_SYNONYMS.get(raw_kind, raw_kind)
             if kind != str(block.get("type") or "paragraph"):
@@ -383,6 +475,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                 _repair_localized(block, "text", repairs, f"{where}.text")
                 _repair_localized(block, "body", repairs, f"{where}.body")
             elif kind == "bullets":
+                _adopt_items_synonym(block, repairs, where)
                 block["items"] = _repair_localized_list(
                     block.get("items"), repairs, f"{where}.items"
                 )
@@ -395,6 +488,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                 # must be bilingual". That single unrepaired shape was what
                 # sent a 5,000-word first draft into the regeneration retry.
                 _repair_localized(block, "text", repairs, f"{where}.text")
+                _adopt_items_synonym(block, repairs, where)
                 block["items"] = _repair_localized_list(
                     block.get("items"), repairs, f"{where}.items"
                 )
@@ -467,6 +561,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             if old_key in source and not str(source.get(new_key) or "").strip():
                 source[new_key] = source.pop(old_key)
                 repairs.append(f"{where}: renamed {old_key!r} to {new_key!r}")
+        _repair_source_class_and_treatment(source, repairs, where)
         if not str(source.get("id") or "").strip():
             source["id"] = f"S{index + 1}"
             repairs.append(f"{where}.id: assigned S{index + 1}")
