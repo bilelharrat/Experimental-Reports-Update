@@ -1738,9 +1738,42 @@ def _rewrite_memo_package_voice_text(text: str) -> str:
     return updated
 
 
+# Late v1 keeps source ids in the fact reference index: a bracket id in the
+# body is a P0 the quality gate sends to a repair round, and the lint's own
+# suggestion is to move it to the index. Gemini writes them freely — 100 in
+# one Koch, Inc. memo, against none from Claude on the same prompt — and the
+# surgical repair could not clear them, so the memo shipped with 50
+# warnings. Removing the token is that move, done deterministically before
+# the pre-render check and the render. Structure-v2 memos cite inline by
+# design and are left alone; the sources index is never touched.
+_BODY_SOURCE_TOKEN_RE = re.compile(r"\s*\[\s*[sS]\d+(?:\s*[,;]\s*[sS]\d+)*\s*\]")
+
+
+def _strip_body_source_tokens(text: str) -> str:
+    stripped = _BODY_SOURCE_TOKEN_RE.sub("", text)
+    if stripped == text:
+        return text
+    return re.sub(r"[ \t]{2,}", " ", stripped).strip()
+
+
+def _body_keeps_source_ids_in_the_index(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    try:
+        structure = memo_structure.for_package(payload)
+    except Exception:  # noqa: BLE001
+        structure = memo_structure.LATE
+    return not structure.scorecard_weights()
+
+
 def _rewritten_memo_package_voice(payload: Any) -> tuple[Any, list[dict[str, str]]]:
     """Apply the deterministic voice rewrites to a package payload copy."""
     changes: list[dict[str, str]] = []
+    strip_tokens = _body_keeps_source_ids_in_the_index(payload)
+
+    def record(path: str, before: str, after: str) -> None:
+        if after != before:
+            changes.append({"path": path, "before": before[:220], "after": after[:220]})
 
     def visit(value: Any, path: str = "") -> Any:
         if isinstance(value, dict):
@@ -1750,16 +1783,16 @@ def _rewritten_memo_package_voice(payload: Any) -> tuple[Any, list[dict[str, str
             }
         if isinstance(value, list):
             return [visit(item, f"{path}[{index}]") for index, item in enumerate(value)]
+        in_body = strip_tokens and path.startswith("sections")
         if isinstance(value, str) and path.endswith(".en"):
             rewritten = _rewrite_memo_package_voice_text(value)
-            if rewritten != value:
-                changes.append(
-                    {
-                        "path": path,
-                        "before": value[:220],
-                        "after": rewritten[:220],
-                    }
-                )
+            if in_body:
+                rewritten = _strip_body_source_tokens(rewritten)
+            record(path, value, rewritten)
+            return rewritten
+        if isinstance(value, str) and path.endswith(".zh") and in_body:
+            rewritten = _strip_body_source_tokens(value)
+            record(path, value, rewritten)
             return rewritten
         return value
 
