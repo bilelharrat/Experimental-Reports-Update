@@ -1163,23 +1163,30 @@ def _gemini_wave(tmp_path: Path, monkeypatch) -> tuple[dict, dict]:
     return kwargs, targets
 
 
-def test_a_short_gemini_section_is_extended_before_the_package_is_assembled(
+def test_an_out_of_band_gemini_section_is_revised_before_the_package_is_assembled(
     tmp_path, monkeypatch
 ):
+    """Both directions: the risk section comes back short and is deepened,
+    the valuation section comes back long and is tightened."""
     kwargs, targets = _gemini_wave(tmp_path, monkeypatch)
-    extensions: list[tuple[str, int]] = []
+    revisions: list[tuple[str, int]] = []
+    first_draft = {
+        "investment_risk": targets["investment_risk"].low // 2,
+        "financial_forecast_valuation": (
+            targets["financial_forecast_valuation"].high * 2
+        ),
+    }
 
     def fake_section(**kw):
         section_id = kw["section_id"]
         target = targets[section_id]
-        extension = kw.get("depth_extension")
-        if extension is None:
-            # First drafts: the risk section comes back at half its floor.
-            count = target.low // 2 if section_id == "investment_risk" else target.target
+        revision = kw.get("depth_revision")
+        if revision is None:
+            count = first_draft.get(section_id, target.target)
         else:
-            draft_path, words_before = extension
+            draft_path, words_before = revision
             assert json.loads(draft_path.read_text())["id"] == section_id
-            extensions.append((section_id, words_before))
+            revisions.append((section_id, words_before))
             count = target.target
         return {
             "section": _words(section_id, count),
@@ -1198,23 +1205,21 @@ def test_a_short_gemini_section_is_extended_before_the_package_is_assembled(
     )
 
     assert error is None
-    assert extensions == [("investment_risk", targets["investment_risk"].low // 2)]
+    assert sorted(revisions) == sorted(first_draft.items())
     by_id = {s["id"]: s for s in result["memo_package"]["sections"]}
-    assert (
-        memo_engine.en_word_count(by_id["investment_risk"])
-        == targets["investment_risk"].target
-    )
-    # The Chinese chase sees the extended section, never the short draft,
+    for section_id, target in targets.items():
+        assert memo_engine.en_word_count(by_id[section_id]) == target.target
+    # The Chinese chase sees the revised sections, never the first drafts,
     # and each section exactly once.
     assert sorted(sid for sid, _count in hook_calls) == sorted(
         claude_runner.MEMO_PACKAGE_SECTION_IDS
     )
     assert dict(hook_calls)["investment_risk"] == targets["investment_risk"].target
-    # spine 1.0 + artifacts 0.5 + five drafts at 0.5 + one extension at 0.5
-    assert result["claude_cost_usd"] == 4.5
+    # spine 1.0 + artifacts 0.5 + five drafts at 0.5 + two revisions at 0.5
+    assert result["claude_cost_usd"] == 5.0
 
 
-def test_an_extension_that_fails_or_shrinks_leaves_the_draft_standing(
+def test_a_revision_that_fails_or_lands_no_closer_leaves_the_draft_standing(
     tmp_path, monkeypatch
 ):
     kwargs, targets = _gemini_wave(tmp_path, monkeypatch)
@@ -1223,15 +1228,16 @@ def test_an_extension_that_fails_or_shrinks_leaves_the_draft_standing(
 
     def fake_section(**kw):
         section_id = kw["section_id"]
-        extension = kw.get("depth_extension")
+        revision = kw.get("depth_revision")
         if section_id != "investment_risk":
             return {"section": _words(section_id, targets[section_id].target)}, None
-        if extension is None:
+        if revision is None:
             return {"section": _words(section_id, floor // 2)}, None
-        attempts.append(extension[1])
+        attempts.append(revision[1])
         if len(attempts) == 1:
             return None, "gemini output didn't parse as JSON"
-        return {"section": _words(section_id, floor // 4)}, None
+        # Round 2 overshoots the other way, further out than it started.
+        return {"section": _words(section_id, targets[section_id].high * 3)}, None
 
     monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
 
@@ -1243,7 +1249,7 @@ def test_an_extension_that_fails_or_shrinks_leaves_the_draft_standing(
     by_id = {s["id"]: s for s in result["memo_package"]["sections"]}
     assert memo_engine.en_word_count(by_id["investment_risk"]) == floor // 2
     units_dir = kwargs["run_dir"] / "logs" / "english_units"
-    assert len(list(units_dir.glob("investment_risk.short-*.json"))) == 2
+    assert len(list(units_dir.glob("investment_risk.length-*.json"))) == 2
 
 
 def test_a_claude_wave_is_never_gated(tmp_path, monkeypatch):
@@ -1271,4 +1277,4 @@ def test_a_claude_wave_is_never_gated(tmp_path, monkeypatch):
 
     assert error is None
     assert len(calls) == 5
-    assert all(kw.get("depth_extension") is None for kw in calls)
+    assert all(kw.get("depth_revision") is None for kw in calls)

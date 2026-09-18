@@ -475,7 +475,7 @@ _LATE_V1_WORDS: dict[str, int] = {
 # Accepted floor and suggested ceiling, as shares of a section's target.
 LENGTH_BAND = (0.90, 1.15)
 
-# Extension passes a short section gets before its draft stands as-is.
+# Revision passes an out-of-band section gets before its draft stands as-is.
 DEPTH_ROUNDS = 2
 
 _WORD_RANGE_RE = re.compile(r"(\d[\d,]*)\s*[-–—]\s*(\d[\d,]*)\s+words", re.IGNORECASE)
@@ -486,6 +486,16 @@ class WordTarget:
     target: int
     low: int
     high: int
+
+    def distance(self, words: int) -> int:
+        """How far ``words`` sits outside the band; 0 inside it. The gate
+        keeps whichever draft scores lower, so a revision is accepted only
+        when it actually moved toward the band."""
+        if words < self.low:
+            return self.low - words
+        if words > self.high:
+            return words - self.high
+        return 0
 
 
 def reference_words() -> int | None:
@@ -608,6 +618,31 @@ full. Reach the length with substance only — no restating the shared fact
 sheet, no recap of what the section has already said, no invented numbers.
 Stay inside the band: past {target.high:,} words the section is over-long
 for its reader, so stop adding once every component has its full treatment.
+"""
+
+
+def length_condense(target: WordTarget, previous_path: Path, words: int) -> str:
+    """The prompt block for the gate's condense pass: tighten the draft on
+    disk without dropping anything it establishes.
+
+    Length is a contract in both directions. Left to itself Gemini overran
+    the reference by a quarter (13,958 English words against 12,200 on the
+    first live run under the contract), and a renderer-validation retry
+    inflated the same sections further (18,084). Cutting is asked for the
+    way extending is: same blocks, same facts, fewer words.
+    """
+    return f"""\
+## Length trim
+Your previous draft of this section is at `{previous_path}`: {words:,} English
+words against the {target.low:,}–{target.high:,} this section runs to (aim for
+{target.target:,}). Return the SAME section, tightened to fit: keep every
+block, every component the section spec names, every table and every row,
+every number, name, source reference and pinned sentence, in the same order.
+Cut only words, never content — drop restatement of the shared fact sheet,
+recap sentences that repeat an earlier paragraph, throat-clearing before a
+judgment, and adjectives doing no work. Say each thing once, in the place it
+belongs. Do not merge sections, drop a subsection heading, summarize a table
+into prose, or soften a risk to save words.
 """
 
 

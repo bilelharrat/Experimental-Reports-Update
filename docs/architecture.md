@@ -217,9 +217,13 @@ targets — Claude never needed one — so the target lives on the engine that
 does. `memo_engine` tells each Gemini section worker the length its Claude
 twin writes (the Round-2 reference split across the sections;
 `BSH_MEMO_GEMINI_WORDS` moves the total, 0 disables it), and a
-deterministic gate after the section wave sends any section that came back
-under the floor back to its worker with the draft to deepen, two rounds at
-most. Claude prompts are byte-identical to before; profiles that carry
+deterministic gate after the section wave sends any section outside its
+band back to its worker with the draft to revise, two rounds at most. The
+gate works in both directions, because Gemini misses the length either
+way: under the contract the first live run came back a quarter over
+(13,958 English words), and a renderer-validation retry inflated the same
+sections to 18,084. A revision is kept only when it lands closer to the
+band than the draft it replaces. Claude prompts are byte-identical to before; profiles that carry
 their own ranges (growth, early, late v2) are read as written, and the
 compact profile's ceilings are left alone.
 

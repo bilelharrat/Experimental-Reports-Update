@@ -714,16 +714,49 @@ def test_a_gemini_section_worker_drafts_under_the_length_contract(tmp_path, monk
     assert "## Length contract" in prompts[-1]
     assert f"{target.low:,}–{target.high:,} English words" in prompts[-1]
 
-    short = gem / "logs" / "investment_risk.short-1.json"
-    short.write_text('{"id": "investment_risk", "blocks": []}')
-    draft(gem, depth_extension=(short, 640))
+    # Short draft -> deepen. Long draft -> tighten. The worker reads the
+    # direction off the same band the gate used, so they cannot disagree.
+    draft_path = gem / "logs" / "investment_risk.length-1.json"
+    draft_path.write_text('{"id": "investment_risk", "blocks": []}')
+
+    draft(gem, depth_revision=(draft_path, target.low - 400))
     assert "## Length extension" in prompts[-1]
-    assert "640 English" in prompts[-1]
-    assert str(short) in prompts[-1]
+    assert f"{target.low - 400:,} English" in prompts[-1]
+    assert str(draft_path) in prompts[-1]
     assert "## Length contract" not in prompts[-1]
+
+    draft(gem, depth_revision=(draft_path, target.high + 900))
+    assert "## Length trim" in prompts[-1]
+    assert f"{target.high + 900:,} English" in prompts[-1]
+    assert "## Length extension" not in prompts[-1]
 
     cla = tmp_path / "c"
     memo_engine.register_run_engine(cla, "claude")
     draft(cla)
     assert "## Length contract" not in prompts[-1]
     assert "## Length extension" not in prompts[-1]
+    assert "## Length trim" not in prompts[-1]
+
+
+def test_the_band_distance_scores_both_directions():
+    target = memo_engine.WordTarget(target=2_400, low=2_160, high=2_760)
+    assert target.distance(2_400) == 0
+    assert target.distance(2_160) == 0 and target.distance(2_760) == 0
+    assert target.distance(1_900) == 260
+    assert target.distance(3_000) == 240
+    # Closer to the band scores lower: what the gate keeps a revision on.
+    assert target.distance(2_900) < target.distance(4_500)
+
+
+def test_the_trim_pass_forbids_cutting_content_rather_than_words():
+    """Gemini overran the reference by a quarter on the first live run under
+    the contract (13,958 English words against 12,200), so the trim exists —
+    but a shorter memo that dropped a table or softened a risk is a worse
+    memo, not a compliant one."""
+    target = memo_engine.WordTarget(target=3_200, low=2_880, high=3_680)
+    block = memo_engine.length_condense(target, Path("/tmp/draft.json"), 5_087)
+    assert "5,087 English" in block and "2,880–3,680" in block
+    for promise in ("every table and every row", "same order", "Cut only words, never content"):
+        assert promise in block
+    for forbidden in ("drop a subsection heading", "summarize a table", "soften a risk"):
+        assert forbidden in block

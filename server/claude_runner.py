@@ -6858,13 +6858,16 @@ def _run_english_section(
     validation_errors: list[str] | None = None,
     previous_section_path: Path | None = None,
     structure: memo_structure.MemoStructure | None = None,
-    depth_extension: tuple[Path, int] | None = None,
+    depth_revision: tuple[Path, int] | None = None,
 ) -> tuple[dict | None, str | None]:
     """Author (or repair) ONE package section from the shared spine.
 
-    ``depth_extension`` — ``(previous draft path, its English word count)``
-    — is the length gate's extension pass on Gemini: the worker keeps the
-    draft it wrote and deepens it to the length its Claude twin writes.
+    ``depth_revision`` — ``(previous draft path, its English word count)``
+    — is the length gate's revision pass on Gemini: the worker keeps the
+    draft it wrote and brings it to the length its Claude twin writes,
+    deepening it when it came back short and tightening it when it ran
+    long. The direction follows from the count against the section's band,
+    so the gate and the worker can never disagree about which way to go.
     """
     structure = structure or memo_structure.LATE
     spec = structure.section_specs().get(section_id, "")
@@ -6919,11 +6922,14 @@ defects:
         section_id
     )
     if depth_target is not None:
-        if depth_extension is not None:
-            draft_path, draft_words = depth_extension
-            depth_block = "\n" + memo_engine.length_extension(
-                depth_target, draft_path, draft_words
+        if depth_revision is not None:
+            draft_path, draft_words = depth_revision
+            revise = (
+                memo_engine.length_extension
+                if draft_words < depth_target.low
+                else memo_engine.length_condense
             )
+            depth_block = "\n" + revise(depth_target, draft_path, draft_words)
         else:
             depth_block = "\n" + memo_engine.length_contract(depth_target)
     # Section-specific content stays at the tail so the five section prompts
@@ -7309,10 +7315,10 @@ def run_memo_fast_english_package_parallel(
     the caller joins it after acceptance; ``analysis_artifacts`` comes back
     ``None`` in that mode.
 
-    On Gemini a length gate follows every wave: a section shorter than the
-    floor of its Claude twin's length (``memo_engine.section_word_targets``)
-    goes back to its worker with the draft to deepen, up to two rounds, and
-    the section hooks then fire on the final drafts.
+    On Gemini a length gate follows every wave: a section outside the band
+    of its Claude twin's length (``memo_engine.section_word_targets``) goes
+    back to its worker with the draft to deepen or to tighten, up to two
+    rounds, and the section hooks then fire on the final drafts.
 
     Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
     per docs/memo-benchmarks.md before enabling.
@@ -7668,35 +7674,43 @@ def run_memo_fast_english_package_parallel(
         section_notes: dict,
         row_suffix: str = "",
     ) -> dict[str, dict]:
-        """Send a section that came back short of its Claude twin's length
-        back to its worker with the draft to deepen — up to
-        memo_engine.DEPTH_ROUNDS times. The longest draft stands; a failed
-        or shorter extension never fails the pass."""
+        """Bring every section to the length its Claude twin writes.
+
+        A section outside its band goes back to its worker with the draft
+        to revise — deepened when short, tightened when long — up to
+        memo_engine.DEPTH_ROUNDS times. A revision is kept only when it
+        lands closer to the band than the draft it replaces, so a pass that
+        overshoots the other way is discarded; a failed revision never
+        fails the memo."""
         if not depth_targets:
             return results
         for round_index in range(1, memo_engine.DEPTH_ROUNDS + 1):
-            short: dict[str, int] = {}
+            off_band: dict[str, int] = {}
             for section_id, result in results.items():
                 target = depth_targets.get(section_id)
                 if target is None:
                     continue
                 words = memo_engine.en_word_count(result.get("section"))
-                if words < target.low:
-                    short[section_id] = words
-            if not short:
+                if target.distance(words):
+                    off_band[section_id] = words
+            if not off_band:
                 break
             if progress is not None:
                 progress.emit(
                     "stage",
                     stage="memo_depth_gate",
                     message=(
-                        f"Round {round_index}: extending {len(short)} "
-                        "section(s) that came back short of the Claude "
-                        "reference length — "
+                        f"Round {round_index}: revising {len(off_band)} "
+                        "section(s) away from the Claude reference length — "
                         + ", ".join(
                             f"{section_id} {words:,}/"
-                            f"{depth_targets[section_id].target:,}"
-                            for section_id, words in sorted(short.items())
+                            f"{depth_targets[section_id].target:,} "
+                            + (
+                                "(short)"
+                                if words < depth_targets[section_id].low
+                                else "(long)"
+                            )
+                            for section_id, words in sorted(off_band.items())
                         )
                     ),
                     round=round_index,
@@ -7705,14 +7719,15 @@ def run_memo_fast_english_package_parallel(
                             "words": words,
                             "floor": depth_targets[section_id].low,
                             "target": depth_targets[section_id].target,
+                            "ceiling": depth_targets[section_id].high,
                         }
-                        for section_id, words in short.items()
+                        for section_id, words in off_band.items()
                     },
                 )
             suffix = f"{row_suffix} (depth {round_index})"
-            extension_jobs: dict[str, dict] = {}
-            for section_id, words in short.items():
-                draft_path = units_dir / f"{section_id}.short-{round_index}.json"
+            revision_jobs: dict[str, dict] = {}
+            for section_id, words in off_band.items():
+                draft_path = units_dir / f"{section_id}.length-{round_index}.json"
                 draft_path.write_text(
                     json.dumps(
                         results[section_id]["section"],
@@ -7721,29 +7736,34 @@ def run_memo_fast_english_package_parallel(
                     ),
                     encoding="utf-8",
                 )
-                extension_jobs[section_id] = {
+                revision_jobs[section_id] = {
                     "shared_facts_block": facts_block,
                     "section_note": str(section_notes.get(section_id) or ""),
                     "validation_errors": None,
                     "previous_section_path": None,
-                    "depth_extension": (draft_path, words),
+                    "depth_revision": (draft_path, words),
                 }
                 _plan_row(
                     f"Section - {section_id}{suffix}",
                     round(3.08 + round_index / 100, 4),
-                    f"Extend the {section_id} section to the reference length",
+                    f"Bring the {section_id} section to the reference length",
                 )
-            extended, errors, _unused, _unused_error = _run_sections(
-                extension_jobs, row_suffix=suffix
+            revised, errors, _unused, _unused_error = _run_sections(
+                revision_jobs, row_suffix=suffix
             )
-            for section_id, result in extended.items():
-                longer = memo_engine.en_word_count(result.get("section"))
-                if longer <= short[section_id]:
+            for section_id, result in revised.items():
+                target = depth_targets[section_id]
+                words = memo_engine.en_word_count(result.get("section"))
+                if target.distance(words) >= target.distance(
+                    off_band[section_id]
+                ):
                     logger.warning(
-                        "depth extension of %s came back no longer "
-                        "(%s words); the draft stands",
+                        "length revision of %s landed no closer to its band "
+                        "(%s words against %s-%s); the draft stands",
                         section_id,
-                        longer,
+                        words,
+                        target.low,
+                        target.high,
                     )
                     continue
                 previous = results[section_id]
@@ -7758,7 +7778,7 @@ def run_memo_fast_english_package_parallel(
                 results[section_id] = result
             for message in errors:
                 logger.warning(
-                    "depth extension failed; the draft stands: %s", message
+                    "length revision failed; the draft stands: %s", message
                 )
         return results
 
