@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from server import claude_runner
+from server import claude_runner, memo_engine, memo_structure
 
 
 def _loc(en: str) -> dict:
@@ -1132,3 +1132,143 @@ def test_pinned_spine_survives_validation_retry(tmp_path, monkeypatch):
     assert all(
         errors == ["fix the exec summary voice"] for errors in seen_feedback
     )
+
+
+# ---- length gate (Gemini) ---------------------------------------------------
+
+
+def _words(section_id: str, count: int) -> dict:
+    return {
+        "id": section_id,
+        "blocks": [{"type": "paragraph", "text": _loc(" ".join(["word"] * count))}],
+    }
+
+
+def _gemini_wave(tmp_path: Path, monkeypatch) -> tuple[dict, dict]:
+    kwargs = _parallel_kwargs(tmp_path)
+    memo_engine.register_run_engine(kwargs["run_dir"], "gemini")
+    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_GEMINI_WORDS", raising=False)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_artifacts",
+        lambda **_kw: (_artifacts_result(), None),
+    )
+    targets = memo_engine.section_word_targets(kwargs["run_dir"], memo_structure.LATE)
+    return kwargs, targets
+
+
+def test_a_short_gemini_section_is_extended_before_the_package_is_assembled(
+    tmp_path, monkeypatch
+):
+    kwargs, targets = _gemini_wave(tmp_path, monkeypatch)
+    extensions: list[tuple[str, int]] = []
+
+    def fake_section(**kw):
+        section_id = kw["section_id"]
+        target = targets[section_id]
+        extension = kw.get("depth_extension")
+        if extension is None:
+            # First drafts: the risk section comes back at half its floor.
+            count = target.low // 2 if section_id == "investment_risk" else target.target
+        else:
+            draft_path, words_before = extension
+            assert json.loads(draft_path.read_text())["id"] == section_id
+            extensions.append((section_id, words_before))
+            count = target.target
+        return {
+            "section": _words(section_id, count),
+            "claude_cost_usd": 0.5,
+            "claude_duration_ms": 1000,
+        }, None
+
+    monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
+    hook_calls: list[tuple[str, int]] = []
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs,
+        on_section=lambda sid, section: hook_calls.append(
+            (sid, memo_engine.en_word_count(section))
+        ),
+    )
+
+    assert error is None
+    assert extensions == [("investment_risk", targets["investment_risk"].low // 2)]
+    by_id = {s["id"]: s for s in result["memo_package"]["sections"]}
+    assert (
+        memo_engine.en_word_count(by_id["investment_risk"])
+        == targets["investment_risk"].target
+    )
+    # The Chinese chase sees the extended section, never the short draft,
+    # and each section exactly once.
+    assert sorted(sid for sid, _count in hook_calls) == sorted(
+        claude_runner.MEMO_PACKAGE_SECTION_IDS
+    )
+    assert dict(hook_calls)["investment_risk"] == targets["investment_risk"].target
+    # spine 1.0 + artifacts 0.5 + five drafts at 0.5 + one extension at 0.5
+    assert result["claude_cost_usd"] == 4.5
+
+
+def test_an_extension_that_fails_or_shrinks_leaves_the_draft_standing(
+    tmp_path, monkeypatch
+):
+    kwargs, targets = _gemini_wave(tmp_path, monkeypatch)
+    floor = targets["investment_risk"].low
+    attempts: list[int] = []
+
+    def fake_section(**kw):
+        section_id = kw["section_id"]
+        extension = kw.get("depth_extension")
+        if section_id != "investment_risk":
+            return {"section": _words(section_id, targets[section_id].target)}, None
+        if extension is None:
+            return {"section": _words(section_id, floor // 2)}, None
+        attempts.append(extension[1])
+        if len(attempts) == 1:
+            return None, "gemini output didn't parse as JSON"
+        return {"section": _words(section_id, floor // 4)}, None
+
+    monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(**kwargs)
+
+    assert error is None
+    # Two rounds, both against the same standing draft; neither replaced it.
+    assert attempts == [floor // 2, floor // 2]
+    by_id = {s["id"]: s for s in result["memo_package"]["sections"]}
+    assert memo_engine.en_word_count(by_id["investment_risk"]) == floor // 2
+    units_dir = kwargs["run_dir"] / "logs" / "english_units"
+    assert len(list(units_dir.glob("investment_risk.short-*.json"))) == 2
+
+
+def test_a_claude_wave_is_never_gated(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)  # the Claude default engine
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_artifacts",
+        lambda **_kw: (_artifacts_result(), None),
+    )
+    calls: list[dict] = []
+
+    def fake_section(**kw):
+        calls.append(kw)
+        return {"section": _words(kw["section_id"], 12)}, None
+
+    monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(**kwargs)
+
+    assert error is None
+    assert len(calls) == 5
+    assert all(kw.get("depth_extension") is None for kw in calls)

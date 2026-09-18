@@ -6858,8 +6858,14 @@ def _run_english_section(
     validation_errors: list[str] | None = None,
     previous_section_path: Path | None = None,
     structure: memo_structure.MemoStructure | None = None,
+    depth_extension: tuple[Path, int] | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Author (or repair) ONE package section from the shared spine."""
+    """Author (or repair) ONE package section from the shared spine.
+
+    ``depth_extension`` — ``(previous draft path, its English word count)``
+    — is the length gate's extension pass on Gemini: the worker keeps the
+    draft it wrote and deepens it to the length its Claude twin writes.
+    """
     structure = structure or memo_structure.LATE
     spec = structure.section_specs().get(section_id, "")
     risk_section = structure.section_for_role("risk")
@@ -6905,6 +6911,21 @@ A previous attempt at this section failed validation. Do not repeat these
 defects:
 {error_lines}
 """
+    # Gemini only: the length its Claude twin writes (memo_engine), as a
+    # contract on the first draft and as an extension brief when the gate
+    # sends a short draft back. Empty on Claude — its prompt is unchanged.
+    depth_block = ""
+    depth_target = memo_engine.section_word_targets(run_dir, structure).get(
+        section_id
+    )
+    if depth_target is not None:
+        if depth_extension is not None:
+            draft_path, draft_words = depth_extension
+            depth_block = "\n" + memo_engine.length_extension(
+                depth_target, draft_path, draft_words
+            )
+        else:
+            depth_block = "\n" + memo_engine.length_contract(depth_target)
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
@@ -6923,7 +6944,7 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{risk_contract}{note_block}{repair_block}
+{scaffold_block}{risk_contract}{note_block}{repair_block}{depth_block}
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
 matching the attached schema. Pass the section as a real JSON object — never
 serialized as a string inside another field (the escaping roughly doubles the
@@ -7288,6 +7309,11 @@ def run_memo_fast_english_package_parallel(
     the caller joins it after acceptance; ``analysis_artifacts`` comes back
     ``None`` in that mode.
 
+    On Gemini a length gate follows every wave: a section shorter than the
+    floor of its Claude twin's length (``memo_engine.section_word_targets``)
+    goes back to its worker with the draft to deepen, up to two rounds, and
+    the section hooks then fire on the final drafts.
+
     Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
     per docs/memo-benchmarks.md before enabling.
     """
@@ -7631,6 +7657,111 @@ def run_memo_fast_english_package_parallel(
             )
         return {}
 
+    # Gemini only (memo_engine.section_word_targets is {} on Claude): the
+    # length each section's Claude twin writes, enforced after every wave.
+    depth_targets = memo_engine.section_word_targets(run_dir, structure)
+
+    def _depth_gate(
+        results: dict[str, dict],
+        *,
+        facts_block: str,
+        section_notes: dict,
+        row_suffix: str = "",
+    ) -> dict[str, dict]:
+        """Send a section that came back short of its Claude twin's length
+        back to its worker with the draft to deepen — up to
+        memo_engine.DEPTH_ROUNDS times. The longest draft stands; a failed
+        or shorter extension never fails the pass."""
+        if not depth_targets:
+            return results
+        for round_index in range(1, memo_engine.DEPTH_ROUNDS + 1):
+            short: dict[str, int] = {}
+            for section_id, result in results.items():
+                target = depth_targets.get(section_id)
+                if target is None:
+                    continue
+                words = memo_engine.en_word_count(result.get("section"))
+                if words < target.low:
+                    short[section_id] = words
+            if not short:
+                break
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_depth_gate",
+                    message=(
+                        f"Round {round_index}: extending {len(short)} "
+                        "section(s) that came back short of the Claude "
+                        "reference length — "
+                        + ", ".join(
+                            f"{section_id} {words:,}/"
+                            f"{depth_targets[section_id].target:,}"
+                            for section_id, words in sorted(short.items())
+                        )
+                    ),
+                    round=round_index,
+                    sections={
+                        section_id: {
+                            "words": words,
+                            "floor": depth_targets[section_id].low,
+                            "target": depth_targets[section_id].target,
+                        }
+                        for section_id, words in short.items()
+                    },
+                )
+            suffix = f"{row_suffix} (depth {round_index})"
+            extension_jobs: dict[str, dict] = {}
+            for section_id, words in short.items():
+                draft_path = units_dir / f"{section_id}.short-{round_index}.json"
+                draft_path.write_text(
+                    json.dumps(
+                        results[section_id]["section"],
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                extension_jobs[section_id] = {
+                    "shared_facts_block": facts_block,
+                    "section_note": str(section_notes.get(section_id) or ""),
+                    "validation_errors": None,
+                    "previous_section_path": None,
+                    "depth_extension": (draft_path, words),
+                }
+                _plan_row(
+                    f"Section - {section_id}{suffix}",
+                    round(3.08 + round_index / 100, 4),
+                    f"Extend the {section_id} section to the reference length",
+                )
+            extended, errors, _unused, _unused_error = _run_sections(
+                extension_jobs, row_suffix=suffix
+            )
+            for section_id, result in extended.items():
+                longer = memo_engine.en_word_count(result.get("section"))
+                if longer <= short[section_id]:
+                    logger.warning(
+                        "depth extension of %s came back no longer "
+                        "(%s words); the draft stands",
+                        section_id,
+                        longer,
+                    )
+                    continue
+                previous = results[section_id]
+                result["claude_cost_usd"] = (
+                    _to_float(previous.get("claude_cost_usd"))
+                    + _to_float(result.get("claude_cost_usd"))
+                ) or None
+                result["claude_duration_ms"] = (
+                    _to_int(previous.get("claude_duration_ms"))
+                    + _to_int(result.get("claude_duration_ms"))
+                ) or None
+                results[section_id] = result
+            for message in errors:
+                logger.warning(
+                    "depth extension failed; the draft stands: %s", message
+                )
+        return results
+
     # ---- Selective retry: regenerate only the sections the errors name ----
     if (
         previous_validation_errors
@@ -7715,6 +7846,9 @@ def run_memo_fast_english_package_parallel(
                 run_artifacts=not cached_artifacts and async_artifacts is None,
             )
             if not errors:
+                results = _depth_gate(
+                    results, facts_block=facts_block, section_notes=section_notes
+                )
                 if not cached_artifacts and async_artifacts is None:
                     if isinstance(artifacts_result, dict) and isinstance(
                         artifacts_result.get("analysis_artifacts"), dict
@@ -8029,7 +8163,9 @@ def run_memo_fast_english_package_parallel(
     }
     results, errors, artifacts_result, artifacts_error = _run_sections(
         section_jobs,
-        section_hook=on_section,
+        # With the length gate active the Chinese chase must see the
+        # extended section, never the short draft: hooks fire after the gate.
+        section_hook=None if depth_targets else on_section,
         run_artifacts=async_artifacts is None,
         row_suffix=row_suffix,
     )
@@ -8049,6 +8185,23 @@ def run_memo_fast_english_package_parallel(
             results[section_id] = early_result
     if errors:
         return _fallback("; ".join(errors[:3]))
+    if depth_targets:
+        results = _depth_gate(
+            results,
+            facts_block=facts_block,
+            section_notes=section_notes,
+            row_suffix=row_suffix,
+        )
+        if on_section is not None:
+            for section_id in structure.section_ids:
+                if section_id in early_futures or section_id not in results:
+                    continue  # the speculator fired that section's hook
+                try:
+                    on_section(section_id, results[section_id]["section"])
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "section hook failed for %s", section_id, exc_info=True
+                    )
     if async_artifacts is not None:
         # Detached mode: the caller joins the artifacts agent after
         # acceptance; the agent persists its own cache file.

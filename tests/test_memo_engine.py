@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from server import claude_runner, memo_engine
+from server import claude_runner, memo_engine, memo_structure
 
 SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}}
 
@@ -19,6 +19,7 @@ SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}}
 def _clean_env(monkeypatch):
     monkeypatch.delenv("BSH_MEMO_ENGINE", raising=False)
     monkeypatch.delenv("BSH_MEMO_GEMINI_THINKING", raising=False)
+    monkeypatch.delenv("BSH_MEMO_GEMINI_WORDS", raising=False)
 
 
 # ---- selection ------------------------------------------------------------
@@ -574,3 +575,133 @@ def test_the_run_dir_itself_is_walked_not_treated_as_a_root(tmp_path):
     assert memo_engine._is_permission_root(tmp_path, run) is True
     assert memo_engine._is_permission_root(tmp_path / "elsewhere", run) is False
     assert "artifact" in memo_engine.inline_research([run], run_dir=run)
+
+
+# ---- length parity with Claude ---------------------------------------------
+
+
+def test_a_gemini_section_is_held_to_its_claude_twins_length(tmp_path):
+    """The benchmarked Claude late-stage memos carry ~12,200 English words
+    (docs/memo-benchmarks.md, Round 2); a Gemini run splits that total
+    across the five sections, weighted by what each has to carry."""
+    run = tmp_path / "g"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "gemini")
+    targets = memo_engine.section_word_targets(run, memo_structure.LATE)
+    assert set(targets) == set(memo_structure.LATE.section_ids)
+    assert sum(t.target for t in targets.values()) == memo_engine.CLAUDE_REFERENCE_WORDS
+    for target in targets.values():
+        assert target.low < target.target < target.high
+    assert (
+        targets["financial_forecast_valuation"].target
+        > targets["executive_summary"].target
+    )
+
+
+def test_a_claude_run_gets_no_length_contract(tmp_path):
+    run = tmp_path / "c"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "claude")
+    assert memo_engine.section_word_targets(run, memo_structure.LATE) == {}
+    assert memo_engine.section_word_targets(None, memo_structure.LATE) == {}
+
+
+def test_the_reference_length_can_be_moved_or_switched_off(tmp_path, monkeypatch):
+    run = tmp_path / "g"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "gemini")
+    monkeypatch.setenv("BSH_MEMO_GEMINI_WORDS", "6,100")
+    halved = memo_engine.section_word_targets(run, memo_structure.LATE)
+    assert sum(t.target for t in halved.values()) == 6_100
+    monkeypatch.setenv("BSH_MEMO_GEMINI_WORDS", "0")
+    assert memo_engine.section_word_targets(run, memo_structure.LATE) == {}
+    monkeypatch.setenv("BSH_MEMO_GEMINI_WORDS", "lots")
+    unparsed = memo_engine.section_word_targets(run, memo_structure.LATE)
+    assert sum(t.target for t in unparsed.values()) == memo_engine.CLAUDE_REFERENCE_WORDS
+
+
+def test_a_profile_with_its_own_word_ranges_is_read_as_written(tmp_path):
+    """growth.md says '600-800 words' for its summary; the contract repeats
+    the profile's own range rather than imposing the late-stage split."""
+    run = tmp_path / "g"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "gemini")
+    growth = memo_structure.load_structure("growth")
+    targets = memo_engine.section_word_targets(run, growth)
+    assert targets["executive_summary"] == memo_engine.WordTarget(
+        target=700, low=600, high=800
+    )
+    assert set(targets) == set(growth.section_ids)
+
+
+def test_a_profile_with_word_ceilings_is_left_alone(tmp_path):
+    run = tmp_path / "g"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "gemini")
+    compact = memo_structure.load_structure("late_compact")
+    assert any(section.budget_words for section in compact.sections)
+    assert memo_engine.section_word_targets(run, compact) == {}
+
+
+def test_en_word_count_counts_prose_bullets_and_table_cells():
+    section = {
+        "blocks": [
+            {"type": "paragraph", "text": {"en": "one two three", "zh": "一二三"}},
+            {"type": "bullets", "items": [{"en": "four five", "zh": ""}]},
+            {
+                "type": "table",
+                "headers": [{"en": "six", "zh": ""}],
+                "rows": [[{"en": "seven eight", "zh": ""}]],
+            },
+        ]
+    }
+    assert memo_engine.en_word_count(section) == 8
+    assert memo_engine.en_word_count(None) == 0
+
+
+def test_a_gemini_section_worker_drafts_under_the_length_contract(tmp_path, monkeypatch):
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        return {"section": {"id": "investment_risk", "blocks": []}}, None
+
+    monkeypatch.setattr(claude_runner, "_run_memo_local_json_artifact", fake_artifact)
+
+    def draft(run: Path, **extra):
+        (run / "logs").mkdir(parents=True, exist_ok=True)
+        spine = run / "logs" / "spine.json"
+        spine.write_text("{}")
+        return claude_runner._run_english_section(
+            run_dir=run,
+            section_id="investment_risk",
+            common_context="",
+            shared_facts_block="## Shared fact sheet",
+            spine_path=spine,
+            add_dirs=[run],
+            progress=None,
+            timeout_sec=10,
+            **extra,
+        )
+
+    gem = tmp_path / "g"
+    memo_engine.register_run_engine(gem, "gemini")
+    _result, error = draft(gem)
+    assert error is None
+    target = memo_engine.section_word_targets(gem, memo_structure.LATE)["investment_risk"]
+    assert "## Length contract" in prompts[-1]
+    assert f"{target.low:,}–{target.high:,} English words" in prompts[-1]
+
+    short = gem / "logs" / "investment_risk.short-1.json"
+    short.write_text('{"id": "investment_risk", "blocks": []}')
+    draft(gem, depth_extension=(short, 640))
+    assert "## Length extension" in prompts[-1]
+    assert "640 English" in prompts[-1]
+    assert str(short) in prompts[-1]
+    assert "## Length contract" not in prompts[-1]
+
+    cla = tmp_path / "c"
+    memo_engine.register_run_engine(cla, "claude")
+    draft(cla)
+    assert "## Length contract" not in prompts[-1]
+    assert "## Length extension" not in prompts[-1]

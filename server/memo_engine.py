@@ -33,6 +33,7 @@ import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import gemini_runner
@@ -438,3 +439,169 @@ def memo_thinking_level() -> str:
     worth paying for reasoning."""
     raw = str(os.environ.get("BSH_MEMO_GEMINI_THINKING") or "").strip().lower()
     return raw if raw in gemini_runner.THINKING_LEVELS else "high"
+
+
+# ---- Length parity with the Claude engine ----------------------------------
+#
+# Same prompts, same stage graph, and a Gemini section still comes back at
+# roughly half the length of its Claude twin: the ZaiNar wave wrote 7,695
+# English words where the two benchmarked Claude waves on the same company
+# wrote 12,202 and 12,212 (docs/memo-benchmarks.md, Round 2). The late-stage
+# editorial prompts under skills/memo/ carry no word targets — Claude never
+# needed one — so the target lives here, on the engine that does. Every
+# Gemini section worker is told the length its Claude twin writes, and a
+# deterministic gate after the section wave sends any section that came
+# back short to its worker again, with the draft, to deepen rather than
+# redraft. Claude runs see none of this.
+
+CLAUDE_REFERENCE_WORDS = 12_200
+"""English words in a late-stage memo written on Claude — both Round-2
+benchmark runs (docs/memo-benchmarks.md). ``BSH_MEMO_GEMINI_WORDS`` moves
+it; 0 switches the contract and the gate off."""
+
+# How the reference splits across the late v1 sections, weighted by what
+# each has to carry: the thesis and one snapshot table; three tables of
+# company record; three tables plus the highlight argument; four to six
+# risk cards plus disconfirming evidence; seven valuation components.
+# Sums to CLAUDE_REFERENCE_WORDS.
+_LATE_V1_WORDS: dict[str, int] = {
+    "executive_summary": 1_400,
+    "company_overview": 2_400,
+    "investment_highlights": 2_800,
+    "investment_risk": 2_400,
+    "financial_forecast_valuation": 3_200,
+}
+
+# Accepted floor and suggested ceiling, as shares of a section's target.
+LENGTH_BAND = (0.90, 1.15)
+
+# Extension passes a short section gets before its draft stands as-is.
+DEPTH_ROUNDS = 2
+
+_WORD_RANGE_RE = re.compile(r"(\d[\d,]*)\s*[-–—]\s*(\d[\d,]*)\s+words", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class WordTarget:
+    target: int
+    low: int
+    high: int
+
+
+def reference_words() -> int | None:
+    """The English-word total a Gemini late-stage memo is held to, or None
+    when the contract is off (``BSH_MEMO_GEMINI_WORDS=0``)."""
+    raw = str(os.environ.get("BSH_MEMO_GEMINI_WORDS") or "").strip()
+    if not raw:
+        return CLAUDE_REFERENCE_WORDS
+    try:
+        value = int(raw.replace(",", "").replace("_", ""))
+    except ValueError:
+        logger.warning(
+            "BSH_MEMO_GEMINI_WORDS=%r is not a number; using the Claude reference",
+            raw,
+        )
+        return CLAUDE_REFERENCE_WORDS
+    return value if value > 0 else None
+
+
+def _band(target: int) -> WordTarget:
+    return WordTarget(
+        target=target,
+        low=int(round(target * LENGTH_BAND[0])),
+        high=int(round(target * LENGTH_BAND[1])),
+    )
+
+
+def section_word_targets(run_dir: Path | str | None, structure) -> dict[str, WordTarget]:
+    """Per-section English-word targets for a Gemini run; ``{}`` on Claude,
+    when the contract is off, or for a profile that sets its own ceilings.
+
+    Late v1 — the profile with no word guidance of its own — takes the
+    calibrated split of the reference total. A profile that writes its own
+    ranges into the section specs (growth, early, late v2) is read as
+    written, the midpoint being the target. One that declares
+    ``budget_words`` ceilings (compact) is left alone: a floor under a
+    ceiling is not this gate's to set.
+    """
+    if run_engine(run_dir) != "gemini":
+        return {}
+    total = reference_words()
+    if total is None:
+        return {}
+    if str(structure.stage) == "late" and int(structure.version) == 1:
+        scale = total / CLAUDE_REFERENCE_WORDS
+        return {
+            section_id: _band(int(round(words * scale)))
+            for section_id, words in _LATE_V1_WORDS.items()
+            if section_id in structure.section_ids
+        }
+    targets: dict[str, WordTarget] = {}
+    for section in structure.sections:
+        if section.budget_words:
+            continue
+        match = _WORD_RANGE_RE.search(section.contract_md or "")
+        if not match:
+            continue
+        low = int(match.group(1).replace(",", ""))
+        high = int(match.group(2).replace(",", ""))
+        if low <= 0 or high < low:
+            continue
+        targets[section.id] = WordTarget(target=(low + high) // 2, low=low, high=high)
+    return targets
+
+
+def en_word_count(section: dict | None) -> int:
+    """English words in a section's blocks — prose, bullets, table cells and
+    captions alike. Counts the way the renderer's compact-ceiling gate
+    counts (``memo_docx_renderer._section_en_word_count``), so the two
+    gates never disagree about a section's length."""
+    words = 0
+
+    def walk(value) -> None:
+        nonlocal words
+        if isinstance(value, dict):
+            if "en" in value:
+                words += len(str(value.get("en") or "").split())
+            else:
+                for item in value.values():
+                    walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+
+    walk((section or {}).get("blocks") or [])
+    return words
+
+
+def length_contract(target: WordTarget) -> str:
+    """The prompt block a Gemini section worker drafts under."""
+    return f"""\
+## Length contract (this engine)
+Write {target.low:,}–{target.high:,} English words for this section — aim for
+{target.target:,} — counting prose, bullets and table cells together. That is
+the length this section runs to on the reference engine, and the two
+engines' memos must read at the same depth: argue every pinned fact through
+to its consequence, fill each table row with the specific figure or name the
+research material gives, and treat every component the section spec names in
+full. Reach the length with substance only — no restating the shared fact
+sheet, no recap of what the section has already said, no invented numbers.
+"""
+
+
+def length_extension(target: WordTarget, previous_path: Path, words: int) -> str:
+    """The prompt block for the gate's extension pass: deepen the draft on
+    disk, keep everything it already says."""
+    return f"""\
+## Length extension
+Your previous draft of this section is at `{previous_path}`: {words:,} English
+words against the {target.low:,}–{target.high:,} this section runs to (aim for
+{target.target:,}). Return the SAME section, extended: keep every existing
+block, claim, number, table row and source reference exactly as written and
+in order, then deepen it — carry each argument through to its consequence,
+add the specifics from the research material the draft left out, add the
+table rows the material supports, and give every component the section spec
+names its full treatment. Substance only: no restatement of the shared fact
+sheet, no recap paragraphs, no numbers that are not in the fact sheet or the
+research material.
+"""

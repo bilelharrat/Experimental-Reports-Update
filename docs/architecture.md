@@ -209,6 +209,20 @@ differ, and both are consequences of Gemini having no filesystem:
 - A scanned PDF with no text layer contributes nothing, where a Claude
   agent could still have described the pages it read.
 
+One thing is added, for the mirror-image reason: Gemini writes shorter
+than Claude on identical prompts (the ZaiNar wave came back at 7,695
+English words against the 12,202 and 12,212 of the benchmarked Claude
+runs). The late-stage editorial prompts under `skills/memo/` carry no word
+targets — Claude never needed one — so the target lives on the engine that
+does. `memo_engine` tells each Gemini section worker the length its Claude
+twin writes (the Round-2 reference split across the sections;
+`BSH_MEMO_GEMINI_WORDS` moves the total, 0 disables it), and a
+deterministic gate after the section wave sends any section that came back
+under the floor back to its worker with the draft to deepen, two rounds at
+most. Claude prompts are byte-identical to before; profiles that carry
+their own ranges (growth, early, late v2) are read as written, and the
+compact profile's ceilings are left alone.
+
 The engine is pinned per run (like the quality tier) *and* stored on the
 report record, so a resume or repair pass after a restart uses the engine
 the memo was started with rather than the current default. Claude stays the
