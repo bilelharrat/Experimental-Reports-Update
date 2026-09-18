@@ -933,17 +933,20 @@ onBeforeUnmount(() => {
               class="morning-brief mt-2.5"
               data-testid="brief-note"
             >
-              <header class="morning-brief-measure">
+              <!-- The measure belongs to the prose, not the header: the
+                   label row spans the card and the headline takes its own
+                   wider one, so only the timestamp is held to it. -->
+              <header>
                 <div class="flex items-center justify-between gap-2">
                   <span class="section-label">{{ t("pulse.note_label") }}</span>
                   <span class="chip bg-accent/10 text-accent-ink">
                     {{ t("pulse.note_ai_tag") }}
                   </span>
                 </div>
-                <h3 class="morning-brief-headline mt-1.5">
+                <h3 class="morning-brief-headline mt-2">
                   {{ pick(brief.note, "headline") }}
                 </h3>
-                <p class="mt-1 text-footnote text-ink-muted">
+                <p class="morning-brief-measure mt-1.5 text-footnote text-ink-muted">
                   {{ t("pulse.brief_as_of", { when: (brief.note.generated_at && refreshedAtLabel(brief.note.generated_at)) || brief.date }) }}
                   <template v-if="noteSectionCount">
                     · {{ t("pulse.note_sections", { count: noteSectionCount }) }}

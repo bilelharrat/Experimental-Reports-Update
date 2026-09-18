@@ -913,17 +913,23 @@ select.field-sm {
   /* A phone has no room for the front-page size: at 27px a two-clause
      headline runs six lines and pushes the brief itself off the screen. */
   font-size: 1.375rem;
-  line-height: 1.75rem;
   letter-spacing: -0.012em;
   font-weight: 600;
+  /* A headline is not body copy. It takes its own, wider measure — the
+     prose's 62ch capped it at 625px inside a 1012px card and broke a
+     94-character headline over three lines — and more leading, because a
+     serif at this size stacks its ascenders and descenders close enough
+     to crowd the line above. */
+  max-width: 52rem;
+  line-height: 1.3;
   text-wrap: balance;
 }
 
 @media (min-width: 640px) {
   .morning-brief-headline {
     font-size: 1.6875rem;
-    line-height: 2.0625rem;
     letter-spacing: -0.014em;
+    line-height: 1.32;
   }
 }
 
