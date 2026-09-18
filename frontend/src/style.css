@@ -889,22 +889,49 @@ select.field-sm {
    eight sections, so it gets a reading surface rather than a status box:
    a measure that keeps lines readable, a title that carries, and hairline
    rules between sections instead of boxes inside a box. */
+/* The brief is the app's one long-form surface: eight sections of prose
+   someone reads over coffee, not a panel they scan. Everything else here is
+   interface, and SF is right for interface — so the brief's PROSE is set in
+   the system serif instead, at a reading size and measure. `ui-serif`
+   resolves to New York on Apple platforms, the face Apple drew to pair with
+   SF, with Iowan and Palatino behind it; nothing is downloaded. The card's
+   label, tag, timestamp and source footer stay in SF, so the card still
+   reads as part of the app rather than a pasted-in document. */
 .morning-brief {
-  @apply rounded-card px-4 py-3.5;
+  @apply rounded-card px-5 py-4;
   background-color: rgb(var(--color-surface));
   box-shadow: var(--shadow);
+  --brief-serif: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype",
+    Palatino, Georgia, serif;
 }
 
+/* A step up from title2, and in the serif: the brief opens like a front
+   page, not like another card heading. */
 .morning-brief-headline {
-  @apply text-title2 text-ink-primary;
+  @apply text-ink-primary;
+  font-family: var(--brief-serif);
+  /* A phone has no room for the front-page size: at 27px a two-clause
+     headline runs six lines and pushes the brief itself off the screen. */
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  letter-spacing: -0.012em;
+  font-weight: 600;
   text-wrap: balance;
+}
+
+@media (min-width: 640px) {
+  .morning-brief-headline {
+    font-size: 1.6875rem;
+    line-height: 2.0625rem;
+    letter-spacing: -0.014em;
+  }
 }
 
 /* The measure applies to the parts that span the card: the headline, the
    short note's bullets, the source footer. Section prose gets its measure
    from the column it sits in instead. */
 .morning-brief-measure {
-  max-width: 68ch;
+  max-width: 62ch;
 }
 
 /* Sections fill the card. One column of 14px text across a ~1000px card is
@@ -926,7 +953,7 @@ select.field-sm {
 
 /* On a wide desk display two columns stretch back past 110 characters a
    line, so a third keeps the measure near 80 while still filling the card. */
-@media (min-width: 1600px) {
+@media (min-width: 1800px) {
   .morning-brief-sections {
     @apply grid-cols-3;
   }
@@ -941,25 +968,45 @@ select.field-sm {
 }
 
 .morning-brief-section-title {
-  @apply text-headline text-ink-primary;
+  @apply text-ink-primary;
+  font-family: var(--brief-serif);
+  font-size: 1.0625rem;
+  line-height: 1.375rem;
+  letter-spacing: -0.008em;
+  font-weight: 600;
 }
 
+/* 16px over 1.65 is the reading setting the two-column measure was sized
+   for. Near-primary ink rather than the muted secondary: body copy someone
+   reads for minutes should not be the grey the app uses for captions.
+   `pretty` keeps the last line of a paragraph off a single orphaned word. */
 .morning-brief-body {
-  @apply mt-1 whitespace-pre-line text-callout leading-[1.55] text-ink-secondary;
+  @apply mt-1.5 whitespace-pre-line text-ink-primary/85;
+  font-family: var(--brief-serif);
+  font-size: 1rem;
+  line-height: 1.65;
+  letter-spacing: -0.003em;
+  text-wrap: pretty;
 }
 
+/* The lede sits a half-step above the section prose. */
 .morning-brief-bullets {
-  @apply mt-2 space-y-1.5 text-callout leading-[1.5] text-ink-secondary;
+  @apply mt-2.5 space-y-2 text-ink-primary/85;
+  font-family: var(--brief-serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  letter-spacing: -0.004em;
+  text-wrap: pretty;
 }
 
 /* A leading accent dot rather than a bullet glyph, as the Mac cards do. */
 .morning-brief-bullets > li {
-  @apply relative pl-4;
+  @apply relative pl-[1.125rem];
 }
 
 .morning-brief-bullets > li::before {
   content: "";
-  @apply absolute left-0 top-[0.5rem] h-1 w-1 rounded-full;
+  @apply absolute left-0 top-[0.6rem] h-1 w-1 rounded-full;
   background-color: rgb(var(--color-accent));
 }
 
