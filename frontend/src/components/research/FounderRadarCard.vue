@@ -26,6 +26,7 @@ import {
   BarChartHorizontal,
 } from "lucide-vue-next";
 import { api } from "../../api.js";
+import { confirmTokenSpend } from "../../confirmTokens.js";
 
 const t = useT();
 
@@ -61,11 +62,13 @@ async function loadFounders() {
 }
 
 async function refreshFromRecord() {
-  // This now spends a model call: the pass runs web-grounded research and
-  // merges it over the record (server/founder_dossier.py). It degrades
+  // This spends a model call: the pass runs web-grounded research and
+  // merges it over the record (server/founder_dossier.py), so it carries
+  // the token-spend confirmation every paid button carries. It degrades
   // rather than throwing — a failed pass returns 200 with `research_error`
   // set — so `refreshError` alone would show nothing when it fails.
   if (!props.companyId || searching.value) return;
+  if (!confirmTokenSpend()) return;
   searching.value = true;
   refreshError.value = null;
   try {

@@ -54,6 +54,8 @@ function mountCard(companyId = "zainar-inc", company = {}) {
 
 describe("FounderRadarCard (the desk's Team tab)", () => {
   beforeEach(() => {
+    // The deep search spends tokens, so it asks first; say yes by default.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.clearAllMocks();
   });
 
@@ -172,6 +174,19 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     expect(banner.text()).toContain("API key not valid");
     // A failed pass still shows the people it already had.
     expect(wrapper.text()).toContain("Daniel Jacker");
+  });
+
+  it("does not spend when the token confirmation is declined", async () => {
+    window.confirm.mockReturnValue(false);
+    api.getFounderDossier.mockResolvedValue(dossier);
+    const wrapper = mount(FounderRadarCard, {
+      props: { companyId: "zainar-inc", company: {} },
+    });
+    await flushPromises();
+    const refresh = wrapper.findAll("button").find((b) => /refresh/i.test(b.text()));
+    await refresh.trigger("click");
+    await flushPromises();
+    expect(api.deepSearchFounder).not.toHaveBeenCalled();
   });
 
   it("shows which engine answered and how many sources it read", async () => {
