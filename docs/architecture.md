@@ -232,7 +232,12 @@ draws a second sample — nearly always sampling noise, a dropped or doubled
 bracket in 26KB of JSON, which `gemini_runner` also repairs from the
 decoder's own position — and if that fails too the run stops and says why.
 Claude keeps its single attempt and its fallback, where the monolithic
-pass carries the full memo. Claude prompts are byte-identical to before; profiles that carry
+pass carries the full memo.
+
+The spine and section handoffs — the model writing its parts to files on
+disk and returning a receipt — are off for the same reason: a Gemini run
+keeps the inline contracts, and the compact Chinese method, whatever the
+operator's flags say for Claude. Claude prompts are byte-identical to before; profiles that carry
 their own ranges (growth, early, late v2) are read as written, and the
 compact profile's ceilings are left alone.
 

@@ -417,6 +417,26 @@ def test_a_gemini_run_always_takes_the_compact_chinese_method(tmp_path, monkeypa
     assert claude_runner._memo_zh_compact_enabled(cla) is True
 
 
+def test_a_gemini_run_keeps_the_inline_spine_and_section_contracts(tmp_path, monkeypatch):
+    """The spine and section handoffs deliver their parts as files on disk.
+    Gemini has no filesystem: on the merge that made handoff the default,
+    a live run failed at its first step with every spine part "never
+    written". Claude keeps the operator's flags."""
+    monkeypatch.delenv("BSH_MEMO_SPINE_HANDOFF", raising=False)
+    monkeypatch.delenv("BSH_MEMO_SECTION_HANDOFF", raising=False)
+    gem = tmp_path / "g"; gem.mkdir()
+    cla = tmp_path / "c"; cla.mkdir()
+    memo_engine.register_run_engine(gem, "gemini")
+    memo_engine.register_run_engine(cla, "claude")
+    section = memo_structure.load_structure("late", 2).section("executive_summary")
+    assert len(section.subsections) > 1
+    assert claude_runner._memo_spine_handoff_enabled(gem) is False
+    assert claude_runner._section_handoff_enabled("executive_summary", section, gem) is False
+    assert claude_runner._memo_spine_handoff_enabled(cla) is True
+    assert claude_runner._section_handoff_enabled("executive_summary", section, cla) is True
+    assert claude_runner._memo_spine_handoff_enabled(None) is True
+
+
 # ---- Chinese translation on Gemini -----------------------------------------
 
 

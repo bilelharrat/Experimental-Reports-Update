@@ -5998,7 +5998,16 @@ _SPINE_PIECES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
 )
 
 
-def _memo_spine_handoff_enabled() -> bool:
+def _memo_spine_handoff_enabled(run_dir: Path | None = None) -> bool:
+    """Whether the spine delivers its parts as files on disk.
+
+    A Gemini run keeps the inline contract: the model has no filesystem,
+    so a handoff spine reports every part "never written" and the run
+    fails at its first step (live, 2026-09-18, on the merge that made
+    handoff the default). Claude keeps the operator's flag.
+    """
+    if run_dir is not None and memo_engine.run_engine(run_dir) == "gemini":
+        return False
     return os.environ.get("BSH_MEMO_SPINE_HANDOFF", "1") == "1"
 
 
@@ -6581,7 +6590,7 @@ whole response. Keep every value tight — this is a fact sheet, not a draft.
     # for `studio_extras` under its own schema, and it is the path that
     # carries a human's card edits — not the place to change how answers
     # travel.
-    if handoff and schema is None and _memo_spine_handoff_enabled():
+    if handoff and schema is None and _memo_spine_handoff_enabled(run_dir):
         return _run_english_spine_via_pieces(
             run_dir=run_dir,
             body=prompt,
@@ -7854,7 +7863,12 @@ def _section_piece_plan(
     ]
 
 
-def _section_handoff_enabled(section_id: str, section_def) -> bool:
+def _section_handoff_enabled(
+    section_id: str, section_def, run_dir: Path | None = None
+) -> bool:
+    # Same rule as the spine: no filesystem on Gemini, so no handoff.
+    if run_dir is not None and memo_engine.run_engine(run_dir) == "gemini":
+        return False
     wanted = _memo_section_handoff_ids()
     if wanted != _MEMO_SECTION_HANDOFF_ALL and section_id not in wanted:
         return False
@@ -8442,7 +8456,7 @@ language in prose; do not add, drop, or renumber sources.
 {spec}
 {scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{depth_block}
 """
-    if _section_handoff_enabled(section_id, section_def):
+    if _section_handoff_enabled(section_id, section_def, run_dir):
         return _run_english_section_via_pieces(
             run_dir=run_dir,
             section_id=section_id,
@@ -9133,7 +9147,7 @@ def run_memo_fast_english_package_parallel(
             # retried the piece that failed, up to its own limit; re-running
             # the whole section on top of that just pays twice.
             hands_off = _section_handoff_enabled(
-                section_id, structure.section(section_id)
+                section_id, structure.section(section_id), run_dir
             )
             if error and not hands_off and is_structured_output_failure(error):
                 retry_job = dict(job)
