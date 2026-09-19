@@ -51,7 +51,6 @@ const openReportCustomizer = inject("openReportCustomizer", () => {});
 // it opens is mounted once, at app level.
 const openDeckIntake = inject("openDeckIntake", () => {});
 const deckDragOver = ref(false);
-const deckInputRef = ref(null);
 
 const DECK_SUFFIXES = [".pdf", ".pptx", ".ppt"];
 
@@ -60,22 +59,22 @@ function isDeck(file) {
   return DECK_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
+function onDeckDragOver(event) {
+  // only light up for a file drag, not for text or a dragged link
+  if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
+  deckDragOver.value = true;
+}
+
+function onDeckDragLeave() {
+  deckDragOver.value = false;
+}
+
 function onDeckDrop(event) {
   deckDragOver.value = false;
   const file = event.dataTransfer?.files?.[0];
   if (file && isDeck(file)) openDeckIntake(file);
 }
 
-function browseDeck() {
-  if (!deckInputRef.value) return;
-  deckInputRef.value.value = "";
-  deckInputRef.value.click();
-}
-
-function onDeckInputChange(event) {
-  const file = event.target.files?.[0];
-  if (file) openDeckIntake(file);
-}
 
 function onGenerateReport() {
   openReportCustomizer();
@@ -450,7 +449,11 @@ onBeforeUnmount(() => {
       <div class="mx-4 my-2.5 h-px shrink-0 bg-ink-primary/[0.07]" aria-hidden="true" />
 
       <!-- Companies -->
-      <section class="flex min-h-0 flex-1 flex-col">
+      <section class="flex min-h-0 flex-1 flex-col"
+        @dragover.prevent="onDeckDragOver"
+        @dragleave="onDeckDragLeave"
+        @drop.prevent="onDeckDrop"
+      >
         <div
           v-if="!collapsed"
           class="mb-1 flex shrink-0 items-center justify-between gap-2 pl-[1.125rem] pr-2.5"
@@ -545,6 +548,18 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <!-- Only while a deck is actually over the list: a permanent
+             drop box cost three lines of the rail to say something the
+             reader already knows how to do. -->
+        <div
+          v-if="deckDragOver && !collapsed"
+          class="sidebar-deck-overlay"
+          data-testid="sidebar-deck-overlay"
+        >
+          <Upload class="h-4 w-4 shrink-0" />
+          <span>{{ t("sidebar.drop_deck_release") }}</span>
+        </div>
+
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-1">
           <div
             v-if="loading && companies.length === 0 && !collapsed"
@@ -610,38 +625,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-
-        <!-- Pitch-deck drop, the last thing the directory column carried. -->
-        <div v-if="!collapsed" class="shrink-0 px-2.5 pb-2 pt-1">
-          <div
-            class="sidebar-deck-drop"
-            :data-dragover="deckDragOver ? 'true' : 'false'"
-            data-testid="sidebar-deck-drop"
-            @dragover.prevent="deckDragOver = true"
-            @dragleave="deckDragOver = false"
-            @drop.prevent="onDeckDrop"
-          >
-            <Upload class="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-            <span class="min-w-0 flex-1 text-caption1 leading-tight text-ink-muted">
-              {{ t("sidebar.drop_deck") }}
-            </span>
-            <button
-              type="button"
-              class="mac-btn mac-btn--mini shrink-0"
-              @click="browseDeck"
-            >
-              {{ t("sidebar.browse") }}
-            </button>
-          </div>
-          <input
-            ref="deckInputRef"
-            type="file"
-            accept=".pdf,.pptx,.ppt"
-            class="hidden"
-            @change="onDeckInputChange"
-          />
-        </div>
-      </section>
+</section>
 
       <!-- Account -->
       <div ref="accountAnchor" class="relative shrink-0 px-2 pb-2">

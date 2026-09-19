@@ -8,6 +8,7 @@ import {
   Link as LinkIcon,
   PanelLeft,
   PanelRightClose,
+  FileUp,
   Plus,
   ScrollText,
   Search,
@@ -241,6 +242,22 @@ const deckIntakeFile = ref(null);
 function openDeckIntake(file = null) {
   deckIntakeFile.value = file || null;
   deckIntakeOpen.value = true;
+}
+
+// The intake sheet seeds from a file and has no picker of its own, so the
+// menu entry asks for one first. Dragging a deck onto the sidebar is the
+// other way in.
+const deckPickInput = ref(null);
+
+function pickDeck() {
+  if (!deckPickInput.value) return;
+  deckPickInput.value.value = "";
+  deckPickInput.value.click();
+}
+
+function onDeckPicked(event) {
+  const file = event.target.files?.[0];
+  if (file) openDeckIntake(file);
 }
 
 provide("openDeckIntake", openDeckIntake);
@@ -879,6 +896,16 @@ provide("copilotNavigate", onCopilotNavigate);
                     <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
                     {{ t("documents.add_file") }}
                   </button>
+                  <button
+                    type="button"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    data-testid="menu-file-deck"
+                    @click="pickDeck(); closeChromeMenus()"
+                  >
+                    <FileUp class="h-4 w-4 shrink-0 text-ink-muted" />
+                    {{ t("sidebar.file_deck") }}
+                  </button>
                 </template>
                 <template v-else>
                   <button
@@ -926,6 +953,13 @@ provide("copilotNavigate", onCopilotNavigate);
                 :accept="FILE_ACCEPT"
                 class="hidden"
                 @change="onCompanyAddFiles"
+              />
+              <input
+                ref="deckPickInput"
+                type="file"
+                accept=".pdf,.pptx,.ppt"
+                class="hidden"
+                @change="onDeckPicked"
               />
             </div>
             <button

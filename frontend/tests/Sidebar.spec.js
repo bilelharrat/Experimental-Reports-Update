@@ -288,9 +288,34 @@ describe("Sidebar company directory", () => {
     expect(mountSidebar(sectored).find("select").exists()).toBe(true);
   });
 
-  it("offers the pitch-deck drop target", () => {
-    expect(
-      mountSidebar(sectored).find('[data-testid="sidebar-deck-drop"]').exists(),
-    ).toBe(true);
+  it("shows the deck drop affordance only while a deck is over it", async () => {
+    // A permanent drop box cost three lines of the rail to say something a
+    // reader already knows how to do.
+    const wrapper = mountSidebar(sectored);
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
+
+    await wrapper.find("section").trigger("dragover", {
+      dataTransfer: { types: ["Files"] },
+    });
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      true,
+    );
+
+    await wrapper.find("section").trigger("dragleave");
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
+  });
+
+  it("ignores a drag that carries no file", async () => {
+    const wrapper = mountSidebar(sectored);
+    await wrapper.find("section").trigger("dragover", {
+      dataTransfer: { types: ["text/plain"] },
+    });
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
   });
 });
