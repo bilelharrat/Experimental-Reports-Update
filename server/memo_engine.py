@@ -475,6 +475,10 @@ _LATE_V1_WORDS: dict[str, int] = {
 # Accepted floor and suggested ceiling, as shares of a section's target.
 LENGTH_BAND = (0.90, 1.15)
 
+# Mirrors memo_docx_renderer's fallback when a section sets no multiple, so
+# the floor sits under the same ceiling the renderer enforces.
+_BUDGET_GRACE = 1.10
+
 # Revision passes an out-of-band section gets before its draft stands as-is.
 # Each trim takes roughly a sixth off; a valuation section that came back
 # 63% over (5,220 against a 3,680 ceiling, Koch 2026-09-18) needed three.
@@ -551,6 +555,26 @@ def section_word_targets(run_dir: Path | str | None, structure) -> dict[str, Wor
     targets: dict[str, WordTarget] = {}
     for section in structure.sections:
         if section.budget_words:
+            # A compact profile states a target and a hard cap per section,
+            # and the renderer already rejects anything above the cap. What
+            # it never had is a FLOOR — Claude overshoots, so nobody needed
+            # one. Gemini's failure is the opposite: a monolithic call came
+            # back at ~2,700 words against a ~12,200 reference. Without a
+            # floor here the gate skipped the profile the fund actually
+            # ships, so a short Gemini section stood as written.
+            #
+            # The band is the profile's own numbers — target, and the cap
+            # the renderer enforces — so it can never drift from what the
+            # Claude twin is asked for.
+            cap = int(
+                section.budget_words
+                * (section.budget_hard_multiple or _BUDGET_GRACE)
+            )
+            targets[section.id] = WordTarget(
+                target=section.budget_words,
+                low=int(round(section.budget_words * LENGTH_BAND[0])),
+                high=cap,
+            )
             continue
         match = _WORD_RANGE_RE.search(section.contract_md or "")
         if not match:

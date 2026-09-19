@@ -671,12 +671,46 @@ def test_a_profile_with_its_own_word_ranges_is_read_as_written(tmp_path):
     assert set(targets) == set(growth.section_ids)
 
 
-def test_a_profile_with_word_ceilings_is_left_alone(tmp_path):
+def test_a_profile_with_ceilings_gets_a_floor_under_them(tmp_path):
+    """The compact profile states a target and a hard cap per section, and
+    the renderer already rejects anything above the cap. What it never had
+    is a FLOOR: Claude overshoots, so nobody needed one, and the gate
+    skipped the profile the fund actually ships. Gemini fails the other
+    way — a monolithic call came back at ~2,700 words — so a short section
+    stood as written.
+
+    The band is the profile's own numbers, so it cannot drift from what the
+    Claude twin is asked for.
+    """
     run = tmp_path / "g"
     run.mkdir()
     memo_engine.register_run_engine(run, "gemini")
     compact = memo_structure.load_structure("late_compact")
-    assert any(section.budget_words for section in compact.sections)
+    targets = memo_engine.section_word_targets(run, compact)
+    assert set(targets) == set(compact.section_ids)
+
+    for section in compact.sections:
+        band = targets[section.id]
+        cap = int(
+            section.budget_words
+            * (section.budget_hard_multiple or memo_engine._BUDGET_GRACE)
+        )
+        # the target IS the Claude twin's budget, and the ceiling IS the
+        # renderer's cap — no second opinion about either
+        assert band.target == section.budget_words
+        assert band.high == cap
+        assert band.low == int(round(section.budget_words * 0.90))
+        # a draft at the budget sits inside the band; a thin one does not
+        assert band.distance(section.budget_words) == 0
+        assert band.distance(int(section.budget_words * 0.5)) > 0
+
+
+def test_the_floor_is_off_on_claude(tmp_path):
+    """Claude overshoots and has the renderer's cap; it never sees this."""
+    run = tmp_path / "c"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "claude")
+    compact = memo_structure.load_structure("late_compact")
     assert memo_engine.section_word_targets(run, compact) == {}
 
 
