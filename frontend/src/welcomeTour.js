@@ -33,8 +33,10 @@ export const WELCOME_TOUR_STEPS = [
   },
   {
     id: "research",
-    route: { name: "research-desk" },
-    target: '[data-tour="nav-research-desk"]',
+    // The company list IS the research desk now — the nav row that used to
+    // open a second copy of this list is gone.
+    route: { name: "home" },
+    target: '[data-tour="companies"]',
     placement: "right",
   },
   {
@@ -45,8 +47,8 @@ export const WELCOME_TOUR_STEPS = [
   },
   {
     id: "markets",
-    route: { name: "market-radar" },
-    target: '[data-tour="nav-market"]',
+    route: { name: "markets" },
+    target: '[data-tour="nav-markets"]',
     placement: "right",
   },
   {

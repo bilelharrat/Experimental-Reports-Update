@@ -3,7 +3,6 @@ import { computed, h, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import {
   ArrowUpDown,
-  Building2,
   Check,
   ChevronsUpDown,
   Upload,
@@ -127,7 +126,6 @@ const trackedCount = computed(
 
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
-  { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
   // Market, Pulse and News are three tabs of one desk now, so they are one
   // row. The tab travels in the query, which keeps this row highlighted
   // whichever of the three is open.
@@ -449,7 +447,9 @@ onBeforeUnmount(() => {
       <div class="mx-4 my-2.5 h-px shrink-0 bg-ink-primary/[0.07]" aria-hidden="true" />
 
       <!-- Companies -->
-      <section class="flex min-h-0 flex-1 flex-col"
+      <section
+        class="flex min-h-0 flex-1 flex-col"
+        data-tour="companies"
         @dragover.prevent="onDeckDragOver"
         @dragleave="onDeckDragLeave"
         @drop.prevent="onDeckDrop"

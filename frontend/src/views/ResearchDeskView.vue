@@ -4,7 +4,7 @@
 // list, so this view is the dossier and the width it was sharing. Chrome,
 // metrics and copy mirror the Mac desk; see .mac-desk in style.css.
 import { ref, computed, watch, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { useT } from "../i18n.js";
 import { Building2 } from "lucide-vue-next";
 import CompanyDossierView from "../components/research/CompanyDossierView.vue";
@@ -24,7 +24,6 @@ const props = defineProps({
 const emit = defineEmits(["open-copilot", "reports-changed"]);
 
 const route = useRoute();
-const router = useRouter();
 const t = useT();
 
 const internalCompanies = ref([]);
@@ -61,18 +60,6 @@ const selectedCompany = computed(() => {
   return allCompanies.value.find((c) => c.id === selectedCompanyId.value) || null;
 });
 
-function selectCompany(company) {
-  if (!company) return;
-  selectedCompanyId.value = company.id;
-
-  if (route.params.companyId !== company.id) {
-    router.replace({
-      name: "research-desk-company",
-      params: { companyId: company.id },
-    });
-  }
-}
-
 function syncSelectionFromRoute() {
   const targetId = props.companyId || route.params.companyId || route.query.company;
   if (targetId) {
@@ -94,20 +81,6 @@ watch(
     syncSelectionFromRoute();
   },
 );
-
-// CompanyListRow.secondaryLine: ticker · sector-or-industry · non-public/private
-// status capitalized, joined with middle dots.
-function secondaryLine(company) {
-  const parts = [];
-  if (company.ticker) parts.push(String(company.ticker).toUpperCase());
-  if (company.sector) parts.push(company.sector);
-  else if (company.industry) parts.push(company.industry);
-  const status = (company.status || "").toLowerCase();
-  if (status && status !== "public" && status !== "private") {
-    parts.push(status.charAt(0).toUpperCase() + status.slice(1));
-  }
-  return parts.join(" · ");
-}
 
 function onStageUpdated(newStage) {
   if (selectedCompany.value) {
