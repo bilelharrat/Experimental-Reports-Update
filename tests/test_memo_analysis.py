@@ -3512,16 +3512,25 @@ def test_fast_pipeline_repairs_blank_zh_after_bilingual_merge(
             "memo_package": _memo_package(body_zh=""),
         }, None
 
+    repair_calls = []
+
     def fake_parallel_bilingual(**kwargs):
+        # The gap-fill repair uses this same per-section pass, with
+        # only_missing — the monolithic one cannot fit a long memo on
+        # Gemini (2026-09-19: a run died at the final render with eight
+        # untranslated cells the repair could not answer for).
+        if kwargs.get("only_missing"):
+            repair_calls.append(kwargs)
+            return {"memo_package": _memo_package()}, None
         package = _memo_package()
         # One translation missed by the per-section fan-out.
         package["sections"][0]["blocks"][0]["text"]["zh"] = ""
         return {"memo_package": package}, None
 
-    repair_calls = []
+    monolithic_calls = []
 
     def fake_monolithic_bilingual(**kwargs):
-        repair_calls.append(kwargs)
+        monolithic_calls.append(kwargs)
         return {"memo_package": _memo_package()}, None
 
     monkeypatch.setattr(
@@ -3555,6 +3564,8 @@ def test_fast_pipeline_repairs_blank_zh_after_bilingual_merge(
     )
 
     assert len(repair_calls) == 1
+    # and the whole package was never asked for in one reply
+    assert monolithic_calls == []
     assert result.get("ok") is True
     final_package = json.loads(
         (run_dir / "logs" / "memo_package.json").read_text(encoding="utf-8")
@@ -4188,16 +4199,23 @@ def test_full_fast_pipeline_end_to_end_survives_adversarial_generation(
             package = _memo_package(body_en=_SCAFFOLD_BODY_EN, body_zh="")
         return {"analysis_artifacts": {}, "memo_package": package}, None
 
+    repair_calls = []
+
     def fake_parallel_bilingual(**kwargs):
+        # the gap-fill repair reuses this per-section pass (only_missing)
+        if kwargs.get("only_missing"):
+            repair_calls.append(kwargs)
+            return {
+                "memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN)
+            }, None
         package = _memo_package(body_en=_SCAFFOLD_BODY_EN)
         package["sections"][0]["blocks"][1]["title"]["zh"] = ""
         return {"memo_package": package}, None
 
-    repair_calls = []
-
     def fake_monolithic_bilingual(**kwargs):
-        repair_calls.append(kwargs)
-        return {"memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN)}, None
+        raise AssertionError(
+            "the whole package must never be asked for in one reply"
+        )
 
     monkeypatch.setattr(
         claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
@@ -4605,3 +4623,31 @@ def test_v2_inline_citations_are_left_alone():
     cleaned, changes = memo_analysis._rewritten_memo_package_voice(package)
     assert cleaned["sections"][0]["blocks"][0]["text"]["en"] == "ARR is $24M [S1]."
     assert changes == []
+
+
+# ---- the Chinese gap-fill repair goes per section, not in one call ---------
+#
+# 2026-09-19, Databricks on Gemini. The run reached the FINAL RENDER with
+# eight untranslated cells in one table of a ~20,000-word bilingual memo —
+# everything else complete — and died there. The repair that should have
+# filled them asked for the whole bilingual package in one response, which
+# is past Gemini's 64k output ceiling, so it could not answer. The parallel
+# pass translates one section at a time and, with `only_missing`, touches
+# only strings that are still blank.
+
+
+def test_the_zh_gap_fill_repair_is_per_section(monkeypatch):
+    """The repair must not ask for the whole package in one reply."""
+    import inspect
+
+    from server import memo_analysis
+
+    source = inspect.getsource(memo_analysis)
+    marker = 'stage="memo_package_zh_repair"'
+    assert marker in source
+    after = source.split(marker, 1)[1][:900]
+    assert "run_memo_fast_bilingual_package_parallel" in after
+    assert "only_missing=True" in after
+    # and not the monolithic one, which cannot fit a long memo on Gemini
+    monolithic = after.split("run_memo_fast_bilingual_package_parallel")[0]
+    assert "run_memo_fast_bilingual_package(" not in monolithic
