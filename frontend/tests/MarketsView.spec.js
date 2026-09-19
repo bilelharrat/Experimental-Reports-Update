@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
+
+// The three panes are `defineAsyncComponent`s, and their dynamic import fires
+// even though each is stubbed below. Left real, those imports pull in ~5,000
+// lines plus live-quote polling and land after the environment is torn down.
+// Mocking the modules keeps the loader instant and the teardown quiet.
+const pane = (name) => ({ default: { name, template: `<div data-pane="${name}" />` } });
+vi.mock("../src/views/MarketRadarView.vue", () => pane("MarketRadarView"));
+vi.mock("../src/views/WeeklySummaryView.vue", () => pane("WeeklySummaryView"));
+vi.mock("../src/views/NewsDeskView.vue", () => pane("NewsDeskView"));
 
 import MarketsView from "../src/views/MarketsView.vue";
 
@@ -38,6 +47,10 @@ async function mountMarkets(query = {}) {
       },
     },
   });
+  // The three panes are `defineAsyncComponent`s, and their dynamic import
+  // starts even though each is stubbed. Let those imports settle inside the
+  // test: an import that lands after teardown is an unhandled rejection.
+  await flushPromises();
   return { wrapper, router };
 }
 
