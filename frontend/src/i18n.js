@@ -202,6 +202,12 @@ const messages = {
     "settings.memo_parallel_runs": "Parallel report runs",
     "settings.memo_parallel_runs_hint":
       "How many companies can run an investigation or report at once. Extra runs wait in a queue. News/Updates auto-runs keep 2 separate slots.",
+    "settings.research_engine": "Research engine",
+    "settings.research_engine_gemini": "Gemini",
+    "settings.research_engine_gemini_only": "Gemini only",
+    "settings.research_engine_claude": "Claude",
+    "settings.research_engine_hint":
+      "Which model answers the team dossier, the daily desk note and the company news sweep. Gemini falls back to Claude if a call fails; Gemini only reports the failure instead. Reports are not affected — each report picks its engine when you start it.",
     "settings.system": "System",
     "settings.system_details": "System details",
     "settings.workspace_role": "Workspace role",
@@ -3036,6 +3042,12 @@ const messages = {
     "settings.memo_parallel_runs": "报告并行数量",
     "settings.memo_parallel_runs_hint":
       "同时最多可对多少家公司运行调查或报告生成，超出的任务将排队等待。新闻/更新的自动任务另有 2 个独立通道。",
+    "settings.research_engine": "调研引擎",
+    "settings.research_engine_gemini": "Gemini",
+    "settings.research_engine_gemini_only": "仅用 Gemini",
+    "settings.research_engine_claude": "Claude",
+    "settings.research_engine_hint":
+      "由哪个模型来完成团队档案、每日工作台简报以及公司新闻扫描。选择 Gemini 时，调用失败会自动回退到 Claude；选择「仅用 Gemini」则直接报错、不回退。本设置不影响报告生成——每次启动报告时单独选择引擎。",
     "settings.system": "系统",
     "settings.system_details": "系统详情",
     "settings.workspace_role": "工作区角色",

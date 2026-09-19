@@ -39,6 +39,16 @@ const prefs = computed(() => settings.value?.preferences || {});
 // Parallel memo-run cap options (News/Updates auto-runs keep their own
 // 2 reserved slots server-side, outside this cap).
 const MEMO_PARALLEL_OPTIONS = [1, 2, 3, 4];
+// Which engine answers the web-grounded research surfaces — the founder
+// dossier, the daily desk note and the company news sweep. Desk-wide, not
+// per-user: it decides where the workspace spends. Memos are NOT affected;
+// their engine is picked per run in the report customizer.
+const RESEARCH_ENGINE_OPTIONS = ["gemini", "gemini-only", "claude"];
+// Unset means nothing has been chosen here yet, so the server is still
+// falling back to BSH_AI_ENGINE and then its own default.
+const researchEngine = computed(
+  () => prefs.value.research_engine || "gemini",
+);
 const account = computed(() => profile.value?.account || settings.value?.account || {});
 const team = computed(() => profile.value?.team || {});
 const usage = computed(() => profile.value?.usage || {});
@@ -366,6 +376,30 @@ async function importDeskState(event) {
           </div>
           <p class="mt-2 text-caption1 text-ink-muted">
             {{ t("settings.memo_parallel_runs_hint") }}
+          </p>
+        </div>
+        <div class="mt-5">
+          <div class="vogue-label mb-2">{{ t("settings.research_engine") }}</div>
+          <div
+            class="segmented"
+            role="group"
+            :aria-label="t('settings.research_engine')"
+          >
+            <button
+              v-for="option in RESEARCH_ENGINE_OPTIONS"
+              :key="option"
+              type="button"
+              @click="patchPreference('research_engine', option)"
+              class="segmented-item focus-ring"
+              :disabled="saving === 'research_engine'"
+              :data-selected="researchEngine === option"
+              :data-testid="`research-engine-${option}`"
+            >
+              {{ t(`settings.research_engine_${option.replace("-", "_")}`) }}
+            </button>
+          </div>
+          <p class="mt-2 text-caption1 text-ink-muted">
+            {{ t("settings.research_engine_hint") }}
           </p>
         </div>
       </section>
