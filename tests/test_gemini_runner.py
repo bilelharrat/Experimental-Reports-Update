@@ -234,7 +234,8 @@ def test_blocked_prompt_reports_the_block_reason(monkeypatch, key):
 
 def test_truncated_response_is_reported_not_silently_empty(monkeypatch, key):
     envelope = {"candidates": [{"content": {"parts": []}, "finishReason": "MAX_TOKENS"}]}
-    _stub_post(monkeypatch, [_response(200, envelope)])
+    # asked twice: truncated both times (PARSE_RETRIES=1)
+    _stub_post(monkeypatch, [_response(200, envelope), _response(200, envelope)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
@@ -616,7 +617,8 @@ def test_a_truncated_response_says_so_instead_of_a_parse_error(monkeypatch, key)
             }
         ]
     }
-    _stub_post(monkeypatch, [_response(200, envelope)])
+    # asked twice: truncated both times (PARSE_RETRIES=1)
+    _stub_post(monkeypatch, [_response(200, envelope), _response(200, envelope)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="memo English package"
     )
@@ -664,7 +666,7 @@ def test_a_parse_failure_shows_how_the_output_ends(monkeypatch, key):
     """The head of a 60KB package never says whether it was cut off; the
     tail does. The live failure message showed only the head."""
     text = '{"memo_package": {"sections": [{"id": "executive_summary", "text": "' + "x" * 500
-    # asked twice: truncated both times (PARSE_RETRIES=1)
+    # asked twice: unparseable both times (PARSE_RETRIES=1)
     _stub_post(
         monkeypatch,
         [_response(200, _envelope(text)), _response(200, _envelope(text))],
@@ -869,13 +871,12 @@ def test_a_good_reply_costs_one_call(monkeypatch):
     "error",
     [
         "gemini returned an empty response (x)",
-        "gemini response hit the output token limit before finishing (x)",
         "gemini API key not configured",
     ],
 )
-def test_only_a_parse_failure_is_retried(error, monkeypatch):
-    """An empty reply, a blocked one and a hit output ceiling all come back
-    the same the second time — paying twice for them buys nothing."""
+def test_a_failure_nothing_can_fix_is_not_retried(error, monkeypatch):
+    """An empty reply and a missing key come back the same the second
+    time — paying twice for them buys nothing."""
     fake, seen = _run_returning((None, {}, error))
     monkeypatch.setattr(gemini_runner, "_run", fake)
     data, got = gemini_runner.run_structured_prompt(
@@ -883,3 +884,42 @@ def test_only_a_parse_failure_is_retried(error, monkeypatch):
     )
     assert data is None and got == error
     assert len(seen) == 1
+
+
+def test_a_reply_that_ran_past_the_ceiling_is_asked_to_cut(monkeypatch):
+    """2026-09-19: a `valuation_returns` section blew a 64,000-token ceiling
+    writing a section budgeted at 1,900 words, and the wave failed with
+    nothing having asked it to be shorter. The first version of this retry
+    excluded output limits on the reasoning that they come back the same —
+    true of an empty reply, not of a model that can be told what it did.
+    """
+    over = (
+        f"gemini response {gemini_runner.OUTPUT_LIMIT_MARKER} before "
+        "finishing (x); raise max_output_tokens"
+    )
+    fake, seen = _run_returning((None, {}, over), ({"ok": True}, {}, None))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True} and error is None
+    assert len(seen) == 2
+    assert seen[1].startswith("ORIGINAL")
+    assert "materially shorter" in seen[1]
+    # and it must not lose the required content in the process
+    assert "every pinned fact" in seen[1]
+
+
+def test_it_still_gives_up_after_one_over_length_retry(monkeypatch):
+    over = (
+        f"gemini response {gemini_runner.OUTPUT_LIMIT_MARKER} before "
+        "finishing (x); raise max_output_tokens"
+    )
+    fake, seen = _run_returning((None, {}, over), (None, {}, over))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None
+    assert gemini_runner.OUTPUT_LIMIT_MARKER in error
+    assert len(seen) == 2

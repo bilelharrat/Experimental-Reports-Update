@@ -727,7 +727,7 @@ def _single_call(
     # bug that was really an output-length limit.
     if _hit_output_limit(payload):
         return None, meta, (
-            f"gemini response hit the output token limit before finishing "
+            f"gemini response {OUTPUT_LIMIT_MARKER} before finishing "
             f"({name}); raise max_output_tokens"
         )
     parsed, reason = _parse_json_payload_reason(text)
@@ -744,6 +744,7 @@ def _single_call(
 
 
 UNPARSEABLE_MARKER = "gemini output didn't parse as JSON"
+OUTPUT_LIMIT_MARKER = "hit the output token limit"
 
 # One re-ask when a reply is not valid JSON. Two live memo runs died this
 # way on 2026-09-19, each on a single malformed token in one section of an
@@ -757,6 +758,21 @@ UNPARSEABLE_MARKER = "gemini output didn't parse as JSON"
 # Only a PARSE failure is retried: an empty reply, a blocked one, or a hit
 # output ceiling all come back the same the second time.
 PARSE_RETRIES = 1
+
+# A section that ran away past the ceiling is not the same failure as one
+# that came back malformed, and the first version of this retry excluded it
+# on the reasoning that "it comes back the same the second time". That was
+# right for an empty or blocked reply and wrong here: 2026-09-19, a
+# `valuation_returns` section blew a 64,000-token ceiling writing a section
+# budgeted at 1,900 words, and nothing asked it to be shorter. Told what it
+# did, a model can cut.
+_TOO_LONG_NUDGE = (
+    "\n\nYour previous reply ran past the output limit and was cut off "
+    "mid-answer, so none of it could be used. Send the whole answer again, "
+    "materially shorter: keep every required field and every pinned fact, "
+    "and cut commentary until it fits. A complete short answer is worth "
+    "more than a truncated long one."
+)
 
 _REPARSE_NUDGE = (
     "\n\nYour previous reply was not valid JSON and could not be used. "
@@ -799,17 +815,27 @@ def run_structured_prompt(
             temperature=temperature,
             max_output_tokens=max_output_tokens,
         )
-        if data is not None or not error or UNPARSEABLE_MARKER not in error:
+        if data is not None or not error:
+            return data, error
+        if UNPARSEABLE_MARKER in error:
+            nudge = _REPARSE_NUDGE.format(reason=error[:300])
+            why = "did not parse"
+        elif OUTPUT_LIMIT_MARKER in error:
+            nudge = _TOO_LONG_NUDGE
+            why = "ran past the output limit"
+        else:
+            # empty, blocked, no key: the second try answers the same
             return data, error
         if attempt >= PARSE_RETRIES:
             return data, error
         logger.warning(
-            "gemini: %s did not parse; asking again (%d of %d)",
+            "gemini: %s %s; asking again (%d of %d)",
             name,
+            why,
             attempt + 1,
             PARSE_RETRIES,
         )
-        prompt = user_prompt + _REPARSE_NUDGE.format(reason=error[:300])
+        prompt = user_prompt + nudge
     return None, error
 
 
