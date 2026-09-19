@@ -26,6 +26,7 @@ import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import ReportCustomizerModal from "./components/ReportCustomizerModal.vue";
+import PitchDeckIntakeModal from "./components/research/PitchDeckIntakeModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
 import WelcomeTour from "./components/WelcomeTour.vue";
@@ -229,6 +230,20 @@ function openReportCustomizer(companyId = null) {
 }
 
 provide("openReportCustomizer", openReportCustomizer);
+
+// The pitch-deck drop lived under the research desk's directory column. The
+// column is part of the sidebar now, and the sidebar is mounted beside every
+// view, so the modal it opens belongs at app level rather than inside one
+// desk — same reasoning as the report customizer above.
+const deckIntakeOpen = ref(false);
+const deckIntakeFile = ref(null);
+
+function openDeckIntake(file = null) {
+  deckIntakeFile.value = file || null;
+  deckIntakeOpen.value = true;
+}
+
+provide("openDeckIntake", openDeckIntake);
 
 const jumpHits = computed(() => {
   const q = jumpQuery.value.trim().toLowerCase();
@@ -1062,6 +1077,14 @@ provide("copilotNavigate", onCopilotNavigate);
       :initial-company-id="reportCustomizerCompanyId"
       @close="reportCustomizerOpen = false"
       @created="refreshAll"
+    />
+    <PitchDeckIntakeModal
+      :is-open="deckIntakeOpen"
+      :initial-file="deckIntakeFile"
+      :company-id="currentCompanyId || ''"
+      :companies="companies"
+      @close="deckIntakeOpen = false"
+      @intake-complete="refreshAll"
     />
     <WelcomeTour :open="welcomeTourOpen" @close="closeWelcomeTour" />
   </div>

@@ -206,6 +206,60 @@ export function recordCompanyView(id) {
   _writeJson(VIEWS_KEY, next);
 }
 
+// Company-directory filters. These used to live inside ResearchDeskView,
+// next to the directory column it owned; the column is now part of the
+// sidebar, which is a different component, so the filters have to be
+// somewhere both can see. Persisted, because a filter you set and then lose
+// on navigation is worse than no filter.
+const DESK_SECTOR_KEY = "bsh.deskSector";
+const DESK_DIFFS_KEY = "bsh.deskDiffsOnly";
+
+export const ALL_SECTORS = "All";
+
+export const deskSector = ref(_readJson(DESK_SECTOR_KEY, ALL_SECTORS) || ALL_SECTORS);
+
+export function setDeskSector(sector) {
+  const next = String(sector || ALL_SECTORS);
+  deskSector.value = next;
+  _writeJson(DESK_SECTOR_KEY, next);
+}
+
+export const deskDiffsOnly = ref(Boolean(_readJson(DESK_DIFFS_KEY, false)));
+
+export function setDeskDiffsOnly(on) {
+  deskDiffsOnly.value = Boolean(on);
+  _writeJson(DESK_DIFFS_KEY, deskDiffsOnly.value);
+}
+
+export function toggleDeskDiffsOnly() {
+  setDeskDiffsOnly(!deskDiffsOnly.value);
+}
+
+/** Has this company been opened before?
+ *
+ * The desk kept its own `bsh.visitedCompanies` Set for exactly this, beside
+ * the `companyViews` counter that already recorded it — one fact under two
+ * keys, written from two places. `companyViews` wins: it is the one the
+ * sidebar's "Most viewed" sort already reads, and App.vue records it on
+ * every route change rather than only while the desk is mounted.
+ */
+export function hasVisitedCompany(id) {
+  const key = String(id || "").trim();
+  if (!key) return false;
+  return (Number(companyViews.value[key]) || 0) > 0;
+}
+
+/** Whether a company should show under the "Diffs" filter: something has
+ * changed on it, or it is worth attention and has never been opened. */
+export function isCompanyModified(company) {
+  if (!company) return false;
+  if (company.is_modified || company.has_updates || company.modified) {
+    return true;
+  }
+  if (hasVisitedCompany(company.id)) return false;
+  return Boolean(company.reports_count > 0 || company.priority === "high");
+}
+
 export function postAuthPath(next) {
   if (
     typeof next === "string" &&

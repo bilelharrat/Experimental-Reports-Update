@@ -4214,3 +4214,21 @@ select.yf-range-item:hover {
 
 /* Shared Summit-styled components nested in the desk (memo studio, report
    customizer) need no token bridge: the desk now speaks their palette. */
+
+/* Pitch-deck drop target at the foot of the sidebar's company list. Dashed
+   while idle so it reads as a target rather than a row, tinted on dragover. */
+.sidebar-deck-drop {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px dashed rgb(var(--color-text-primary) / 0.18);
+  border-radius: 0.625rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.sidebar-deck-drop[data-dragover="true"] {
+  border-color: rgb(var(--color-accent) / 0.65);
+  border-style: solid;
+  background-color: rgb(var(--color-accent) / 0.08);
+}

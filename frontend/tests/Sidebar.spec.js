@@ -1,10 +1,14 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { nextTick } from "vue";
 import { mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import Sidebar from "../src/components/Sidebar.vue";
 import { session } from "../src/auth.js";
 import {
+  ALL_SECTORS,
   companyViews,
+  setDeskDiffsOnly,
+  setDeskSector,
   setCompanySort,
   setSidebarCollapsed,
   trackedCompanyIds,
@@ -228,5 +232,65 @@ describe("Sidebar", () => {
     expect(nvdaMonogram).toBeTruthy();
     const src = nvdaMonogram.find("img").attributes("src");
     expect(src).toMatch(/nvidia\.com|NVDA/);
+  });
+});
+
+// ---- the directory column, now that it is this list -------------------------
+//
+// The Research Desk carried its own company column — search, a sector popup,
+// a Diffs toggle and a deck drop — beside this one. Two lists, one job, and
+// between them they left the dossier about half the window. The column is
+// gone; these are the behaviours that came across with it.
+
+describe("Sidebar company directory", () => {
+  const sectored = [
+    { id: "acme", name: "Acme Corp", sector: "Industrial AI", is_modified: true },
+    { id: "globex", name: "Globex Corporation", sector: "Fintech" },
+    { id: "initech", name: "Initech", sector: "Fintech" },
+  ];
+
+  beforeEach(() => {
+    setDeskSector(ALL_SECTORS);
+    setDeskDiffsOnly(false);
+  });
+
+  it("filters the list by sector", async () => {
+    const wrapper = mountSidebar(sectored);
+    expect(wrapper.text()).toContain("Acme Corp");
+
+    setDeskSector("Fintech");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Globex Corporation");
+    expect(wrapper.text()).toContain("Initech");
+    expect(wrapper.text()).not.toContain("Acme Corp");
+  });
+
+  it("shows only changed companies when Diffs is on", async () => {
+    const wrapper = mountSidebar(sectored);
+    const diffs = wrapper.find('[data-testid="sidebar-diffs-toggle"]');
+    expect(diffs.exists()).toBe(true);
+
+    await diffs.trigger("click");
+    await nextTick();
+
+    // Acme carries is_modified; the other two have been seen and changed nothing
+    expect(wrapper.text()).toContain("Acme Corp");
+    expect(wrapper.text()).not.toContain("Globex Corporation");
+  });
+
+  it("hides the sector popup when there is only one sector to pick", () => {
+    const oneSector = [
+      { id: "a", name: "Acme Corp", sector: "Fintech" },
+      { id: "b", name: "Globex Corporation", sector: "Fintech" },
+    ];
+    expect(mountSidebar(oneSector).find("select").exists()).toBe(false);
+    expect(mountSidebar(sectored).find("select").exists()).toBe(true);
+  });
+
+  it("offers the pitch-deck drop target", () => {
+    expect(
+      mountSidebar(sectored).find('[data-testid="sidebar-deck-drop"]').exists(),
+    ).toBe(true);
   });
 });
