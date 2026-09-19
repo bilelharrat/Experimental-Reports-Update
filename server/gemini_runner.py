@@ -734,12 +734,37 @@ def _single_call(
     if parsed is None:
         dump = _dump_unparseable(name, text)
         return None, meta, (
-            f"gemini output didn't parse as JSON (name={name}, {len(text)} chars): "
+            UNPARSEABLE_MARKER
+            + f" (name={name}, {len(text)} chars): "
             f"{reason or 'unknown reason'}"
             + (f"; raw output kept at {dump}" if dump else "")
             + f"; starts: {text[:120]!r} … ends: {text[-120:]!r}"
         )
     return parsed, meta, None
+
+
+UNPARSEABLE_MARKER = "gemini output didn't parse as JSON"
+
+# One re-ask when a reply is not valid JSON. Two live memo runs died this
+# way on 2026-09-19, each on a single malformed token in one section of an
+# otherwise finished memo: an empty chart series, then `"] satisfy: true}`
+# — a missing comma and an unquoted key, three times in one reply. Braces
+# balanced, prose intact, 25,853 characters of real work discarded because
+# nothing asked again.
+#
+# Chasing each malformation is whack-a-mole; the Claude path already re-asks
+# a section whose structured output fails, and this is the same insurance.
+# Only a PARSE failure is retried: an empty reply, a blocked one, or a hit
+# output ceiling all come back the same the second time.
+PARSE_RETRIES = 1
+
+_REPARSE_NUDGE = (
+    "\n\nYour previous reply was not valid JSON and could not be used. "
+    "The parser reported: {reason}\n"
+    "Send the same content again as ONE valid JSON object. Quote every key. "
+    "Put a comma between every pair of items. Do not wrap it in markdown "
+    "fences, and do not add any commentary before or after it."
+)
 
 
 def run_structured_prompt(
@@ -760,19 +785,32 @@ def run_structured_prompt(
     Returns ``(data, error)`` — exactly one of the two is non-None. ``name``
     is a debug label that ends up in error messages.
     """
-    data, _meta, error = _run(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        schema=schema,
-        name=name,
-        timeout_sec=timeout_sec,
-        model=model,
-        thinking_level=thinking_level,
-        grounded=grounded,
-        temperature=temperature,
-        max_output_tokens=max_output_tokens,
-    )
-    return data, error
+    prompt = user_prompt
+    for attempt in range(PARSE_RETRIES + 1):
+        data, _meta, error = _run(
+            system_prompt=system_prompt,
+            user_prompt=prompt,
+            schema=schema,
+            name=name,
+            timeout_sec=timeout_sec,
+            model=model,
+            thinking_level=thinking_level,
+            grounded=grounded,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        )
+        if data is not None or not error or UNPARSEABLE_MARKER not in error:
+            return data, error
+        if attempt >= PARSE_RETRIES:
+            return data, error
+        logger.warning(
+            "gemini: %s did not parse; asking again (%d of %d)",
+            name,
+            attempt + 1,
+            PARSE_RETRIES,
+        )
+        prompt = user_prompt + _REPARSE_NUDGE.format(reason=error[:300])
+    return None, error
 
 
 RESEARCH_INSTRUCTION = (

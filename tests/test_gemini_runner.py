@@ -664,7 +664,11 @@ def test_a_parse_failure_shows_how_the_output_ends(monkeypatch, key):
     """The head of a 60KB package never says whether it was cut off; the
     tail does. The live failure message showed only the head."""
     text = '{"memo_package": {"sections": [{"id": "executive_summary", "text": "' + "x" * 500
-    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    # asked twice: truncated both times (PARSE_RETRIES=1)
+    _stub_post(
+        monkeypatch,
+        [_response(200, _envelope(text)), _response(200, _envelope(text))],
+    )
     data, error = gemini_runner.run_structured_prompt(system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh")
     assert data is None
     assert "ends:" in error and error.rstrip("'\"").endswith("x" * 40)
@@ -691,7 +695,9 @@ def test_a_parse_failure_names_the_decoder_reason_and_keeps_the_raw_output(
     import tempfile
 
     monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
-    _stub_post(monkeypatch, [_response(200, _envelope('{"a": 1,, "b": 2}'))])
+    # asked twice: the reply does not parse either time (PARSE_RETRIES=1)
+    bad = _envelope('{"a": 1,, "b": 2}')
+    _stub_post(monkeypatch, [_response(200, bad), _response(200, bad)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA,
         name="memo Chinese package (section x)",
@@ -792,3 +798,88 @@ def test_a_document_that_ends_early_is_not_mistaken_for_a_dropped_bracket():
     parsed, reason = gemini_runner._loads_object('{"a": [1, 2')
     assert parsed is None
     assert reason
+
+
+# ---- one re-ask when a reply is not valid JSON ------------------------------
+#
+# Two live memo runs died this way on 2026-09-19, each on a single malformed
+# token in one section of an otherwise finished memo. The second was
+# `"] satisfy: true}` — a missing comma and an unquoted key — three times in
+# one reply: braces balanced, prose intact, 25,853 characters of real work
+# discarded because nothing asked again. Chasing each malformation is
+# whack-a-mole; the Claude path already re-asks a section whose structured
+# output fails, and this is the same insurance.
+
+_BAD = gemini_runner.UNPARSEABLE_MARKER + " (name=x, 10 chars): Expecting ','"
+
+
+def _run_returning(*results):
+    """Patch the single-shot call to return each result in turn."""
+    seen: list[str] = []
+    it = iter(results)
+
+    def fake(**kwargs):
+        seen.append(kwargs["user_prompt"])
+        return next(it)
+
+    return fake, seen
+
+
+def test_an_unparseable_reply_is_asked_again(monkeypatch):
+    fake, seen = _run_returning(
+        (None, {}, _BAD),
+        ({"ok": True}, {}, None),
+    )
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True}
+    assert error is None
+    assert len(seen) == 2
+    # the retry carries the original ask plus what went wrong
+    assert seen[0] == "ORIGINAL"
+    assert seen[1].startswith("ORIGINAL")
+    assert "not valid JSON" in seen[1]
+    assert "Quote every key" in seen[1]
+
+
+def test_it_gives_up_after_one_retry(monkeypatch):
+    fake, seen = _run_returning((None, {}, _BAD), (None, {}, _BAD))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None
+    assert gemini_runner.UNPARSEABLE_MARKER in error
+    assert len(seen) == 2
+
+
+def test_a_good_reply_costs_one_call(monkeypatch):
+    fake, seen = _run_returning(({"ok": True}, {}, None))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True} and error is None
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "gemini returned an empty response (x)",
+        "gemini response hit the output token limit before finishing (x)",
+        "gemini API key not configured",
+    ],
+)
+def test_only_a_parse_failure_is_retried(error, monkeypatch):
+    """An empty reply, a blocked one and a hit output ceiling all come back
+    the same the second time — paying twice for them buys nothing."""
+    fake, seen = _run_returning((None, {}, error))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, got = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None and got == error
+    assert len(seen) == 1
