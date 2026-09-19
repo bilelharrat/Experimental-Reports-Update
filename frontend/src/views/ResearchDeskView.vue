@@ -447,10 +447,6 @@ function onDeckDrop(e) {
             >
               <PanelLeftClose class="h-3.5 w-3.5" />
             </button>
-
-            <span class="mac-t-caption mac-mono mac-c-secondary shrink-0 select-none">
-              {{ filteredCompanies.length }}
-            </span>
           </div>
 
           <!-- Toolbar search field (.searchable placement: .toolbar) -->
