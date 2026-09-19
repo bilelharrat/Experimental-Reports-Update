@@ -2074,3 +2074,70 @@ def test_an_unknown_type_is_read_from_the_blocks_fields():
     kinds = [b["type"] for b in repaired["sections"][0]["blocks"]]
     assert kinds == ["bullets", "heading", "paragraph", "spacer"]
     assert _block_errors(repaired) == []
+
+
+# ---- an empty chart is a placeholder, not a fatal defect --------------------
+#
+# 2026-09-19, RadixArk on Gemini. The model announced a chart and put nothing
+# in it: one series, no label, no points. An empty TABLE has been dropped
+# rather than fatal since the first Gemini runs; this shape had never been
+# taught, so it failed renderer validation through all three package
+# attempts and the surgical repair, and killed a memo that was otherwise
+# finished — seven sections at the right length, 378 other defects already
+# absorbed by the same pass that should have absorbed this one.
+
+
+def _expand(block):
+    repairs = []
+    return memo_docx_renderer._expand_block(dict(block), repairs, "b"), repairs
+
+
+def test_a_chart_with_nothing_in_it_is_dropped():
+    out, repairs = _expand(
+        {"type": "chart", "chart_type": "line",
+         "series": [{"label": "", "points": []}]}
+    )
+    assert out == []
+    assert any("dropped empty chart" in r for r in repairs)
+
+
+def test_a_chart_keeps_the_series_that_have_data():
+    out, repairs = _expand(
+        {
+            "type": "chart",
+            "chart_type": "grouped_bar",
+            "series": [
+                {"label": "Revenue", "points": [{"x": "2026", "y": 1.0}]},
+                {"label": "", "points": []},
+            ],
+        }
+    )
+    assert len(out) == 1
+    assert [s["label"] for s in out[0]["series"]] == ["Revenue"]
+    assert any("dropped 1 series with no points" in r for r in repairs)
+
+
+def test_a_healthy_chart_is_left_alone():
+    chart = {
+        "type": "chart",
+        "chart_type": "line",
+        "series": [{"label": "Revenue", "points": [{"x": "2026", "y": 1.0}]}],
+    }
+    out, repairs = _expand(chart)
+    assert out == [chart]
+    assert repairs == []
+
+
+def test_the_dropped_chart_no_longer_fails_validation():
+    """End to end: the block that ended the run passes the gate once the
+    repair pass has seen it."""
+    package = _package()
+    section = package["sections"][0]
+    section["blocks"].append(
+        {"type": "chart", "chart_type": "line",
+         "series": [{"label": "", "points": []}]}
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert any("empty chart" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "series" in e], errors

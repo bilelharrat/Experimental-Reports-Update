@@ -399,6 +399,31 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
         block["type"] = kind
         repairs.append(f"{where}.type: normalized {raw_type!r} to {kind!r}")
     out: list[dict] = []
+    if kind == "chart":
+        # A series with no points is the same placeholder an empty table is:
+        # the model announced a chart and then had nothing to put in it. The
+        # table case has been dropped rather than fatal since the first
+        # Gemini runs; this one had not, so on 2026-09-19 a RadixArk memo
+        # that was otherwise finished — seven sections, 378 other defects
+        # already absorbed — died on one chart nobody could have rendered.
+        series = block.get("series")
+        if isinstance(series, list):
+            kept = [
+                one
+                for one in series
+                if isinstance(one, dict)
+                and isinstance(one.get("points"), list)
+                and one.get("points")
+            ]
+            if len(kept) != len(series):
+                repairs.append(
+                    f"{where}.series: dropped "
+                    f"{len(series) - len(kept)} series with no points"
+                )
+            if not kept:
+                repairs.append(f"{where}: dropped empty chart")
+                return []
+            block["series"] = kept
     if kind == "table":
         if not (block.get("headers") or block.get("rows")):
             repairs.append(f"{where}: dropped empty table")
