@@ -264,6 +264,11 @@ const engines = [
 ];
 const selectedEngine = ref("claude");
 
+// The tiers above are Claude model/effort pairs, and claude_runner drops them
+// on a Gemini run (claude_runner.py:4633) — Gemini picks its own model. So the
+// selector is a no-op there, and saying so beats letting it look live.
+const qualityLocked = computed(() => selectedEngine.value !== "claude");
+
 // Tab 4: Evidence Sources
 // Tab 4: the analysed documents this company actually has. An Analyze run
 // in the Files tab writes a <name>_analysis.md beside the upload, and that
@@ -743,8 +748,12 @@ async function launchReport() {
           <!-- Compute Quality Tier -->
           <div>
             <div class="flex items-center justify-between mb-3">
-              <span class="vogue-label">{{ t("customizer.quality_title") }}</span>
-              <span class="text-xs text-ink-muted">{{ t("customizer.quality_desc") }}</span>
+              <span class="vogue-label" :class="qualityLocked ? 'opacity-50' : ''">{{
+                t("customizer.quality_title")
+              }}</span>
+              <span class="text-xs" :class="qualityLocked ? 'text-ink-muted italic' : 'text-ink-muted'">{{
+                qualityLocked ? t("customizer.quality_locked") : t("customizer.quality_desc")
+              }}</span>
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <button
@@ -755,8 +764,11 @@ async function launchReport() {
                 :class="[
                   selectedQuality === q.id
                     ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                    : 'border-subtle bg-surface hover:border-strong',
+                    : 'border-subtle bg-surface',
+                  qualityLocked ? 'opacity-40 cursor-not-allowed' : 'hover:border-strong',
                 ]"
+                :disabled="qualityLocked"
+                :data-testid="`quality-${q.id}`"
                 @click="selectedQuality = q.id"
               >
                 <div class="flex items-center justify-between mb-1">
@@ -848,7 +860,7 @@ async function launchReport() {
             {{ selectedReportMode === 'full' ? 'Full IC' : 'Compact' }}
           </span>
           <span class="rounded-full bg-surface-muted border border-subtle px-2.5 py-0.5 text-ink-muted font-medium">
-            {{ selectedQuality }}
+            {{ qualityLocked ? selectedEngine : selectedQuality }}
           </span>
         </div>
 
