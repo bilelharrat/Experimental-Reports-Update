@@ -11,6 +11,7 @@ from server import (
     memo_chinese_parity,
     memo_docx_renderer,
     memo_quality_lint,
+    memo_structure,
 )
 
 
@@ -1584,3 +1585,492 @@ def test_repair_is_noop_on_valid_package():
     repaired, repairs = memo_docx_renderer.repair_package_structure(package)
     assert repairs == []
     assert repaired == package
+
+
+def _why_it_matters_cell(package: dict) -> dict:
+    """The `Why it matters` value cell of the first risk card."""
+    for section in package["sections"]:
+        if section.get("id") != "investment_risk":
+            continue
+        for block in section.get("blocks") or []:
+            if block.get("component") != "risk_register":
+                continue
+            for row in block["rows"]:
+                if str(row[0].get("en", "")).lower().startswith("why it matters"):
+                    return row[1]
+    raise AssertionError("no risk register in the fixture")
+
+
+def test_risk_lint_accepts_a_services_business_consequence():
+    """A live Gemini run failed three retries and a repair pass on this exact
+    sentence. It IS an economic consequence — discounts on contracts — in
+    the vocabulary of a services business rather than a SaaS one."""
+    package = copy.deepcopy(_package())
+    cell = _why_it_matters_cell(package)
+    cell["en"] = (
+        "Automated code generation and AI testing suites reduce billable hours "
+        "for embedded software maintenance. Enterprise clients can demand 15% to "
+        "25% productivity discounts on time-and-materials contracts."
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert not [e for e in errors if "economic consequence" in e], errors
+
+
+def test_risk_lint_rejects_an_operational_cause_and_says_what_it_wants():
+    """The message is fed back to the retry and the repair pass, so a model
+    that believes it stated a consequence must be told what would satisfy
+    the rule — a bare "must state one" gave it nothing to act on."""
+    package = copy.deepcopy(_package())
+    cell = _why_it_matters_cell(package)
+    cell["en"] = (
+        "The engineering team is small and several senior people have left "
+        "this year, which slows delivery on the roadmap considerably."
+    )
+    errors = [
+        e for e in memo_docx_renderer.english_package_validation_errors(package)
+        if "economic consequence" in e
+    ]
+    assert len(errors) == 1
+    assert "revenue, margin, cost" in errors[0]
+    assert "not only the operational cause" in errors[0]
+
+
+def test_a_heading_the_parity_gate_would_reject_is_pinned_to_the_canonical_title():
+    """A live Gemini run wrote "公司概况与公司治理" and "投资风险与下行分析" as
+    section headings. Every paragraph was there, but the Chinese parity gate
+    finds sections by full-line anchored patterns and reported four core
+    sections missing. The renderer now pins such headings; recognised
+    variants keep their numbering."""
+    package = copy.deepcopy(_package())
+    by_id = {s["id"]: s for s in package["sections"]}
+    by_id["company_overview"]["title"] = {"en": "II. Company Overview", "zh": "公司概况与公司治理"}
+    by_id["investment_risk"]["title"] = {"en": "Investment Risk", "zh": "投资风险与下行分析"}
+
+    notes = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+
+    # The canonical titles come from the profile (numbered, e.g. "II. 公司概览"),
+    # so the expectation is derived from it rather than hardcoded.
+    canonical = memo_structure.LATE.section_titles()
+    assert by_id["company_overview"]["title"]["zh"] == canonical["company_overview"]["zh"]
+    assert by_id["investment_risk"]["title"]["zh"] == canonical["investment_risk"]["zh"]
+    # A heading the gate already recognises — numbered or not — is left alone.
+    assert by_id["company_overview"]["title"]["en"] == "II. Company Overview"
+    assert by_id["investment_risk"]["title"]["en"] == "Investment Risk"
+    # The fixture's other sections carry no title, so the pin fills those in
+    # too (a missing heading is the clearest case); only the two edited ones
+    # are asserted here.
+    for expected in (
+        f"company_overview.title.zh: '公司概况与公司治理' -> {canonical['company_overview']['zh']!r}",
+        f"investment_risk.title.zh: '投资风险与下行分析' -> {canonical['investment_risk']['zh']!r}",
+    ):
+        assert expected in notes, notes
+    # And the pinned headings are exactly what the parity gate matches.
+    patterns = memo_structure.LATE.parity_patterns()
+    for section_id in ("company_overview", "investment_risk"):
+        assert patterns[section_id]["zh"].match(by_id[section_id]["title"]["zh"])
+
+
+def test_pinning_is_idempotent_and_ignores_unknown_sections():
+    package = copy.deepcopy(_package())
+    package["sections"].append({"id": "appendix_custom", "title": {"en": "Appendix", "zh": "附录"}, "blocks": []})
+    first = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+    second = memo_docx_renderer.pin_section_titles(package, memo_structure.LATE)
+    assert second == []
+    assert package["sections"][-1]["title"] == {"en": "Appendix", "zh": "附录"}
+    assert isinstance(first, list)
+
+
+def test_callout_prose_under_text_is_localized_by_the_mechanical_repair():
+    """The validator reads a callout's prose as `body or text`; the repair
+    localized only `body`. A first-draft package from the per-section wave
+    failed validation on exactly this — sections[0].blocks[1].body — and the
+    regeneration retry that followed came back at half the length."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].insert(1, {
+        "type": "callout",
+        "title": "Investment Committee Diligence Disposition",
+        "text": "Recommendation: pass on Cienet Technologies due to complete operational opacity.",
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][1]
+    assert block["text"] == {
+        "en": "Recommendation: pass on Cienet Technologies due to complete operational opacity.",
+        "zh": "",
+    }
+    assert any(r.endswith("blocks[1].text: wrapped plain string as bilingual en value") for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "blocks[1].body must be bilingual" in e], errors
+
+
+def test_prose_blocks_and_wrapped_cells_are_repaired_mechanically():
+    """Both shapes came from the per-section wave on Gemini and each cost a
+    whole regeneration attempt: a block typed 'prose', and a table cell
+    written as {"text": {en, zh}} (reported as 'cells[0].en is required')."""
+    package = copy.deepcopy(_package())
+    section = package["sections"][0]
+    section["blocks"].insert(0, {"type": "prose", "text": {"en": "Opening prose.", "zh": "开篇。"}})
+    section["blocks"].append({
+        "type": "table", "headers": [],
+        "rows": [[{"text": {"en": "Risk Type", "zh": "风险类型"}}, {"text": "Execution"}]],
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert blocks[0]["type"] == "paragraph"
+    # 'header' cost a further live attempt; it is a heading.
+    hdr, _ = memo_docx_renderer.repair_package_structure(
+        {"schema_version": 1, "sections": [{"id": "executive_summary", "blocks": [
+            {"type": "header", "text": {"en": "Thesis", "zh": "论点"}}]}]}
+    )
+    assert hdr["sections"][0]["blocks"][0]["type"] == "heading"
+    row = blocks[-1]["rows"][0]
+    assert row[0] == {"en": "Risk Type", "zh": "风险类型"}
+    # A one-word label counts as language-neutral, so the validator accepts
+    # it as a plain string; what matters is that the {"text": …} wrapper is
+    # gone and the cell is a value the validator understands.
+    assert row[1] in ("Execution", {"en": "Execution", "zh": ""})
+    assert any("unwrapped cell text" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "'prose' is unsupported" in e or "cells[0].en is required" in e], errors
+
+
+def test_an_empty_table_is_dropped_rather_than_failing_the_package():
+    """'table must include headers or rows' cost a live wave attempt. A table
+    with neither is a placeholder the model never filled."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].insert(0, {"type": "table", "headers": [], "rows": []})
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][0]["type"] != "table" or repaired["sections"][0]["blocks"][0].get("rows")
+    assert any("dropped empty table" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "must include headers or rows" in e], errors
+
+
+def test_an_empty_row_is_dropped_rather_than_failing_the_package():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append({
+        "type": "table", "headers": [],
+        "rows": [[], {"cells": []}, [{"en": "Kept", "zh": "保留"}, {"en": "Row", "zh": "行"}]],
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"][-1]["rows"]) == 1
+    assert any("dropped 2 empty row(s)" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "must contain cells" in e], errors
+
+
+# ---- shapes that each cost a live generation attempt (Koch, Inc. 2026-09-18)
+
+
+def _shell(sections, sources=None):
+    return {
+        "schema_version": 1,
+        "company": {"name": "Koch, Inc."},
+        "run": {"run_id": "2026-09-18__181245", "language": "en"},
+        "sources": sources
+        if sources is not None
+        else [
+            {
+                "id": "s1",
+                "title": "Corporate registry",
+                "class": "company",
+                "treatment": {"en": "Weighted as company reported.", "zh": ""},
+                "as_of": "2026-09-18",
+            }
+        ],
+        "sections": sections,
+    }
+
+
+def test_a_block_that_names_its_type_kind_is_not_read_as_an_empty_paragraph():
+    """`kind` instead of `type` left 22 blocks reading as untyped paragraphs,
+    failing as "text is required" and ending the run's first attempt."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"kind": "heading", "level": 2, "text": "Scale advantages"},
+            {"kind": "paragraph", "text": "Koch reinvests most of its earnings."},
+            {"kind": "bullets", "items": ["Perpetual capital base"]},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert [b["type"] for b in blocks] == ["heading", "paragraph", "bullets"]
+    assert all("kind" not in b for b in blocks)
+    assert any("renamed 'kind'" in r for r in repairs)
+
+
+def test_a_table_that_calls_its_headers_columns_still_renders():
+    package = _shell([
+        {"id": "company_overview", "blocks": [
+            {"kind": "table", "component": "revenue", "text": "Revenue",
+             "columns": ["Year", "Revenue"], "rows": [["2025", "$125B"]]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][0]
+    assert table["type"] == "table"
+    # A header may stay a plain string when it carries no translatable prose.
+    assert [
+        h["en"] if isinstance(h, dict) else h for h in table["headers"]
+    ] == ["Year", "Revenue"]
+    assert "columns" not in table
+
+
+def test_a_bullet_list_filed_under_its_own_block_name_is_adopted():
+    """`{"type": "bullets", "bullets": [...], "items": null}` failed as
+    "items must be a non-empty list" and ended the run's last attempt."""
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "items": None,
+             "bullets": ["Counter-cyclical balance sheet", "Perpetual capital"]},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert [i["en"] for i in block["items"]] == [
+        "Counter-cyclical balance sheet", "Perpetual capital"
+    ]
+    assert "bullets" not in block
+    assert any("moved 'bullets' into 'items'" in r for r in repairs)
+
+
+def test_a_populated_items_list_is_never_replaced_by_a_synonym():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "items": ["The real list"], "bullets": ["A stray one"]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    assert [i["en"] for i in repaired["sections"][0]["blocks"][0]["items"]] == [
+        "The real list"
+    ]
+
+
+def test_a_source_classed_in_only_one_of_its_two_fields_is_completed():
+    """Both halves are required, and a source fills exactly one of them. The
+    same live run failed once each way."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[
+            # class only (attempt 1)
+            {"id": "s1", "title": "Corporate registry", "as_of": "2026-09-18",
+             "class": "company_reported"},
+            # the slug sitting in treatment, no class (attempt 2)
+            {"id": "s2", "title": "Forbes ranking", "as_of": "2023-11-01",
+             "treatment": {"en": "independent_secondary", "zh": ""}},
+            # a real treatment sentence is left exactly as written
+            {"id": "s3", "title": "Gartner", "as_of": "2024-04-10",
+             "class": "third-party market data",
+             "treatment": {"en": "Discounted; vendor-commissioned.", "zh": ""}},
+        ],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    s1, s2, s3 = repaired["sources"]
+    assert s1["class"] == "company reported"
+    assert s1["treatment"]["en"] == "Weighted as company reported."
+    assert s2["class"] == "independent secondary"
+    assert s2["treatment"]["en"] == "Weighted as independent secondary."
+    assert s3["class"] == "third-party market data"
+    assert s3["treatment"]["en"] == "Discounted; vendor-commissioned."
+    # The stub sections trip content floors of their own; what matters here
+    # is that no source is left incomplete.
+    assert [
+        e
+        for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []
+
+
+
+def test_a_source_classed_under_the_analysis_passes_word_for_it_is_completed():
+    """`evidence_class` is the passes' vocabulary; a run's sources arrived
+    with nothing else (Koch, 2026-09-18, second run)."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[{"id": "S1", "title": "Registry", "as_of": "2026-09-18",
+                  "url": "https://www.kochinc.com", "evidence_class": "company-reported"}],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    source = repaired["sources"][0]
+    assert source["class"] == "company reported"
+    assert source["treatment"]["en"] == "Weighted as company reported."
+    assert "evidence_class" not in source
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []
+
+
+def test_a_source_typed_rather_than_classed_is_completed():
+    """Six sources arrived as {"type": "corporate_filing", "publisher": ...,
+    "key_points": ...} with neither class nor treatment (Koch, third rerun)."""
+    package = _shell(
+        [{"id": "executive_summary", "blocks": [
+            {"type": "paragraph", "text": "Recommendation: proceed."}]}],
+        sources=[{"id": "S1", "title": "Corporate registry", "as_of": "2026-09-18",
+                  "url": "https://www.kochinc.com", "type": "corporate_filing",
+                  "publisher": "Koch, Inc.", "key_points": "Founded 1940."}],
+    )
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    source = repaired["sources"][0]
+    assert source["class"] == "corporate filing"
+    assert source["treatment"]["en"] == "Weighted as corporate filing."
+    assert "type" not in source
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if e.startswith("sources[")
+    ] == []
+
+
+def test_an_untyped_component_block_with_prose_under_content_becomes_a_titled_paragraph():
+    """Nine valuation blocks arrived as {"slug", "text": <title>, "content":
+    <prose>} with no type: the component unrecognised, the prose invisible."""
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"slug": "deal_terms",
+             "text": {"en": "Deal Terms & Governance Mechanics", "zh": ""},
+             "content": "Koch's capital structure presents institutional barriers."},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert block["type"] == "paragraph"
+    assert block["component"] == "deal_terms"
+    assert block["title"]["en"] == "Deal Terms & Governance Mechanics"
+    assert block["text"]["en"] == "Koch's capital structure presents institutional barriers."
+    assert "slug" not in block and "content" not in block
+    assert any("moved 'content' into 'text'" in r for r in repairs)
+    # Coverage is by declaration, so the rename is what makes the component
+    # count — attempt 1 of that run failed on exactly this.
+    assert memo_docx_renderer._memo_component_coverage(repaired)["deal_terms"] is True
+
+
+def test_a_list_under_content_is_never_taken_for_prose():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "bullets", "content": ["one", "two"], "items": ["one", "two"]},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert [i["en"] for i in block["items"]] == ["one", "two"]
+    assert "text" not in block
+
+
+
+def test_a_table_and_prose_block_is_split_into_the_table_and_its_paragraph():
+    """Five valuation blocks arrived as one invented type carrying a table
+    and its commentary together, with the arrays serialized as strings —
+    the shape that ended attempt 2 of the second Koch run."""
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"id": "deal_terms_block", "type": "table_and_prose",
+             "component": "deal_terms", "title": "Deal Mechanics",
+             "headers": '["Parameter", "Term"]',
+             "rows": '[["Mandate", "Pass; $0 committed [s7]"]]',
+             "content": "Koch maintains a closed capital structure."},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table, prose = repaired["sections"][0]["blocks"]
+    assert table["type"] == "table" and table["component"] == "deal_terms"
+    assert [h["en"] if isinstance(h, dict) else h for h in table["headers"]] == [
+        "Parameter", "Term"
+    ]
+    assert len(table["rows"]) == 1 and "content" not in table
+    assert prose["type"] == "paragraph"
+    assert prose["text"]["en"] == "Koch maintains a closed capital structure."
+    assert any("decoded a list serialized" in r for r in repairs)
+    assert any("moved its 'content' into a paragraph after the table" in r for r in repairs)
+    block_errors = [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if ".blocks[" in e
+    ]
+    assert block_errors == []
+
+
+def test_a_header_and_prose_block_becomes_a_titled_paragraph():
+    package = _shell([
+        {"id": "financial_forecast_valuation", "blocks": [
+            {"id": "sotp", "type": "header_and_prose",
+             "title": "Sum-of-the-Parts Framework",
+             "content": "Valuing Koch requires segregating cyclical processing."},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][0]
+    assert block["type"] == "paragraph"
+    assert block["title"]["en"] == "Sum-of-the-Parts Framework"
+    assert block["text"]["en"] == "Valuing Koch requires segregating cyclical processing."
+    assert "content" not in block
+    assert [
+        e for e in memo_docx_renderer.english_package_validation_errors(repaired)
+        if ".blocks[" in e
+    ] == []
+
+
+
+def _block_errors(package: dict) -> list[str]:
+    return [
+        e for e in memo_docx_renderer.english_package_validation_errors(package)
+        if ".blocks[" in e
+    ]
+
+
+def test_a_titled_paragraph_group_serialized_as_a_string_is_expanded():
+    """`content_block`: a title over a list of paragraphs, the list itself
+    serialized as a JSON string (four blocks of one live executive summary)."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"id": "thesis", "type": "content_block", "title": "Sponsor Thesis",
+             "paragraphs": '["BSH evaluates Koch through a growth-equity lens.", "The verdict is a pass."]'},
+        ]},
+    ])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    first, second = repaired["sections"][0]["blocks"]
+    assert first["type"] == "paragraph" and first["id"] == "thesis"
+    # A two-word capitalized title reads as a proper noun and stays plain.
+    assert memo_docx_renderer._content_text(first["title"]) == "Sponsor Thesis"
+    assert first["text"]["en"] == "BSH evaluates Koch through a growth-equity lens."
+    assert second == {"type": "paragraph", "text": {"en": "The verdict is a pass.", "zh": ""}}
+    assert any("read unknown type 'content_block' as 'paragraph'" in r for r in repairs)
+    assert _block_errors(repaired) == []
+
+
+def test_a_table_with_intro_and_footnote_prose_gets_its_paragraphs_around_it():
+    """`table_block`: the key-metrics table with an intro before it and a
+    footnote after it, arrays serialized as strings."""
+    package = _shell([
+        {"id": "executive_summary", "blocks": [
+            {"id": "kms", "type": "table_block", "component": "key_metrics_snapshot",
+             "title": "Key Metrics Snapshot",
+             "intro": "The snapshot below details baseline parameters.",
+             "headers": '["Metric", "Value"]',
+             "rows": '[["Headcount", "100,000+"]]',
+             "footnote": "Revenue matches mega-cap peers; the balance sheet is opaque."},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    intro, table, footnote = repaired["sections"][0]["blocks"]
+    assert intro["type"] == "paragraph"
+    assert intro["text"]["en"] == "The snapshot below details baseline parameters."
+    assert table["type"] == "table" and table["component"] == "key_metrics_snapshot"
+    assert len(table["rows"]) == 1 and "intro" not in table and "footnote" not in table
+    assert footnote["text"]["en"].startswith("Revenue matches")
+    assert _block_errors(repaired) == []
+
+
+def test_an_unknown_type_is_read_from_the_blocks_fields():
+    package = _shell([
+        {"id": "investment_highlights", "blocks": [
+            {"type": "key_points", "items": ["Scale", "Patience"]},
+            {"type": "section_header", "level": 2, "text": "Moat"},
+            {"type": "narrative_block", "content": "The moat is capital patience."},
+            {"type": "divider"},
+        ]},
+    ])
+    repaired, _ = memo_docx_renderer.repair_package_structure(package)
+    kinds = [b["type"] for b in repaired["sections"][0]["blocks"]]
+    assert kinds == ["bullets", "heading", "paragraph", "spacer"]
+    assert _block_errors(repaired) == []

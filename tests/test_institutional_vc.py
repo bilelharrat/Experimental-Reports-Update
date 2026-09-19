@@ -102,11 +102,23 @@ def test_founder_dossier_is_empty_without_people():
     assert data["advisors_and_board"] == []
 
 
-def test_deep_search_does_not_claim_an_audit():
-    _seed()
+def test_deep_search_degrades_to_the_record_when_research_fails(monkeypatch):
+    """A failed research pass must leave the Team tab showing the record,
+    not an error — and it may not claim an audit it did not perform."""
+    from server import founder_dossier
+
+    monkeypatch.setattr(
+        founder_dossier.ai_engine,
+        "grounded",
+        lambda **_kw: (None, {"engine": "gemini"}, "gemini HTTP 503"),
+    )
+    _seed(key_people=[{"name": "Ada Example", "role": "CEO"}])
     response = client.post("/api/companies/zainar-inc/founder-dossier/deep-search")
     assert response.status_code == 200
-    assert response.json()["is_deep_audited"] is False
+    body = response.json()
+    assert body["is_deep_audited"] is False
+    assert body["research_error"] == "gemini HTTP 503"
+    assert [p["name"] for p in body["founders"]] == ["Ada Example"]
 
 
 def test_deal_pipeline_starts_empty_and_accepts_updates():

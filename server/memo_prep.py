@@ -550,6 +550,7 @@ def bootstrap_memo_run(
     memo_mode: str = "auto",
     report_mode: str = "full",
     quality: str = "best",
+    engine: str | None = None,
     evidence_files: list[str] | None = None,
     trigger: str | None = None,
     auto_run_id: str | None = None,
@@ -877,6 +878,10 @@ def bootstrap_memo_run(
             if not buffett and quality != "best"
             else {}
         ),
+        # Stored on the report, not just registered in memory, so a resume
+        # or a repair pass after a restart runs on the engine the memo was
+        # started with rather than the current default.
+        **({"engine": engine} if engine and engine != "claude" else {}),
     )
     prepared_report = storage.get_report(report["id"])
 

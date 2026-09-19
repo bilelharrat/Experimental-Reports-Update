@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, storage
+from . import ai_engine, claude_runner, storage
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
@@ -419,6 +419,12 @@ FAST_WEEKLY_SCAN_SCHEMA: dict[str, Any] = {
 }
 
 
+# The Claude CLI path capped these at 115s because an agentic WebSearch run
+# is slow. A metered grounded call is not, so the cap is now about how long
+# a user will wait on a refresh rather than about the engine.
+SCAN_TIMEOUT_SEC = 180
+DETAIL_TIMEOUT_SEC = 150
+
 SYSTEM_PROMPT = f"""\
 You are BSH's weekly public-equities research desk. Your job is to identify
 the hottest US-listed common stocks and ADRs for the current trading week and
@@ -669,16 +675,23 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
             message="Scanning market movers",
         )
 
-    scan, err = claude_runner.run_web_research_json(
+    scan, scan_meta, err = ai_engine.grounded(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=build_candidate_scan_prompt(),
         schema=FAST_WEEKLY_SCAN_SCHEMA,
         name="weekly_scan",
-        timeout_sec=115,
-        silence_timeout_sec=95,
-        progress=progress,
-        use_json_schema=False,
+        gemini_timeout_sec=SCAN_TIMEOUT_SEC,
+        claude_timeout_sec=SCAN_TIMEOUT_SEC,
     )
+    # "This week's actual movers" is a claim about the live market. A model
+    # answering it from memory would name stale movers with this week's
+    # confidence, which is worse than admitting the scan failed — the static
+    # watchlist at least announces itself as a static watchlist.
+    if not err and not scan_meta.get("grounded"):
+        err = (
+            "weekly stock scan answered without searching the web, so its "
+            "movers are not this week's"
+        )
     if err:
         if progress:
             progress.emit(
@@ -758,16 +771,19 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
         # One retry on transient failures (socket blips, CLI crashes) before
         # falling back to an unverified scan-only card.
         for attempt in range(2):
-            detail, detail_err = claude_runner.run_web_research_json(
+            detail, detail_meta, detail_err = ai_engine.grounded(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=build_stock_detail_prompt(scan, candidate),
                 schema=STOCK_DETAIL_SCHEMA,
                 name=f"weekly_stock_{ticker.lower()}",
-                timeout_sec=115,
-                silence_timeout_sec=60,
-                progress=progress,
-                use_json_schema=True,
+                gemini_timeout_sec=DETAIL_TIMEOUT_SEC,
+                claude_timeout_sec=DETAIL_TIMEOUT_SEC,
             )
+            if not detail_err and not detail_meta.get("grounded"):
+                detail_err = (
+                    f"{ticker} verification answered without searching, so "
+                    "it verifies nothing"
+                )
             if not detail_err or attempt == 1:
                 break
             if not claude_runner.is_transient_claude_error(detail_err):
@@ -1219,14 +1235,24 @@ def _assemble_summary(
     stocks: list[dict[str, Any]],
     errors: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    ranked = sorted(
+    # Candidates are deduped by ticker before research, but a detail pass can
+    # come back naming a different company than the candidate it was asked
+    # about — two candidates then collapse onto one ticker and the dashboard
+    # shows the same name twice with two different weekly moves. Keep the
+    # best-scoring row per ticker.
+    by_ticker: dict[str, dict[str, Any]] = {}
+    for item in sorted(
         stocks,
         key=lambda item: (
             _number(item.get("score"), 0),
             _number(item.get("weekly_change_pct"), 0),
         ),
         reverse=True,
-    )[:8]
+    ):
+        key = _clean_ticker(item.get("ticker")) or str(item.get("name") or "").strip().lower()
+        if key and key not in by_ticker:
+            by_ticker[key] = item
+    ranked = list(by_ticker.values())[:8]
     for index, stock in enumerate(ranked, start=1):
         stock["rank"] = index
     watchlist = scan.get("watchlist") if isinstance(scan.get("watchlist"), list) else []
@@ -1354,7 +1380,7 @@ def _fill_missing_summary_zh(
         "required": list(needed),
     }
     payload = json.dumps(needed, ensure_ascii=False, indent=2)
-    data, err = claude_runner.run_structured_prompt(
+    data, _meta, err = ai_engine.structured(
         system_prompt=(
             "You translate a weekly public-equities dashboard from English "
             "to Simplified Chinese for institutional investors. Produce "
@@ -1371,7 +1397,9 @@ def _fill_missing_summary_zh(
         schema=schema,
         name="weekly_summary_zh",
         timeout_sec=120,
-        progress=progress,
+        # No `progress` passthrough: the Gemini path is a single HTTP call
+        # with no per-turn stream to translate into ProgressLog events, and
+        # the caller already emits its own stage events around this.
     )
     if err or not isinstance(data, dict):
         logger.warning("weekly summary zh translation failed: %s", err)

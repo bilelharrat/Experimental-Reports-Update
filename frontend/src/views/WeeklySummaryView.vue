@@ -57,7 +57,48 @@ const briefDate = ref("");
 const briefRunning = ref(false);
 const briefError = ref("");
 const noteWriting = ref(false);
-const noteLength = ref("short");
+// The extended note is the morning brief proper — tape, central banks,
+// geoeconomics and geopolitics. It defaults on; "Short" stays available for
+// a quick numbers-only read.
+const noteLength = ref("long");
+
+// The morning schedule writes the note on the server, and the long one takes
+// ~90s. Without this the page is indistinguishable from "there is no brief".
+const noteScheduleRunning = ref(false);
+let noteSchedulePoll = null;
+
+const noteBuilding = computed(() => noteWriting.value || noteScheduleRunning.value);
+
+async function pollNoteSchedule() {
+  try {
+    const state = await api.marketBriefSchedule();
+    const wasRunning = noteScheduleRunning.value;
+    noteScheduleRunning.value = Boolean(state?.running);
+    // It finished while we were watching: pick up what it wrote.
+    if (wasRunning && !noteScheduleRunning.value) await loadBrief(briefDate.value || null);
+  } catch {
+    noteScheduleRunning.value = false;
+  }
+}
+
+function startNoteSchedulePolling() {
+  if (noteSchedulePoll) return;
+  pollNoteSchedule();
+  noteSchedulePoll = window.setInterval(pollNoteSchedule, 10000);
+}
+
+function stopNoteSchedulePolling() {
+  if (!noteSchedulePoll) return;
+  window.clearInterval(noteSchedulePoll);
+  noteSchedulePoll = null;
+}
+
+const noteSectionCount = computed(() => {
+  const note = brief.value?.note;
+  if (!note) return 0;
+  const sections = pickArray(note, "sections");
+  return Array.isArray(sections) ? sections.length : 0;
+});
 const ledger = ref([]);
 let activeStream = null;
 let streamIdleTimer = null;
@@ -193,6 +234,7 @@ function applyRefreshState(state) {
 async function initializeWeeklySummary() {
   await Promise.all([loadSummary(), loadMarketDesk(), loadBrief(), loadLedger()]);
   await attachActiveWeeklyRefresh();
+  startNoteSchedulePolling();
 }
 
 async function loadBrief(date = null) {
@@ -655,6 +697,7 @@ onBeforeUnmount(() => {
     activeRefreshContext = null;
   }
   closeStream();
+  stopNoteSchedulePolling();
 });
 </script>
 
@@ -857,40 +900,106 @@ onBeforeUnmount(() => {
             <p class="text-caption1 text-ink-muted">
               {{ t("pulse.brief_as_of", { when: (brief.generated_at && refreshedAtLabel(brief.generated_at)) || brief.date }) }}
             </p>
-            <div
-              v-if="brief.note"
-              class="mt-2 rounded-subbox bg-fill-tertiary/60 px-3 py-2.5"
-              data-testid="brief-note"
+            <article
+              v-if="noteBuilding"
+              class="morning-brief mt-2.5"
+              data-testid="brief-note-loading"
+              aria-busy="true"
+              :aria-label="t('pulse.note_building')"
             >
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-callout font-semibold text-ink-primary">
-                  {{ pick(brief.note, "headline") }}
-                </p>
+              <div class="flex items-center justify-between gap-2">
+                <span class="section-label">{{ t("pulse.note_label") }}</span>
                 <span class="chip bg-accent/10 text-accent-ink">
-                  {{ t("pulse.note_ai_tag") }}
+                  <Loader2 class="mr-1 inline h-3 w-3 animate-spin" />
+                  {{ t("pulse.note_building") }}
                 </span>
               </div>
+              <div class="morning-brief-skeleton-line mt-2.5 h-6 w-4/5 max-w-[36rem]"></div>
+              <div class="morning-brief-skeleton-line mt-1.5 h-3.5 w-2/5 max-w-[18rem]"></div>
+              <div class="morning-brief-sections mt-3.5">
+                <section v-for="n in 4" :key="`note-skel-${n}`" class="morning-brief-section">
+                  <div class="morning-brief-skeleton-line h-4 w-3/5"></div>
+                  <div class="morning-brief-skeleton-line mt-2 h-3 w-full"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-full"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-11/12"></div>
+                  <div class="morning-brief-skeleton-line mt-1.5 h-3 w-4/5"></div>
+                </section>
+              </div>
+              <p class="morning-brief-foot">{{ t("pulse.note_building_hint") }}</p>
+            </article>
+
+            <article
+              v-else-if="brief.note"
+              class="morning-brief mt-2.5"
+              data-testid="brief-note"
+            >
+              <!-- The measure belongs to the prose, not the header: the
+                   label row spans the card and the headline takes its own
+                   wider one, so only the timestamp is held to it. -->
+              <header>
+                <div class="flex items-center justify-between gap-2">
+                  <span class="section-label">{{ t("pulse.note_label") }}</span>
+                  <span class="chip bg-accent/10 text-accent-ink">
+                    {{ t("pulse.note_ai_tag") }}
+                  </span>
+                </div>
+                <h3 class="morning-brief-headline mt-2">
+                  {{ pick(brief.note, "headline") }}
+                </h3>
+                <p class="morning-brief-measure mt-1.5 text-footnote text-ink-muted">
+                  {{ t("pulse.brief_as_of", { when: (brief.note.generated_at && refreshedAtLabel(brief.note.generated_at)) || brief.date }) }}
+                  <template v-if="noteSectionCount">
+                    · {{ t("pulse.note_sections", { count: noteSectionCount }) }}
+                  </template>
+                </p>
+              </header>
+
               <ul
                 v-if="pickArray(brief.note, 'bullets').length"
-                class="mt-1.5 list-disc space-y-1 pl-4 text-callout text-ink-secondary"
+                class="morning-brief-bullets morning-brief-measure"
               >
                 <li v-for="(line, i) in pickArray(brief.note, 'bullets')" :key="`note-${i}`">
                   {{ line }}
                 </li>
               </ul>
+
               <div
-                v-for="(section, i) in pickArray(brief.note, 'sections')"
-                :key="`note-sec-${i}`"
-                class="mt-2.5"
+                v-if="pickArray(brief.note, 'sections').length"
+                class="morning-brief-sections"
               >
-                <div class="text-footnote font-semibold text-ink-primary">
-                  {{ section.title }}
-                </div>
-                <p class="mt-0.5 whitespace-pre-line text-callout leading-relaxed text-ink-secondary">
-                  {{ section.body }}
-                </p>
+                <section
+                  v-for="(section, i) in pickArray(brief.note, 'sections')"
+                  :key="`note-sec-${i}`"
+                  class="morning-brief-section"
+                >
+                  <h4 class="morning-brief-section-title">{{ section.title }}</h4>
+                  <p class="morning-brief-body">{{ section.body }}</p>
+                </section>
               </div>
-            </div>
+
+              <!-- A long note makes claims about the world, so it shows what
+                   it read. No sources means it was written unresearched. -->
+              <p
+                v-if="brief.note.length === 'long'"
+                class="morning-brief-foot morning-brief-measure"
+                data-testid="brief-note-sources"
+              >
+                <template v-if="brief.note.researched && (brief.note.sources || []).length">
+                  {{ t("pulse.note_researched", { count: brief.note.sources.length }) }}
+                  <span
+                    v-for="(src, i) in (brief.note.sources || []).slice(0, 4)"
+                    :key="`note-src-${i}`"
+                  >{{ i ? " · " : " " }}<a
+                      :href="src.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="underline decoration-dotted hover:text-ink-secondary"
+                    >{{ src.title }}</a></span>
+                </template>
+                <template v-else>{{ t("pulse.note_unresearched") }}</template>
+              </p>
+            </article>
+
             <div class="mt-2 flex flex-wrap gap-2">
               <button
                 v-for="row in (brief.indices || []).slice(0, 6)"

@@ -1,7 +1,22 @@
 <script setup>
+// Web twin of MacPitchDeckIntakeSheet (MacPitchDeckDropZone.swift): a 520pt
+// sheet with bar-material header/footer. Form: the deck tile, "Attach to"
+// picker, company-name field and the info callout. Result: extracted fields
+// with page references, thesis fit, open questions, and the Open on
+// Pipeline / Summarize with Claude actions.
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
+import {
+  FileUp,
+  FileText,
+  Info,
+  BadgeCheck,
+  PlusCircle,
+  Sparkles,
+  Layers,
+} from "lucide-vue-next";
 
 const props = defineProps({
   isOpen: {
@@ -12,13 +27,19 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  companyId: {
+    type: String,
+    default: "",
+  },
   companies: {
     type: Array,
     default: () => [],
   },
 });
 
-const emit = defineEmits(["close", "filed"]);
+const emit = defineEmits(["close", "intake-complete"]);
+
+const router = useRouter();
 
 const file = ref(null);
 const attachTo = ref("");
@@ -27,33 +48,34 @@ const filing = ref(false);
 const error = ref(null);
 const result = ref(null);
 
-watch(
-  () => props.initialFile,
-  (newFile) => {
-    if (newFile) {
-      file.value = newFile;
-      const baseName = newFile.name.replace(/\.[^/.]+$/, "");
-      companyName.value = baseName.replace(/[_-]/g, " ");
-      result.value = null;
-      error.value = null;
-    }
-  },
-  { immediate: true },
-);
+function seedFromFile(nextFile) {
+  file.value = nextFile;
+  const baseName = String(nextFile?.name || "").replace(/\.[^/.]+$/, "");
+  companyName.value = baseName.replace(/[_-]/g, " ");
+}
 
 watch(
   () => props.isOpen,
   (open) => {
     if (open) {
-      if (props.initialFile) {
-        file.value = props.initialFile;
-        const baseName = props.initialFile.name.replace(/\.[^/.]+$/, "");
-        companyName.value = baseName.replace(/[_-]/g, " ");
-      }
+      if (props.initialFile) seedFromFile(props.initialFile);
+      attachTo.value = "";
       result.value = null;
       error.value = null;
     }
   },
+);
+
+watch(
+  () => props.initialFile,
+  (newFile) => {
+    if (newFile) {
+      seedFromFile(newFile);
+      result.value = null;
+      error.value = null;
+    }
+  },
+  { immediate: true },
 );
 
 const canFile = computed(() => {
@@ -62,12 +84,39 @@ const canFile = computed(() => {
   return companyName.value.trim().length > 0;
 });
 
+const resultFields = computed(() => result.value?.extraction?.fields ?? result.value?.fields ?? []);
+const resultFileId = computed(() => result.value?.file?.id ?? null);
+const resultFileName = computed(() => result.value?.file?.filename ?? result.value?.file_name ?? "Deck");
+
+// MacIntakeField.label / .display
+function fieldLabel(field) {
+  if (field.name === "post_money") return "Post-money";
+  if (field.name === "arr") return "ARR";
+  return String(field.name || "field").replace(/^./, (c) => c.toUpperCase());
+}
+
+function fieldDisplay(field) {
+  const usd = field.usd;
+  if (usd != null) {
+    if (usd >= 1e9) return `$${(usd / 1e9).toFixed(2)}B`;
+    if (usd >= 1e6) return `$${(usd / 1e6).toFixed(1)}M`;
+    if (usd >= 1e3) return `$${(usd / 1e3).toFixed(0)}K`;
+  }
+  if (field.name === "runway") return `${field.value} months`;
+  return field.value;
+}
+
+function fitTint(fit) {
+  if (fit?.fit === "strong") return "var(--mac-green)";
+  if (fit?.fit === "partial") return "var(--mac-orange)";
+  if (fit?.fit === "weak" || fit?.fit === "disqualified") return "var(--mac-red)";
+  return "var(--mac-secondary)";
+}
+
 function onFileInput(e) {
   const chosen = e.target.files?.[0];
   if (chosen) {
-    file.value = chosen;
-    const baseName = chosen.name.replace(/\.[^/.]+$/, "");
-    companyName.value = baseName.replace(/[_-]/g, " ");
+    seedFromFile(chosen);
     result.value = null;
     error.value = null;
   }
@@ -79,256 +128,229 @@ async function handleFileAndExtract() {
   error.value = null;
 
   try {
-    const payload = {
+    const res = await api.intakeDeck({
       file: file.value,
       companyId: attachTo.value || undefined,
       companyName: !attachTo.value ? companyName.value.trim() : undefined,
-    };
-    const res = await api.intakeDeck(payload);
+    });
     result.value = res;
-    emit("filed", res);
+    emit("intake-complete", res);
   } catch (err) {
-    error.value = err?.message || "Failed to file and extract deck";
+    error.value = err?.message || t("research_desk.intake_failed");
   } finally {
     filing.value = false;
   }
 }
 
-function handleClose() {
+function openOnPipeline() {
+  const cid = result.value?.company?.id;
   emit("close");
+  if (cid) router.push({ name: "research-desk-company", params: { companyId: cid } });
 }
 
-function fitToneClass(fit) {
-  if (!fit) return "text-muted-foreground";
-  if (fit.fit === "strong") return "text-emerald-500";
-  if (fit.fit === "partial") return "text-amber-500";
-  return "text-rose-500";
+async function summarizeWithClaude() {
+  const cid = result.value?.company?.id;
+  const fid = resultFileId.value;
+  if (!cid || !fid) return;
+  try {
+    await api.generateResearchFileSummary(cid, fid);
+  } catch {
+    // the jobs rail shows the truth
+  }
+  emit("close");
 }
 </script>
 
 <template>
   <div
     v-if="isOpen"
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    class="mac-desk fixed inset-0 z-50 flex items-center justify-center p-4"
+    style="background: transparent"
     role="dialog"
     aria-modal="true"
   >
-    <!-- Scrim backdrop -->
-    <div
-      class="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-      @click="handleClose"
-    />
+    <!-- Sheet scrim -->
+    <div class="fixed inset-0" style="background: rgba(0, 0, 0, 0.28)" @click="emit('close')" />
 
-    <!-- Sheet Panel -->
+    <!-- Sheet -->
     <div
-      class="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-surface/95 dark:bg-[#1c1c1e]/95 shadow-2xl backdrop-blur-2xl transition-all"
+      class="relative flex max-h-[85vh] w-full max-w-[520px] flex-col overflow-hidden rounded-[12px]"
+      style="background: var(--mac-canvas); box-shadow: 0 0 0 1px var(--mac-hairline), 0 24px 60px rgba(0, 0, 0, 0.35)"
     >
-      <!-- Header -->
-      <div class="flex items-center justify-between border-b border-border/40 px-5 py-3.5 bg-muted/20">
-        <div class="flex items-center gap-2.5">
-          <svg
-            class="h-5 w-5 text-accent"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="12" y1="18" x2="12" y2="12" />
-            <line x1="9" y1="15" x2="12" y2="12" />
-            <line x1="15" y1="15" x2="12" y2="12" />
-          </svg>
-          <span class="font-semibold text-foreground text-sm">
-            {{ result ? t("research_desk.intake_results_title") : t("research_desk.intake_title") }}
-          </span>
-        </div>
-        <button
-          type="button"
-          class="rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
-          @click="handleClose"
-        >
+      <!-- Header on bar material -->
+      <div class="mac-bar-material flex items-center gap-2 px-5 py-3.5">
+        <FileUp class="mac-c-accent h-[17px] w-[17px]" stroke-width="2.2" />
+        <span class="mac-t-headline-sys">
+          {{ result ? t("research_desk.intake_results_title") : t("research_desk.intake_title") }}
+        </span>
+        <span class="flex-1" />
+        <button type="button" class="mac-btn mac-btn--sm" @click="emit('close')">
           {{ result ? t("workspace.close") : t("research_desk.cancel") }}
         </button>
       </div>
+      <div class="mac-divider" />
 
-      <!-- Form Body (Pre-extraction) -->
-      <div v-if="!result" class="p-5 space-y-4 text-xs">
-        <!-- Selected File Preview -->
-        <div class="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3">
-          <svg class="h-8 w-8 text-rose-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-          </svg>
-          <div class="min-w-0 flex-1">
-            <p class="truncate font-medium text-foreground">
+      <!-- Form body -->
+      <div v-if="!result" class="mac-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+        <!-- Deck tile -->
+        <div
+          class="flex items-center gap-3 rounded-lg p-3"
+          style="background: color-mix(in srgb, var(--mac-secondary) 6%, transparent)"
+        >
+          <FileText class="h-7 w-7 shrink-0" :style="{ color: 'var(--mac-red)' }" stroke-width="1.8" />
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="mac-t-subheadline truncate font-semibold">
               {{ file ? file.name : t("research_desk.drop_deck_instruction") }}
-            </p>
-            <p class="text-[11px] text-muted-foreground">
-              {{ file ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · PDF / PPTX` : t("research_desk.browse_files") }}
-            </p>
-          </div>
-          <label class="cursor-pointer rounded px-2.5 py-1 text-xs font-medium border border-border/40 bg-surface hover:bg-muted/30 text-foreground transition-colors">
+            </span>
+            <span class="mac-t-caption10 mac-c-secondary truncate">
+              {{
+                file
+                  ? `${(file.name.split(".").pop() || "").toUpperCase()} · ${t("research_desk.intake_uploads_note")}`
+                  : ""
+              }}
+            </span>
+          </span>
+          <label class="mac-btn mac-btn--sm shrink-0">
             {{ t("research_desk.browse_files") }}
             <input type="file" accept=".pdf,.pptx" class="hidden" @change="onFileInput" />
           </label>
         </div>
 
-        <!-- Attach To Dropdown -->
-        <div class="space-y-1.5">
-          <label class="block font-medium text-muted-foreground">
-            {{ t("research_desk.intake_company_label") }}
-          </label>
-          <select
-            v-model="attachTo"
-            :disabled="filing"
-            class="w-full rounded-lg border border-border/60 bg-surface dark:bg-muted/30 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-          >
-            <option value="">{{ t("research_desk.intake_new_company") }}</option>
-            <option v-for="c in companies" :key="c.id" :value="c.id">
-              {{ c.name || c.title }}
-            </option>
-          </select>
+        <!-- Attach to -->
+        <div class="flex flex-col gap-1.5">
+          <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ t("research_desk.intake_company_label") }}</span>
+          <div class="mac-popup">
+            <select v-model="attachTo" :disabled="filing" class="w-full">
+              <option value="">{{ t("research_desk.intake_new_company") }}</option>
+              <option v-for="c in companies" :key="c.id" :value="c.id">
+                {{ c.name || c.title || c.id }}
+              </option>
+            </select>
+          </div>
         </div>
 
-        <!-- Company Name if New Record -->
-        <div v-if="!attachTo" class="space-y-1.5">
-          <label class="block font-medium text-muted-foreground">
-            {{ t("research_desk.intake_name_placeholder") }}
-          </label>
+        <!-- Company name when new -->
+        <div v-if="!attachTo" class="flex flex-col gap-1.5">
+          <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ t("research_desk.intake_company_name_label") }}</span>
           <input
             v-model="companyName"
             type="text"
             :disabled="filing"
             :placeholder="t('research_desk.intake_name_placeholder')"
-            class="w-full rounded-lg border border-border/60 bg-surface dark:bg-muted/30 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+            class="mac-field w-full"
+            @keydown.enter.prevent="handleFileAndExtract"
           />
         </div>
 
         <!-- Info callout -->
-        <div class="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
-          <svg class="h-4 w-4 text-accent shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="16" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12.01" y2="8" />
-          </svg>
-          <p>{{ t("research_desk.intake_info_callout") }}</p>
-        </div>
-
-        <!-- Error display -->
-        <div v-if="error" class="rounded-lg border border-rose-500/20 bg-rose-500/10 p-2 text-[11px] text-rose-600 dark:text-rose-400">
-          {{ error }}
-        </div>
-      </div>
-
-      <!-- Result Body (Post-extraction) -->
-      <div v-else class="max-h-[60vh] overflow-y-auto p-5 space-y-4 text-xs">
-        <!-- Result Header -->
-        <div class="flex items-center justify-between rounded-xl border border-border/40 bg-muted/20 p-3">
-          <div class="flex items-center gap-2.5">
-            <svg class="h-5 w-5 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-            <div>
-              <p class="font-semibold text-foreground">{{ result.company?.name || companyName }}</p>
-              <p class="text-[11px] text-muted-foreground">
-                {{ result.file_name }} · {{ t("research_desk.intake_slides_count", { count: result.slide_count || 0 }) }}
-              </p>
-            </div>
-          </div>
-
-          <div v-if="result.thesis" class="text-right">
-            <p class="font-mono font-bold text-xs" :class="fitToneClass(result.thesis)">
-              {{ result.thesis.score != null ? `${result.thesis.score}% fit` : result.thesis.label }}
-            </p>
-            <p class="text-[10px] text-muted-foreground">{{ result.thesis.label }}</p>
-          </div>
-        </div>
-
-        <!-- Extracted Fields Table -->
-        <div v-if="result.fields && result.fields.length" class="overflow-hidden rounded-xl border border-border/40 bg-surface/50">
-          <div
-            v-for="(field, idx) in result.fields"
-            :key="idx"
-            class="flex items-start gap-3 border-b border-border/20 p-2.5 last:border-b-0 hover:bg-muted/10 text-xs"
-          >
-            <span class="w-24 shrink-0 font-medium text-muted-foreground">{{ field.label }}</span>
-            <span class="w-24 shrink-0 font-mono font-semibold text-foreground tabular-nums">{{ field.display }}</span>
-            <div class="min-w-0 flex-1">
-              <span v-if="field.page" class="mr-1.5 font-semibold text-accent text-[11px]">p. {{ field.page }}</span>
-              <span v-if="field.excerpt" class="text-[11px] text-muted-foreground line-clamp-2">{{ field.excerpt }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Open questions list -->
-        <div v-if="result.thesis?.open_questions?.length" class="space-y-1.5">
-          <p class="font-semibold text-muted-foreground text-[11px] uppercase tracking-wider">
-            {{ t("research_desk.intake_open_questions") }}
+        <div
+          class="flex items-start gap-2.5 rounded-md p-2.5"
+          style="background: color-mix(in srgb, var(--mac-accent) 6%, transparent)"
+        >
+          <Info class="mac-c-secondary mt-px h-3.5 w-3.5 shrink-0" />
+          <p class="mac-t-caption10 mac-c-secondary" style="line-height: 1.45">
+            {{ t("research_desk.intake_info_callout") }}
           </p>
-          <ul class="space-y-1 rounded-lg border border-border/30 bg-muted/20 p-2.5">
-            <li
-              v-for="(q, idx) in result.thesis.open_questions"
-              :key="idx"
-              class="flex items-start gap-2 text-[11px] text-foreground"
-            >
-              <span class="text-accent font-bold">•</span>
-              <span>{{ q }}</span>
-            </li>
-          </ul>
+        </div>
+
+        <span v-if="error" class="mac-t-caption10" :style="{ color: 'var(--mac-red)' }">{{ error }}</span>
+      </div>
+
+      <!-- Result body -->
+      <div v-else class="mac-scroll flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
+        <div class="flex items-center gap-2.5">
+          <BadgeCheck class="h-[17px] w-[17px] shrink-0" :style="{ color: 'var(--mac-green)' }" />
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="mac-t-subheadline truncate font-semibold">
+              {{ result.company?.name || result.company?.id || companyName }}
+            </span>
+            <span class="mac-t-caption10 mac-c-secondary truncate">
+              {{ resultFileName }} · {{ t("research_desk.intake_slides_count", { count: result.slide_count || 0 }) }}
+            </span>
+          </span>
+          <span
+            v-if="result.thesis"
+            class="flex shrink-0 flex-col items-end gap-0.5"
+            :title="(result.thesis.reasons || []).join('\n')"
+          >
+            <span class="mac-t-caption10 mac-mono font-bold" :style="{ color: fitTint(result.thesis) }">
+              {{
+                result.thesis.score != null
+                  ? t("research_desk.intake_fit", { score: result.thesis.score })
+                  : result.thesis.label
+              }}
+            </span>
+            <span class="mac-t-caption10 mac-c-secondary">{{ result.thesis.label }}</span>
+          </span>
+        </div>
+
+        <!-- Extracted fields -->
+        <p v-if="resultFields.length === 0" class="mac-t-caption10 mac-c-secondary" style="line-height: 1.45">
+          {{ t("research_desk.intake_no_fields") }}
+        </p>
+        <div
+          v-else
+          class="overflow-hidden rounded-lg"
+          style="background: color-mix(in srgb, var(--mac-secondary) 5%, transparent)"
+        >
+          <template v-for="(field, idx) in resultFields" :key="field.name">
+            <div class="flex items-start gap-2.5 px-2.5 py-1.5" :class="idx > 0 ? 'mac-hairline-t' : ''">
+              <span class="mac-t-caption10 w-[90px] shrink-0 font-semibold">{{ fieldLabel(field) }}</span>
+              <span class="mac-t-caption10 mac-mono w-[90px] shrink-0 font-medium">{{ fieldDisplay(field) }}</span>
+              <span class="flex min-w-0 flex-col gap-px">
+                <span v-if="field.page" class="mac-t-caption10 mac-c-accent font-semibold">p. {{ field.page }}</span>
+                <span v-if="field.excerpt" class="mac-t-caption10 mac-c-secondary line-clamp-2">{{ field.excerpt }}</span>
+              </span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Open questions -->
+        <div v-if="result.thesis?.open_questions?.length" class="flex flex-col gap-1">
+          <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ t("research_desk.intake_open_questions") }}</span>
+          <span
+            v-for="(q, idx) in result.thesis.open_questions"
+            :key="idx"
+            class="mac-t-caption10 flex items-start gap-1.5"
+          >
+            <span class="mac-c-secondary">?</span>
+            <span>{{ q }}</span>
+          </span>
         </div>
       </div>
 
-      <!-- Footer -->
-      <div class="flex items-center justify-between border-t border-border/40 px-5 py-3 bg-muted/20">
-        <div v-if="result">
-          <button
-            type="button"
-            class="rounded-lg px-3 py-1.5 text-xs font-medium border border-border/40 bg-surface hover:bg-muted/40 text-foreground transition-colors"
-            @click="handleClose"
-          >
-            {{ t("research_desk.intake_open_pipeline") }}
-          </button>
-        </div>
-        <div v-else />
+      <div class="mac-divider" />
 
-        <div v-if="!result" class="flex items-center gap-2">
-          <button
-            type="button"
-            class="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors"
-            @click="handleClose"
-          >
-            {{ t("research_desk.cancel") }}
+      <!-- Footer on bar material -->
+      <div class="mac-bar-material flex items-center gap-2 px-5 py-3">
+        <template v-if="result">
+          <button type="button" class="mac-btn mac-btn--sm" @click="openOnPipeline">
+            <Layers class="h-3 w-3" />
+            <span>{{ t("research_desk.intake_open_pipeline") }}</span>
           </button>
           <button
+            v-if="resultFileId"
             type="button"
-            class="btn-filled flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-all disabled:opacity-50"
-            :disabled="!canFile"
-            @click="handleFileAndExtract"
+            class="mac-btn mac-btn--sm"
+            :title="t('research_desk.intake_summarize_help')"
+            @click="summarizeWithClaude"
           >
-            <svg
-              v-if="filing"
-              class="h-3.5 w-3.5 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <line x1="12" y1="2" x2="12" y2="6" />
-              <line x1="12" y1="18" x2="12" y2="22" />
-              <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-              <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-              <line x1="2" y1="12" x2="6" y2="12" />
-              <line x1="18" y1="12" x2="22" y2="12" />
-              <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-              <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-            </svg>
-            <span>{{ filing ? t("research_desk.intake_extracting") : t("research_desk.intake_extract_button") }}</span>
+            <Sparkles class="h-3 w-3" />
+            <span>{{ t("research_desk.intake_summarize") }}</span>
           </button>
-        </div>
+        </template>
+        <span class="flex-1" />
+        <button
+          v-if="!result"
+          type="button"
+          class="mac-btn mac-btn--sm mac-btn--prominent"
+          :disabled="!canFile"
+          @click="handleFileAndExtract"
+        >
+          <span v-if="filing" class="mac-spinner" style="width: 12px; height: 12px" />
+          <PlusCircle v-else class="h-3 w-3" />
+          <span>{{ filing ? t("research_desk.intake_extracting") : t("research_desk.intake_extract_button") }}</span>
+        </button>
       </div>
     </div>
   </div>

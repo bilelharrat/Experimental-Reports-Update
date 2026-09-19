@@ -238,6 +238,20 @@ def _startup() -> None:
             logger.info("News brief refresh loop started.")
     except Exception:  # noqa: BLE001
         logger.exception("News brief refresh loop startup failed")
+    # Morning brief: build the tape snapshot and write its note once each
+    # morning (BSH_MORNING_BRIEF_HOUR, default 07:00 local; BSH_MORNING_BRIEF=0
+    # turns it off), so the desk opens to a brief instead of a button.
+    try:
+        from . import market_brief
+
+        if market_brief.start_morning_loop():
+            logger.info(
+                "Morning brief loop started (%02d:00 local, %s note).",
+                market_brief.morning_hour(),
+                market_brief.morning_length(),
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Morning brief loop startup failed")
     # Server-side alert engine — opt-in via BSH_ALERT_ENGINE_INTERVAL so
     # tests and offline runs never poll quote providers.
     try:
@@ -435,9 +449,17 @@ def health() -> dict:
 @app.get("/api/diagnostics", dependencies=[Depends(require_api_token)])
 def diagnostics() -> dict:
     """Quick health check for env / config."""
+    from server import ai_engine, gemini_runner
+
     return {
         "env_file_exists": (ROOT_DIR / ".env").exists(),
         "api_token_configured": bool(_expected_token()),
+        # Whether the Gemini-backed surfaces (Team dossier, desk note,
+        # company news sweep) will run on Gemini or fall back to Claude.
+        # Reports configuration only — it spends nothing to answer.
+        "ai_engine_policy": ai_engine.policy(),
+        "gemini_key_configured": gemini_runner.is_available(),
+        "gemini_model": gemini_runner.default_model(),
     }
 
 

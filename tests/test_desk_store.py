@@ -252,10 +252,11 @@ def test_brief_note_written_and_persisted(client, monkeypatch):
                 "bullets_en": ["SPY -0.5% with breadth soft", "GLD bid", "Watch CPI"],
                 "bullets_zh": ["SPY 下跌 0.5%，广度偏弱", "黄金走强", "关注 CPI"],
             },
+            {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None},
             None,
         )
 
-    monkeypatch.setattr(market_brief.claude_runner, "run_structured_prompt", fake_structured)
+    monkeypatch.setattr(market_brief.ai_engine, "structured", fake_structured)
 
     response = client.post("/api/market-brief/note", json={})
     assert response.status_code == 200
@@ -268,6 +269,9 @@ def test_brief_note_written_and_persisted(client, monkeypatch):
     # Note is persisted into the archived JSON.
     reloaded = client.get("/api/market-brief", params={"date": brief["date"]}).json()
     assert reloaded["note"]["headline_zh"] == "避险情绪主导，防御板块走强"
+    # The engine that wrote the note is recorded, so a fallback stays visible.
+    assert reloaded["note"]["engine"] == "gemini"
+    assert reloaded["note"]["engine_fallback_reason"] is None
 
     # Rebuilding the brief drops the stale note.
     rebuilt = client.post("/api/market-brief/run").json()
@@ -296,10 +300,11 @@ def test_brief_long_note_uses_sections(client, monkeypatch):
                     {"title": "本周展望", "body": "日历清淡，关注广度。"},
                 ],
             },
+            {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None},
             None,
         )
 
-    monkeypatch.setattr(market_brief.claude_runner, "run_structured_prompt", fake_structured)
+    monkeypatch.setattr(market_brief.ai_engine, "grounded", fake_structured)
 
     response = client.post("/api/market-brief/note", json={"length": "long"})
     assert response.status_code == 200
@@ -309,26 +314,29 @@ def test_brief_long_note_uses_sections(client, monkeypatch):
     assert "bullets_en" not in note
     # Long variant got the long prompt and schema.
     assert captured["name"] == "morning_brief_note_long"
-    assert "600-1000 words" in captured["system_prompt"]
+    assert "1200-1800 words" in captured["system_prompt"]
+    # The long note is the one that covers the world around the numbers.
+    assert "Geoeconomics" in captured["system_prompt"]
+    assert "Geopolitics" in captured["system_prompt"]
 
     # Persisted; and an invalid length is rejected.
     assert client.get("/api/market-brief").json()["note"]["length"] == "long"
     assert client.post("/api/market-brief/note", json={"length": "epic"}).status_code == 400
 
 
-def test_brief_note_requires_archive_and_surfaces_claude_errors(client, monkeypatch):
+def test_brief_note_requires_archive_and_surfaces_engine_errors(client, monkeypatch):
     # No archived brief yet.
     assert client.post("/api/market-brief/note", json={}).status_code == 400
 
     _archive_minimal_brief(monkeypatch)
     monkeypatch.setattr(
-        market_brief.claude_runner,
-        "run_structured_prompt",
-        lambda **kwargs: (None, "claude not on PATH"),
+        market_brief.ai_engine,
+        "structured",
+        lambda **kwargs: (None, {"engine": "gemini"}, "gemini HTTP 503 — unavailable"),
     )
     failed = client.post("/api/market-brief/note", json={})
     assert failed.status_code == 502
-    assert "claude not on PATH" in failed.json()["detail"]
+    assert "gemini HTTP 503" in failed.json()["detail"]
     # Failure leaves the archived numbers untouched.
     assert "note" not in client.get("/api/market-brief").json()
 

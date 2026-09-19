@@ -11,9 +11,10 @@ prewarming 16 briefings eight at a time on every tape change):
    without an AI briefing gets a *basic* briefing built without AI: the
    article's lead paragraphs and the sentences that carry figures.
 2. AI briefings are written by ONE worker, one headline at a time
-   (``_WRITE_LOCK``), on Sonnet at medium effort with every tool removed
-   (``--tools ""``). One call writes English AND Chinese, and back-to-back
-   calls share the prompt cache.
+   (``_WRITE_LOCK``), through ``ai_engine.structured`` — Gemini Flash with
+   a Claude fallback, no tools either way, since the article text is fetched
+   here and the model only has to write from it. One call writes English AND
+   Chinese. The briefing records which engine wrote it.
 3. A server loop writes AI briefings for the top of the tape that clients
    last showed, every ``BSH_NEWS_BRIEF_REFRESH_HOURS`` (default 6). A user
    can start that refresh now, or rewrite one story; the UI warns first.
@@ -37,7 +38,7 @@ from pathlib import Path
 
 import httpx
 
-from server import auto_update, claude_runner
+from server import ai_engine, auto_update
 from server.link_preview import HEADERS, extract_text_from_html
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,13 @@ MAX_BULLETS = 8
 MAX_SOURCES = 8
 # One call writes both languages — roughly twice the old single-language
 # output — so the wall sits well above the old 90s.
-BRIEF_TIMEOUT_SEC = 240
+BRIEF_TIMEOUT_SEC = 300
+# A 900-1300 word body in English AND Chinese, plus key figures, context and
+# watch-next lists, runs well past a default output ceiling.
+BRIEF_MAX_OUTPUT_TOKENS = 16000
+# Depth, not just length: on `low` the model returned roughly half the
+# requested word count regardless of how the prompt asked.
+BRIEF_THINKING = "medium"
 FETCH_TIMEOUT_SEC = 5.0
 ARTICLE_MAX_CHARS = 12_000
 DEFAULT_MODEL = "sonnet"
@@ -62,6 +69,8 @@ REFRESH_LIMIT_DEFAULT = 16
 REFRESH_LIMIT_MAX = 24
 # How often the loop wakes to check whether a refresh is due.
 REFRESH_CHECK_SECONDS = 600
+# How soon to retry after a refresh that wrote nothing at all.
+FAILED_RETRY_MINUTES = 15
 # Basic (no-AI) briefing shape.
 BASIC_MAX_PARAGRAPHS = 6
 BASIC_MAX_WORDS = 450
@@ -93,7 +102,8 @@ _LOOP_STARTED = False
 SYSTEM_PROMPT = (
     "You are a senior markets analyst writing a long-form briefing for an "
     "investment desk that has already seen the headline. The reader should "
-    "finish this and not need the original article.\n"
+    "finish this and not need the original article, and should not need a "
+    "second source for the basic facts.\n"
     "You are given the materials directly — do NOT call tools, search, or "
     "fetch. Write immediately from what is provided.\n"
     "Write the briefing twice in this one response: `en` in English and `zh` "
@@ -101,21 +111,40 @@ SYSTEM_PROMPT = (
     "the Chinese as a native markets writer would, not as a literal "
     "translation of the English, and keep tickers and company names in "
     "their usual form.\n"
+    "LENGTH IS A REQUIREMENT, NOT A SUGGESTION. A short briefing is a "
+    "failed one. Do not summarize; develop the analysis. Do not stop early "
+    "because the material feels thin — draw out the implications, the "
+    "mechanism, and the comparisons instead.\n"
     "In each language:\n"
-    "- 'what_happened': 5-7 substantial paragraphs (550-850 English words, "
-    "the same depth in Chinese). Cover the event, the numbers, who said "
-    "what, how it compares to prior periods or expectations, and any "
-    "second-order facts the materials support. Do not restate the headline.\n"
-    "- 'why_it_matters': 3-4 paragraphs on the investment read: who is "
-    "affected (company, competitors, customers, lenders), through which "
-    "mechanism (revenue, margin, multiple, regulation, cost of capital), "
-    "and on what timeline.\n"
-    "- 'context': 5-8 bullets of background a reader needs (prior events, "
-    "competitive position, relevant financials, ownership, regulation).\n"
-    "- 'watch_next': 4-6 specific, checkable upcoming markers with dates "
-    "or windows when the materials give them.\n"
+    "- 'what_happened': 7-10 substantial paragraphs, 900-1300 English words, "
+    "the same depth in Chinese. Every paragraph is 4+ sentences. Cover the "
+    "event in full; every number given and what it is measured against "
+    "(prior period, consensus, guidance, peers); who said what, quoted or "
+    "paraphrased closely; the sequence of events and when each happened; "
+    "how this compares to the same company or sector previously; and the "
+    "second-order facts the materials support. Do not restate the headline "
+    "and do not open with a summary sentence — start with the substance.\n"
+    "- 'why_it_matters': 4-6 paragraphs, 400-600 English words, on the "
+    "investment read. Name who is affected (the company, named competitors, "
+    "customers, suppliers, lenders, the sector), the mechanism by which each "
+    "is affected (revenue, unit economics, margin, multiple, regulation, "
+    "cost of capital, competitive position), the direction and rough size of "
+    "the effect, the timeline over which it shows up, and what would have to "
+    "be true for the opposite read to be right.\n"
+    "- 'key_figures': 5-9 of the most important numbers, each as a complete "
+    "sentence carrying the figure, its units, the period it covers and its "
+    "comparison point. Never a bare number.\n"
+    "- 'context': 6-10 bullets of background the reader needs and the "
+    "article assumes: prior events in this story, competitive position, "
+    "relevant financials, ownership and balance sheet, regulation, and the "
+    "macro backdrop. Each bullet is a full sentence or two, not a fragment.\n"
+    "- 'watch_next': 5-7 specific, checkable upcoming markers, with dates or "
+    "windows when the materials give them, and for each one say what "
+    "outcome would confirm or break the read above.\n"
     "- Assert only what the materials support. Where they are thin, say so "
-    "plainly instead of padding or guessing.\n"
+    "plainly and explain what is missing — that is analysis too. Never pad "
+    "with generic market commentary, and never invent figures, quotes or "
+    "dates to reach the length.\n"
     "Put the article URL (if any) and any other cited URLs in 'sources' once, "
     "for both languages.\n"
     "No hype, no disclaimers, no greetings, no markdown headers."
@@ -128,6 +157,7 @@ _LANGUAGE_BRIEF_SCHEMA = {
         "headline": {"type": "string"},
         "what_happened": {"type": "string"},
         "why_it_matters": {"type": "string"},
+        "key_figures": {"type": "array", "items": {"type": "string"}},
         "context": {"type": "array", "items": {"type": "string"}},
         "watch_next": {"type": "array", "items": {"type": "string"}},
     },
@@ -190,6 +220,17 @@ def brief_model() -> str:
 def brief_effort() -> str:
     """Effort for AI briefings (``BSH_NEWS_BRIEF_EFFORT``, default medium)."""
     return str(os.environ.get("BSH_NEWS_BRIEF_EFFORT") or "").strip() or DEFAULT_EFFORT
+
+
+def write_on_open() -> bool:
+    """Whether opening a story without a briefing writes one now.
+
+    On by default: see ``expand``. ``BSH_NEWS_BRIEF_ON_OPEN=0`` restores the
+    old behavior, where only the scheduled refresh and the explicit
+    Regenerate button ever call a model.
+    """
+    raw = str(os.environ.get("BSH_NEWS_BRIEF_ON_OPEN") or "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def refresh_interval_hours() -> float:
@@ -540,6 +581,7 @@ def _ai_payload(
     confidence: str,
     article_chars: int,
     generated_at: str,
+    meta: dict | None = None,
 ) -> dict | None:
     what_happened = str(part.get("what_happened") or "").strip()
     if not what_happened:
@@ -548,11 +590,16 @@ def _ai_payload(
     why = str(part.get("why_it_matters") or "").strip()
     context = _clean_lines(part.get("context"))
     watch_next = _clean_lines(part.get("watch_next"))
+    key_figures = _clean_lines(part.get("key_figures"))
     return {
         "key": key,
         "lang": language,
         "kind": "ai",
-        "model": brief_model(),
+        # The engine that actually wrote it, not the configured preference:
+        # a Claude fallback has to be visible on the stored briefing.
+        "engine": (meta or {}).get("engine"),
+        "model": (meta or {}).get("model") or brief_model(),
+        "engine_fallback_reason": (meta or {}).get("fallback_reason"),
         "effort": brief_effort(),
         "generated_at": generated_at,
         "title": row["title"],
@@ -566,6 +613,9 @@ def _ai_payload(
         "why_it_matters": why,
         "context": context,
         "watch_next": watch_next,
+        # The news UI has always rendered a Key figures block; until now only
+        # the no-AI basic briefing filled it.
+        "key_figures": key_figures,
         "confidence": confidence,
         "sources": sources,
         "article_chars": article_chars,
@@ -575,6 +625,7 @@ def _ai_payload(
         f"why_it_matters_{language}": why,
         f"context_{language}": context,
         f"watch_next_{language}": watch_next,
+        f"key_figures_{language}": key_figures,
     }
 
 
@@ -635,15 +686,18 @@ def write_brief(
 def _write_brief_locked(key: str, row: dict) -> dict[str, dict]:
     article_text, final_url = fetch_article_text(row["url"])
     source_url = _source_url(row["url"], final_url)
-    data, err = claude_runner.run_structured_prompt(
+    data, meta, err = ai_engine.structured(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=_prompt(row=row, url=source_url, article_text=article_text),
         schema=BRIEF_SCHEMA,
         name="news_brief",
         timeout_sec=BRIEF_TIMEOUT_SEC,
-        model=brief_model(),
-        effort=brief_effort(),
-        tools="",
+        # One call writes a long body in BOTH languages plus three lists, so
+        # the default output ceiling is the binding constraint on length.
+        max_output_tokens=BRIEF_MAX_OUTPUT_TOKENS,
+        thinking_level=BRIEF_THINKING,
+        claude_model=brief_model(),
+        claude_effort=brief_effort(),
     )
     if err is not None or not isinstance(data, dict):
         raise RuntimeError(err or "Empty briefing response")
@@ -672,6 +726,7 @@ def _write_brief_locked(key: str, row: dict) -> dict[str, dict]:
             confidence=confidence,
             article_chars=len(article_text),
             generated_at=generated_at,
+            meta=meta,
         )
         if payload is None:
             continue
@@ -696,11 +751,27 @@ def expand(
 ) -> dict:
     """The briefing to show for a headline.
 
-    ``refresh=False`` (opening a story) never calls Claude: it returns the
-    cached AI briefing when one exists, else the basic briefing.
     ``refresh=True`` is the explicit, warned user action: one call rewrites
-    both languages and the requested one comes back. Raises ``ValueError``
-    for an empty headline and ``RuntimeError`` when the model call fails.
+    both languages and the requested one comes back.
+
+    ``refresh=False`` (opening a story) returns the cached AI briefing when
+    one exists. When none exists it writes one, unless
+    ``BSH_NEWS_BRIEF_ON_OPEN=0``, in which case it returns the no-AI basic
+    briefing as before.
+
+    Writing on open is a deliberate reversal of the original cost policy,
+    which was written when every briefing was a Claude CLI subprocess. The
+    news tape is live and rotates constantly, while the scheduled refresh
+    runs every six hours — so the newest story, which is the one the reader
+    actually opens, essentially never had a briefing, and the desk showed
+    "No AI briefing yet" more or less permanently. A batch on a six-hour
+    clock cannot cover a feed that turns over in minutes.
+
+    The guards that made the old policy necessary all stay: one worker at a
+    time (``_WRITE_LOCK``), results cached per headline so a second reader
+    pays nothing, and a failure falls back to the basic briefing rather than
+    erroring. Raises ``ValueError`` for an empty headline; a model failure
+    on open degrades instead of raising.
     """
     row = _brief_row(
         {
@@ -722,6 +793,14 @@ def expand(
     cached = load_brief(_row_key(row), language)
     if cached is not None:
         return cached
+    if write_on_open() and ai_engine.available():
+        try:
+            written = write_brief(**row)
+            found = written.get(language) or next(iter(written.values()), None)
+            if found is not None:
+                return found
+        except Exception as exc:  # noqa: BLE001 — a briefing is never worth a 500
+            logger.warning("news brief on-open write failed: %s", exc)
     return basic_brief(**row, lang=language)
 
 
@@ -791,6 +870,21 @@ def plan_refresh(limit: int | None = None) -> list[dict]:
 
 def _mark_refreshed(at: datetime | None = None) -> None:
     _write_json(_state_path(), {"last_refresh_at": _iso(at)})
+
+
+def _mark_refresh_failed() -> None:
+    """Back the clock off to a short retry instead of a full interval.
+
+    A run that wrote nothing has not refreshed anything, and must not buy
+    itself the full ``BSH_NEWS_BRIEF_REFRESH_HOURS`` of silence: that is how
+    a single bad window (an expired key, a model outage) leaves every story
+    showing "No AI briefing yet" for six hours with nothing retrying. The
+    clock is set so the next attempt is ``FAILED_RETRY_MINUTES`` away rather
+    than reset — still backed off enough not to hammer a broken model.
+    """
+    interval = timedelta(hours=refresh_interval_hours())
+    retry_in = min(timedelta(minutes=FAILED_RETRY_MINUTES), interval)
+    _mark_refreshed(_now() - interval + retry_in)
 
 
 def last_refresh_at() -> datetime | None:
@@ -880,7 +974,6 @@ def start_refresh(
             "planned": 0,
             "note": "nothing_to_write" if tape_known else "no_headlines",
         }
-    _mark_refreshed()
     if background:
         threading.Thread(
             target=_run_refresh,
@@ -918,6 +1011,12 @@ def _run_refresh(plan: list[dict]) -> None:
             _REFRESH_STATE["running"] = False
             _REFRESH_STATE["finished_at"] = _iso()
             _PLANNED_KEYS.clear()
+        # The schedule clock is set here, from the outcome — a run that wrote
+        # nothing gets a short retry instead of the full interval.
+        if written:
+            _mark_refreshed()
+        else:
+            _mark_refresh_failed()
     if written:
         _notify("AI briefs ready", f"{written} headline briefs refreshed", {"count": written})
 
@@ -956,9 +1055,11 @@ def start_refresh_loop() -> bool:
 
     The loop runs even on ``manual``, so switching the bar to a cadence
     takes effect without restarting the server; on ``manual`` it only
-    sleeps. It writes nothing until a client has recorded the tape."""
+    sleeps. It writes nothing until a client has recorded the tape. The
+    gate asks ``ai_engine``, not the Claude CLI: with a Gemini key and no
+    CLI installed the loop must still start."""
     global _LOOP_STARTED
-    if not claude_runner.is_available():
+    if not ai_engine.available():
         return False
     with _LOOP_LOCK:
         if _LOOP_STARTED:

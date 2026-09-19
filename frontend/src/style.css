@@ -885,6 +885,194 @@ select.field-sm {
   @apply text-footnote text-ink-muted;
 }
 
+/* Morning brief — the long Pulse note is a 1200-1800 word report across
+   eight sections, so it gets a reading surface rather than a status box:
+   a measure that keeps lines readable, a title that carries, and hairline
+   rules between sections instead of boxes inside a box. */
+/* The brief is the app's one long-form surface: eight sections of prose
+   someone reads over coffee, not a panel they scan. Everything else here is
+   interface, and SF is right for interface — so the brief's PROSE is set in
+   the system serif instead, at a reading size and measure. `ui-serif`
+   resolves to New York on Apple platforms, the face Apple drew to pair with
+   SF, with Iowan and Palatino behind it; nothing is downloaded. The card's
+   label, tag, timestamp and source footer stay in SF, so the card still
+   reads as part of the app rather than a pasted-in document. */
+.morning-brief {
+  @apply rounded-card px-5 py-4;
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
+  --brief-serif: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype",
+    Palatino, Georgia, serif;
+}
+
+/* A step up from title2, and in the serif: the brief opens like a front
+   page, not like another card heading. */
+.morning-brief-headline {
+  @apply text-ink-primary;
+  font-family: var(--brief-serif);
+  /* A phone has no room for the front-page size: at 27px a two-clause
+     headline runs six lines and pushes the brief itself off the screen. */
+  font-size: 1.375rem;
+  letter-spacing: -0.012em;
+  font-weight: 600;
+  /* A headline is not body copy. It takes its own, wider measure — the
+     prose's 62ch capped it at 625px inside a 1012px card and broke a
+     94-character headline over three lines — and more leading, because a
+     serif at this size stacks its ascenders and descenders close enough
+     to crowd the line above. */
+  max-width: 52rem;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+@media (min-width: 640px) {
+  .morning-brief-headline {
+    font-size: 1.6875rem;
+    letter-spacing: -0.014em;
+    line-height: 1.32;
+  }
+}
+
+/* The measure applies to the parts that span the card: the headline, the
+   short note's bullets, the source footer. Section prose gets its measure
+   from the column it sits in instead. */
+.morning-brief-measure {
+  max-width: 62ch;
+}
+
+/* Sections fill the card. One column of 14px text across a ~1000px card is
+   a 140-character line, so on wide screens they run two across: each column
+   keeps a readable measure and more of an eight-section brief is visible
+   without scrolling. Sections are self-contained, so row-major order reads
+   naturally — unlike CSS multi-column, which would send the reader down one
+   full column and back up. */
+.morning-brief-sections {
+  @apply grid gap-0;
+}
+
+@media (min-width: 1024px) {
+  .morning-brief-sections {
+    @apply grid-cols-2;
+    column-gap: 2.25rem;
+  }
+}
+
+/* On a wide desk display two columns stretch back past 110 characters a
+   line, so a third keeps the measure near 80 while still filling the card. */
+@media (min-width: 1800px) {
+  .morning-brief-sections {
+    @apply grid-cols-3;
+  }
+}
+
+/* Every section carries its own rule rather than only the ones after a
+   sibling: in a grid the second column has no preceding sibling to hang a
+   separator off. */
+.morning-brief-section {
+  @apply mt-3.5 pt-3.5;
+  border-top: 1px solid rgb(var(--color-border-subtle));
+}
+
+.morning-brief-section-title {
+  @apply text-ink-primary;
+  font-family: var(--brief-serif);
+  font-size: 1.0625rem;
+  line-height: 1.375rem;
+  letter-spacing: -0.008em;
+  font-weight: 600;
+}
+
+/* 16px over 1.65 is the reading setting the two-column measure was sized
+   for. Near-primary ink rather than the muted secondary: body copy someone
+   reads for minutes should not be the grey the app uses for captions.
+   `pretty` keeps the last line of a paragraph off a single orphaned word. */
+.morning-brief-body {
+  @apply mt-1.5 whitespace-pre-line text-ink-primary/85;
+  font-family: var(--brief-serif);
+  font-size: 1rem;
+  line-height: 1.65;
+  letter-spacing: -0.003em;
+  text-wrap: pretty;
+}
+
+/* The lede sits a half-step above the section prose. */
+.morning-brief-bullets {
+  @apply mt-2.5 space-y-2 text-ink-primary/85;
+  font-family: var(--brief-serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  letter-spacing: -0.004em;
+  text-wrap: pretty;
+}
+
+/* A leading accent dot rather than a bullet glyph, as the Mac cards do. */
+.morning-brief-bullets > li {
+  @apply relative pl-[1.125rem];
+}
+
+.morning-brief-bullets > li::before {
+  content: "";
+  @apply absolute left-0 top-[0.6rem] h-1 w-1 rounded-full;
+  background-color: rgb(var(--color-accent));
+}
+
+.morning-brief-foot {
+  @apply mt-3.5 pt-3 text-caption1 text-ink-muted;
+  border-top: 1px solid rgb(var(--color-border-subtle));
+}
+
+/* Morning brief, while it is being written. The long note takes ~90s, so the
+   card shows the shape of the report it is about to hold rather than a
+   spinner on an empty box: a sheen travels across placeholder lines, the way
+   the Mac's loading cards do. */
+.morning-brief-skeleton-line {
+  @apply rounded-full;
+  background-color: rgb(var(--color-fill-tertiary));
+  position: relative;
+  overflow: hidden;
+}
+
+.morning-brief-skeleton-line::after {
+  content: "";
+  @apply absolute inset-0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(var(--color-surface) / 0.75) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: morning-brief-sheen 1.6s var(--ease-standard) infinite;
+}
+
+@keyframes morning-brief-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* The design language requires motion to respect the system setting: the
+   placeholder still reads as "loading" through its own breathing opacity. */
+@media (prefers-reduced-motion: reduce) {
+  .morning-brief-skeleton-line::after {
+    animation: none;
+  }
+
+  .morning-brief-skeleton-line {
+    animation: morning-brief-breathe 2s ease-in-out infinite;
+  }
+}
+
+@keyframes morning-brief-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* Quaternary tile: label / value / detail. */
 .stat-tile {
   @apply rounded-[10px] px-3 py-2.5;
@@ -3545,3 +3733,484 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-danger));
   box-shadow: 0 0 0 3px rgb(var(--color-danger) / 0.16);
 }
+
+/* ===========================================================================
+   Mac Research Desk — the web twin of the macOS terminal's design system
+   (see MacDesign.swift, MacGlassStyles.swift): hairline-separated surfaces,
+   the SF type scale in points, capsule controls, and the levitating glass
+   selection pill.
+
+   The *shapes* are the Mac's; the *palette* is Summit Glass. Every --mac-*
+   token below resolves to an app token, so the desk reads as the same app as
+   the chrome around it — one blue, one ground, one glass — and dark mode
+   follows from .dark instead of a second set of samples.
+--------------------------------------------------------------------------- */
+
+.mac-desk {
+  /* Surfaces and label hierarchy: the app's ground and ink. Cards sit on
+     `surface` over the `canvas` page ground, exactly as elsewhere. */
+  --mac-canvas: rgb(var(--color-canvas));
+  --mac-card: rgb(var(--color-surface));
+  --mac-label: rgb(var(--color-text-primary));
+  --mac-secondary: rgb(var(--color-text-muted));
+  --mac-tertiary: rgb(var(--color-text-subtle));
+  --mac-quaternary: rgb(var(--color-text-subtle) / 0.45);
+  --mac-hairline: rgb(var(--color-border-subtle));
+  --mac-tile: rgb(var(--color-fill-tertiary));
+
+  /* Summit blue, not Apple's system blue: selection, tints and focus rings
+     match the sidebar, toolbar and buttons outside the desk. */
+  --mac-accent: rgb(var(--color-accent));
+  --mac-blue: rgb(var(--color-accent-ink));   /* a tint drawn as text/icons */
+
+  /* Status hues are the app's semantic tokens (already the Apple palette). */
+  --mac-green: rgb(var(--color-success));
+  --mac-red: rgb(var(--color-danger));
+  --mac-orange: rgb(var(--color-warning));
+  --mac-yellow: rgb(var(--color-notice));
+  --mac-purple: rgb(var(--color-purple));
+  --mac-teal: rgb(var(--color-teal));
+  --mac-indigo: rgb(var(--color-info));
+  --mac-gray: rgb(var(--color-text-muted));
+  --mac-pink: #ff2d55;
+  --mac-cyan: #00c0e8;
+  --mac-mint: #00c8b3;
+
+  /* Materials: the same bar, menu and pill glass the chrome is built from. */
+  --mac-bar: var(--material-bar);
+  --mac-menu-bg: var(--material-menu);
+  --mac-menu-edge: rgb(var(--color-border-subtle));
+  --mac-menu-rim: rgba(255, 255, 255, 0.45);
+  --mac-field-bg: rgb(var(--color-fill-secondary));
+  --mac-btn-bg: rgb(var(--color-surface));
+  --mac-btn-hover: rgb(var(--color-fill-tertiary));
+  --mac-btn-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
+
+  /* The selection pill is the sidebar glider's material, so a selected row
+     here and a selected desk in the rail are the same object. */
+  --mac-pill-fill: var(--glass-pill);
+  --mac-pill-rim: var(--glass-rim);
+  --mac-pill-contact: var(--glass-edge);
+  --mac-pill-drop: var(--pill-shadow);
+  --mac-thumb-drop: var(--pill-shadow);
+
+  color: var(--mac-label);
+  background: var(--mac-canvas);
+}
+
+.dark .mac-desk {
+  /* Everything above re-resolves through .dark on its own; these are the
+     literals that have no app token. */
+  --mac-menu-rim: rgba(255, 255, 255, 0.12);
+  --mac-pink: #ff375f;
+  --mac-cyan: #3cd3fe;
+  --mac-mint: #00dac3;
+  --mac-btn-bg: rgb(var(--color-fill-secondary));
+  --mac-btn-edge: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
+}
+
+/* macOS is an app, not a page: arrow cursor on controls, no tap highlights. */
+.mac-desk,
+.mac-desk button,
+.mac-desk [role="button"],
+.mac-desk select,
+.mac-desk summary,
+.mac-desk a {
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+.mac-desk input[type="text"],
+.mac-desk input[type="number"],
+.mac-desk input[type="search"],
+.mac-desk textarea {
+  cursor: text;
+}
+
+/* --- SF type scale (px == pt) ------------------------------------------- */
+.mac-t-title { font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -0.2px; }
+.mac-t-headline { font-size: 15px; font-weight: 600; line-height: 1.25; }      /* dsHeadline */
+.mac-t-headline-sys { font-size: 13px; font-weight: 600; line-height: 1.3; }   /* .headline */
+.mac-t-subhead { font-size: 13px; font-weight: 500; line-height: 1.3; }        /* dsSubhead */
+.mac-t-body { font-size: 13px; font-weight: 400; line-height: 1.35; }          /* dsBody / .body */
+.mac-t-callout { font-size: 12px; font-weight: 400; line-height: 1.3; }
+.mac-t-subheadline { font-size: 11px; font-weight: 400; line-height: 1.3; }    /* .subheadline */
+.mac-t-label { font-size: 11px; font-weight: 500; line-height: 1.25; }         /* dsLabel */
+.mac-t-caption { font-size: 11px; font-weight: 400; line-height: 1.25; }       /* dsCaption */
+.mac-t-caption10 { font-size: 10px; font-weight: 400; line-height: 1.25; }     /* .caption/.caption2 */
+.mac-t-metric { font-size: 20px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.mac-t-metric-sm { font-size: 15px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.mac-mono { font-variant-numeric: tabular-nums; }
+
+.mac-c-secondary { color: var(--mac-secondary); }
+.mac-c-tertiary { color: var(--mac-tertiary); }
+.mac-c-label { color: var(--mac-label); }
+.mac-c-accent { color: var(--mac-accent); }
+
+/* --- Surfaces ------------------------------------------------------------ */
+.mac-card {
+  background: var(--mac-card);
+  border: 1px solid var(--mac-hairline);
+  border-radius: 12px;                                    /* MacDS.cardRadius */
+  transition: border-color 0.15s ease;
+}
+.mac-card.is-interactive:hover { border-color: color-mix(in srgb, var(--mac-accent) 35%, transparent); }
+.mac-card-pad { padding: 16px; }                          /* MacDS.card */
+
+.mac-tile { background: var(--mac-tile); border-radius: 8px; }  /* MacDS.tileRadius */
+.mac-tile-tint { background: color-mix(in srgb, var(--tint, currentColor) 10%, transparent); border-radius: 8px; }
+
+.mac-hairline-b { border-bottom: 1px solid var(--mac-hairline); }
+.mac-hairline-t { border-top: 1px solid var(--mac-hairline); }
+.mac-hairline-r { border-right: 1px solid var(--mac-hairline); }
+.mac-divider { height: 1px; background: var(--mac-hairline); }
+
+.mac-bar-material {
+  background: var(--mac-bar);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+}
+
+.mac-toolbar-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;                                      /* dsToolbarStrip */
+}
+
+/* --- Pills & tags -------------------------------------------------------- */
+.mac-status-pill {                                        /* MacStatusPill */
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 16%, transparent);
+  white-space: nowrap;
+}
+.mac-status-tag {                                         /* StatusTag */
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 2.5px 7px;
+  border-radius: 999px;
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 14%, transparent);
+  white-space: nowrap;
+}
+.mac-dot { width: 6px; height: 6px; border-radius: 999px; flex: none; }       /* MacDot */
+
+/* --- Buttons (macOS 26 capsules) ----------------------------------------- */
+.mac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 4.5px 12px;
+  color: var(--mac-label);
+  background: var(--mac-btn-bg);
+  box-shadow: var(--mac-btn-edge);
+  transition: filter 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+  white-space: nowrap;
+}
+.mac-btn:hover:not(:disabled) { background: linear-gradient(var(--mac-btn-hover), var(--mac-btn-hover)), var(--mac-btn-bg); }
+.mac-btn:active:not(:disabled) { filter: brightness(0.92); }
+.mac-btn:disabled { opacity: 0.45; }
+.mac-btn--sm { font-size: 11px; padding: 2.5px 9px; gap: 4px; }
+.mac-btn--mini { font-size: 10px; padding: 1.5px 7px; gap: 3px; }
+.mac-btn--prominent {
+  color: #fff;
+  background: var(--mac-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0.5px 1.5px rgba(0, 0, 0, 0.2);
+}
+.mac-btn--prominent:hover:not(:disabled) { background: color-mix(in srgb, var(--mac-accent) 94%, #fff); }
+.mac-btn--prominent.mac-btn--tinted {
+  background: var(--tint, var(--mac-accent));
+}
+.mac-btn--prominent.mac-btn--tinted:hover:not(:disabled) { background: color-mix(in srgb, var(--tint, var(--mac-accent)) 94%, #fff); }
+.mac-btn--tint {
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 15%, transparent);
+  box-shadow: none;
+}
+.mac-btn--tint:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 21%, transparent);
+}
+.mac-btn--plain {
+  background: transparent;
+  box-shadow: none;
+  color: var(--mac-secondary);
+}
+.mac-btn--plain:hover:not(:disabled) { background: var(--mac-tile); color: var(--mac-label); }
+.mac-desk :is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 35%, transparent);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+.mac-search {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--mac-field-bg);
+  color: var(--mac-label);
+  font-size: 13px;
+}
+.mac-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  color: inherit;
+}
+.mac-search input::placeholder { color: var(--mac-tertiary); }
+.mac-search:focus-within { box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 30%, transparent); }
+.mac-field {
+  border-radius: 7px;
+  background: var(--mac-field-bg);
+  border: none;
+  color: var(--mac-label);
+  font-size: 13px;
+  padding: 4px 8px;
+}
+.mac-field::placeholder { color: var(--mac-tertiary); }
+.mac-field:focus { outline: none; box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 30%, transparent); }
+
+/* Pop-up button (Picker .menu): a small neutral capsule with ⌃⌄ at right. */
+.mac-popup {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.mac-popup select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 3px 20px 3px 9px;
+  color: var(--mac-label);
+  background: var(--mac-btn-bg);
+  box-shadow: var(--mac-btn-edge);
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+.mac-popup select:hover { background: linear-gradient(var(--mac-btn-hover), var(--mac-btn-hover)), var(--mac-btn-bg); }
+.mac-popup .mac-popup-chevron {
+  position: absolute;
+  right: 7px;
+  pointer-events: none;
+  color: var(--mac-secondary);
+}
+
+/* --- Menus (NSMenu) ------------------------------------------------------ */
+.mac-menu {
+  border-radius: 14px;
+  padding: 5px;
+  background: var(--mac-menu-bg);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  box-shadow: 0 0 0 0.5px var(--mac-menu-edge), inset 0 0 0 1px var(--mac-menu-rim),
+    0 10px 34px rgba(0, 0, 0, 0.22);
+}
+.mac-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border-radius: 9px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--mac-label);
+  white-space: nowrap;
+}
+.mac-menu-item:hover:not(:disabled) { background: var(--mac-accent); color: #fff; }
+.mac-menu-item:hover:not(:disabled) .mac-menu-icon { color: rgba(255, 255, 255, 0.85); }
+.mac-menu-item:disabled { opacity: 0.4; }
+.mac-menu-icon { color: var(--mac-secondary); flex: none; }
+.mac-menu-sep { height: 1px; margin: 5px 10px; background: var(--mac-hairline); }
+
+/* --- Levitating glass pill (list selection + segmented thumb) ------------ */
+.mac-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  gap: 10px;
+  padding: 7px 14px;                          /* row content inset over the pill */
+  border: none;
+  background: transparent;
+  color: var(--mac-label);
+}
+.mac-row::before {                            /* GlassRowHighlight, inset (2, 6) */
+  content: "";
+  position: absolute;
+  inset: 2px 6px;
+  border-radius: 8px;
+  background: var(--mac-pill-fill);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow: var(--mac-pill-rim), var(--mac-pill-contact), var(--mac-pill-drop);
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.18s ease, transform 0.32s cubic-bezier(0.3, 1.4, 0.45, 1),
+    box-shadow 0.3s ease;
+  pointer-events: none;
+}
+.mac-row.is-selected::before { opacity: 1; transform: scale(1); }
+.mac-row:hover:not(.is-selected)::before {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--mac-tile);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  transition: opacity 0.12s ease;
+}
+.mac-row > * { position: relative; z-index: 1; }
+
+/* --- Underline tabs (MacTabBar) ------------------------------------------ */
+.mac-tabbar {
+  position: relative;
+  border-bottom: 1px solid var(--mac-hairline);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mac-tabbar::-webkit-scrollbar { display: none; }
+.mac-tabbar-inner { display: flex; align-items: flex-end; gap: 20px; min-width: max-content; }
+.mac-tab {
+  border: none;
+  background: transparent;
+  padding: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--mac-secondary);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.mac-tab.is-active { font-weight: 600; color: var(--mac-label); }
+.mac-tab-underline {
+  position: absolute;
+  bottom: 0;
+  height: 2px;
+  background: var(--mac-accent);
+  transition: left 0.22s cubic-bezier(0.2, 0.9, 0.3, 1), width 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* --- Glass segmented control (GlassSegmentedPicker) ----------------------- */
+.mac-segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mac-label) 6%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mac-label) 7%, transparent);
+}
+.mac-segment {
+  flex: 1 1 0;
+  position: relative;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 2px 8px;
+  color: color-mix(in srgb, var(--mac-label) 75%, transparent);
+  white-space: nowrap;
+}
+.mac-segment.is-regular { font-size: 13px; padding: 3.5px 11px; }
+.mac-segment:hover:not(.is-selected) { background: color-mix(in srgb, var(--mac-label) 5%, transparent); }
+.mac-segment.is-selected {
+  color: var(--mac-label);
+  background: var(--mac-pill-fill);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--mac-pill-rim), var(--mac-pill-contact), var(--mac-thumb-drop);
+}
+
+/* --- Card anatomy --------------------------------------------------------- */
+.mac-cardheader { display: flex; align-items: flex-start; gap: 8px; }
+.mac-cardheader-icon {
+  color: var(--mac-accent);
+  width: 18px;
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  margin-top: 1px;
+}
+.mac-stattile {                                /* MacStatTile */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 12px;
+  background: var(--mac-tile);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mac-stattile.is-compact { padding: 10px; }
+
+/* --- Overlay scrollbars --------------------------------------------------- */
+/* --- Directory pane (collapsible) ---------------------------------------- */
+.mac-directory-pane {
+  transition: width 0.28s var(--ease-emphasized);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mac-directory-pane {
+    transition: none;
+  }
+}
+
+/* Collapsed, the pane is only wide enough for the chevron that reopens it. */
+.mac-directory-rail {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+  border: none;
+  background: transparent;
+  color: var(--mac-secondary);
+  transition: color 0.12s ease;
+}
+.mac-directory-rail:hover { color: var(--mac-label); }
+
+.mac-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--mac-label) 28%, transparent) transparent; }
+.mac-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.mac-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--mac-label) 25%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+.mac-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Small circular ProgressView (controlSize .small) */
+.mac-spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--mac-label) 15%, transparent);
+  border-top-color: var(--mac-secondary);
+  animation: mac-spin 0.8s linear infinite;
+}
+@keyframes mac-spin { to { transform: rotate(360deg); } }
+
+/* Native-feeling macOS form controls inside the desk */
+.mac-desk input[type="range"] { accent-color: var(--mac-accent); }
+.mac-desk input[type="checkbox"] { accent-color: var(--mac-accent); width: 14px; height: 14px; }
+
+/* Shared Summit-styled components nested in the desk (memo studio, report
+   customizer) need no token bridge: the desk now speaks their palette. */

@@ -37,6 +37,7 @@ vi.mock("../src/api.js", () => ({
     },
     getCompany: vi.fn(),
     getCompanyNewsFeed: vi.fn(),
+    refreshCompanyNewsFeed: vi.fn(),
     getCompanyIndustryView: vi.fn(),
     getCompetitorDetail: vi.fn(),
     workspaceSettings: vi.fn(),
@@ -617,6 +618,53 @@ describe("route smoke tests", () => {
     await sync.trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("Could not sync tracked news.");
+  });
+
+  it("sweeps the web for news and reports what the sweep did", async () => {
+    api.refreshCompanyNewsFeed.mockResolvedValue({
+      rows: [],
+      filters: { categories: [], tags: [] },
+      sweep: {
+        added: 2,
+        engine: "gemini",
+        sources: [{ title: "Reuters", url: "https://reuters.com/x" }],
+        error: null,
+      },
+    });
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+    const sweep = wrapper.find('[data-testid="news-sweep"]');
+    expect(sweep.exists()).toBe(true);
+
+    await sweep.trigger("click");
+    await flushPromises();
+    expect(api.refreshCompanyNewsFeed).toHaveBeenCalledWith("generalist", "en");
+    const status = wrapper.find('[data-testid="news-sweep-status"]');
+    expect(status.text()).toContain("Added 2 new item(s).");
+    expect(status.text()).toContain("Read 1 source(s)");
+    // The filtered feed is reloaded so the active category still applies.
+    expect(api.getCompanyNewsFeed).toHaveBeenCalled();
+  });
+
+  it("says so when a news sweep finds nothing or fails", async () => {
+    api.refreshCompanyNewsFeed.mockResolvedValue({
+      rows: [],
+      filters: { categories: [], tags: [] },
+      sweep: { added: 0, engine: "gemini", sources: [], error: null },
+    });
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+    const sweep = wrapper.find('[data-testid="news-sweep"]');
+    await sweep.trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="news-sweep-status"]').text()).toContain(
+      "Nothing new",
+    );
+
+    api.refreshCompanyNewsFeed.mockRejectedValue(new Error("quota exhausted"));
+    await sweep.trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="news-sweep-status"]').text()).toContain(
+      "quota exhausted",
+    );
   });
 
   it("records and removes decisions on the Decisions tab", async () => {

@@ -9,6 +9,10 @@ This store gives that state a server-side home:
   frontend owns the shape; the server only stamps ``updated_at`` and
   persists it. Alert rules live inside the blob under ``alertRules`` so
   the alert engine can evaluate them while the browser is closed.
+  ``updated_at`` is a strictly increasing microsecond stamp that doubles as
+  an optional save precondition (``expected_updated_at``), so the web, Mac
+  and iPad clients can detect an edit made on another device instead of
+  silently overwriting it.
 - **Alert events** — fired alerts recorded by the alert engine (or the
   browser) with a de-dupe key, so "what fired while I was away" survives
   reloads and devices.
@@ -26,7 +30,7 @@ import json
 import math
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +46,54 @@ MAX_PREFS_BYTES = 512 * 1024
 
 _LOCK = threading.Lock()
 
+# Sentinel for "the caller sent no precondition" (distinct from ``None``,
+# which means "I last saw an empty store").
+_UNSET: Any = object()
+
+
+class PrefsConflict(Exception):
+    """The stored prefs changed since the caller's ``expected_updated_at``."""
+
+    def __init__(self, current_updated_at: str | None):
+        super().__init__("desk prefs changed")
+        self.current_updated_at = current_updated_at
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utcnow() -> datetime:
+    """Wall clock for prefs stamps (a seam tests freeze)."""
+    return datetime.now(timezone.utc)
+
+
+def _parse_stamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _next_stamp(current: Any) -> str:
+    """A prefs ``updated_at`` strictly later than ``current``.
+
+    Always carries six fractional digits (``isoformat()`` drops the fraction
+    when the microsecond is 0, which breaks string comparison), and moves
+    forward by one microsecond on a clock tie or a clock that went backwards.
+    Legacy stamps without a fraction still parse.
+    """
+    now = _utcnow()
+    now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+    previous = _parse_stamp(current)
+    if previous is not None and now <= previous:
+        now = previous + timedelta(microseconds=1)
+    return now.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _path(name: str) -> Path:
@@ -151,12 +200,19 @@ _VALIDATED_PREF_KEYS = {
 }
 
 
-def save_prefs(data: dict) -> dict:
+def save_prefs(data: dict, *, expected_updated_at: Any = _UNSET) -> dict:
     """Persist the desk prefs blob.
 
     The frontend owns the key shape; the keys the server itself reads
     (book lots, alert rules, pinned tickers) are validated, every other key
     is stored untouched. Raises ``ValueError`` naming the offending entry.
+
+    ``expected_updated_at`` is an optional precondition: when given (``None``
+    meaning "the store was empty when I read it") and it differs from the
+    stored ``updated_at``, nothing is written and ``PrefsConflict`` carries
+    the current stamp. Validation runs first, so a bad payload is always a
+    ``ValueError`` even when the precondition is stale too. Omitting it keeps
+    the unconditional save.
     """
     if not isinstance(data, dict):
         raise ValueError("prefs payload must be an object")
@@ -166,8 +222,14 @@ def save_prefs(data: dict) -> dict:
     encoded = json.dumps(data, ensure_ascii=False)
     if len(encoded.encode("utf-8")) > MAX_PREFS_BYTES:
         raise ValueError("prefs payload too large")
-    payload = {"updated_at": _now_iso(), "data": data}
     with _LOCK:
+        # Compare-and-write under one lock hold. Read inline: _LOCK is not
+        # reentrant, so load_prefs() here would deadlock.
+        stored = _read_json(PREFS_FILE, None)
+        current = stored.get("updated_at") if isinstance(stored, dict) else None
+        if expected_updated_at is not _UNSET and expected_updated_at != current:
+            raise PrefsConflict(current)
+        payload = {"updated_at": _next_stamp(current), "data": data}
         _write_json(PREFS_FILE, payload)
     return payload
 

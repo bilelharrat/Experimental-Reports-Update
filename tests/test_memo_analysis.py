@@ -4545,3 +4545,63 @@ def test_fast_pipeline_chasing_monolithic_fallback_discards_cleanly(
         (run_dir / "logs" / "memo_package.json").read_text(encoding="utf-8")
     )
     assert final["sections"][0]["blocks"][0]["text"]["zh"].startswith("中文:")
+
+
+
+# ---- source ids stay in the index on late v1 -------------------------------
+
+
+def test_v1_body_source_tokens_are_moved_out_of_the_prose():
+    """Gemini cited 100 bracket ids in one Koch memo's body — 50 P0s the
+    surgical repair could not clear. The index is the ids' home on v1."""
+    package = {
+        "structure": {"stage": "late", "version": 1},
+        "sections": [
+            {
+                "id": "company_overview",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": "Revenue is ~$125B+ (Forbes estimate) [s2]. Headcount is 100,000+ [s1, s7].",
+                            "zh": "收入约 1250 亿美元 [s2]。员工 10 万人 [s1, s7]。",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "rows": [[{"en": "[S3] Molex", "zh": "[S3] Molex"}]],
+                    },
+                ],
+            }
+        ],
+        "sources": [
+            {"id": "s2", "treatment": {"en": "Weighted as independent secondary [s2].", "zh": ""}}
+        ],
+    }
+    cleaned, changes = memo_analysis._rewritten_memo_package_voice(package)
+    text = cleaned["sections"][0]["blocks"][0]["text"]
+    assert text["en"] == "Revenue is ~$125B+ (Forbes estimate). Headcount is 100,000+."
+    assert text["zh"] == "收入约 1250 亿美元。员工 10 万人。"
+    cell = cleaned["sections"][0]["blocks"][1]["rows"][0][0]
+    assert cell == {"en": "Molex", "zh": "Molex"}
+    # The index is where the ids live; it is never touched.
+    assert cleaned["sources"][0]["treatment"]["en"] == "Weighted as independent secondary [s2]."
+    assert len(changes) == 4
+
+
+def test_v2_inline_citations_are_left_alone():
+    package = {
+        "structure": {"stage": "late", "version": 2},
+        "sections": [
+            {
+                "id": "executive_summary",
+                "blocks": [
+                    {"type": "paragraph", "text": {"en": "ARR is $24M [S1].", "zh": ""}}
+                ],
+            }
+        ],
+        "sources": [],
+    }
+    cleaned, changes = memo_analysis._rewritten_memo_package_voice(package)
+    assert cleaned["sections"][0]["blocks"][0]["text"]["en"] == "ARR is $24M [S1]."
+    assert changes == []

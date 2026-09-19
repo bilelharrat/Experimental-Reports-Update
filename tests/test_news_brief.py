@@ -1,10 +1,16 @@
-"""News desk briefings under the owner's cost policy (2026-09-14).
+"""News desk briefings.
 
-Opening a story never calls Claude: it gets the cached AI briefing or a
-basic briefing built without AI. AI briefings come from ONE worker on
-Sonnet at medium effort with tools off, one call per headline writing
-English and Chinese, on a 6-hour schedule or an explicit, warned user
-action. Claude is stubbed everywhere — no network, no spend.
+Opening a story serves the cached AI briefing, else writes one now
+(``BSH_NEWS_BRIEF_ON_OPEN=0`` restores the old basic-briefing behavior).
+Briefings come from ONE worker, one call per headline writing English and
+Chinese, plus a scheduled sweep and an explicit, warned rewrite.
+
+Note the ``_no_real_claude_cli`` fixture in conftest forces
+``claude_runner.is_available()`` False for every test, and no Gemini key is
+set, so ``ai_engine.available()`` is False unless a test says otherwise.
+Tests about on-open writing must therefore stub availability explicitly —
+without that they pass for the wrong reason. The engine is stubbed
+everywhere: no network, no spend.
 """
 from __future__ import annotations
 
@@ -41,6 +47,11 @@ def _part(lang: str, **overrides):
         "why_it_matters": f"The {lang} investment read. " * 20,
         "context": ["Prior round closed in March", "Competes with NextNav"],
         "watch_next": ["APAC revenue disclosure at Q3"],
+        "key_figures": [
+            f"Revenue rose 40% year on year in the {lang} period.",
+            "  ",
+            "Headcount reached 180, up from 120 a year earlier.",
+        ],
     }
     data.update(overrides)
     return data
@@ -78,9 +89,9 @@ def stub_claude(monkeypatch):
                 **kwargs,
             }
         )
-        return _payload(), None
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _fake)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _fake)
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
@@ -106,7 +117,7 @@ ARTICLE = "\n".join(
 # ---- AI briefing: one call, both languages, Sonnet medium, tools off ------
 
 
-def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_claude):
+def test_one_call_writes_both_languages_with_no_tools(stub_claude):
     written = news_brief.write_brief(
         title="ZaiNar opens Tokyo office",
         summary="Short desk one-liner.",
@@ -118,9 +129,12 @@ def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_clau
 
     assert len(stub_claude) == 1
     call = stub_claude[0]
-    assert call["model"] == "sonnet"
-    assert call["effort"] == "medium"
-    assert call["tools"] == ""
+    # ai_engine never enables tools for a structured call, and the
+    # BSH_NEWS_BRIEF_* knobs now pin the Claude fallback only — Gemini's
+    # model comes from BSH_GEMINI_MODEL.
+    assert call["claude_model"] == "sonnet"
+    assert call["claude_effort"] == "medium"
+    assert "tools" not in call
     assert set(call["schema"]["required"]) == {"en", "zh"}
     assert "do NOT call tools" in call["system_prompt"]
     assert "ZaiNar (PRIV)" in call["user_prompt"]
@@ -142,12 +156,12 @@ def test_one_call_writes_both_languages_on_sonnet_medium_without_tools(stub_clau
     ]
 
 
-def test_env_can_change_model_and_effort(stub_claude, monkeypatch):
+def test_env_can_change_the_fallback_model_and_effort(stub_claude, monkeypatch):
     monkeypatch.setenv("BSH_NEWS_BRIEF_MODEL", "haiku")
     monkeypatch.setenv("BSH_NEWS_BRIEF_EFFORT", "low")
     news_brief.write_brief(title="Headline")
-    assert stub_claude[0]["model"] == "haiku"
-    assert stub_claude[0]["effort"] == "low"
+    assert stub_claude[0]["claude_model"] == "haiku"
+    assert stub_claude[0]["claude_effort"] == "low"
 
 
 def test_article_text_is_injected_into_prompt(stub_claude, monkeypatch):
@@ -174,9 +188,9 @@ def test_writes_run_one_at_a_time(monkeypatch):
         time.sleep(0.1)
         with lock:
             active -= 1
-        return _payload(), None
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _slow)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _slow)
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
@@ -193,23 +207,24 @@ def test_writes_run_one_at_a_time(monkeypatch):
 
 def test_model_failure_raises_runtime_error(monkeypatch):
     monkeypatch.setattr(
-        news_brief.claude_runner,
-        "run_structured_prompt",
-        lambda **kwargs: (None, "claude exploded"),
+        news_brief.ai_engine,
+        "structured",
+        lambda **kwargs: (None, {"engine": "gemini"}, "the engine exploded"),
     )
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
-    with pytest.raises(RuntimeError, match="claude exploded"):
+    with pytest.raises(RuntimeError, match="the engine exploded"):
         news_brief.expand(title="Headline", refresh=True)
 
 
 def test_body_less_response_raises(monkeypatch):
     monkeypatch.setattr(
-        news_brief.claude_runner,
-        "run_structured_prompt",
+        news_brief.ai_engine,
+        "structured",
         lambda **kwargs: (
             _payload(en=_part("en", what_happened=" "), zh=_part("zh", what_happened="")),
+            {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None},
             None,
         ),
     )
@@ -223,7 +238,9 @@ def test_body_less_response_raises(monkeypatch):
 # ---- Opening a story: never AI ---------------------------------------------
 
 
-def test_opening_a_story_never_calls_claude(stub_claude, monkeypatch):
+def test_opening_falls_back_to_basic_when_no_engine_can_run(stub_claude, monkeypatch):
+    """conftest leaves no engine available, which is the degraded case: the
+    reader still gets the article's lead and figures rather than nothing."""
     fetches: list[str] = []
 
     def _fetch(url, **kwargs):
@@ -248,6 +265,50 @@ def test_opening_a_story_never_calls_claude(stub_claude, monkeypatch):
     assert first["sources"] == [{"title": "Nikkei", "url": "https://example.com/story"}]
     assert second["lang"] == "en" and second["what_happened_en"]
     assert fetches == ["https://example.com/story"], "basic briefing is cached"
+
+
+def test_opening_a_story_writes_the_briefing_when_one_is_missing(
+    stub_claude, monkeypatch
+):
+    """The tape rotates in minutes and the scheduled sweep runs every six
+    hours, so the newest story — the one actually opened — would otherwise
+    never have a briefing."""
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "ai"
+    assert len(stub_claude) == 1
+
+    # Cached: a second reader pays nothing.
+    again = news_brief.expand(title="Fresh headline", lang="en")
+    assert again["kind"] == "ai"
+    assert len(stub_claude) == 1
+
+
+def test_on_open_writing_can_be_switched_off(stub_claude, monkeypatch):
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setenv("BSH_NEWS_BRIEF_ON_OPEN", "0")
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "basic"
+    assert stub_claude == []
+
+
+def test_a_failed_write_on_open_degrades_instead_of_erroring(monkeypatch):
+    """Opening a story must never 500 because a model was unavailable."""
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setattr(
+        news_brief.ai_engine,
+        "structured",
+        lambda **kw: (None, {"engine": "gemini"}, "engine down"),
+    )
+    monkeypatch.setattr(
+        news_brief, "fetch_article_text", lambda url, **kw: ("Lead paragraph.", url)
+    )
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "basic"
 
 
 def test_opening_serves_the_cached_ai_briefing(stub_claude):
@@ -350,16 +411,16 @@ def test_refresh_writes_only_missing_headlines_in_order(stub_claude):
 def test_refresh_counts_a_failed_story_and_keeps_going(stub_claude, monkeypatch):
     def _flaky(*, user_prompt, **kwargs):
         if "Bad story" in user_prompt:
-            return None, "claude exploded"
-        return _payload(), None
+            return None, {"engine": "gemini"}, "the engine exploded"
+        return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
-    monkeypatch.setattr(news_brief.claude_runner, "run_structured_prompt", _flaky)
+    monkeypatch.setattr(news_brief.ai_engine, "structured", _flaky)
     news_brief.start_refresh(
         items=[{"title": "Bad story"}, {"title": "Good story"}], background=False
     )
     status = news_brief.refresh_status()
     assert status["done"] == 1 and status["failed"] == 1
-    assert "claude exploded" in status["last_error"]
+    assert "the engine exploded" in status["last_error"]
     assert news_brief.load_brief(news_brief.brief_key("Good story"), "zh")
 
 
@@ -410,15 +471,17 @@ def test_schedule_is_due_every_six_hours(monkeypatch):
     assert news_brief.refresh_cadence() == "manual"
 
 
-def test_refresh_loop_needs_claude_but_runs_on_manual(monkeypatch):
+def test_refresh_loop_needs_an_engine_but_runs_on_manual(monkeypatch):
+    """The gate asks ai_engine, not the Claude CLI: a Gemini key with no CLI
+    installed must still start the loop. Manual still starts the thread, so
+    moving the bar back to a cadence works without restarting the server;
+    the thread only sleeps."""
     monkeypatch.setattr(news_brief, "_LOOP_STARTED", False)
     monkeypatch.setattr(news_brief, "_refresh_loop", lambda: None)
-    monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: False)
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: False)
     assert news_brief.start_refresh_loop() is False
 
-    # Manual still starts the thread, so moving the bar back to a cadence
-    # works without restarting the server. The thread only sleeps.
-    monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
     monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
     assert news_brief.start_refresh_loop() is True
     assert news_brief.start_refresh_loop() is False, "idempotent"
@@ -509,3 +572,67 @@ def test_fetch_article_text_truncates(monkeypatch):
     assert final == "https://example.com/long"
     assert len(text) <= 201
     assert text.endswith("…")
+
+
+def test_a_refresh_that_wrote_nothing_does_not_buy_a_full_interval(monkeypatch):
+    """One bad window (expired key, model outage) must not leave every story
+    on the no-AI fallback for the whole refresh interval with nothing
+    retrying — that is what marking the clock before the work did."""
+    # Origin makes the default cadence manual; the clock only exists on a bar.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
+    monkeypatch.setattr(
+        news_brief.ai_engine,
+        "structured",
+        lambda **kwargs: (None, {"engine": "gemini"}, "engine down"),
+    )
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.start_refresh(
+        items=[{"title": "Story A"}, {"title": "Story B"}], background=False
+    )
+
+    status = news_brief.refresh_status()
+    assert status["failed"] == 2 and status["done"] == 0
+    # Next attempt is the short retry, not a full interval away.
+    due = news_brief.seconds_until_due()
+    assert due is not None
+    assert due <= news_brief.FAILED_RETRY_MINUTES * 60 + 5
+
+
+def test_a_refresh_that_wrote_something_resets_the_clock(stub_claude, monkeypatch):
+    # Origin makes the default cadence manual; the clock only exists on a bar.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.start_refresh(
+        items=[{"title": "Story A"}, {"title": "Story B"}], background=False
+    )
+    status = news_brief.refresh_status()
+    assert status["done"] == 2 and status["failed"] == 0
+    due = news_brief.seconds_until_due()
+    # A successful run buys the full interval.
+    assert due > news_brief.FAILED_RETRY_MINUTES * 60
+
+
+def test_key_figures_are_carried_onto_the_ai_briefing(stub_claude, monkeypatch):
+    """The news UI has always rendered a Key figures block, but until the
+    schema gained the field only the no-AI basic briefing filled it."""
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    written = news_brief.write_brief(title="Headline", company="ZaiNar")
+
+    en = written["en"]
+    assert en["key_figures"] == [
+        "Revenue rose 40% year on year in the en period.",
+        "Headcount reached 180, up from 120 a year earlier.",
+    ]
+    # iOS and older bilingual callers read the language-suffixed key.
+    assert en["key_figures_en"] == en["key_figures"]
+    assert written["zh"]["key_figures_zh"][0].endswith("zh period.")
+
+
+def test_the_briefing_call_asks_for_room_and_reasoning(stub_claude, monkeypatch):
+    """Length was the ask: on the default ceiling and low reasoning the model
+    returned roughly half the requested word count."""
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+    news_brief.write_brief(title="Headline")
+    call = stub_claude[0]
+    assert call["max_output_tokens"] == news_brief.BRIEF_MAX_OUTPUT_TOKENS
+    assert call["thinking_level"] == news_brief.BRIEF_THINKING == "medium"

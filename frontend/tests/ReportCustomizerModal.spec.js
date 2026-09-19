@@ -311,10 +311,38 @@ describe("ReportCustomizerModal", () => {
       report_mode: "compact",
       // Balanced is the default tier: the top model still writes the memo.
       quality: "balanced",
+      // Claude is the default engine; the toggle opts a run into Gemini.
+      engine: "claude",
       // Nothing deselected, so the run reads the whole research folder.
       evidence_files: null,
     });
     expect(wrapper.emitted("created")).toBeTruthy();
     expect(wrapper.emitted("close")).toBeTruthy();
+  });
+
+  it("sends the Gemini engine when the toggle is switched", async () => {
+    apiMock.generateReport.mockResolvedValue({ id: "rep_1000", status: "running" });
+    const wrapper = mountModal();
+
+    const navButtons = wrapper.findAll("nav button");
+    await navButtons[1].trigger("click");
+
+    const gemini = wrapper.find('[data-testid="engine-gemini"]');
+    expect(gemini.exists()).toBe(true);
+    await gemini.trigger("click");
+
+    const oneClickBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("One-Click Autonomous"));
+    await oneClickBtn.trigger("click");
+    const launchBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Generate Research Memo"));
+    await launchBtn.trigger("click");
+    await flushPromises();
+
+    expect(apiMock.generateReport).toHaveBeenCalledWith(
+      expect.objectContaining({ engine: "gemini" }),
+    );
   });
 });

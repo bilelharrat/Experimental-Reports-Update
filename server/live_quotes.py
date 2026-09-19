@@ -812,6 +812,87 @@ def _parse_yahoo_quote(payload: dict) -> dict:
     }
 
 
+def _event_stamp(key: Any, row: dict) -> int | None:
+    """Epoch seconds for one Yahoo event row: its ``date`` field, else its dict key."""
+    raw = row.get("date")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return int(raw)
+    try:
+        stamp = int(str(key))  # Yahoo keys each event by its epoch string
+    except (TypeError, ValueError):
+        return None
+    return stamp if stamp > 0 else None
+
+
+def _exchange_day(stamp: int, gmtoffset: Any) -> str | None:
+    """Exchange-local calendar day (``meta.gmtoffset`` seconds) for an epoch."""
+    offset = (
+        int(gmtoffset)
+        if isinstance(gmtoffset, (int, float)) and not isinstance(gmtoffset, bool)
+        else 0
+    )
+    try:
+        return datetime.fromtimestamp(stamp + offset, tz=timezone.utc).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        # A garbage epoch must not fail the whole Yahoo parse (and force the
+        # Nasdaq fallback); the row is just skipped.
+        return None
+
+
+def _parse_yahoo_events(result: dict, meta: dict) -> list[dict]:
+    """Split and dividend rows from ``chart.result[0].events`` for chart markers.
+
+    Yahoo sends ``{"dividends": {"<epoch>": {amount, date}}, "splits":
+    {"<epoch>": {date, numerator, denominator, splitRatio}}}``. Malformed rows
+    are skipped. No ``label`` is emitted: the client picks S/D from ``kind``.
+    """
+    events = result.get("events") if isinstance(result.get("events"), dict) else {}
+    offset = meta.get("gmtoffset")
+    rows: list[dict] = []
+    dividends = events.get("dividends") if isinstance(events.get("dividends"), dict) else {}
+    for key, row in dividends.items():
+        if not isinstance(row, dict):
+            continue
+        stamp = _event_stamp(key, row)
+        day = _exchange_day(stamp, offset) if stamp is not None else None
+        if day is None:
+            continue
+        rows.append(
+            {
+                "t": stamp,
+                "date": day,
+                "kind": "dividend",
+                "amount": _as_float(row.get("amount")),
+            }
+        )
+    splits = events.get("splits") if isinstance(events.get("splits"), dict) else {}
+    for key, row in splits.items():
+        if not isinstance(row, dict):
+            continue
+        stamp = _event_stamp(key, row)
+        day = _exchange_day(stamp, offset) if stamp is not None else None
+        if day is None:
+            continue
+        numerator = _as_float(row.get("numerator"))
+        denominator = _as_float(row.get("denominator"))
+        # Yahoo has been seen swapping numerator/denominator; prefer splitRatio.
+        ratio = str(row.get("splitRatio") or "").strip() or None
+        if ratio is None and numerator and denominator:
+            ratio = f"{numerator:g}:{denominator:g}"
+        rows.append(
+            {
+                "t": stamp,
+                "date": day,
+                "kind": "split",
+                "ratio": ratio,
+                "numerator": numerator,
+                "denominator": denominator,
+            }
+        )
+    rows.sort(key=lambda item: (item["t"], item["kind"]))
+    return rows
+
+
 def _parse_yahoo_chart(payload: dict) -> dict:
     chart = payload.get("chart")
     if not isinstance(chart, dict):
@@ -886,6 +967,7 @@ def _parse_yahoo_chart(payload: dict) -> dict:
         "fifty_two_week_low": _as_float(meta.get("fiftyTwoWeekLow")),
         "as_of": as_of,
         "points": points,
+        "events": _parse_yahoo_events(result, meta),
         "source": "yahoo",
     }
 
@@ -893,7 +975,9 @@ def _parse_yahoo_chart(payload: dict) -> dict:
 def _merge_quote_stats(base: dict, extra: dict) -> dict:
     merged = dict(base)
     for key, value in extra.items():
-        if key in {"points", "source"}:
+        # Series keys belong to the chart; an empty `events` list must never
+        # be filled from a quote row.
+        if key in {"points", "source", "events"}:
             continue
         if value is not None and merged.get(key) in (None, "", []):
             merged[key] = value
@@ -970,6 +1054,8 @@ def _chart_payload(
         "volume": volume,
         "as_of": as_of,
         "points": points,
+        # Nasdaq carries no split/dividend events; keep the Yahoo payload shape.
+        "events": [],
         "source": source,
     }
 

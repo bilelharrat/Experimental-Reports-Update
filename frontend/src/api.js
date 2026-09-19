@@ -361,6 +361,7 @@ export const api = {
     request(`/api/market-brief${date ? `?date=${encodeURIComponent(date)}` : ""}`, {
       timeoutMs: 15000,
     }),
+  marketBriefSchedule: () => request("/api/market-brief/schedule", { timeoutMs: 10000 }),
   marketBriefArchive: () => request("/api/market-brief/archive", { timeoutMs: 10000 }),
   runMarketBrief: () =>
     request("/api/market-brief/run", { method: "POST", timeoutMs: 45000 }),
@@ -421,6 +422,10 @@ export const api = {
     const query = qs.toString();
     return request(`/api/companies/${id}/news-feed${query ? `?${query}` : ""}`);
   },
+  refreshCompanyNewsFeed: (id, lang) => {
+    const qs = lang ? `?lang=${encodeURIComponent(lang)}` : "";
+    return request(`/api/companies/${id}/news-feed/refresh${qs}`, { method: "POST" });
+  },
   getCompanyIndustryView: (id) =>
     request(`/api/companies/${id}/industry-view`),
   getCompanyProfile: (companyId, { quote = true } = {}) =>
@@ -432,8 +437,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  getCompanyComps: (companyId) =>
-    request(`/api/companies/${companyId}/comps`),
+  getCapModel: (companyId) =>
+    request(`/api/companies/${companyId}/cap-model`),
+  saveCapModel: (companyId, inputs) =>
+    request(`/api/companies/${companyId}/cap-model`, {
+      method: "PUT",
+      body: JSON.stringify(inputs),
+    }),
+  getCompanyComps: (companyId, refresh = false) =>
+    request(`/api/companies/${companyId}/comps${refresh ? "?refresh=1" : ""}`),
+  saveCompsPeers: (companyId, tickers) =>
+    request(`/api/companies/${companyId}/comps/peers`, {
+      method: "PUT",
+      body: JSON.stringify({ tickers }),
+    }),
   getFounderDossier: (companyId) =>
     request(`/api/companies/${companyId}/founder-dossier`),
   deepSearchFounder: (companyId) =>
@@ -500,6 +517,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  resolveCompanyComment: (companyId, commentId, resolved = true) =>
+    request(
+      `/api/companies/${companyId}/comments/${encodeURIComponent(commentId)}/resolve`,
+      { method: "POST", body: JSON.stringify({ resolved }) },
+    ),
+  deleteCompanyComment: (companyId, commentId) =>
+    request(
+      `/api/companies/${companyId}/comments/${encodeURIComponent(commentId)}`,
+      { method: "DELETE" },
+    ),
+  getChatChannels: () => request("/api/chat/channels"),
   getMemoAnalysis: (companyId) =>
     request(`/api/companies/${companyId}/memo-analysis`),
   getEvidence: (companyId) =>

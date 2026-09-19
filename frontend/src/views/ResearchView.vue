@@ -116,6 +116,10 @@ const newsLoading = ref(false);
 const newsError = ref("");
 const newsCategory = ref("");
 const newsSearch = ref("");
+const newsSweeping = ref(false);
+// The last sweep's outcome, shown under the filters so a fallback or a
+// failed pass is visible rather than looking like an unchanged feed.
+const newsSweep = ref(null);
 const industryView = ref(null);
 const industryLoading = ref(false);
 const industryError = ref("");
@@ -945,6 +949,23 @@ async function loadNewsFeed() {
     newsFeed.value = { rows: [], filters: { categories: [], tags: [] }, empty_state: "" };
   } finally {
     newsLoading.value = false;
+  }
+}
+
+async function sweepNewsFeed() {
+  if (!props.companyId || newsSweeping.value) return;
+  newsSweeping.value = true;
+  newsSweep.value = null;
+  try {
+    const feed = await api.refreshCompanyNewsFeed(props.companyId, appLanguage.value);
+    newsSweep.value = feed?.sweep || null;
+    // The refresh returns the unfiltered feed; reload so the active
+    // category and search still apply to what the user sees.
+    await loadNewsFeed();
+  } catch (e) {
+    newsSweep.value = { error: e?.message || String(e), added: 0 };
+  } finally {
+    newsSweeping.value = false;
   }
 }
 
@@ -2998,14 +3019,44 @@ onUnmounted(stopPolling);
             {{ tr("research.news_feed_subtitle") }}
           </p>
         </div>
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          @click="$emit('open-copilot')"
-        >
-          {{ tr("research.news_submit_link") }}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="btn-bordered focus-ring"
+            :disabled="newsSweeping"
+            data-testid="news-sweep"
+            @click="sweepNewsFeed"
+          >
+            <Loader2 v-if="newsSweeping" class="mr-1.5 inline h-3.5 w-3.5 animate-spin" />
+            {{ newsSweeping ? tr("research.news_sweeping") : tr("research.news_sweep") }}
+          </button>
+          <button
+            type="button"
+            class="btn-bordered focus-ring"
+            @click="$emit('open-copilot')"
+          >
+            {{ tr("research.news_submit_link") }}
+          </button>
+        </div>
       </div>
+
+      <p
+        v-if="newsSweep"
+        class="mb-3 text-xs"
+        :class="newsSweep.error ? 'text-danger' : 'text-ink-muted'"
+        data-testid="news-sweep-status"
+      >
+        <template v-if="newsSweep.error">
+          {{ tr("research.news_sweep_failed", { reason: newsSweep.error }) }}
+        </template>
+        <template v-else-if="newsSweep.added">
+          {{ tr("research.news_sweep_added", { count: newsSweep.added }) }}
+          <span v-if="newsSweep.sources?.length">
+            · {{ tr("research.news_sweep_sources", { count: newsSweep.sources.length }) }}
+          </span>
+        </template>
+        <template v-else>{{ tr("research.news_sweep_none") }}</template>
+      </p>
 
       <form class="mb-4 flex flex-col gap-3" @submit.prevent="loadNewsFeed">
         <input

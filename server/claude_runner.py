@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from . import job_progress, memo_prompts, memo_structure
+from . import job_progress, memo_engine, memo_prompts, memo_structure
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -263,6 +263,26 @@ def reset_run_dir_state(run_dir: str) -> None:
         _PROVIDER_LIMITED_RUN_DIRS.pop(str(run_dir), None)
 
 
+# These four memo entry points drive the Claude CLI as an agent — it reads the
+# run folder and writes files there — so they have no Gemini twin and do not
+# pass through `_run_memo_local_json_artifact`, where the engine toggle lives.
+# Without this guard a Gemini memo reaching one of them spawns the CLI anyway
+# and fails as whatever the CLI happens to say; a live run surfaced as
+# "OAuth session expired" on a run that had asked for Gemini.
+CLAUDE_ONLY_STAGE_ERROR = (
+    "{stage} runs the Claude CLI as an agent and has no Gemini equivalent, "
+    "but this memo was started on the Gemini engine. Re-run it on Claude, or "
+    "start a fresh Gemini run."
+)
+
+
+def claude_only_stage_error(stage: str, run_dir) -> str | None:
+    """The error a Claude-only memo stage must return on a Gemini run."""
+    if memo_engine.run_engine(run_dir) != "gemini":
+        return None
+    return CLAUDE_ONLY_STAGE_ERROR.format(stage=stage)
+
+
 def _memo_run_halt_error(run_dir) -> str | None:
     """Why a memo run must not spawn another subprocess, or None."""
     if run_dir_cancelled(run_dir):
@@ -386,6 +406,37 @@ _TRANSIENT_CLAUDE_ERROR_MARKERS = (
     "stalled after",
     "without output",
 )
+
+
+# The CLI reports a dead login as an ordinary exit-1 with this text. It is
+# not a provider limit, but it must halt a memo run the same way one does:
+# every parallel pass would otherwise spawn, fail identically and retry,
+# turning a five-second diagnosis into a five-minute doomed run.
+_AUTH_FAILURE_MARKERS = (
+    "failed to authenticate",
+    "oauth session expired",
+    "not logged in",
+    "invalid authentication credentials",
+    "please run /login",
+)
+
+CLAUDE_NOT_SIGNED_IN_ERROR = (
+    "Claude CLI is not signed in (OAuth session expired). Run `claude` in a "
+    "terminal and log in, then retry — or generate this memo with the Gemini "
+    "engine, which does not use the CLI."
+)
+
+
+def auth_failure_reason(value: Any) -> str | None:
+    """Return text if a CLI failure is a dead login rather than a real error."""
+    if value is None:
+        return None
+    lowered = str(value).strip().lower()
+    if not lowered:
+        return None
+    if any(marker in lowered for marker in _AUTH_FAILURE_MARKERS):
+        return str(value).strip()
+    return None
 
 
 def provider_limit_reason(
@@ -4539,7 +4590,7 @@ def _run_memo_local_json_artifact(
     append_system_prompt: str | None = None,
     tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    if not is_available():
+    if memo_engine.run_engine(run_dir) != "gemini" and not is_available():
         return None, (
             "Claude Code (`claude`) not on PATH. Install it with "
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
@@ -4574,6 +4625,24 @@ def _run_memo_local_json_artifact(
         halt_error = _memo_run_halt_error(run_dir)
         if halt_error:
             return None, halt_error
+        # The engine toggle lands here, at the one funnel every memo stage,
+        # retry loop and repair pass already goes through — so a Gemini memo
+        # runs the same stage graph, schemas, validation and renderer as a
+        # Claude one, and only the model differs. The cancel/limiter guards
+        # above still apply either way.
+        if memo_engine.run_engine(run_dir) == "gemini":
+            # `model` / `effort` here are the Claude quality tier's role
+            # overrides ("sonnet", "medium"). They mean nothing to Gemini —
+            # at the customizer's default tier they would have asked Google
+            # for a model called "sonnet" — so the engine picks its own.
+            return memo_engine.run_artifact(
+                prompt=prompt,
+                schema=schema,
+                add_dirs=add_dirs,
+                timeout_label=timeout_label,
+                timeout_sec=timeout_sec,
+                run_dir=run_dir,
+            )
         data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,
             schema=schema,
@@ -4590,6 +4659,14 @@ def _run_memo_local_json_artifact(
             append_system_prompt=append_system_prompt,
             tools=tools,
         )
+        if data is None and auth_failure_reason(error):
+            # Halt siblings through the same registry a provider limit uses;
+            # they will read this message back from _memo_run_halt_error.
+            with _LIVE_CLAUDE_PROCS_LOCK:
+                _PROVIDER_LIMITED_RUN_DIRS.setdefault(
+                    str(run_dir), CLAUDE_NOT_SIGNED_IN_ERROR
+                )
+            return None, CLAUDE_NOT_SIGNED_IN_ERROR
         if data is None and provider_limit_reason(error):
             with _LIVE_CLAUDE_PROCS_LOCK:
                 _PROVIDER_LIMITED_RUN_DIRS.setdefault(str(run_dir), str(error))
@@ -5928,7 +6005,16 @@ _SPINE_PIECES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
 )
 
 
-def _memo_spine_handoff_enabled() -> bool:
+def _memo_spine_handoff_enabled(run_dir: Path | None = None) -> bool:
+    """Whether the spine delivers its parts as files on disk.
+
+    A Gemini run keeps the inline contract: the model has no filesystem,
+    so a handoff spine reports every part "never written" and the run
+    fails at its first step (live, 2026-09-18, on the merge that made
+    handoff the default). Claude keeps the operator's flag.
+    """
+    if run_dir is not None and memo_engine.run_engine(run_dir) == "gemini":
+        return False
     return os.environ.get("BSH_MEMO_SPINE_HANDOFF", "1") == "1"
 
 
@@ -6698,7 +6784,7 @@ whole response. Keep every value tight — this is a fact sheet, not a draft.
     # for `studio_extras` under its own schema, and it is the path that
     # carries a human's card edits — not the place to change how answers
     # travel.
-    if handoff and schema is None and _memo_spine_handoff_enabled():
+    if handoff and schema is None and _memo_spine_handoff_enabled(run_dir):
         return _run_english_spine_via_pieces(
             run_dir=run_dir,
             body=prompt,
@@ -6891,6 +6977,23 @@ Return only the JSON matching the attached schema.
         effort=_memo_role_effort("ARTIFACTS", run_dir),
         append_system_prompt=common_context,
     )
+
+
+def _memo_english_parallel_enabled(run_dir: Path | None = None) -> bool:
+    """Whether the English package is written as a spine plus per-section
+    workers, or as one monolithic call.
+
+    Claude keeps the operator's flag: the wave is benchmarked but still
+    opt-in there. A Gemini run always takes the wave, because a single
+    call is where its depth went — the monolithic pass asks one response
+    to carry the whole memo, and on Gemini that came back at ~2,700 words
+    against the ~12,200 the benchmarked (wave) Claude memos carry. Same
+    prompts, same stage graph; only the number of calls the memo is spread
+    across differs.
+    """
+    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1":
+        return True
+    return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
 
 
 def _memo_artifacts_async_enabled() -> bool:
@@ -7973,7 +8076,12 @@ def _section_piece_plan(
     ]
 
 
-def _section_handoff_enabled(section_id: str, section_def) -> bool:
+def _section_handoff_enabled(
+    section_id: str, section_def, run_dir: Path | None = None
+) -> bool:
+    # Same rule as the spine: no filesystem on Gemini, so no handoff.
+    if run_dir is not None and memo_engine.run_engine(run_dir) == "gemini":
+        return False
     wanted = _memo_section_handoff_ids()
     if wanted != _MEMO_SECTION_HANDOFF_ALL and section_id not in wanted:
         return False
@@ -8454,8 +8562,17 @@ def _run_english_section(
     validation_errors: list[str] | None = None,
     previous_section_path: Path | None = None,
     structure: memo_structure.MemoStructure | None = None,
+    depth_revision: tuple[Path, int] | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Author (or repair) ONE package section from the shared spine."""
+    """Author (or repair) ONE package section from the shared spine.
+
+    ``depth_revision`` — ``(previous draft path, its English word count)``
+    — is the length gate's revision pass on Gemini: the worker keeps the
+    draft it wrote and brings it to the length its Claude twin writes,
+    deepening it when it came back short and tightening it when it ran
+    long. The direction follows from the count against the section's band,
+    so the gate and the worker can never disagree about which way to go.
+    """
     structure = structure or memo_structure.LATE
     spec = structure.section_specs().get(section_id, "")
     risk_section = structure.section_for_role("risk")
@@ -8527,6 +8644,24 @@ A previous attempt at this section failed validation. Do not repeat these
 defects:
 {error_lines}
 """
+    # Gemini only: the length its Claude twin writes (memo_engine), as a
+    # contract on the first draft and as an extension brief when the gate
+    # sends a short draft back. Empty on Claude — its prompt is unchanged.
+    depth_block = ""
+    depth_target = memo_engine.section_word_targets(run_dir, structure).get(
+        section_id
+    )
+    if depth_target is not None:
+        if depth_revision is not None:
+            draft_path, draft_words = depth_revision
+            revise = (
+                memo_engine.length_extension
+                if draft_words < depth_target.low
+                else memo_engine.length_condense
+            )
+            depth_block = "\n" + revise(depth_target, draft_path, draft_words)
+        else:
+            depth_block = "\n" + memo_engine.length_contract(depth_target)
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
@@ -8545,9 +8680,9 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}
+{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{depth_block}
 """
-    if _section_handoff_enabled(section_id, section_def):
+    if _section_handoff_enabled(section_id, section_def, run_dir):
         return _run_english_section_via_pieces(
             run_dir=run_dir,
             section_id=section_id,
@@ -8945,6 +9080,11 @@ def run_memo_fast_english_package_parallel(
     the caller joins it after acceptance; ``analysis_artifacts`` comes back
     ``None`` in that mode.
 
+    On Gemini a length gate follows every wave: a section outside the band
+    of its Claude twin's length (``memo_engine.section_word_targets``) goes
+    back to its worker with the draft to deepen or to tighten, up to two
+    rounds, and the section hooks then fire on the final drafts.
+
     Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
     per docs/memo-benchmarks.md before enabling.
     """
@@ -8953,7 +9093,13 @@ def run_memo_fast_english_package_parallel(
     # any other structure has no monolithic twin, so degrading to it would
     # silently ship the wrong report shape.
     monolithic_ok = structure.meta() == memo_structure.LATE.meta()
-    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+    # On Gemini the monolithic pass is not a fallback: one response cannot
+    # carry the memo (~2,700 words against the ~12,200 the wave writes), so
+    # a failed spine or section gets a second sample instead, and if that
+    # fails too the run stops and says so rather than shipping a memo a
+    # quarter the length. Claude keeps its single attempt and its fallback.
+    gemini_run = memo_engine.run_engine(run_dir) == "gemini"
+    if not _memo_english_parallel_enabled(run_dir):
         if pinned_spine_path is not None:
             return None, (
                 "a pinned studio spine requires BSH_MEMO_ENGLISH_PARALLEL=1; "
@@ -8998,6 +9144,12 @@ def run_memo_fast_english_package_parallel(
                 f"parallel English synthesis failed ({reason[:300]}); "
                 f"refusing the monolithic fallback because it cannot write "
                 f"the {structure.stage} v{structure.version} structure"
+            )
+        if gemini_run:
+            return None, (
+                f"parallel English synthesis failed ({reason[:300]}); the "
+                "monolithic fallback cannot carry a full memo in one Gemini "
+                "response, so it was not attempted — generate the memo again"
             )
         logger.warning(
             "parallel English package falling back to monolithic: %s", reason
@@ -9221,7 +9373,7 @@ def run_memo_fast_english_package_parallel(
             # retried the piece that failed, up to its own limit; re-running
             # the whole section on top of that just pays twice.
             hands_off = _section_handoff_enabled(
-                section_id, structure.section(section_id)
+                section_id, structure.section(section_id), run_dir
             )
             if error and not hands_off and is_structured_output_failure(error):
                 retry_job = dict(job)
@@ -9259,6 +9411,40 @@ def run_memo_fast_english_package_parallel(
                     **retry_job,
                 )
             _finish_row(row, phase_name, started, error=error, result=result)
+            if error and gemini_run:
+                # Nearly always sampling noise — a dropped bracket in 26KB
+                # of JSON — and there is no fallback behind it on Gemini.
+                if progress is not None:
+                    progress.emit(
+                        "stage",
+                        stage="memo_section_second_sample",
+                        message=(
+                            f"Section {section_id} failed "
+                            f"({str(error)[:200]}); drawing a second sample"
+                        ),
+                        section=section_id,
+                    )
+                retry_row = f"{row} (second sample)"
+                _plan_row(
+                    retry_row,
+                    3.07,
+                    f"Second sample of the {section_id} section",
+                )
+                started = _start_row(retry_row, phase_name)
+                result, error = _run_english_section(
+                    run_dir=run_dir,
+                    section_id=section_id,
+                    common_context=common_context,
+                    spine_path=spine_path,
+                    add_dirs=add_dirs,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                    structure=structure,
+                    **job,
+                )
+                _finish_row(
+                    retry_row, phase_name, started, error=error, result=result
+                )
             if error is None and isinstance(result, dict) and section_hook:
                 try:
                     section_hook(section_id, result["section"])
@@ -9338,6 +9524,125 @@ def run_memo_fast_english_package_parallel(
                 ),
             )
         return {}
+
+    # Gemini only (memo_engine.section_word_targets is {} on Claude): the
+    # length each section's Claude twin writes, enforced after every wave.
+    depth_targets = memo_engine.section_word_targets(run_dir, structure)
+
+    def _depth_gate(
+        results: dict[str, dict],
+        *,
+        facts_block: str,
+        section_notes: dict,
+        row_suffix: str = "",
+    ) -> dict[str, dict]:
+        """Bring every section to the length its Claude twin writes.
+
+        A section outside its band goes back to its worker with the draft
+        to revise — deepened when short, tightened when long — up to
+        memo_engine.DEPTH_ROUNDS times. A revision is kept only when it
+        lands closer to the band than the draft it replaces, so a pass that
+        overshoots the other way is discarded; a failed revision never
+        fails the memo."""
+        if not depth_targets:
+            return results
+        for round_index in range(1, memo_engine.DEPTH_ROUNDS + 1):
+            off_band: dict[str, int] = {}
+            for section_id, result in results.items():
+                target = depth_targets.get(section_id)
+                if target is None:
+                    continue
+                words = memo_engine.en_word_count(result.get("section"))
+                if target.distance(words):
+                    off_band[section_id] = words
+            if not off_band:
+                break
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_depth_gate",
+                    message=(
+                        f"Round {round_index}: revising {len(off_band)} "
+                        "section(s) away from the Claude reference length — "
+                        + ", ".join(
+                            f"{section_id} {words:,}/"
+                            f"{depth_targets[section_id].target:,} "
+                            + (
+                                "(short)"
+                                if words < depth_targets[section_id].low
+                                else "(long)"
+                            )
+                            for section_id, words in sorted(off_band.items())
+                        )
+                    ),
+                    round=round_index,
+                    sections={
+                        section_id: {
+                            "words": words,
+                            "floor": depth_targets[section_id].low,
+                            "target": depth_targets[section_id].target,
+                            "ceiling": depth_targets[section_id].high,
+                        }
+                        for section_id, words in off_band.items()
+                    },
+                )
+            suffix = f"{row_suffix} (depth {round_index})"
+            revision_jobs: dict[str, dict] = {}
+            for section_id, words in off_band.items():
+                draft_path = units_dir / f"{section_id}.length-{round_index}.json"
+                draft_path.write_text(
+                    json.dumps(
+                        results[section_id]["section"],
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                revision_jobs[section_id] = {
+                    "shared_facts_block": facts_block,
+                    "section_note": str(section_notes.get(section_id) or ""),
+                    "validation_errors": None,
+                    "previous_section_path": None,
+                    "depth_revision": (draft_path, words),
+                }
+                _plan_row(
+                    f"Section - {section_id}{suffix}",
+                    round(3.08 + round_index / 100, 4),
+                    f"Bring the {section_id} section to the reference length",
+                )
+            revised, errors, _unused, _unused_error = _run_sections(
+                revision_jobs, row_suffix=suffix
+            )
+            for section_id, result in revised.items():
+                target = depth_targets[section_id]
+                words = memo_engine.en_word_count(result.get("section"))
+                if target.distance(words) >= target.distance(
+                    off_band[section_id]
+                ):
+                    logger.warning(
+                        "length revision of %s landed no closer to its band "
+                        "(%s words against %s-%s); the draft stands",
+                        section_id,
+                        words,
+                        target.low,
+                        target.high,
+                    )
+                    continue
+                previous = results[section_id]
+                result["claude_cost_usd"] = (
+                    _to_float(previous.get("claude_cost_usd"))
+                    + _to_float(result.get("claude_cost_usd"))
+                ) or None
+                result["claude_duration_ms"] = (
+                    _to_int(previous.get("claude_duration_ms"))
+                    + _to_int(result.get("claude_duration_ms"))
+                ) or None
+                results[section_id] = result
+            for message in errors:
+                logger.warning(
+                    "length revision failed; the draft stands: %s", message
+                )
+        return results
 
     # ---- Selective retry: regenerate only the sections the errors name ----
     if (
@@ -9423,6 +9728,9 @@ def run_memo_fast_english_package_parallel(
                 run_artifacts=not cached_artifacts and async_artifacts is None,
             )
             if not errors:
+                results = _depth_gate(
+                    results, facts_block=facts_block, section_notes=section_notes
+                )
                 if not cached_artifacts and async_artifacts is None:
                     if isinstance(artifacts_result, dict) and isinstance(
                         artifacts_result.get("analysis_artifacts"), dict
@@ -9548,27 +9856,47 @@ def run_memo_fast_english_package_parallel(
             3.01,
             "Pin the package envelope and shared facts",
         )
-        spine_row_started = _start_row(spine_label, "english_spine")
-        spine_result, spine_error = run_memo_fast_english_spine(
-            run_dir=run_dir,
-            company_name=company_name,
-            common_context=common_context,
-            add_dirs=add_dirs,
-            progress=progress,
-            timeout_sec=timeout_sec,
-            validation_feedback=validation_feedback,
-            fact_ledger=load_memo_fact_ledger(research_dir),
-            recent_news=load_memo_recent_news(research_dir),
-            decision_record=load_memo_decision_record(research_dir),
-            structure=structure,
-        )
-        _finish_row(
-            spine_label,
-            "english_spine",
-            spine_row_started,
-            error=spine_error,
-            result=spine_result if isinstance(spine_result, dict) else None,
-        )
+
+        def _spine_call(label: str):
+            row_started = _start_row(label, "english_spine")
+            result, error = run_memo_fast_english_spine(
+                run_dir=run_dir,
+                company_name=company_name,
+                common_context=common_context,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+                validation_feedback=validation_feedback,
+                fact_ledger=load_memo_fact_ledger(research_dir),
+                recent_news=load_memo_recent_news(research_dir),
+                decision_record=load_memo_decision_record(research_dir),
+                structure=structure,
+            )
+            _finish_row(
+                label,
+                "english_spine",
+                row_started,
+                error=error,
+                result=result if isinstance(result, dict) else None,
+            )
+            return result, error
+
+        spine_result, spine_error = _spine_call(spine_label)
+        if (spine_error or not isinstance(spine_result, dict)) and gemini_run:
+            # Same rule as the sections: a second sample before the run can
+            # fail, because on Gemini nothing stands behind the wave.
+            retry_label = f"{spine_label} (second sample)"
+            _plan_row(retry_label, 3.012, "Second sample of the spine")
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_spine_second_sample",
+                    message=(
+                        f"Spine failed ({str(spine_error)[:200]}); drawing "
+                        "a second sample"
+                    ),
+                )
+            spine_result, spine_error = _spine_call(retry_label)
     if spine_error or not isinstance(spine_result, dict):
         return _fallback(spine_error or "spine pass returned no data")
     skeleton = spine_result.get("package_skeleton")
@@ -9737,7 +10065,9 @@ def run_memo_fast_english_package_parallel(
     }
     results, errors, artifacts_result, artifacts_error = _run_sections(
         section_jobs,
-        section_hook=on_section,
+        # With the length gate active the Chinese chase must see the
+        # extended section, never the short draft: hooks fire after the gate.
+        section_hook=None if depth_targets else on_section,
         run_artifacts=async_artifacts is None,
         row_suffix=row_suffix,
     )
@@ -9757,6 +10087,23 @@ def run_memo_fast_english_package_parallel(
             results[section_id] = early_result
     if errors:
         return _fallback("; ".join(errors[:3]))
+    if depth_targets:
+        results = _depth_gate(
+            results,
+            facts_block=facts_block,
+            section_notes=section_notes,
+            row_suffix=row_suffix,
+        )
+        if on_section is not None:
+            for section_id in structure.section_ids:
+                if section_id in early_futures or section_id not in results:
+                    continue  # the speculator fired that section's hook
+                try:
+                    on_section(section_id, results[section_id]["section"])
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "section hook failed for %s", section_id, exc_info=True
+                    )
     if async_artifacts is not None:
         # Detached mode: the caller joins the artifacts agent after
         # acceptance; the agent persists its own cache file.
@@ -10360,8 +10707,23 @@ Number and date conventions (fixed — every section must match):
 """
 
 
-def _memo_zh_compact_enabled() -> bool:
-    return os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1"
+def _memo_zh_compact_enabled(run_dir: Path | None = None) -> bool:
+    """Whether a translation unit returns only its Chinese strings, or
+    re-emits the whole unit with the English copied back.
+
+    Claude keeps the operator's flag. A Gemini run always takes the compact
+    method, for the same reason it always takes the English wave: the
+    legacy method's output is the whole unit twice over, and Gemini's
+    64k-token response is a hard ceiling rather than a budget. Once the
+    length contract brought the English up to the Claude reference, the
+    risk unit hit that ceiling and its translation failed outright
+    (live, 2026-09-18). Compact halves the output and splits a unit over
+    BSH_MEMO_ZH_SPLIT_CHARS into two parallel calls; any compact failure
+    still falls back to the legacy method per unit.
+    """
+    if os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1":
+        return True
+    return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
 
 
 def _memo_zh_split_chars() -> int:
@@ -10647,7 +11009,7 @@ def _run_bilingual_unit(
     progress,
     timeout_sec: int,
 ) -> tuple[dict | None, str | None]:
-    if _memo_zh_compact_enabled():
+    if _memo_zh_compact_enabled(run_dir):
         unit, compact_error = _run_bilingual_unit_compact(
             run_dir=run_dir,
             company_name=company_name,
@@ -11338,20 +11700,44 @@ def run_memo_fast_bilingual_package_parallel(
         max_workers=workers, thread_name_prefix="memo-bilingual"
     ) as pool:
         futures = {
-            pool.submit(_run_unit_with_events, unit_id, label, path): (label, source)
+            pool.submit(_run_unit_with_events, unit_id, label, path): (
+                unit_id, label, path, source,
+            )
             for unit_id, label, path, source in units
         }
-        for future, (label, source) in futures.items():
+        for future, (unit_id, label, path, source) in futures.items():
             try:
                 unit, error = future.result()
             except Exception as exc:  # noqa: BLE001
                 unit, error = None, f"{label} crashed: {exc}"
+            if error is not None:
+                # One more go at the unit before anything drastic. A unit is
+                # a few thousand words; the alternative below re-translates
+                # the whole memo in one response.
+                logger.warning(
+                    "bilingual unit %s failed, retrying once: %s", unit_id, error
+                )
+                try:
+                    unit, error = _run_unit_with_events(unit_id, label, path)
+                except Exception as exc:  # noqa: BLE001
+                    unit, error = None, f"{label} crashed on retry: {exc}"
             results.append((label, unit, error))
             if error is None:
                 _adopt_zh_translations(source, unit)
 
     failed = [f"{label}: {error}" for label, _, error in results if error]
     if failed:
+        if memo_engine.run_engine(run_dir) == "gemini":
+            # The monolithic pass asks for the entire bilingual package in
+            # one response. On a memo of any real length that is past
+            # Gemini's 64k output ceiling, so "falling back" to it turns a
+            # one-unit failure into a certain one that names the wrong cause.
+            return None, (
+                "Chinese translation failed for "
+                + "; ".join(failed[:3])
+                + " (the monolithic fallback cannot fit a full memo in one "
+                "Gemini response, so it was not attempted)"
+            )
         return _fallback("; ".join(failed[:3]))
 
     cost = sum(
@@ -11416,6 +11802,10 @@ def run_investment_memo(
 
     Returns ``{ok, cost_usd, duration_ms, error?}``.
     """
+    claude_only = claude_only_stage_error("Serena's memo skill", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -11721,6 +12111,10 @@ def run_buffett_investment_memo(
     timeout_sec: int = 3600,
 ) -> dict:
     """Spawn `claude -p` to run the Buffett investment-memo skill."""
+    claude_only = claude_only_stage_error("The Buffett memo skill", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -12192,6 +12586,10 @@ def run_resume_memo_package(
     timeout_sec: int = 1800,
 ) -> dict:
     """Resume a failed memo run by writing only logs/memo_package.json."""
+    claude_only = claude_only_stage_error("Memo resume", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,
@@ -12530,6 +12928,10 @@ def run_internal_diligence_memo(
     timeout_sec: int = 1200,
 ) -> dict:
     """Spawn Claude to write the separate internal diligence memo Markdown."""
+    claude_only = claude_only_stage_error("The internal diligence memo", run_dir)
+    if claude_only:
+        return {"ok": False, "error": claude_only}
+
     if not is_available():
         return {
             "ok": False,

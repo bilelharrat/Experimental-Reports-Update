@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject private var appearance: AppearanceStore
     @EnvironmentObject private var askPersona: AskPersonaStore
     @EnvironmentObject private var desk: DeskStore
+    @EnvironmentObject private var welcomeTour: WelcomeTourStore
     @State private var baseURL: String = AppGroupStore.loadBaseURL() ?? AppConfig.baseURL.absoluteString
     @State private var savedPulse = false
     @State private var syncing = false
@@ -114,6 +115,20 @@ struct SettingsView: View {
                             Text(language.t("positions.title"))
                         } icon: {
                             SettingsIcon(symbol: "briefcase.fill", color: .teal)
+                        }
+                    }
+                    Button {
+                        // Settings is itself a sheet; let it close before the tour presents.
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            welcomeTour.replay()
+                        }
+                    } label: {
+                        Label {
+                            Text(language.t("settings.welcome_tour"))
+                                .foregroundStyle(.primary)
+                        } icon: {
+                            SettingsIcon(symbol: "sparkles", color: .blue)
                         }
                     }
                 } header: {

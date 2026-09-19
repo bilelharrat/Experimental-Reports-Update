@@ -1,7 +1,12 @@
 <script setup>
+// Web twin of MacNumberLintView (MacBatchEViews.swift): the no-invented-
+// numbers lint. Reads the dedicated /memo-number-lint endpoint, shows
+// "N of M figures found in sources", a tinted coverage bar, and the
+// unsupported findings with their memo section and excerpt.
 import { computed, ref, watch } from "vue";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
+import { Hash, RotateCw } from "lucide-vue-next";
 
 const props = defineProps({
   companyId: {
@@ -14,7 +19,7 @@ const lint = ref(null);
 const loading = ref(false);
 const expanded = ref(false);
 
-const hasMemo = computed(() => lint.value?.memo_package != null || lint.value?.memoPackage != null);
+const hasMemo = computed(() => lint.value?.memo_package != null);
 const supported = computed(() => lint.value?.supported ?? 0);
 const checked = computed(() => lint.value?.checked ?? 0);
 const unsupported = computed(() => lint.value?.unsupported ?? 0);
@@ -24,10 +29,9 @@ async function loadLint() {
   if (!props.companyId) return;
   loading.value = true;
   try {
-    const res = await api.getMemoAnalysis(props.companyId);
-    lint.value = res?.numbers_lint ?? res?.numberLint ?? null;
-  } catch (err) {
-    console.error("Failed to load numbers lint", err);
+    lint.value = await api.getMemoNumberLint(props.companyId);
+  } catch {
+    lint.value = null;
   } finally {
     loading.value = false;
   }
@@ -36,6 +40,7 @@ async function loadLint() {
 watch(
   () => props.companyId,
   () => {
+    expanded.value = false;
     loadLint();
   },
   { immediate: true },
@@ -43,76 +48,82 @@ watch(
 </script>
 
 <template>
-  <div class="rounded-xl border border-border/40 bg-surface/90 dark:bg-[#1c1c1e]/90 p-3.5 shadow-sm backdrop-blur-md">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <svg class="h-4 w-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-        </svg>
-        <span class="font-semibold text-foreground text-xs">
-          {{ t("research_desk.numbers_lint_title") }}
-        </span>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <span v-if="!hasMemo" class="text-xs text-muted-foreground">
+  <div class="mac-card flex flex-col gap-2 p-2.5">
+    <!-- Label("Numbers lint", number.circle) · count · show/refresh -->
+    <div class="flex items-center gap-2">
+      <Hash class="mac-c-accent h-3.5 w-3.5" stroke-width="2.4" />
+      <span class="mac-t-subheadline font-semibold" style="font-weight: 600">
+        {{ t("research_desk.numbers_lint_title") }}
+      </span>
+      <span class="flex-1" />
+      <template v-if="lint">
+        <span v-if="!hasMemo" class="mac-t-caption10 mac-c-secondary">
           {{ t("research_desk.no_memo_yet") }}
         </span>
-        <span
-          v-else
-          class="font-mono text-xs font-medium"
-          :class="unsupported === 0 ? 'text-emerald-500' : 'text-amber-500'"
-        >
-          {{ t("research_desk.numbers_supported", { supported, checked }) }}
-        </span>
-
-        <button
-          v-if="hasMemo && unsupported > 0"
-          type="button"
-          class="rounded px-2 py-0.5 text-[11px] font-medium border border-border/40 bg-muted/30 hover:bg-muted/50 text-foreground transition-colors"
-          @click="expanded = !expanded"
-        >
-          {{ expanded ? t("research_desk.signal_hide_formula") : `Show ${unsupported}` }}
-        </button>
-
-        <button
-          type="button"
-          class="rounded p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
-          :title="t('research_desk.refresh')"
-          :disabled="loading"
-          @click="loadLint"
-        >
-          <svg
-            class="h-3.5 w-3.5"
-            :class="{ 'animate-spin': loading }"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
+        <template v-else>
+          <span
+            class="mac-t-caption10 mac-mono"
+            :style="{ color: unsupported === 0 ? 'var(--mac-green)' : 'var(--mac-orange)' }"
           >
-            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-            <path d="M3 21v-5h5" />
-          </svg>
-        </button>
-      </div>
+            {{ t("research_desk.numbers_supported", { supported, checked }) }}
+          </span>
+          <button
+            v-if="unsupported > 0"
+            type="button"
+            class="mac-btn mac-btn--mini"
+            @click="expanded = !expanded"
+          >
+            {{ expanded ? t("research_desk.lint_hide") : t("research_desk.lint_show", { count: unsupported }) }}
+          </button>
+        </template>
+      </template>
+      <button
+        type="button"
+        class="mac-btn mac-btn--mini mac-btn--plain"
+        :title="t('research_desk.refresh')"
+        :disabled="loading"
+        @click="loadLint"
+      >
+        <RotateCw class="h-3 w-3" :class="{ 'animate-spin': loading }" />
+      </button>
     </div>
 
-    <!-- Findings expansion -->
-    <div v-if="expanded && findings.length" class="mt-3 space-y-1.5">
+    <template v-if="lint && hasMemo">
+      <!-- Coverage bar -->
       <div
-        v-for="(f, idx) in findings"
-        :key="idx"
-        class="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 text-xs space-y-0.5"
+        v-if="lint.coverage_pct != null"
+        class="h-1 w-full overflow-hidden rounded-full"
+        style="background: color-mix(in srgb, var(--mac-secondary) 15%, transparent)"
       >
-        <div class="flex items-center gap-2">
-          <span class="font-mono font-bold text-amber-600 dark:text-amber-400">{{ f.number }}</span>
-          <span v-if="f.section" class="text-[11px] text-muted-foreground font-medium">§ {{ f.section }}</span>
-        </div>
-        <p class="text-[11px] text-muted-foreground line-clamp-2">{{ f.excerpt }}</p>
+        <div
+          class="h-full rounded-full transition-all duration-500"
+          :style="{
+            width: `${lint.coverage_pct}%`,
+            background: unsupported === 0 ? 'var(--mac-green)' : 'var(--mac-orange)',
+          }"
+        />
       </div>
-    </div>
+
+      <template v-if="expanded">
+        <div
+          v-for="(f, idx) in findings"
+          :key="idx"
+          class="flex flex-col gap-0.5 rounded-md p-1.5"
+          style="background: color-mix(in srgb, var(--mac-orange) 7%, transparent)"
+        >
+          <span class="flex items-center gap-1.5">
+            <span class="mac-t-caption10 mac-mono font-bold" :style="{ color: 'var(--mac-orange)' }">
+              {{ f.number }}
+            </span>
+            <span v-if="f.section" class="mac-t-caption10 mac-c-secondary">§ {{ f.section }}</span>
+          </span>
+          <span class="mac-t-caption10 mac-c-secondary line-clamp-2">{{ f.excerpt }}</span>
+        </div>
+        <span v-if="lint.sources?.length" class="mac-t-caption10 mac-c-tertiary">
+          {{ t("research_desk.lint_checked_against", { sources: lint.sources.join(" · ") }) }}
+        </span>
+      </template>
+      <span v-else-if="lint.note" class="mac-t-caption10 mac-c-tertiary">{{ lint.note }}</span>
+    </template>
   </div>
 </template>

@@ -49,7 +49,7 @@ import {
 } from "./copilotContext.js";
 import { hydrateTrackingWatchlist } from "./trackingWatchlist.js";
 import { initDeskSync } from "./deskSync.js";
-import { autoObserveLargeTitle, largeTitleVisible } from "./chrome.js";
+import { autoObserveLargeTitle, chromeLeftInset, largeTitleVisible } from "./chrome.js";
 import { installGlassMotion } from "./glassMotion.js";
 import {
   activeSummaryTarget,
@@ -703,6 +703,7 @@ provide("copilotNavigate", onCopilotNavigate);
         ref="headerRef"
         class="material-bar sticky top-0 z-30"
         :data-scrolled="scrolled ? 'true' : 'false'"
+        :style="chromeLeftInset ? { paddingLeft: `${chromeLeftInset}px` } : null"
       >
         <div class="flex h-[52px] items-center gap-2 px-3 md:px-5">
           <button

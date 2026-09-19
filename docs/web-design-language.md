@@ -86,6 +86,33 @@ status reads "Buffetting…".
   sheen on "Buffetting…"), `.warren-action`, `.warren-card`, `.warren-cite`,
   `.warren-context`.
 
+## The Research Desk
+
+`ResearchDeskView.vue` and its cards are the web twin of the Mac terminal, so
+they use a `mac-*` class family under a `.mac-desk` root (`style.css`, bottom
+section) rather than the classes above: hairline-separated surfaces, the SF
+point type scale, capsule controls and a levitating selection pill.
+
+That is a difference of **shape only**. Every `--mac-*` token resolves to an
+app token — `--mac-accent` is Summit blue, `--mac-canvas` is the page ground,
+the selection pill is the sidebar glider's glass — so the desk reads as the
+same app as the chrome around it, and dark mode follows from `.dark` without a
+second set of values. When adding to the desk, point new tokens at
+`--color-*` / `--glass-*`; never re-sample a platform palette, and never
+redefine a `--color-*` token inside `.mac-desk` (that inverts the dependency
+and re-tones nested Summit components such as Memo Studio).
+
+## Welcome tour
+
+`WelcomeTour.vue` is the first-sign-in walkthrough, modeled on the "Welcome
+to" sheet iOS shows after a major update: a brand tile and feature rows, then
+one page per desk with a glyph, two lines and tips. `src/welcomeTour.js` owns
+the state: it opens once per browser (`bsh.welcomeTourSeen` stores the tour
+version; bump `WELCOME_TOUR_VERSION` when the content changes enough to show
+again) and Settings can replay it. Classes: `.welcome-tour-*` and the
+`tour-forward` / `tour-back` page transitions. The iPhone/iPad and Mac apps
+carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`).
+
 ## Page anatomy
 
 - A desk opens with a large title (`.page-title`, or `<PageHeader>`). Register

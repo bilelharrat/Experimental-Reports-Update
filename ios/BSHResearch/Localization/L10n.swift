@@ -4,7 +4,7 @@ enum L10n {
     private static let en: [String: String] = [
         "app.name": "BSH Research",
         "tab.home": "Home",
-        "tab.research": "Research",
+        "tab.research": "Research Desk",
         "tab.reports": "Reports",
         "tab.news": "News",
         "tab.market": "Market",

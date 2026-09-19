@@ -248,9 +248,34 @@ _SOURCE_KEY_SYNONYMS = {
     # sources. Renaming is lossless, so repair it instead of failing the run.
     "label": "title",
     "source_class": "class",
+    "evidence_class": "class",
+    "source_type": "class",
+    # A source's type IS its class ("corporate_filing",
+    # "third_party_analyst_estimate"); six sources arrived with nothing else.
+    "type": "class",
+    "category": "class",
+    "kind": "class",
     "detail": "treatment",
     "name": "title",
 }
+
+# A block names its own fields as often as it names the schema's. Each of
+# these cost a whole generation attempt on one live Gemini run (Koch, Inc.,
+# 2026-09-18: three attempts, a different one of these killing each), so
+# they are renamed rather than allowed to fail the memo.
+_BLOCK_KEY_SYNONYMS = {
+    # The block's type under another name; without it the block reads as an
+    # untyped paragraph and fails as "text is required" (22 blocks in one run).
+    "kind": "type",
+    # The component slug under the analysis passes' word for it.
+    "slug": "component",
+    # A table's header row.
+    "columns": "headers",
+    "column_headers": "headers",
+}
+
+# A bullets or callout list under a key that echoes the block's own type.
+_ITEMS_KEY_SYNONYMS = ("bullets", "points", "list_items", "entries")
 
 _BLOCK_TYPE_SYNONYMS = {
     "bullet": "bullets",
@@ -261,6 +286,20 @@ _BLOCK_TYPE_SYNONYMS = {
     "text": "paragraph",
     "call_out": "callout",
     "box": "callout",
+    # Seen from the per-section wave on Gemini: prose under its own name.
+    "prose": "paragraph",
+    "narrative": "paragraph",
+    "body_text": "paragraph",
+    "header": "heading",
+    "subheading": "heading",
+    "subheader": "heading",
+    # Compound types the model invents for a titled paragraph, or a table
+    # with its commentary in the same block; the prose half of a table is
+    # split out into the paragraph that follows it before the main pass.
+    "header_and_prose": "paragraph",
+    "heading_and_prose": "paragraph",
+    "table_and_prose": "table",
+    "table_with_prose": "table",
 }
 
 
@@ -286,6 +325,184 @@ def _repair_localized(node: dict, key: str, repairs: list[str], where: str) -> N
     ):
         node[key] = {"en": value, "zh": ""}
         repairs.append(f"{where}: wrapped plain string as bilingual en value")
+
+
+def _decode_serialized_list(
+    block: dict, key: str, repairs: list[str], where: str
+) -> None:
+    """Decode a list the model serialized as a JSON string inside the block
+    — the escaping the section prompt warns against, seen live on a
+    table's ``headers`` and ``rows``."""
+    value = block.get(key)
+    if isinstance(value, str) and value.lstrip().startswith("["):
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return
+        if isinstance(decoded, list):
+            block[key] = decoded
+            repairs.append(f"{where}.{key}: decoded a list serialized as a string")
+
+
+# Prose a table block carries alongside its rows, and where it belongs.
+_TABLE_PROSE_BEFORE = ("intro", "lead", "preface")
+_TABLE_PROSE_AFTER = ("content", "commentary", "footnote", "note", "discussion")
+_SERIALIZED_LIST_KEYS = ("headers", "columns", "rows", "items", "bullets", "paragraphs")
+_CONTENT_KEYS = ("text", "content", "body", "paragraphs", "items", "bullets", "headers", "rows", "title", "level")
+
+
+def _infer_block_type(block: dict) -> str:
+    """The type a block's own fields imply — for a name the renderer does not
+    know. The model names its block types freely (``content_block``,
+    ``table_block``, ``table_and_prose`` …, a new one on each run); what it
+    puts in them is stable."""
+    if block.get("headers") or block.get("rows"):
+        return "table"
+    if isinstance(block.get("items"), list) or isinstance(block.get("bullets"), list):
+        return "bullets"
+    if block.get("paragraphs") is not None:
+        return "paragraph"
+    if block.get("level") is not None and not _content_text(
+        block.get("content") or block.get("body")
+    ):
+        return "heading"
+    if not any(block.get(key) for key in _CONTENT_KEYS):
+        return "spacer"
+    return "paragraph"
+
+
+def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
+    """Normalize one block before the main pass; return the block(s) it
+    stands for.
+
+    Decodes lists serialized as strings, renames the field synonyms, reads
+    an unknown type off the block's fields, moves a table's intro and
+    footnote prose into the paragraphs around it, expands a titled group
+    of paragraphs into paragraphs, and drops an empty table. Each of these
+    shapes cost a live generation attempt on a Gemini run.
+    """
+    for old_key, new_key in _BLOCK_KEY_SYNONYMS.items():
+        if old_key in block and not block.get(new_key):
+            block[new_key] = block.pop(old_key)
+            repairs.append(f"{where}: renamed {old_key!r} to {new_key!r}")
+    for key in _SERIALIZED_LIST_KEYS:
+        _decode_serialized_list(block, key, repairs, where)
+    raw_type = str(block.get("type") or "").strip().lower()
+    kind = _BLOCK_TYPE_SYNONYMS.get(raw_type, raw_type)
+    if raw_type and kind not in SUPPORTED_BLOCK_TYPES:
+        kind = _infer_block_type(block)
+        block["type"] = kind
+        repairs.append(
+            f"{where}.type: read unknown type {raw_type!r} as {kind!r} from its fields"
+        )
+    elif raw_type and kind != raw_type:
+        block["type"] = kind
+        repairs.append(f"{where}.type: normalized {raw_type!r} to {kind!r}")
+    out: list[dict] = []
+    if kind == "table":
+        if not (block.get("headers") or block.get("rows")):
+            repairs.append(f"{where}: dropped empty table")
+            return []
+        for key in _TABLE_PROSE_BEFORE:
+            prose = block.pop(key, None)
+            if isinstance(prose, (str, dict)) and _content_text(prose):
+                out.append({"type": "paragraph", "text": prose})
+                repairs.append(f"{where}: moved its {key!r} into a paragraph before the table")
+            elif prose is not None:
+                block[key] = prose
+        out.append(block)
+        for key in _TABLE_PROSE_AFTER:
+            prose = block.pop(key, None)
+            if isinstance(prose, (str, dict)) and _content_text(prose):
+                out.append({"type": "paragraph", "text": prose})
+                repairs.append(f"{where}: moved its {key!r} into a paragraph after the table")
+            elif prose is not None:
+                block[key] = prose
+        return out
+    paragraphs = block.get("paragraphs")
+    if kind == "paragraph" and isinstance(paragraphs, list) and paragraphs:
+        del block["paragraphs"]
+        carried = {k: v for k, v in block.items() if k not in ("text", "content", "body")}
+        for item in paragraphs:
+            if isinstance(item, (str, dict)) and _content_text(item):
+                para: dict = {"type": "paragraph", "text": item}
+                if not out:
+                    para = {**carried, **para}
+                out.append(para)
+        if out:
+            repairs.append(f"{where}: expanded {len(out)} paragraph(s) it carried as a list")
+            return out
+    return [block]
+
+
+def _adopt_items_synonym(block: dict, repairs: list[str], where: str) -> None:
+    """Move a bullet list filed under the block's own name into ``items``.
+
+    Live: a bullets block arrived as ``{"type": "bullets", "bullets": [...],
+    "items": null}`` and failed as "items must be a non-empty list", which
+    ended the run's last attempt. A populated ``items`` always wins.
+    """
+    current = block.get("items")
+    if isinstance(current, list) and current:
+        return
+    for key in _ITEMS_KEY_SYNONYMS:
+        candidate = block.get(key)
+        if isinstance(candidate, list) and candidate:
+            block["items"] = candidate
+            block.pop(key, None)
+            repairs.append(f"{where}: moved {key!r} into 'items'")
+            return
+
+
+_SOURCE_CLASS_SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$")
+
+
+def _repair_source_class_and_treatment(
+    source: dict, repairs: list[str], where: str
+) -> None:
+    """Fill a source's ``class`` and ``treatment`` from whichever one arrived.
+
+    A source classes itself in exactly one of these two fields and leaves the
+    other empty, and both halves are required. One live run (Koch, Inc.,
+    2026-09-18) failed twice on this, once each way: every source came back
+    with ``class: "company_reported"`` and no treatment, then on the next
+    attempt with ``treatment: {"en": "company_reported"}`` and no class.
+
+    A bare slug is a class, never a treatment sentence, so it is promoted and
+    the treatment restated as the sentence that field is for. A treatment
+    already written as prose is left exactly as the author wrote it.
+    """
+    class_text = _content_text(source.get("class")).strip()
+    treatment = source.get("treatment")
+    treatment_text = _content_text(treatment).strip()
+
+    def _label(slug: str) -> str:
+        return slug.replace("_", " ").replace("-", " ").strip()
+
+    if not class_text and treatment_text and _SOURCE_CLASS_SLUG_RE.match(
+        treatment_text
+    ):
+        label = _label(treatment_text)
+        source["class"] = label
+        sentence = f"Weighted as {label}."
+        if isinstance(treatment, dict):
+            treatment["en"] = sentence
+        else:
+            source["treatment"] = {"en": sentence, "zh": ""}
+        repairs.append(
+            f"{where}: read class {label!r} from a treatment holding only "
+            "that slug, and restated the treatment"
+        )
+        return
+
+    if class_text and not treatment_text:
+        label = _label(class_text)
+        if _SOURCE_CLASS_SLUG_RE.match(class_text):
+            source["class"] = label
+        source["treatment"] = {"en": f"Weighted as {label}.", "zh": ""}
+        repairs.append(
+            f"{where}: wrote the treatment its class {label!r} implies"
+        )
 
 
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
@@ -335,13 +552,54 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
         where_section = f"sections[{s_index}]"
         _repair_localized(section, "title", repairs, f"{where_section}.title")
         blocks = section.get("blocks")
+        # An empty table — no headers, no rows — is a placeholder the model
+        # never filled. Validation rejects the whole package over it and a
+        # regeneration attempt follows; dropping the block is what a human
+        # editor would do. Seen live from the per-section wave on Gemini.
+        if isinstance(blocks, list):
+            kept: list = []
+            for b_index, block in enumerate(blocks):
+                if not isinstance(block, dict):
+                    kept.append(block)
+                    continue
+                kept.extend(
+                    _expand_block(block, repairs, f"{where_section}.blocks[{b_index}]")
+                )
+            blocks[:] = kept
         for b_index, block in enumerate(blocks if isinstance(blocks, list) else []):
             if not isinstance(block, dict):
                 continue
             where = f"{where_section}.blocks[{b_index}]"
+            for old_key, new_key in _BLOCK_KEY_SYNONYMS.items():
+                if old_key in block and not block.get(new_key):
+                    block[new_key] = block.pop(old_key)
+                    repairs.append(
+                        f"{where}: renamed {old_key!r} to {new_key!r}"
+                    )
+            # Prose under `content`, with the block's `text` carrying what
+            # is really its title (nine blocks of one live valuation
+            # section). The prose is the text; the short line above it is
+            # the title. A list under `content` is never prose.
+            content = block.get("content")
+            if isinstance(content, (str, dict)) and _content_text(content):
+                if not _content_text(block.get("text")):
+                    block["text"] = block.pop("content")
+                    repairs.append(f"{where}: moved 'content' into 'text'")
+                elif not _content_text(block.get("title")):
+                    block["title"] = block.pop("text")
+                    block["text"] = block.pop("content")
+                    repairs.append(
+                        f"{where}: moved 'content' into 'text' and the "
+                        "line it carried as text into 'title'"
+                    )
             raw_kind = str(block.get("type") or "paragraph").strip().lower()
             kind = _BLOCK_TYPE_SYNONYMS.get(raw_kind, raw_kind)
-            if kind != str(block.get("type") or "paragraph"):
+            if not str(block.get("type") or "").strip():
+                # The validator reads an untyped block as a paragraph; say so
+                # in the package rather than leave every reader to default it.
+                block["type"] = kind
+                repairs.append(f"{where}.type: untyped block read as {kind!r}")
+            elif kind != str(block.get("type")):
                 block["type"] = kind
                 repairs.append(f"{where}.type: normalized {raw_kind!r} to {kind!r}")
             if kind == "paragraph" and not _content_text(
@@ -357,7 +615,9 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             elif kind == "paragraph":
                 _repair_localized(block, "text", repairs, f"{where}.text")
                 _repair_localized(block, "body", repairs, f"{where}.body")
+                _repair_localized(block, "title", repairs, f"{where}.title")
             elif kind == "bullets":
+                _adopt_items_synonym(block, repairs, where)
                 block["items"] = _repair_localized_list(
                     block.get("items"), repairs, f"{where}.items"
                 )
@@ -365,6 +625,12 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                 _repair_localized(block, "title", repairs, f"{where}.title")
                 _repair_localized(block, "label", repairs, f"{where}.label")
                 _repair_localized(block, "body", repairs, f"{where}.body")
+                # The validator reads a callout's prose as `body or text`, so
+                # prose left as a plain string under `text` fails as ".body
+                # must be bilingual". That single unrepaired shape was what
+                # sent a 5,000-word first draft into the regeneration retry.
+                _repair_localized(block, "text", repairs, f"{where}.text")
+                _adopt_items_synonym(block, repairs, where)
                 block["items"] = _repair_localized_list(
                     block.get("items"), repairs, f"{where}.items"
                 )
@@ -388,8 +654,38 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                     block.get("headers"), repairs, f"{where}.headers"
                 )
                 rows = block.get("rows")
+                # An empty row is the same placeholder as an empty table,
+                # one level down ("rows[0] must contain cells" cost a live
+                # attempt). Drop it rather than fail the package.
+                if isinstance(rows, list):
+                    kept_rows = [
+                        row for row in rows
+                        if (row.get("cells") if isinstance(row, dict) else row)
+                    ]
+                    if len(kept_rows) != len(rows):
+                        repairs.append(
+                            f"{where}.rows: dropped {len(rows) - len(kept_rows)} empty row(s)"
+                        )
+                        rows[:] = kept_rows
                 for r_index, row in enumerate(rows if isinstance(rows, list) else []):
                     cells = row.get("cells") if isinstance(row, dict) else row
+                    # A cell written as {"text": <localized>} carries its
+                    # value one level down; the validator wants the localized
+                    # object itself and reports "cells[0].en is required".
+                    if isinstance(cells, list):
+                        for c_index, cell in enumerate(cells):
+                            if (
+                                isinstance(cell, dict)
+                                and "en" not in cell
+                                and "zh" not in cell
+                                and isinstance(cell.get("text"), (dict, str))
+                                and len(cell) == 1
+                            ):
+                                cells[c_index] = cell["text"]
+                                repairs.append(
+                                    f"{where}.rows[{r_index}].cells[{c_index}]: "
+                                    "unwrapped cell text"
+                                )
                     fixed = _repair_localized_list(
                         cells, repairs, f"{where}.rows[{r_index}].cells"
                     )
@@ -407,6 +703,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             if old_key in source and not str(source.get(new_key) or "").strip():
                 source[new_key] = source.pop(old_key)
                 repairs.append(f"{where}: renamed {old_key!r} to {new_key!r}")
+        _repair_source_class_and_treatment(source, repairs, where)
         if not str(source.get("id") or "").strip():
             source["id"] = f"S{index + 1}"
             repairs.append(f"{where}.id: assigned S{index + 1}")
@@ -802,16 +1099,27 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                     f"{location}: Why it matters must name the fact, failure "
                     "mode, and economic consequence"
                 )
+            # "pric" covers price/pricing; discount, fee, billing, profit,
+            # burn and churn are the vocabulary of services and SaaS risks —
+            # "15-25% productivity discounts on time-and-materials
+            # contracts" is an economic consequence, and a live run failed
+            # three retries and a repair pass on exactly that sentence.
             if not re.search(
-                r"\b(?:revenue|margin|cash|valuation|price|return|dilut|"
+                r"\b(?:revenue|margin|cash|valuation|pric|return|dilut|"
                 r"capital|exit|control|loss|multiple|growth|financ|cost|"
-                r"conversion)\w*\b",
+                r"conversion|discount|fee|billing|profit|burn|churn)\w*\b",
                 why_text,
                 re.IGNORECASE,
             ):
+                # The message is fed back to the retry and to the repair
+                # pass, so it has to say what would satisfy it: a model that
+                # believes it stated a consequence cannot act on a bare
+                # "must state one".
                 errors.append(
                     f"{location}: Why it matters must state an economic "
-                    "consequence"
+                    "consequence — name the effect with a financial term "
+                    "(revenue, margin, cost, cash, pricing, valuation, "
+                    "dilution or exit value), not only the operational cause"
                 )
         watch_row = row_texts[row_index["what we watch"]]
         if watch_row and watch_row[0].lower().startswith("what we watch"):
@@ -1534,8 +1842,48 @@ def render_memos(
     }
 
 
+def pin_section_titles(package: dict, structure) -> list[str]:
+    """Replace a core section's heading with the canonical title when the
+    parity gate would not recognise it. Returns one note per change.
+
+    The package's own heading normally wins, so a model that writes
+    "公司概况与公司治理" where the profile says "公司概览" ships that heading —
+    and the Chinese parity gate, which finds sections by full-line anchored
+    patterns, then reports the section missing although every paragraph of
+    it is there. A live Gemini run produced four such false "missing" P0s.
+    Only headings the gate would reject are replaced: a recognised variant
+    such as "II. Company Overview" keeps its numbering.
+    """
+    titles = structure.section_titles()
+    patterns = structure.parity_patterns()
+    notes: list[str] = []
+    for section in package.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or "")
+        if section_id not in titles or section_id not in patterns:
+            continue
+        for locale in ("en", "zh"):
+            canonical = _loc(titles[section_id], locale)
+            pattern = patterns[section_id].get(locale)
+            if not canonical or pattern is None:
+                continue
+            own = _loc(section.get("title"), locale)
+            if own and pattern.match(own):
+                continue
+            title = section.get("title")
+            if not isinstance(title, dict):
+                title = {"en": own, "zh": own} if own else {}
+            title[locale] = canonical
+            section["title"] = title
+            notes.append(f"{section_id}.title.{locale}: {own!r} -> {canonical!r}")
+    return notes
+
+
 def _build_document(package: dict, locale: str) -> Document:
-    section_titles = _structure_for(package).section_titles()
+    structure = _structure_for(package)
+    pin_section_titles(package, structure)
+    section_titles = structure.section_titles()
     document = Document()
     _configure_document(document, package, locale)
     _add_cover(document, package, locale)

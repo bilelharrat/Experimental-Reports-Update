@@ -194,6 +194,25 @@ def _no_real_claude_cli(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_gemini_key(request, monkeypatch):
+    """Fail closed on real Gemini API calls, the sibling of the Claude guard.
+
+    Importing ``server.main`` anywhere in the session ``load_dotenv()``s the
+    project .env into ``os.environ`` for every test that follows, so a
+    developer's real GEMINI_API_KEY leaks in and any unstubbed call would
+    reach the live API and spend money — and, worse, tests would pass or
+    fail depending on whether some earlier test happened to import the app.
+    Clearing the keys makes ``gemini_runner.is_available()`` False by
+    default; tests that want a key set one themselves (their patch runs
+    after this one and wins).
+    """
+    if request.node.get_closest_marker("e2e"):
+        return
+    for name in ("GEMINI_API_KEY", "BSH_GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _neutral_structure_flag(monkeypatch):
     """Tests must not inherit the developer's .env: importing server.main
     anywhere in the session load_dotenv()s the project .env into

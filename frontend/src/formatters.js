@@ -111,6 +111,30 @@ const STATUS_LABELS_ZH = {
   waived: "已豁免",
 };
 
+// Web twin of MacTimeFormat.relative: abbreviated relative stamps ("2 hr. ago").
+export function formatRelativeTime(value, fallback = "") {
+  if (!value) return fallback;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { style: "short", numeric: "auto" });
+  const steps = [
+    [60, "second"],
+    [60, "minute"],
+    [24, "hour"],
+    [7, "day"],
+    [4.348, "week"],
+    [12, "month"],
+    [Infinity, "year"],
+  ];
+  let amount = seconds;
+  for (const [size, unit] of steps) {
+    if (Math.abs(amount) < size) return rtf.format(Math.round(amount), unit);
+    amount /= size;
+  }
+  return rtf.format(Math.round(amount), "year");
+}
+
 export function isTerminalReportStatus(status) {
   const s = String(status || "");
   return (

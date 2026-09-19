@@ -35,50 +35,9 @@ struct ReportSummary: Decodable, Identifiable, Hashable {
     let downloadUrls: [String: String]?
     let previewUrls: [String: String]?
     let resumeAvailable: Bool?
+
     let logoUrl: String?
     let logoDomain: String?
-
-    init(
-        id: String,
-        companyId: String? = nil,
-        companyName: String? = nil,
-        reportType: String? = nil,
-        audience: String? = nil,
-        language: String? = nil,
-        status: String? = nil,
-        progress: Int? = nil,
-        stage: String? = nil,
-        error: String? = nil,
-        kind: String? = nil,
-        createdAt: String? = nil,
-        updatedAt: String? = nil,
-        streamUrl: String? = nil,
-        downloadUrls: [String: String]? = nil,
-        previewUrls: [String: String]? = nil,
-        resumeAvailable: Bool? = nil,
-        logoUrl: String? = nil,
-        logoDomain: String? = nil
-    ) {
-        self.id = id
-        self.companyId = companyId
-        self.companyName = companyName
-        self.reportType = reportType
-        self.audience = audience
-        self.language = language
-        self.status = status
-        self.progress = progress
-        self.stage = stage
-        self.error = error
-        self.kind = kind
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.streamUrl = streamUrl
-        self.downloadUrls = downloadUrls
-        self.previewUrls = previewUrls
-        self.resumeAvailable = resumeAvailable
-        self.logoUrl = logoUrl
-        self.logoDomain = logoDomain
-    }
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind

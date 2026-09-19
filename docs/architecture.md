@@ -129,6 +129,136 @@ other AI-driven surfaces exist and are deliberately independent of both:
   sessions with document staging, under `data/consoles/`.
 - **Deep search** (`server/companies_ai.py`) — company search via the
   Claude CLI with WebSearch; cached per query in `data/cache/`.
+- **Team dossier** (`server/founder_dossier.py`) — the Research Desk Team
+  tab. Two layers: a record layer that reshapes people already on the
+  company record, and a research layer (the Refresh button) that runs a
+  web-grounded pass and fills in the blanks. Cached under
+  `data/founder_dossiers/`; reads replay the cache and never call a model.
+- **Company news sweep** (`server/company_news_research.py`) — the refresh
+  behind the company news feed. Appends genuinely new rows to the record's
+  `recent_news`, which `context_store.company_news` already assembles.
+
+## The second engine: Gemini Flash
+
+Most AI surfaces shell out to the `claude` CLI (`server/claude_runner.py`),
+which spends the user's Claude Code subscription. Three surfaces do not:
+
+| Surface | Module | Why Gemini |
+|---|---|---|
+| Team dossier refresh | `founder_dossier.py` | Web-grounded, needs machine-readable source URLs |
+| Morning Brief written note | `market_brief.py` | Short, frequent, no tools needed |
+| Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
+| Story briefings | `news_brief.py` | Highest-frequency call in the app; no tools needed |
+| Memos and reports | `memo_engine.py` | Opt-in per run only — see below |
+
+`server/gemini_runner.py` is the backend — the Gemini `generateContent`
+REST API over `httpx`, no new dependency. It mirrors
+`claude_runner.run_structured_prompt`'s `(data, error)` contract, and adds
+`run_grounded_json` for Google Search-grounded calls that return the
+sources the model read.
+
+Two things about the Gemini API that are not guessable and cost real time
+to rediscover, both measured against the live API:
+
+1. **A grounded call must not set `responseSchema`.** Combining it with the
+   `google_search` tool makes the response come back with an *empty*
+   `groundingMetadata` — no chunks, no queries — so every source URL is lost
+   and a researched answer is indistinguishable from unsourced recall.
+   `run_grounded_json` therefore puts the schema in the prompt instead.
+2. **A grounded call is two calls, and must stay that way.** Whether the
+   model calls `google_search` is its own decision, and asking for a search
+   and schema JSON in one request measured only 2 grounded responses in 5:
+   a long schema-carrying prompt reads as a formatting task, so it answers
+   from memory. Retrying does not help (resampling three times measured the
+   same 2/5 — the decision is sticky per prompt, not random per call), but
+   removing the schema does. `run_grounded_json` therefore researches in
+   prose with the search tool and no schema, then converts those notes to
+   the schema in a second ungrounded, tool-less call. That took the weekly
+   scan and the founder dossier from 0/1 and 2/5 to 3/3 each.
+
+   `BSH_GEMINI_GROUNDED_THINKING` (default `medium`) still matters for the
+   research step; `low` and `high` both ground far less often.
+
+   `meta["grounded"]` reports whether any search actually ran. Callers must
+   keep honouring it — `founder_dossier` keys `is_deep_audited` off the
+   source list, and `weekly_stocks` treats an ungrounded scan as a failed
+   one, because "this week's movers" answered from memory is stale data
+   wearing this week's confidence.
+
+`response_schema` also takes an OpenAPI-flavored subset of JSON Schema and
+400s on keywords outside it (`additionalProperties`, which our Claude-era
+schemas all carry), so `gemini_runner` strips those before sending.
+
+### Memos are the exception
+
+The memo pipeline does not use `ai_engine`. Every stage — the parallel
+analysis passes, the English spine, the bilingual package, every repair
+pass — funnels through `claude_runner._run_memo_local_json_artifact`, which
+spawns a Claude CLI subprocess with `--add-dir` and `Read,Bash,Grep,Glob`:
+the prompts hand the agent a *listing* of the company research folder and
+expect it to open those files itself.
+
+`server/memo_engine.py` adds a per-run toggle at that one funnel, so a
+Gemini memo runs the same stage graph, prompts, schemas, retries, repair
+passes, validation and DOCX renderer as a Claude one. Only two things
+differ, and both are consequences of Gemini having no filesystem:
+
+- Research is extracted to text and inlined into the prompt, ordered
+  digests-first, with every truncation and omission named in the text so a
+  shortened source is never read as a complete one.
+- A scanned PDF with no text layer contributes nothing, where a Claude
+  agent could still have described the pages it read.
+
+One thing is added, for the mirror-image reason: Gemini writes shorter
+than Claude on identical prompts (the ZaiNar wave came back at 7,695
+English words against the 12,202 and 12,212 of the benchmarked Claude
+runs). The late-stage editorial prompts under `skills/memo/` carry no word
+targets — Claude never needed one — so the target lives on the engine that
+does. `memo_engine` tells each Gemini section worker the length its Claude
+twin writes (the Round-2 reference split across the sections;
+`BSH_MEMO_GEMINI_WORDS` moves the total, 0 disables it), and a
+deterministic gate after the section wave sends any section outside its
+band back to its worker with the draft to revise, three rounds at most. The
+gate works in both directions, because Gemini misses the length either
+way: under the contract the first live run came back a quarter over
+(13,958 English words), and a renderer-validation retry inflated the same
+sections to 18,084. A revision is kept only when it lands closer to the
+band than the draft it replaces.
+
+The monolithic pass is not a fallback on Gemini, for the same reason: one
+response cannot carry the memo, so degrading to it would deliver a memo a
+quarter the length without saying so. A Gemini spine or section that fails
+draws a second sample — nearly always sampling noise, a dropped or doubled
+bracket in 26KB of JSON, which `gemini_runner` also repairs from the
+decoder's own position — and if that fails too the run stops and says why.
+Claude keeps its single attempt and its fallback, where the monolithic
+pass carries the full memo.
+
+The spine and section handoffs — the model writing its parts to files on
+disk and returning a receipt — are off for the same reason: a Gemini run
+keeps the inline contracts, and the compact Chinese method, whatever the
+operator's flags say for Claude. Claude prompts are byte-identical to before; profiles that carry
+their own ranges (growth, early, late v2) are read as written, and the
+compact profile's ceilings are left alone.
+
+The engine is pinned per run (like the quality tier) *and* stored on the
+report record, so a resume or repair pass after a restart uses the engine
+the memo was started with rather than the current default. Claude stays the
+default: a memo is the most expensive and most scrutinised artifact here,
+so moving one to another model is an explicit per-run choice, never
+something an env default does quietly.
+
+`server/ai_engine.py` owns the policy (`BSH_AI_ENGINE`) for the other
+surfaces, and this is the
+part to keep enforcing: **the fallback is never silent.** Every call
+returns a `meta` dict naming the engine that produced the answer and why
+Gemini was skipped, and each call site persists it — `note.engine` on the
+desk note, `sweep.engine` on the news feed, `engine` on the dossier. A
+Claude-fallback dossier also may not set `is_deep_audited`, because the CLI
+path returns no machine-readable sources to evidence the audit with. A
+change that drops that provenance is a defect: it turns a degraded answer
+into one that looks normal.
+
 
 "Serena" names the research-analyst persona whose memo/research flows the
 Investment Memo feature implements; `serena_analysis.py` holds her
