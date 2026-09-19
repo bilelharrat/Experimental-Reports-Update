@@ -10,7 +10,6 @@ import {
   Gauge,
   Home,
   LogOut,
-  Newspaper,
   PanelLeft,
   PanelLeftClose,
   Search,
@@ -26,7 +25,6 @@ import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
 import Monogram from "./Monogram.vue";
-import PulseECGIcon from "./PulseECGIcon.vue";
 
 import {
   companySort,
@@ -93,9 +91,10 @@ const trackedCount = computed(
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
   { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
-  { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
-  { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
-  { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
+  // Market, Pulse and News are three tabs of one desk now, so they are one
+  // row. The tab travels in the query, which keeps this row highlighted
+  // whichever of the three is open.
+  { id: "markets", to: { name: "markets" }, label: t("sidebar.markets"), icon: MarketIcon },
   { id: "reports", to: { name: "reports" }, label: t("sidebar.reports"), icon: FileText },
   {
     id: "tracking",

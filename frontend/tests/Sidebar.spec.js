@@ -83,15 +83,15 @@ describe("Sidebar", () => {
     expect(text).toContain("NVIDIA");
     expect(text).toContain("Zeta Labs");
     expect(text).toContain("Home");
-    expect(text).toContain("Market");
-    expect(text).toContain("Pulse");
-    expect(text).toContain("News");
+    // Market, Pulse and News became three tabs of one desk, so the nav
+    // carries a single Markets row rather than three rows for one idea.
+    expect(text).toContain("Markets");
+    expect(text).not.toContain("Pulse");
+    expect(text).not.toContain("News");
     expect(text).toContain("Reports");
     expect(text).toContain("Tracking");
-    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Market"));
-    expect(text.indexOf("Market")).toBeLessThan(text.indexOf("Pulse"));
-    expect(text.indexOf("Pulse")).toBeLessThan(text.indexOf("News"));
-    expect(text.indexOf("News")).toBeLessThan(text.indexOf("Reports"));
+    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Markets"));
+    expect(text.indexOf("Markets")).toBeLessThan(text.indexOf("Reports"));
     expect(text.indexOf("Reports")).toBeLessThan(text.indexOf("Tracking"));
     expect(text).not.toContain("Portfolio");
     expect(text).not.toContain("Top Players");
@@ -159,7 +159,7 @@ describe("Sidebar", () => {
 
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("false");
     expect(wrapper.text()).toContain("Acme Inc.");
-    expect(wrapper.text()).toContain("Pulse");
+    expect(wrapper.text()).toContain("Markets");
   });
 
   it("shows the account in the footer with Settings and Sign out behind it", async () => {
