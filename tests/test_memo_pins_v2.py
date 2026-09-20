@@ -926,3 +926,56 @@ def test_the_spine_is_told_to_rank_on_points():
     assert "contribute the most POINTS" in rule
     assert "60%" in rule
     assert "largest first" in rule
+
+
+def test_a_pinned_sentence_may_not_use_a_phrase_the_voice_gate_bans():
+    """Every pin here is echoed word for word by the sections the echo
+    gate checks, so a banned phrase inside one is a P0 no section is
+    allowed to fix. Live on 2026-09-20 the Glean spine pinned "...and BSH
+    should move when a new priced round sets a real entry price"; three
+    package attempts and three surgical repairs failed to clear it, and
+    the memo shipped with three copies of the same finding.
+
+    One cheap spine retry here replaces all of that.
+    """
+    facts = _good_shared_facts()
+    facts["recommendation_sentence"] = (
+        "Recommendation: watch Glean — the growth is top-decile but the "
+        "only priced mark is the June 2025 Series F at $7.2B, and BSH "
+        "should move when a new priced round sets a real entry price."
+    )
+    problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+    assert any(
+        "recommendation_sentence" in p and "BSH should" in p for p in problems
+    ), problems
+
+    # The rewrite the voice contract now spells out passes.
+    facts["recommendation_sentence"] = (
+        "Recommendation: watch Glean — the growth is top-decile but the "
+        "only priced mark is the June 2025 Series F at $7.2B, and BSH "
+        "moves when a new priced round sets a real entry price."
+    )
+    assert memo_pin_check.check_spine_pins_v2(facts, V2) == []
+
+
+def test_the_voice_check_covers_every_verbatim_pin():
+    """Not just the recommendation: highlights, risk summaries and risk
+    impacts are echoed verbatim too, and are just as unfixable."""
+    for path, setter in (
+        (
+            "highlights[0].headline",
+            lambda f: f["highlights"][0].__setitem__(
+                "headline", "BSH should back this category leader."
+            ),
+        ),
+        (
+            "risks[0].summary",
+            lambda f: f["risks"][0].__setitem__(
+                "summary", "The memo treats concentration as the main risk."
+            ),
+        ),
+    ):
+        facts = _good_shared_facts()
+        setter(facts)
+        problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+        assert any(path in p for p in problems), (path, problems)

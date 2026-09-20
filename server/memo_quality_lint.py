@@ -544,6 +544,34 @@ def render_markdown_report(result: MemoLintResult) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def banned_body_voice_phrase(text: str) -> str | None:
+    """The first body-voice phrase this gate will reject, or None.
+
+    The same patterns `_lint_blocks` applies to body prose, exposed so a
+    gate that runs EARLIER can ask the same question. A pin that fails
+    here cannot be repaired later: the echo gate requires the pinned
+    sentence verbatim in every place it appears, so a banned phrase
+    inside one is a P0 the sections are forbidden to fix. Live on
+    2026-09-20 the Glean spine pinned "...and BSH should move when..."
+    and the memo shipped with three copies of it, after three package
+    attempts and three surgical repairs that never had a legal move.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    for pattern in _SELL_SIDE_BANNED_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group(0)
+    if not any(
+        pattern.search(text) for pattern in _DISCLOSURE_LANGUAGE_PATTERNS
+    ):
+        for pattern in _META_LANGUAGE_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                return match.group(0)
+    return None
+
+
 def _extract_docx_blocks(
     path: Path,
     structure: memo_structure.MemoStructure | None = None,
