@@ -29,8 +29,26 @@ from .storage import DATA_DIR
 
 USERS_FILE = DATA_DIR / "users.json"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
+RESETS_FILE = DATA_DIR / "password_resets.json"
 
 SESSION_TTL = timedelta(days=30)
+# A reset link is carried to the person by hand (an admin copies it), so it
+# has to outlive a working day rather than the few minutes an emailed link
+# would get.
+RESET_TTL = timedelta(hours=24)
+
+# An account exists before it may be used. Registration opens one as
+# ``pending``: it can hold a password and be signed into nothing. An admin
+# moves it to ``active`` and assigns the role at the same moment, because
+# a role inferred from the email domain is exactly what open registration
+# would let a stranger choose for themselves.
+STATUS_PENDING = "pending"
+STATUS_ACTIVE = "active"
+STATUS_DISABLED = "disabled"
+STATUSES = (STATUS_PENDING, STATUS_ACTIVE, STATUS_DISABLED)
+
+# Long enough to be worth the 200k-iteration KDF behind it.
+MIN_PASSWORD_LENGTH = 12
 PBKDF2_ITERATIONS = 200_000
 PBKDF2_ALGO = "sha256"
 
@@ -164,11 +182,161 @@ def bootstrap_seed_users() -> None:
                 "password": _hash_password(password),
                 "created_at": _iso(_now()),
                 "must_reset": True,
+                "status": STATUS_ACTIVE,
             }
             changed = True
         if changed:
             payload["version"] = payload.get("version", 1)
             _save_users(payload)
+
+
+def _migrate_users(users: dict) -> bool:
+    """Give pre-status records a status. They predate registration, so they
+    are the accounts an operator seeded deliberately: active, and with no
+    stored role, which leaves them on the email-domain mapping they were
+    built around. Returns True if anything changed."""
+    changed = False
+    for record in users.values():
+        if isinstance(record, dict) and not record.get("status"):
+            record["status"] = STATUS_ACTIVE
+            changed = True
+    return changed
+
+
+def password_policy_error(password: str, email: str | None = None) -> str | None:
+    """Why this password is unacceptable, or None. Deliberately short: a
+    length floor and the two substitutions people actually reach for."""
+    candidate = password or ""
+    if len(candidate) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if len(set(candidate)) < 4:
+        return "Password must use more than a few distinct characters."
+    local = _normalize_email(email).split("@")[0]
+    if local and len(local) >= 3 and local in candidate.lower():
+        return "Password must not contain your email address."
+    return None
+
+
+def account(email: str | None) -> dict | None:
+    """The account's public view — never the password material."""
+    key = _normalize_email(email)
+    if not key:
+        return None
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        if _migrate_users(users):
+            _save_users(payload)
+        record = users.get(key)
+        if record is None:
+            return None
+        return _public_account(record)
+
+
+def _public_account(record: dict) -> dict:
+    return {
+        "email": record.get("email"),
+        "status": record.get("status") or STATUS_ACTIVE,
+        "role": record.get("role"),
+        "created_at": record.get("created_at"),
+        "approved_at": record.get("approved_at"),
+        "approved_by": record.get("approved_by"),
+        "must_reset": bool(record.get("must_reset")),
+        "reset_requested_at": record.get("reset_requested_at"),
+        "last_login_at": record.get("last_login_at"),
+    }
+
+
+def list_accounts() -> list[dict]:
+    """Every account, pending first, then by email."""
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        if _migrate_users(users):
+            _save_users(payload)
+        rows = [_public_account(r) for r in users.values() if isinstance(r, dict)]
+    order = {STATUS_PENDING: 0, STATUS_ACTIVE: 1, STATUS_DISABLED: 2}
+    return sorted(rows, key=lambda r: (order.get(r["status"], 3), r["email"] or ""))
+
+
+def stored_role(email: str | None) -> str | None:
+    """The role recorded on the account, or None when it has none and the
+    caller should fall back to the email mapping."""
+    record = account(email)
+    return (record or {}).get("role") or None
+
+
+def register(email: str, password: str) -> str:
+    """Open a pending account. Returns "created", "exists", or "invalid".
+
+    The caller must answer identically for "created" and "exists": telling
+    a stranger which addresses are already registered is the one thing an
+    open registration form must not do.
+    """
+    key = _normalize_email(email)
+    if not key or "@" not in key:
+        return "invalid"
+    if password_policy_error(password, key):
+        return "invalid"
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        _migrate_users(users)
+        if key in users:
+            return "exists"
+        users[key] = {
+            "email": key,
+            "password": _hash_password(password),
+            "created_at": _iso(_now()),
+            "status": STATUS_PENDING,
+        }
+        _save_users(payload)
+    return "created"
+
+
+def set_account_status(
+    email: str,
+    status: str,
+    *,
+    role: str | None = None,
+    by: str | None = None,
+) -> bool:
+    """Move an account between pending/active/disabled, assigning its role
+    on the way in. Disabling also drops the account's sessions, so access
+    ends at the click rather than whenever the token expires."""
+    key = _normalize_email(email)
+    if status not in STATUSES:
+        return False
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        _migrate_users(users)
+        record = users.get(key)
+        if record is None:
+            return False
+        record["status"] = status
+        if role:
+            record["role"] = role
+        if status == STATUS_ACTIVE:
+            record["approved_at"] = _iso(_now())
+            if by:
+                record["approved_by"] = _normalize_email(by)
+        _save_users(payload)
+    if status != STATUS_ACTIVE:
+        revoke_sessions_for(key)
+    return True
+
+
+def note_login(email: str) -> None:
+    key = _normalize_email(email)
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        record = users.get(key)
+        if record is None:
+            return
+        record["last_login_at"] = _iso(_now())
+        _save_users(payload)
 
 
 def must_reset(email: str | None) -> bool:
@@ -201,7 +369,9 @@ def verify_credentials(email: str, password: str) -> str | None:
     return key
 
 
-def set_password(email: str, new_password: str) -> bool:
+def set_password(
+    email: str, new_password: str, *, keep_token: str | None = None
+) -> bool:
     """Replace the password for an existing user. Returns True on success,
     False if the user doesn't exist. Wire into a future change-password
     endpoint.
@@ -215,7 +385,12 @@ def set_password(email: str, new_password: str) -> bool:
         users[key]["password"] = _hash_password(new_password)
         users[key]["password_changed_at"] = _iso(_now())
         users[key].pop("must_reset", None)
+        users[key].pop("reset_requested_at", None)
         _save_users(payload)
+    # A password change is how someone responds to a session they don't
+    # recognise, so it has to end the others.
+    revoke_sessions_for(key, keep_token=keep_token)
+    _drop_resets_for(key)
     return True
 
 
@@ -441,3 +616,166 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(_main())
+
+
+def sessions_for(email: str | None, *, current_token: str | None = None) -> list[dict]:
+    """Every live session for one account, newest first, each marked if it
+    is the one asking. Tokens never leave the store, so a row is identified
+    by the hash the store already keeps."""
+    key = _normalize_email(email)
+    current_hash = _token_hash(current_token) if current_token else None
+    with _LOCK:
+        payload = _load_sessions()
+        sessions = payload.setdefault("sessions", {})
+        if _purge_expired(sessions):
+            _save_sessions(payload)
+        rows = [
+            {
+                "id": h[:16],
+                "created_at": row.get("created_at"),
+                "expires_at": row.get("expires_at"),
+                "current": h == current_hash,
+            }
+            for h, row in sessions.items()
+            if row.get("email") == key
+        ]
+    return sorted(rows, key=lambda r: r.get("created_at") or "", reverse=True)
+
+
+def revoke_sessions_for(
+    email: str | None,
+    *,
+    keep_token: str | None = None,
+    session_id: str | None = None,
+) -> int:
+    """Drop this account's sessions and return how many went. ``keep_token``
+    spares the caller's own; ``session_id`` narrows it to one row."""
+    key = _normalize_email(email)
+    keep_hash = _token_hash(keep_token) if keep_token else None
+    with _LOCK:
+        payload = _load_sessions()
+        sessions = payload.setdefault("sessions", {})
+        doomed = [
+            h
+            for h, row in sessions.items()
+            if row.get("email") == key
+            and h != keep_hash
+            and (session_id is None or h[:16] == session_id)
+        ]
+        for h in doomed:
+            sessions.pop(h, None)
+        if doomed:
+            _save_sessions(payload)
+    return len(doomed)
+
+
+# ---- Password resets ----------------------------------------------------
+#
+# There is no mail path in this deployment, so a reset is a two-step the
+# operator drives: the person asks from the sign-in page, which only flags
+# the account, and an admin mints a single-use link and carries it over.
+# Only the hash of the link's token is stored, exactly as for sessions.
+
+
+def _load_resets() -> dict:
+    return _read_json(RESETS_FILE, {"version": 1, "resets": {}})
+
+
+def _save_resets(payload: dict) -> None:
+    _write_json(RESETS_FILE, payload)
+
+
+def _purge_expired_resets(resets: dict) -> bool:
+    now = _now()
+    dead = []
+    for h, row in resets.items():
+        try:
+            if datetime.fromisoformat(row.get("expires_at") or "") <= now:
+                dead.append(h)
+        except ValueError:
+            dead.append(h)
+    for h in dead:
+        resets.pop(h, None)
+    return bool(dead)
+
+
+def _drop_resets_for(email: str) -> None:
+    key = _normalize_email(email)
+    with _LOCK:
+        payload = _load_resets()
+        resets = payload.setdefault("resets", {})
+        dead = [h for h, row in resets.items() if row.get("email") == key]
+        for h in dead:
+            resets.pop(h, None)
+        if dead:
+            _save_resets(payload)
+
+
+def request_password_reset(email: str | None) -> bool:
+    """Flag the account so an admin sees the request. Returns whether a
+    record was flagged — which the HTTP layer must NOT pass on, or the
+    form becomes a way to test which addresses exist."""
+    key = _normalize_email(email)
+    if not key:
+        return False
+    with _LOCK:
+        payload = _load_users()
+        users = payload.setdefault("users", {})
+        record = users.get(key)
+        if record is None:
+            return False
+        record["reset_requested_at"] = _iso(_now())
+        _save_users(payload)
+    return True
+
+
+def mint_reset_token(email: str, *, ttl: timedelta = RESET_TTL) -> str | None:
+    """A single-use reset token for ``email``. Returned once, in the clear,
+    to the admin who will carry it; the store keeps only its hash. Any
+    earlier token for the account stops working."""
+    key = _normalize_email(email)
+    if account(key) is None:
+        return None
+    _drop_resets_for(key)
+    raw_token = secrets.token_urlsafe(32)
+    with _LOCK:
+        payload = _load_resets()
+        resets = payload.setdefault("resets", {})
+        _purge_expired_resets(resets)
+        resets[_token_hash(raw_token)] = {
+            "email": key,
+            "created_at": _iso(_now()),
+            "expires_at": _iso(_now() + ttl),
+        }
+        _save_resets(payload)
+    return raw_token
+
+
+def peek_reset_token(raw_token: str | None) -> str | None:
+    """The email a live reset token belongs to, without spending it."""
+    if not raw_token:
+        return None
+    with _LOCK:
+        payload = _load_resets()
+        resets = payload.setdefault("resets", {})
+        if _purge_expired_resets(resets):
+            _save_resets(payload)
+        row = resets.get(_token_hash(raw_token))
+    return row.get("email") if row else None
+
+
+def consume_reset_token(raw_token: str, new_password: str) -> str | None:
+    """Spend the token and set the password. Returns the email on success.
+
+    Every session for the account ends here: a reset is what someone does
+    when they believe another person has the old password.
+    """
+    email = peek_reset_token(raw_token)
+    if email is None:
+        return None
+    if password_policy_error(new_password, email):
+        return None
+    if not set_password(email, new_password):
+        return None
+    _drop_resets_for(email)
+    return email

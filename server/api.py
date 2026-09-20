@@ -377,6 +377,27 @@ def _enforce_cookie_csrf(request: Request) -> None:
     )
 
 
+def _require_active_account(email: str | None) -> None:
+    """A live token is not enough: the account behind it must still be
+    active. Checked on every request so approving, disabling or deleting
+    an account takes effect at once rather than whenever its 30-day
+    sessions happen to expire."""
+    record = auth_store.account(email)
+    if record is None:
+        # Seeded before the account store grew statuses, or removed while
+        # signed in. verify_credentials already gates the former.
+        return
+    status = record.get("status")
+    if status == auth_store.STATUS_ACTIVE:
+        return
+    detail = (
+        "This account is waiting for an administrator to approve it."
+        if status == auth_store.STATUS_PENDING
+        else "This account has been disabled."
+    )
+    raise HTTPException(status_code=403, detail=detail)
+
+
 def require_api_token(request: Request) -> None:
     """FastAPI dependency: enforce auth on /api/* routes.
 
@@ -410,6 +431,7 @@ def require_api_token(request: Request) -> None:
     # Path 2: session token in the Authorization header (web fetch, iOS).
     session = auth_store.validate_token(presented) if presented else None
     if session:
+        _require_active_account(session.get("email"))
         request.state.session_email = session.get("email")
         return
 
@@ -417,6 +439,7 @@ def require_api_token(request: Request) -> None:
     if cookie_token:
         session = auth_store.validate_token(cookie_token)
         if session:
+            _require_active_account(session.get("email"))
             request.state.session_email = session.get("email")
             _enforce_cookie_csrf(request)
             return
@@ -467,6 +490,26 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, description="New password (min 8 chars)")
 
 
+class RegisterRequest(BaseModel):
+    email: str = Field(..., description="Account email address")
+    password: str = Field(..., description="Chosen password")
+
+
+class ResetRequestBody(BaseModel):
+    email: str = Field(..., description="Account email address")
+
+
+class ResetConsumeRequest(BaseModel):
+    token: str = Field(..., description="Single-use token from the reset link")
+    new_password: str = Field(..., description="New password")
+
+
+class AccountDecisionRequest(BaseModel):
+    role: str | None = Field(
+        None, description="Role to assign when approving; required to approve"
+    )
+
+
 # --- Login rate limiting -------------------------------------------------
 # In-memory sliding window keyed on normalized email. Blunts credential
 # stuffing / brute force without a datastore. Per-process (fine for the
@@ -479,6 +522,34 @@ _login_lock = threading.Lock()
 
 def _login_key(email: str) -> str:
     return (email or "").strip().lower()
+
+
+# The login limiter is keyed on email, which is right for credential
+# stuffing against one account but useless against a spray across many, and
+# against a registration form there is no account to key on at all. These
+# two are keyed on the caller instead.
+_IP_MAX_ATTEMPTS = 10
+_IP_WINDOW_SECONDS = 15 * 60
+_ip_attempts: dict[str, list[float]] = {}
+
+
+def _client_key(request: Request) -> str:
+    return (request.client.host if request.client else "") or "unknown"
+
+
+def _rate_limit_ip(request: Request, bucket: str) -> None:
+    """Raise 429 when one caller has hammered an open form."""
+    key = f"{bucket}:{_client_key(request)}"
+    now = time.time()
+    with _login_lock:
+        hits = [t for t in _ip_attempts.get(key, []) if now - t < _IP_WINDOW_SECONDS]
+        hits.append(now)
+        _ip_attempts[key] = hits
+        if len(hits) > _IP_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Try again later.",
+            )
 
 
 def _rate_limit_login(email: str) -> None:
@@ -570,13 +641,206 @@ def login(request: Request, response: Response, payload: LoginRequest) -> LoginR
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
     _reset_login_failures(payload.email)
+    # The password was right; the account still has to be one that may be
+    # used. Checked after the password so this never becomes a way to ask
+    # whether an address is registered.
+    _require_active_account(email)
     session = auth_store.issue_session(email)
     _set_session_cookie(request, response, session["token"])
+    auth_store.note_login(email)
     logger.info("Login accepted email=%s expires_at=%s", email, session["expires_at"])
     return LoginResponse(
         **session,
         must_reset=auth_store.must_reset(email),
     )
+
+
+@auth_router.post("/register", status_code=202)
+def register(request: Request, payload: RegisterRequest) -> dict:
+    """Open an account. It exists immediately and can do nothing until an
+    administrator approves it and assigns a role.
+
+    The answer is the same whether the address was free or already taken.
+    An open form that says "already registered" is a way to discover who
+    holds an account here, so the only failure it reports is a password
+    that breaks the policy — which says nothing about the address.
+    """
+    _rate_limit_ip(request, "register")
+    problem = auth_store.password_policy_error(payload.password, payload.email)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    email = (payload.email or "").strip()
+    if "@" not in email or len(email) < 3:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    outcome = auth_store.register(email, payload.password)
+    if outcome == "created":
+        logger.info("Registration received email=%s (pending approval)", email.lower())
+    return {
+        "status": "pending",
+        "detail": (
+            "Your request has been received. An administrator will review it "
+            "before the account can be used."
+        ),
+    }
+
+
+@auth_router.post("/reset/request", status_code=202)
+def request_password_reset(request: Request, payload: ResetRequestBody) -> dict:
+    """Ask an admin for a reset link. Nothing is sent from here — there is
+    no mail path — so this only flags the account for the admin screen.
+    Answers identically for an address that exists and one that does not."""
+    _rate_limit_ip(request, "reset")
+    auth_store.request_password_reset(payload.email)
+    return {
+        "status": "requested",
+        "detail": (
+            "If that address has an account, an administrator has been asked "
+            "to send a reset link."
+        ),
+    }
+
+
+@auth_router.get("/reset/check")
+def check_reset_token(token: str) -> dict:
+    """Whether a reset link is still good, so the page can say so before
+    the person types a new password twice."""
+    email = auth_store.peek_reset_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=404, detail="This reset link is invalid or has expired."
+        )
+    return {"email": email}
+
+
+@auth_router.post("/reset/consume", response_model=LoginResponse)
+def consume_password_reset(
+    request: Request, response: Response, payload: ResetConsumeRequest
+) -> LoginResponse:
+    """Spend a reset link, set the password, and sign the person in.
+
+    Every other session for the account ends here (``auth_store``), because
+    a reset is what someone does when they think another person has the
+    old password.
+    """
+    _rate_limit_ip(request, "reset")
+    problem = auth_store.password_policy_error(payload.new_password)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    email = auth_store.consume_reset_token(payload.token, payload.new_password)
+    if not email:
+        raise HTTPException(
+            status_code=404, detail="This reset link is invalid or has expired."
+        )
+    _require_active_account(email)
+    session = auth_store.issue_session(email)
+    _set_session_cookie(request, response, session["token"])
+    auth_store.note_login(email)
+    logger.info("Password reset completed email=%s", email)
+    return LoginResponse(**session, must_reset=False)
+
+
+# --- Account administration ----------------------------------------------
+
+
+@router.get("/auth/accounts")
+def list_accounts(request: Request) -> dict:
+    """Every account and its status, for the admin screen."""
+    _require_permission(request, "users:manage")
+    return {
+        "accounts": auth_store.list_accounts(),
+        "roles": sorted(product_store.ROLE_PERMISSIONS),
+    }
+
+
+@router.post("/auth/accounts/{email}/approve")
+def approve_account(
+    request: Request, email: str, payload: AccountDecisionRequest
+) -> dict:
+    """Let a pending account in, with the role the admin picks.
+
+    The role is required rather than inferred. Registration is open, so the
+    email domain is the applicant's choice, and inferring from it would let
+    someone pick their own permissions by choosing an address.
+    """
+    _require_permission(request, "users:manage")
+    role = (payload.role or "").strip()
+    if role not in product_store.ROLE_PERMISSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Choose a role: {', '.join(sorted(product_store.ROLE_PERMISSIONS))}",
+        )
+    if not auth_store.set_account_status(
+        email, auth_store.STATUS_ACTIVE, role=role, by=_caller_email(request)
+    ):
+        raise HTTPException(status_code=404, detail="No such account")
+    logger.info(
+        "Account approved email=%s role=%s by=%s", email, role, _caller_email(request)
+    )
+    return {"account": auth_store.account(email)}
+
+
+@router.post("/auth/accounts/{email}/disable")
+def disable_account(request: Request, email: str) -> dict:
+    """Turn an account off. Its sessions end immediately."""
+    _require_permission(request, "users:manage")
+    if auth_store._normalize_email(email) == _caller_email(request):
+        raise HTTPException(
+            status_code=400, detail="You cannot disable your own account."
+        )
+    if not auth_store.set_account_status(email, auth_store.STATUS_DISABLED):
+        raise HTTPException(status_code=404, detail="No such account")
+    logger.info("Account disabled email=%s by=%s", email, _caller_email(request))
+    return {"account": auth_store.account(email)}
+
+
+@router.post("/auth/accounts/{email}/reset-link")
+def mint_reset_link(request: Request, email: str) -> dict:
+    """Mint a single-use reset link for an account and return it once.
+
+    This is the whole delivery mechanism: the admin copies the link and
+    carries it to the person. It is shown once and only its hash is kept,
+    so it cannot be read back out of the store afterwards.
+    """
+    _require_permission(request, "users:manage")
+    token = auth_store.mint_reset_token(email)
+    if not token:
+        raise HTTPException(status_code=404, detail="No such account")
+    logger.info("Reset link minted email=%s by=%s", email, _caller_email(request))
+    return {
+        "email": auth_store._normalize_email(email),
+        "token": token,
+        "path": f"/reset?token={token}",
+        "expires_in_hours": int(auth_store.RESET_TTL.total_seconds() // 3600),
+    }
+
+
+# --- The caller's own sessions -------------------------------------------
+
+
+@router.get("/auth/sessions")
+def list_my_sessions(request: Request) -> dict:
+    """Where this account is signed in."""
+    email = _caller_email(request)
+    if not email:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    presented, _ = _extract_presented_token(request)
+    token = presented or request.cookies.get(SESSION_COOKIE_NAME)
+    return {"sessions": auth_store.sessions_for(email, current_token=token)}
+
+
+@router.post("/auth/sessions/revoke")
+def revoke_my_sessions(request: Request, session_id: str | None = None) -> dict:
+    """Sign this account out elsewhere, or out of one listed session. The
+    caller's own session survives either way."""
+    email = _caller_email(request)
+    if not email:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    presented, _ = _extract_presented_token(request)
+    token = presented or request.cookies.get(SESSION_COOKIE_NAME)
+    removed = auth_store.revoke_sessions_for(
+        email, keep_token=token, session_id=session_id
+    )
+    return {"revoked": removed}
 
 
 @router.get("/auth/me")
@@ -629,6 +893,20 @@ def _caller_role(request: Request) -> str:
     """
     email = _caller_email(request)
     if email:
+        record = auth_store.account(email)
+        if record is not None:
+            if record.get("status") != auth_store.STATUS_ACTIVE:
+                # Belt to _require_active_account's braces: an account that
+                # is not active carries no permissions at all.
+                return "guest"
+            stored = record.get("role")
+            if stored:
+                # An assigned role beats the email mapping. With open
+                # registration the mapping is a stranger's choice —
+                # anyone could register a name at a BSH domain — so an
+                # account opened that way is only ever what an admin
+                # made it.
+                return stored
         return product_store.role_for_email(email)
     if getattr(request.state, "auth_kind", None) == "anon_dev":
         return "admin"

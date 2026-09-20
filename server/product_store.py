@@ -16,6 +16,10 @@ PREFERENCES_FILE = SETTINGS_ROOT / "preferences.yaml"
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {
         "admin:read",
+        # Approving a registration, assigning its role, disabling an
+        # account, minting a reset link. Admin only: it is the permission
+        # that hands out every other permission.
+        "users:manage",
         "settings:update",
         "sources:edit",
         "documents:delete",
