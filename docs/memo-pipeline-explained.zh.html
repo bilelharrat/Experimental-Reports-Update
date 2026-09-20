@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一份备忘录是怎么写出来的</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F1F4F4; --surface: #FFFFFF; --surface-2: #E9EEEE; --ink: #1D2B2D;
+    --muted: #5C6F71; --line: #D4DCDC; --accent: #0E7C86; --accent-soft: #DCEDEE;
+    --money: #A66A12; --money-soft: #F4E8D4; --hot: #B23A2E; --hot-soft: #F5E0DC;
+    --ok: #3B7A3F; --ok-soft: #DDEBDE; --code-bg: #E7EDED;
+    --shadow: 0 1px 2px rgba(29,43,45,.06), 0 8px 24px rgba(29,43,45,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101718; --surface: #172021; --surface-2: #1D2829; --ink: #E6ECEC;
+      --muted: #94A6A7; --line: #2A3839; --accent: #4CB8C0; --accent-soft: #133A3E;
+      --money: #DFA84F; --money-soft: #3A2E17; --hot: #E27364; --hot-soft: #43201C;
+      --ok: #7CBB80; --ok-soft: #1E3520; --code-bg: #1E2B2C;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101718; --surface: #172021; --surface-2: #1D2829; --ink: #E6ECEC;
+    --muted: #94A6A7; --line: #2A3839; --accent: #4CB8C0; --accent-soft: #133A3E;
+    --money: #DFA84F; --money-soft: #3A2E17; --hot: #E27364; --hot-soft: #43201C;
+    --ok: #7CBB80; --ok-soft: #1E3520; --code-bg: #1E2B2C;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 56px 16px 96px; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; line-height: 1.2; }
+  h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 700; margin: 0 0 12px; letter-spacing: -.02em; }
+  h2 {
+    font-size: clamp(22px, 3.2vw, 28px); font-weight: 650; margin: 56px 0 6px;
+    padding-top: 22px; border-top: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 18px; font-weight: 600; margin: 30px 0 6px; }
+  p, li { color: var(--ink); }
+  .lede { font-size: 18px; color: var(--muted); margin: 0 0 8px; }
+  .meta { font-size: 13px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .89em; }
+  p code, li code, td code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; margin: 18px 0; box-shadow: var(--shadow);
+  }
+  .card h3 { margin-top: 0; }
+  .grid { display: grid; gap: 14px; }
+  @media (min-width: 720px) { .grid.two { grid-template-columns: 1fr 1fr; } }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14.5px; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  .phase { display: flex; gap: 16px; align-items: flex-start; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .phase:last-child { border-bottom: none; }
+  .phase .n {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+    font-family: "IBM Plex Mono", monospace;
+  }
+  .phase .body { flex: 1 1 auto; min-width: 0; }
+  .phase .body b { display: block; font-size: 16px; }
+  .phase .t { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--money); white-space: nowrap; }
+  .bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .85; }
+  .tag {
+    display: inline-block; font-size: 11.5px; font-family: "IBM Plex Mono", monospace;
+    padding: 2px 8px; border-radius: 20px; background: var(--surface-2); color: var(--muted);
+    border: 1px solid var(--line); margin-right: 5px; white-space: nowrap;
+  }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+  .tag.hot { background: var(--hot-soft); color: var(--hot); border-color: transparent; }
+  .tag.acc { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 14px 18px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+  .note.warn { border-left-color: var(--money); background: var(--money-soft); }
+  .note b { font-weight: 650; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  .flow { font-family: "IBM Plex Mono", monospace; font-size: 13px; background: var(--surface-2);
+          border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; overflow-x: auto; white-space: pre; line-height: 1.7; }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+  a { color: var(--accent); }
+  body { font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .flow { font-family: "IBM Plex Mono", "PingFang SC", monospace; }
+</style>
+<div class="wrap">
+
+<h1>一份备忘录是怎么写出来的</h1>
+<p class="lede">投资备忘录生成管线的全过程——什么在跑、按什么顺序跑、每个 Agent 的指令来自哪个文件。</p>
+<p class="meta">BSH Research Center · 更新于 2026-09-20 · 数据取自 Surge AI 运行 <code>2026-09-20__070546</code></p>
+
+<div class="note">
+<b>一段话版本。</b>一份备忘录不是一次模型调用写出来的，而是大约二十个 Agent 分五个阶段协作完成的。Python 一个字都不写——它只负责决定谁来跑、按什么顺序跑、每个 Agent 能看到什么，以及产出是否合格。编辑判断全部存放在 <code>skills/memo/</code> 下的 Markdown 文件里，非工程师也能直接改。最终产出是两份 Word 文档，中英各一份，每份约两万字。
+</div>
+
+<h2>一次运行的全貌</h2>
+<p>五个阶段，后一个阶段等前一个阶段完成。在同一个阶段内部，能并行的全部并行。</p>
+
+<div class="card">
+  <div class="phase"><div class="n">1</div><div class="body"><b>接入与准备</b>
+    读取公司档案，判断公司所处阶段与类型，建立本次运行目录。
+    <div><span class="tag">数秒</span><span class="tag acc">1 次小调用</span></div></div><div class="t">约 5 秒</div></div>
+  <div class="phase"><div class="n">2</div><div class="body"><b>并行分析通道</b>
+    八个研究员同时启动，各回答一个不同的问题，各写出一个文件。
+    <div><span class="tag">8 个 Agent</span><span class="tag acc">并行</span></div></div><div class="t">4 分 33 秒</div></div>
+  <div class="phase"><div class="n">3</div><div class="body"><b>综合与敏感性分析</b>
+    先由一个 Agent 钉死所有人必须一致的事实，再由七个写作者同时写七个章节。
+    <div><span class="tag">1 + 7 个 Agent</span><span class="tag acc">最贵的一半</span></div></div><div class="t">7 分 30 秒</div></div>
+  <div class="phase"><div class="n">4</div><div class="body"><b>备忘录包装配</b>
+    翻译成中文，组装成一个包，核对每一条承诺过的事实是否都在。
+    <div><span class="tag">最多 8 个 Agent</span></div></div><div class="t">2 分 10 秒</div></div>
+  <div class="phase"><div class="n">5</div><div class="body"><b>渲染与质检</b>
+    生成两份 .docx，对产出跑四道关卡。
+    <div><span class="tag ok">无模型调用</span><span class="tag">纯 Python</span></div></div><div class="t">约 1 秒</div></div>
+</div>
+
+<p><b>那次运行：</b>14 分 27 秒，18.33 美元，两种语言共约 2.2 万字。阶段 3 和阶段 4 占掉约三分之二的时间和大部分成本。</p>
+
+<h2>阶段 1 —— 接入</h2>
+<p>便宜，且基本是确定性的。在任何研究开始之前，先回答三个问题，因为这三个答案决定了后面所有人读到的指令。</p>
+<table>
+<thead><tr><th>问题</th><th>怎么回答</th><th>它影响什么</th></tr></thead>
+<tbody>
+<tr><td><b>公司处于什么阶段？</b></td><td>取自档案中的融资轮次——<code>seed</code> → 早期，<code>series f</code> → 后期。没有明确信号则默认按后期处理。</td><td>加载哪一套结构配置，以及评分卡的权重。</td></tr>
+<tr><td><b>这是一家什么类型的公司？</b></td><td>优先用档案里的 <code>vertical</code> 字段；没有则跑一次不带任何工具的小模型调用，必须从六个类型中返回一个。</td><td>给后续所有提示词追加一层"公司类型透镜"，并可覆盖评分卡权重。</td></tr>
+<tr><td><b>写哪种报告？</b></td><td>用户在界面上选完整版还是精简版。</td><td>精简版 = 7 个章节，约 2 万字；完整版 = 12 个章节。</td></tr>
+</tbody>
+</table>
+<p>一家种子期的 AI 基础设施公司，和一家后期的 AI 应用公司，会得到不同的章节清单、不同的评分权重、不同的研究侧重——全部由这三个答案推导出来。</p>
+
+<h2>阶段 2 —— 八个研究员</h2>
+<p>八个 Agent 同时启动。每个只领一项任务、只回答一个问题，并且只写出一个文件到 <code>analysis/</code> 目录。它们互相看不到对方的成果。它们是研究员，不是写作者——它们的产出不会直接出现在读者面前。</p>
+
+<table>
+<thead><tr><th>通道</th><th>它回答的问题</th><th>产出文件</th></tr></thead>
+<tbody>
+<tr><td><code>numbers_integrity</code></td><td>各项数字彼此是否自洽？每个数字对应的是哪个时间口径？</td><td><code>numbers_integrity.md</code></td></tr>
+<tr><td><code>growth_bridge</code></td><td>增长究竟从哪里来的？</td><td><code>growth_bridge.md</code></td></tr>
+<tr><td><code>valuation_exit</code></td><td>它值多少钱？我们将来怎么退出？</td><td><code>valuation_and_exit.md</code></td></tr>
+<tr><td><code>market_sizing</code></td><td>市场有多大——要列出每一个公开估算，而不是只取一个。</td><td><code>market_sizing.md</code></td></tr>
+<tr><td><code>competitive_position</code></td><td>这条赛道上还有谁？谁在赢？</td><td><code>competitive_position.md</code></td></tr>
+<tr><td><code>adoption_distribution</code></td><td>客户是真的在用吗？产品怎么触达他们？</td><td><code>adoption_and_distribution.md</code></td></tr>
+<tr><td><code>team_governance</code></td><td>谁在经营？他们此前做成过什么？控制权在谁手里？</td><td><code>team_governance.md</code></td></tr>
+<tr><td><code>alternative_explanations</code></td><td><b>专门唱反调。</b>这些数字还有没有别的解释？</td><td><code>disconfirming_evidence.md</code></td></tr>
+</tbody>
+</table>
+
+<div class="note warn">
+<b>为什么是八个，而不是十二个。</b>原本是十二个。每个通道都会把给它的产出上限填满，于是十二个通道给写作阶段塞了三百多条发现，而要写的只是一份三千五百词的备忘录——偏偏写作阶段才是最贵的。于是把<i>读同一批证据</i>的通道合并：让一个 Agent 读一遍、形成一个判断，而不是两个 Agent 把同一个判断拆成两半。读不同证据的、以及职责就是<i>唱反调</i>的通道，保持独立。<code>alternative_explanations</code> 能活下来，正是因为它的任务就是和其他人争论。
+</div>
+
+<h2>阶段 3 —— 先钉事实，再写正文</h2>
+<p>这是最值得理解的一段，因为大部分工程复杂度都在这里。</p>
+
+<h3>第一步：钉死事实（"主干"）</h3>
+<p>一个 Agent 读完全部八份研究文件，然后<b>一句正文都不写</b>。它产出的是一组<b>钉子</b>：所有章节都必须遵守的事实。</p>
+<ul>
+<li>投资建议句，一字不差。</li>
+<li>一张评分卡：九个维度，各自按权重打分，并附理由与证据。</li>
+<li>三条投资亮点，每条挂靠到一个评分维度。</li>
+<li>风险清单，每条带领域、评分、可能性，以及一句大白话的影响描述。</li>
+<li>计算备注（C1、C2……）——每一个推导出来的数字背后的算式。</li>
+<li>合理估值区间、入场价格、公司阶段。</li>
+</ul>
+<p>主干要解决的是一个真实问题：七个并行的写作者，否则会各自编出自己的估值、自己的结论、自己版本的增长率。所以"钉事实"只做一次，且在所有人动笔之前完成。</p>
+
+<h3>第二步：七个写作者，同时开工</h3>
+<p>每个章节配一个 Agent。每个 Agent 拿到的是同一份共享上下文，外加它自己的章节契约：</p>
+<div class="flow">所有写作者共享（带缓存，逐字节一致）              每个写作者各自专属
+──────────────────────────────────────            ──────────────────────────
+voice_contract.md      备忘录允许怎么说话            结构配置里属于它的
+                                                    `## section:` 区块
+structure_addendum.md  引用、图表、数据诚实、        它必须逐字复述的
+                       "讲清楚，别断言"              那些钉死的事实
+types/&lt;type&gt;.md        这类公司的投资逻辑            它的字数预算
+                       通常落在哪里                  （1,400–2,800 字）</div>
+
+<p>精简版备忘录的七个章节及其预算：</p>
+<table>
+<thead><tr><th>章节</th><th>字数预算</th><th>子章节数</th></tr></thead>
+<tbody>
+<tr><td>执行摘要</td><td>2,600 词</td><td>5</td></tr>
+<tr><td>公司、团队与交易</td><td>2,400</td><td>3</td></tr>
+<tr><td>投资逻辑、市场与竞争</td><td>2,600</td><td>3</td></tr>
+<tr><td>业务与财务</td><td>2,300</td><td>3</td></tr>
+<tr><td>估值、回报与退出</td><td>2,400</td><td>3</td></tr>
+<tr><td>风险</td><td>2,800</td><td>3</td></tr>
+<tr><td>投资决策</td><td>1,400</td><td>4</td></tr>
+</tbody>
+</table>
+
+<h3>第三步：一个章节对一次回答来说还是太大</h3>
+<p>一个 2,600 词、含三个子章节的章节，超出了模型在单次结构化回复中能稳定返回的范围。所以一个章节不是一次调用，而是<i>每个子章节一次</i>调用，顺序执行，后一次能看到前面已经写好的内容。</p>
+<p>这是整个项目里最关键的一次可靠性改造，而它在两个引擎上的落地方式并不相同——见下文。</p>
+
+<h2>阶段 4 —— 中文</h2>
+<p>备忘录里的每一段文本都是一对 <code>{en, zh}</code>。英文先写，中文得追上来。靠两套机制完成。</p>
+<div class="grid two">
+<div class="card"><h3>预翻译（投机式）</h3>
+<p>某个章节一写完，翻译 Agent 立刻开始翻它——此时其他章节还在写。等到组装成包的时候，大部分翻译已经就绪。</p>
+<p>只有在英文原文完全一致、且引用标记对得上的前提下，译文才会被采纳。过期的译文一律丢弃，绝不合并。</p></div>
+<div class="card"><h3>补漏（串行）</h3>
+<p>预翻译没覆盖到的，在最后统一翻一遍。这是慢路径，所以预翻译存在的意义就是把它压到最小。</p>
+<p>Surge AI 那次运行：<b>预翻译采纳 624 条，只剩 24 条</b>交给补漏。</p></div>
+</div>
+
+<h2>阶段 5 —— 渲染与核查</h2>
+<p>这一步没有任何模型调用。Python 用 <code>python-docx</code> 在约半秒内生成两份 <code>.docx</code>，然后跑各道关卡。</p>
+
+<h2>关卡 —— 五层，各拦各的</h2>
+<p>正是这部分让产出"可用"，而不只是"生成出来了"。每一层的存在，都对应着某次真实运行中出过的具体问题。</p>
+
+<table>
+<thead><tr><th>关卡</th><th>时机</th><th>拦截什么</th><th>失败代价</th></tr></thead>
+<tbody>
+<tr><td><b>主干钉子校验</b></td><td>主干产出后、任何写作者启动<b>之前</b></td><td>算不平的算术；与结论自相矛盾的评分卡；与分类不符的公司阶段；以及钉死的句子里含有后续语气关卡会禁用的措辞。</td><td>重跑一次便宜的主干。</td></tr>
+<tr><td><b>结构修复</b></td><td>校验之前</td><td>模型自选的、我们没要求的形态——自带列名的表格、被拍平成列表的图表、换了名字的字段。所有修复都是确定性且无损的。</td><td>没有代价。这一层的存在就是为了<i>避免</i>失败。</td></tr>
+<tr><td><b>渲染器校验</b></td><td>在组装好的包上</td><td>缺章节、缺必备组件、字数超预算、区块格式非法。</td><td>重新生成一轮，或做一次定向删减。</td></tr>
+<tr><td><b>钉子复述校验</b></td><td>在组装好的包上</td><td>某个写作者偷偷改了钉死的事实。每颗钉子都必须一字不差地出现在承诺的位置。</td><td>记录并做外科式修复。</td></tr>
+<tr><td><b>质量语气检查 + 中英一致性</b></td><td>在成品 <code>.docx</code> 上</td><td>被禁用的语气（"本备忘录显示……"、把建议写成劝告），以及任何残留在中文位置上的英文。</td><td>在交付的报告上标记为警告。</td></tr>
+</tbody>
+</table>
+
+<div class="note warn">
+<b>关卡也可能判错，而且代价不小。</b>如果某条规则命中的是本来就正确的句子，修复 Agent 无从下手——因为根本没有可改的东西——于是整次运行会把所有重试次数耗光。一份写企业<i>文档</i>搜索公司的备忘录，触发了禁用"the document"（本意是指"本备忘录"）的规则。另一份为"a named institutional lead"（具名领投机构）连丢两次尝试——这个措辞被当作尽调清单用语禁用，可它恰恰是描述"什么会改变我们判断"最朴素的说法。两条规则在一般情况下都对，在那两家公司身上都错。现在都已经收窄了适用范围。
+</div>
+
+<h2>skills 目录 —— 判断力存放的地方</h2>
+<p>所有编辑指令都是 Markdown 文件，而不是 Python。英文文件是 Agent 实际读取的版本；<code>zh/</code> 下的中文孪生文件，是投资团队实际编辑的版本。有脚本保证两者不会失同步。</p>
+
+<table>
+<thead><tr><th>文件</th><th>谁读它</th><th>它决定什么</th></tr></thead>
+<tbody>
+<tr><td><code>voice_contract.md</code></td><td>主干 + 全部 7 个写作者</td><td>备忘录允许怎么说话。被禁措辞及其改写方式。语域要求：像教授给学生讲课，而不是投行在推销一单交易。</td></tr>
+<tr><td><code>structure_addendum.md</code></td><td>主干 + 全部 7 个写作者</td><td>引用规则（<code>[S3]</code>、<code>[C2]</code>）、图表规则、数据诚实原则，以及"讲清楚，别断言"——术语首次出现即解释，绝不从事实直接跳到结论。</td></tr>
+<tr><td><code>structures/late_compact.md</code><br><code>structures/late_v2.md</code><br><code>structures/growth.md</code> · <code>early.md</code></td><td>每个写作者取其中一个 <code>## section:</code> 区块</td><td>章节清单、每章的契约、字数预算、子章节、必备组件，以及评分卡权重。想改备忘录的骨架，就是改这个文件。</td></tr>
+<tr><td><code>types/ai_infra.md</code> 及另外五个</td><td>主干与写作者（作为透镜）；阶段 2 各通道（作为研究侧重）</td><td>这类公司的投资逻辑通常落在哪里、哪些指标重要、常见的护城河与失败模式，以及可选的评分权重覆盖。</td></tr>
+<tr><td><code>passes.md</code></td><td>阶段 2，每个区块对应一个 Agent</td><td>八条研究通道：id、界面线程名、产出文件，以及研究侧重正文。文件里的顺序就是启动顺序。</td></tr>
+<tr><td><code>risk_card_v2.md</code> · <code>risk_card_compact.md</code></td><td>只有风险章节的写作者</td><td>风险卡的确切形态——八行，固定标签。</td></tr>
+<tr><td><code>structures/components.yaml</code></td><td>校验器</td><td>备忘录必须包含哪些具名区块（关键指标快照、交易条款、风险登记表……），以及如何识别它们。</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<b>这样做的意义。</b>知道什么才算一份好备忘录的人，往往不是能改 Python 的人。把提示词搬进带中文孪生的文件之后，投资团队不需要工程师就能调整备忘录的语气、结构与侧重——同时，只要英文文件改动后中文孪生没有重新同步，测试就会失败。
+</div>
+
+<h2>两个引擎，同一条管线</h2>
+<p>同一条管线既能跑 Claude 也能跑 Gemini。真正有意思的差别不在模型能力，而在<b>一个写作单元被摊到多少次调用上</b>。</p>
+
+<div class="grid two">
+<div class="card"><h3>Claude</h3>
+<p>以本地子进程运行，有文件系统。章节写作者把每个子章节各写进一个文件，只返回一张简短的回执。由服务端负责拼装。正文从不经过回复体，因此不会因为回复被截断而丢内容。</p>
+<p><span class="tag ok">章节只带英文</span> → 中文预翻译真正有活干（采纳 624 条）。</p></div>
+<div class="card"><h3>Gemini</h3>
+<p>走 API，没有文件系统。过去一个章节就是<b>一次回复——要么全有要么全无</b>，篇幅一长就整体失败。现在改成每个子章节一次 API 调用，拼装方式完全相同。</p>
+<p><span class="tag ok">章节直接是中英双语</span> → 大部分预翻译被判定为不必要而跳过。</p></div>
+</div>
+
+<p>首次尝试的机械性缺陷，在三轮改造中从 <b>360 → 39 → 4</b>。这个经验可以推广：当结构化回复不稳定时，正确的解法通常是拆<i>要求</i>，而不是调大上限。</p>
+
+<h2>反复出现的三类 Bug</h2>
+<p>值得单独命名，因为它们各自已经换着马甲出现过十几次。</p>
+<div class="card">
+<h3>1. 同一个事实写在两处，然后各自漂移</h3>
+<p>字数关卡按一种方式数词，渲染器按另一种方式数，于是章节过了关卡却挂在打包上。提示词说的是一套，校验器查的是另一套。配置里的阶段写着"后期"，评分卡却用的是早期权重。每一次表现都不一样；每一次的解法都一样——让其中一处去问另一处。</p>
+</div>
+<div class="card">
+<h3>2. 只检查"在不在"，从不问"对不对"</h3>
+<p>一个组件只要区块声明了它的名字就算"存在"——哪怕那个区块是空的。一个翻译槽位只要不是空白就算"已填"——哪怕里面装的是英文。"它在吗？"和"它对吗？"从来不是同一个问题。</p>
+</div>
+<div class="card">
+<h3>3. 两道关卡要求互相矛盾</h3>
+<p>复述关卡要求钉死的句子一字不差，语气关卡却禁用了这句话里的某个措辞。没有任何写作者能同时满足两者，于是三次尝试、三次修复全部失败，备忘录最终还是带着这条问题交付了。解法是：在句子<i>被写出来的地方</i>就检查它，而不是在它被复制到的地方。</p>
+</div>
+
+<h2>值得记住的数字</h2>
+<table>
+<thead><tr><th></th><th>Claude</th><th>Gemini</th></tr></thead>
+<tbody>
+<tr><td>整体耗时（精简版）</td><td>约 14–20 分钟</td><td>约 10–17 分钟</td></tr>
+<tr><td>单份成本</td><td>18–30 美元</td><td>已记录 token；单价尚未配置</td></tr>
+<tr><td>产出</td><td colspan="2">约 2.0–2.2 万字 × 2 种语言，两份 .docx</td></tr>
+<tr><td>每次运行的 Agent 数</td><td colspan="2">约 20 个（1 分类 + 8 研究 + 1 主干 + 7 写作 + 若干翻译）</td></tr>
+<tr><td>守护它的测试</td><td colspan="2">后端 1,813 个 + 前端 396 个</td></tr>
+</tbody>
+</table>
+
+<footer>
+本文档的事实来源：<code>server/memo_analysis.py</code>（编排）、<code>server/claude_runner.py</code>（Agent 与提示词）、<code>server/memo_structure.py</code>（结构配置）、<code>server/memo_docx_renderer.py</code>（修复、校验、渲染）、<code>server/memo_pin_check.py</code> 与 <code>server/memo_quality_lint.py</code>（关卡），以及 <code>skills/memo/</code> 下的全部文件。
+</footer>
+</div>
+</html>

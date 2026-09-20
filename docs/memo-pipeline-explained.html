@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a Memo Gets Written</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F1F4F4; --surface: #FFFFFF; --surface-2: #E9EEEE; --ink: #1D2B2D;
+    --muted: #5C6F71; --line: #D4DCDC; --accent: #0E7C86; --accent-soft: #DCEDEE;
+    --money: #A66A12; --money-soft: #F4E8D4; --hot: #B23A2E; --hot-soft: #F5E0DC;
+    --ok: #3B7A3F; --ok-soft: #DDEBDE; --code-bg: #E7EDED;
+    --shadow: 0 1px 2px rgba(29,43,45,.06), 0 8px 24px rgba(29,43,45,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101718; --surface: #172021; --surface-2: #1D2829; --ink: #E6ECEC;
+      --muted: #94A6A7; --line: #2A3839; --accent: #4CB8C0; --accent-soft: #133A3E;
+      --money: #DFA84F; --money-soft: #3A2E17; --hot: #E27364; --hot-soft: #43201C;
+      --ok: #7CBB80; --ok-soft: #1E3520; --code-bg: #1E2B2C;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101718; --surface: #172021; --surface-2: #1D2829; --ink: #E6ECEC;
+    --muted: #94A6A7; --line: #2A3839; --accent: #4CB8C0; --accent-soft: #133A3E;
+    --money: #DFA84F; --money-soft: #3A2E17; --hot: #E27364; --hot-soft: #43201C;
+    --ok: #7CBB80; --ok-soft: #1E3520; --code-bg: #1E2B2C;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 56px 16px 96px; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; line-height: 1.2; }
+  h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 700; margin: 0 0 12px; letter-spacing: -.02em; }
+  h2 {
+    font-size: clamp(22px, 3.2vw, 28px); font-weight: 650; margin: 56px 0 6px;
+    padding-top: 22px; border-top: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 18px; font-weight: 600; margin: 30px 0 6px; }
+  p, li { color: var(--ink); }
+  .lede { font-size: 18px; color: var(--muted); margin: 0 0 8px; }
+  .meta { font-size: 13px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .89em; }
+  p code, li code, td code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; margin: 18px 0; box-shadow: var(--shadow);
+  }
+  .card h3 { margin-top: 0; }
+  .grid { display: grid; gap: 14px; }
+  @media (min-width: 720px) { .grid.two { grid-template-columns: 1fr 1fr; } }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14.5px; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  .phase { display: flex; gap: 16px; align-items: flex-start; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .phase:last-child { border-bottom: none; }
+  .phase .n {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+    font-family: "IBM Plex Mono", monospace;
+  }
+  .phase .body { flex: 1 1 auto; min-width: 0; }
+  .phase .body b { display: block; font-size: 16px; }
+  .phase .t { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--money); white-space: nowrap; }
+  .bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .85; }
+  .tag {
+    display: inline-block; font-size: 11.5px; font-family: "IBM Plex Mono", monospace;
+    padding: 2px 8px; border-radius: 20px; background: var(--surface-2); color: var(--muted);
+    border: 1px solid var(--line); margin-right: 5px; white-space: nowrap;
+  }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+  .tag.hot { background: var(--hot-soft); color: var(--hot); border-color: transparent; }
+  .tag.acc { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 14px 18px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+  .note.warn { border-left-color: var(--money); background: var(--money-soft); }
+  .note b { font-weight: 650; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  .flow { font-family: "IBM Plex Mono", monospace; font-size: 13px; background: var(--surface-2);
+          border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; overflow-x: auto; white-space: pre; line-height: 1.7; }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+  a { color: var(--accent); }
+</style>
+<div class="wrap">
+
+<h1>How a memo gets written</h1>
+<p class="lede">The investment-memo pipeline, end to end — what runs, in what order, and which file tells each agent what to do.</p>
+<p class="meta">BSH Research Center · updated 2026-09-20 · numbers from the Surge AI run <code>2026-09-20__070546</code></p>
+
+<div class="note">
+<b>The one-paragraph version.</b> A memo is not written by one model call. It is written by about twenty agents working in five phases. Python never writes a sentence of the memo — it decides who runs, in what order, what each one is allowed to see, and whether the result is good enough to keep. The editorial judgment lives in Markdown files under <code>skills/memo/</code>, which non-engineers edit. The result is two Word documents, English and Chinese, around 20,000 words each.
+</div>
+
+<h2>The shape of one run</h2>
+<p>Five phases. Each one waits for the phase before it. Inside a phase, everything that can run at the same time does.</p>
+
+<div class="card">
+  <div class="phase"><div class="n">1</div><div class="body"><b>Intake and setup</b>
+    Read the company record. Decide the company's stage and type. Build the run folder.
+    <div><span class="tag">seconds</span><span class="tag acc">1 small call</span></div></div><div class="t">~5s</div></div>
+  <div class="phase"><div class="n">2</div><div class="body"><b>Parallel analysis passes</b>
+    Eight researchers, launched at once. Each one answers a different question and writes one file.
+    <div><span class="tag">8 agents</span><span class="tag acc">in parallel</span></div></div><div class="t">4m 33s</div></div>
+  <div class="phase"><div class="n">3</div><div class="body"><b>Synthesis and sensitivities</b>
+    One agent fixes the facts everyone must agree on. Then seven writers write seven sections at once.
+    <div><span class="tag">1 + 7 agents</span><span class="tag acc">the expensive half</span></div></div><div class="t">7m 30s</div></div>
+  <div class="phase"><div class="n">4</div><div class="body"><b>Memo package drafting</b>
+    Translate into Chinese, assemble one package, check every promised fact is present.
+    <div><span class="tag">up to 8 agents</span></div></div><div class="t">2m 10s</div></div>
+  <div class="phase"><div class="n">5</div><div class="body"><b>Rendering and QA</b>
+    Build both .docx files. Run four gates over what was produced.
+    <div><span class="tag ok">no model calls</span><span class="tag">pure Python</span></div></div><div class="t">~1s</div></div>
+</div>
+
+<p><b>That run:</b> 14 minutes 27 seconds, $18.33, 22,000 words in two languages. Phases 3 and 4 are roughly two-thirds of the clock and most of the money.</p>
+
+<h2>Phase 1 — Intake</h2>
+<p>Cheap and mostly deterministic. Three questions get answered before any research starts, because the answers decide which instructions everyone else reads.</p>
+<table>
+<thead><tr><th>Question</th><th>How it is answered</th><th>What it changes</th></tr></thead>
+<tbody>
+<tr><td><b>What stage is this company?</b></td><td>From the funding round in the registry — <code>seed</code> → early, <code>series f</code> → late. No signal means late by default.</td><td>Which structure profile is loaded, and the scorecard weights.</td></tr>
+<tr><td><b>What kind of company is it?</b></td><td>The registry's <code>vertical</code> field if set. Otherwise one small model call with no tools, which must return one of six types.</td><td>Adds a "company type lens" to every later prompt, and can override the scorecard weights.</td></tr>
+<tr><td><b>Which report shape?</b></td><td>The user picks full or compact in the UI.</td><td>Compact = 7 sections, ~20k words. Full = 12 sections.</td></tr>
+</tbody>
+</table>
+<p>A seed-stage AI-infrastructure company and a late-stage AI-application company get different section lists, different scoring weights, and different research emphasis — all from these three answers.</p>
+
+<h2>Phase 2 — Eight researchers</h2>
+<p>Eight agents launch at the same time. Each gets one job, one question, and writes exactly one file into <code>analysis/</code>. None of them can see each other's work. They are researchers, not writers — nothing they produce reaches the reader directly.</p>
+
+<table>
+<thead><tr><th>Pass</th><th>The question it answers</th><th>Writes</th></tr></thead>
+<tbody>
+<tr><td><code>numbers_integrity</code></td><td>Do the numbers agree with each other, and what period is each one from?</td><td><code>numbers_integrity.md</code></td></tr>
+<tr><td><code>growth_bridge</code></td><td>Where did the growth actually come from?</td><td><code>growth_bridge.md</code></td></tr>
+<tr><td><code>valuation_exit</code></td><td>What is it worth, and how would we ever get out?</td><td><code>valuation_and_exit.md</code></td></tr>
+<tr><td><code>market_sizing</code></td><td>How big is the market — by every published estimate, not just one?</td><td><code>market_sizing.md</code></td></tr>
+<tr><td><code>competitive_position</code></td><td>Who else is in this fight, and who is winning?</td><td><code>competitive_position.md</code></td></tr>
+<tr><td><code>adoption_distribution</code></td><td>Are customers actually using it, and how does it reach them?</td><td><code>adoption_and_distribution.md</code></td></tr>
+<tr><td><code>team_governance</code></td><td>Who runs it, what have they done before, who controls it?</td><td><code>team_governance.md</code></td></tr>
+<tr><td><code>alternative_explanations</code></td><td><b>Argue against the investment.</b> What else explains these numbers?</td><td><code>disconfirming_evidence.md</code></td></tr>
+</tbody>
+</table>
+
+<div class="note warn">
+<b>Why eight and not twelve.</b> There used to be twelve. Every pass fills whatever limit it is given, so twelve passes handed the writers more than three hundred findings to write a 3,500-word memo from — and the writing phase is the expensive one. Passes that read the <i>same</i> evidence were merged, so one agent forms one judgment from one reading instead of two agents splitting it. Passes that read different evidence, or whose job is to <i>disagree</i>, stayed separate. <code>alternative_explanations</code> survives precisely because its job is to argue with the others.
+</div>
+
+<h2>Phase 3 — The spine, then the writers</h2>
+<p>This is the part worth understanding, because it is where most of the engineering is.</p>
+
+<h3>Step one: fix the facts (the "spine")</h3>
+<p>One agent reads all eight research files and produces <b>no prose at all</b>. It produces a set of <b>pins</b>: the facts every section must agree on.</p>
+<ul>
+<li>The recommendation sentence, word for word.</li>
+<li>A scorecard: nine dimensions, each scored out of its own weight, with the reason and the evidence.</li>
+<li>Three investment highlights, each tied to a scorecard dimension.</li>
+<li>The risks, each with an area, a rating, a likelihood and a plain-words impact.</li>
+<li>The calculation notes (C1, C2…) — the arithmetic behind every derived number.</li>
+<li>The fair value range, the entry price, the company's stage.</li>
+</ul>
+<p>The spine is the answer to a real problem: seven writers working in parallel will otherwise each invent their own valuation, their own verdict, and their own version of the growth rate. Pinning happens once, before any of them start.</p>
+
+<h3>Step two: seven writers, at once</h3>
+<p>Each section gets its own agent. Each agent receives the same shared context plus its own section contract:</p>
+<div class="flow">shared by every writer (cached, byte-identical)      per writer
+────────────────────────────────────────────────      ──────────────────────────
+voice_contract.md      how the memo is allowed          its own `## section:` block
+                       to speak                         from the structure profile
+structure_addendum.md  citations, charts, honesty,      the pinned facts it must
+                       "teach, don't assert"            echo word for word
+types/&lt;type&gt;.md        where the case usually lives     its word budget
+                       for this kind of company         (1,400–2,800 words)</div>
+
+<p>A compact memo's seven sections and their budgets:</p>
+<table>
+<thead><tr><th>Section</th><th>Budget</th><th>Subsections</th></tr></thead>
+<tbody>
+<tr><td>Executive summary</td><td>2,600 words</td><td>5</td></tr>
+<tr><td>Company, team &amp; deal</td><td>2,400</td><td>3</td></tr>
+<tr><td>Thesis, market &amp; competition</td><td>2,600</td><td>3</td></tr>
+<tr><td>Business &amp; financials</td><td>2,300</td><td>3</td></tr>
+<tr><td>Valuation, returns &amp; exit</td><td>2,400</td><td>3</td></tr>
+<tr><td>Risks</td><td>2,800</td><td>3</td></tr>
+<tr><td>Investment decision</td><td>1,400</td><td>4</td></tr>
+</tbody>
+</table>
+
+<h3>Step three: one section is still too big for one answer</h3>
+<p>A 2,600-word section with three subsections is more than a model reliably returns in a single structured reply. So a section is not one call. It is one call <i>per subsection</i>, run in order, each one seeing what came before.</p>
+<p>This was the single biggest reliability fix in the project, and it landed differently on the two engines — see below.</p>
+
+<h2>Phase 4 — Chinese</h2>
+<p>Every piece of text in the memo is a pair: <code>{en, zh}</code>. The English is written first and the Chinese has to catch up. Two mechanisms do it.</p>
+<div class="grid two">
+<div class="card"><h3>The chase (speculative)</h3>
+<p>The moment a section is finished, a translator agent starts on it — while the other sections are still being written. By the time the package is assembled, most of the translation is already done.</p>
+<p>Translations are adopted only where the English still matches exactly and the citation markers line up. A stale translation is dropped, never merged.</p></div>
+<div class="card"><h3>The gap fill (serial)</h3>
+<p>Whatever the chase missed gets translated at the end, in one pass. This is the slow path, so the chase exists to keep it small.</p>
+<p>On the Surge AI run: <b>624 strings adopted from the chase, 24 left</b> for the gap fill.</p></div>
+</div>
+
+<h2>Phase 5 — Render and check</h2>
+<p>No model calls here. Python builds both <code>.docx</code> files with <code>python-docx</code> in about half a second, then runs the gates.</p>
+
+<h2>The gates — five layers, each catching something different</h2>
+<p>This is the part that makes the output usable rather than merely produced. Each layer exists because something specific went wrong in a real run.</p>
+
+<table>
+<thead><tr><th>Gate</th><th>When</th><th>What it catches</th><th>Cost of failing</th></tr></thead>
+<tbody>
+<tr><td><b>Spine pin gate</b></td><td>After the spine, <b>before</b> any writer starts</td><td>Arithmetic that does not add up; a scorecard that contradicts the verdict; a stage that does not match the classification; a pinned sentence containing a phrase the voice gate will later ban.</td><td>One cheap spine retry.</td></tr>
+<tr><td><b>Structural repair</b></td><td>Before validation</td><td>Shapes the model chose that we did not ask for — a table that named its own columns, a chart delivered as a flat list, a field under a different name. Repairs are deterministic and lossless.</td><td>Nothing. This layer exists to <i>avoid</i> failures.</td></tr>
+<tr><td><b>Renderer validation</b></td><td>On the assembled package</td><td>Missing sections, missing required components, word budgets blown, malformed blocks.</td><td>A regeneration round, or a targeted trim.</td></tr>
+<tr><td><b>Pin echo check</b></td><td>On the assembled package</td><td>A writer quietly changed a pinned fact. Every pin must appear verbatim where it was promised.</td><td>Reported; repaired surgically.</td></tr>
+<tr><td><b>Quality lint + Chinese parity</b></td><td>On the finished <code>.docx</code></td><td>Banned voice ("the memo shows…", advice instead of a recommendation), and any English left sitting in a Chinese slot.</td><td>Warnings on the delivered report.</td></tr>
+</tbody>
+</table>
+
+<div class="note warn">
+<b>A gate can be wrong, and that is expensive.</b> If a rule fires on correct prose, no repair agent can fix it — there is nothing to fix — so the run burns every attempt it has. A memo for an enterprise <i>document</i> search company tripped the rule that bans "the document" (meaning "this memo"). Another lost two attempts to "a named institutional lead" — a phrase banned as a diligence checklist item, which is also the plainest way to name the one thing that would change the call. Both rules were right in general and wrong for that company. Both are now scoped.
+</div>
+
+<h2>The skills folder — where the judgment lives</h2>
+<p>Every editorial instruction is a Markdown file, not Python. The English files are what agents read. The Chinese twins under <code>zh/</code> are what the investment team edits. A script checks the two never drift apart.</p>
+
+<table>
+<thead><tr><th>File</th><th>Who reads it</th><th>What it decides</th></tr></thead>
+<tbody>
+<tr><td><code>voice_contract.md</code></td><td>Spine + all 7 writers</td><td>How the memo is allowed to speak. Banned phrases with their rewrites. The register: a professor teaching a student, not a bank selling a deal.</td></tr>
+<tr><td><code>structure_addendum.md</code></td><td>Spine + all 7 writers</td><td>Citation rules (<code>[S3]</code>, <code>[C2]</code>), chart rules, data honesty, "teach, don't assert" — define a term on first use, never jump from fact to conclusion.</td></tr>
+<tr><td><code>structures/late_compact.md</code><br><code>structures/late_v2.md</code><br><code>structures/growth.md</code> · <code>early.md</code></td><td>One <code>## section:</code> block per writer</td><td>The section list, each section's contract, word budget, subsections, required components, and the scorecard weights. Changing the memo's shape is editing this file.</td></tr>
+<tr><td><code>types/ai_infra.md</code> and five siblings</td><td>Spine + all writers (as a lens); Phase 2 passes (as research focus)</td><td>Where the case usually lives for this kind of company, which metrics matter, typical moats and failure modes, and optional scorecard weight overrides.</td></tr>
+<tr><td><code>passes.md</code></td><td>Phase 2, one block per agent</td><td>The eight research passes: id, thread label, output file, and the focus prose. File order is dispatch order.</td></tr>
+<tr><td><code>risk_card_v2.md</code> · <code>risk_card_compact.md</code></td><td>The risks writer only</td><td>The exact shape of a risk card — eight rows, fixed labels.</td></tr>
+<tr><td><code>structures/components.yaml</code></td><td>The validator</td><td>The named blocks a memo must contain (key metrics snapshot, deal terms, risk register…) and how to recognise them.</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<b>Why this matters.</b> The people who know what a good memo looks like are not the people who can edit Python. Moving the prompts into files with Chinese twins means the investment team can change the memo's voice, structure and emphasis without a developer — and the test suite still fails if an English file changes without its Chinese twin being re-synced.
+</div>
+
+<h2>Two engines, one pipeline</h2>
+<p>The same pipeline runs on Claude or on Gemini. The interesting difference was not model quality. It was <b>how many calls a unit of writing is spread across.</b></p>
+
+<div class="grid two">
+<div class="card"><h3>Claude</h3>
+<p>Runs as a local subprocess with a filesystem. A section writer writes each subsection to its own file and returns a short receipt. The server assembles the files. Content never travels through the reply, so nothing is lost to a truncated response.</p>
+<p><span class="tag ok">sections arrive English-only</span> → the Chinese chase does real work (624 strings adopted).</p></div>
+<div class="card"><h3>Gemini</h3>
+<p>Runs over an API with no filesystem. A section used to be <b>one reply — all or nothing</b>, and a long one failed as a unit. Now it is one API call per subsection, assembled identically.</p>
+<p><span class="tag ok">sections arrive already bilingual</span> → most chases are skipped as unnecessary.</p></div>
+</div>
+
+<p>Mechanical defects on the first attempt fell from <b>360 → 39 → 4</b> across three rounds of this work. The lesson generalises: when a structured reply is unreliable, the fix is usually to split the <i>ask</i>, not to enlarge the limit.</p>
+
+<h2>Three bugs that keep coming back</h2>
+<p>Worth naming, because they have each appeared a dozen times in different clothes.</p>
+<div class="card">
+<h3>1. One fact, written in two places, drifting apart</h3>
+<p>The length gate counted words one way and the renderer counted them another, so sections passed the gate and failed the package. The prompt said one thing and the validator checked another. The profile's stage said "late" while the scorecard used early weights. Every instance looks different; every fix is the same — make one of them ask the other.</p>
+</div>
+<div class="card">
+<h3>2. Presence checked, validity never asked</h3>
+<p>A component counted as "present" because a block declared its name — even when the block was empty. A translation slot counted as "filled" because it was not blank — even when it held English. The question "is it there?" is not the question "is it right?".</p>
+</div>
+<div class="card">
+<h3>3. Two gates demanding opposite things</h3>
+<p>The echo gate required a pinned sentence word for word. The voice gate banned a phrase inside that sentence. No writer could satisfy both, so three attempts and three repairs all failed and the memo shipped with the finding anyway. The fix was to check the sentence <i>where it is written</i>, not where it is copied.</p>
+</div>
+
+<h2>Numbers worth remembering</h2>
+<table>
+<thead><tr><th></th><th>Claude</th><th>Gemini</th></tr></thead>
+<tbody>
+<tr><td>Wall clock (compact memo)</td><td>~14–20 min</td><td>~10–17 min</td></tr>
+<tr><td>Cost per memo</td><td>$18–30</td><td>tokens recorded; pricing not yet configured</td></tr>
+<tr><td>Output</td><td colspan="2">~20,000–22,000 words × 2 languages, two .docx files</td></tr>
+<tr><td>Agents per run</td><td colspan="2">~20 (1 classifier + 8 researchers + 1 spine + 7 writers + translators)</td></tr>
+<tr><td>Tests guarding it</td><td colspan="2">1,813 backend + 396 frontend</td></tr>
+</tbody>
+</table>
+
+<footer>
+Source of truth for this document: <code>server/memo_analysis.py</code> (orchestration), <code>server/claude_runner.py</code> (agents and prompts), <code>server/memo_structure.py</code> (profiles), <code>server/memo_docx_renderer.py</code> (repair, validation, rendering), <code>server/memo_pin_check.py</code> and <code>server/memo_quality_lint.py</code> (gates), and everything under <code>skills/memo/</code>.
+</footer>
+</div>
+</html>
