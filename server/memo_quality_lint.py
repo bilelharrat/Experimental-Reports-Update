@@ -373,8 +373,20 @@ _RISK_GENERIC_FILLER_PATTERNS = (
     re.compile(r"\bthere are risks?\b", re.IGNORECASE),
     re.compile(r"\bthe company faces risks?\b", re.IGNORECASE),
 )
+# Contractual service levels a company either offers or does not: "guaranteed
+# SLAs", "guaranteed uptime". The word names a product term there, not a
+# promise the memo is making, and the rule below must not read it as one —
+# live on 2026-09-20 a RadixArk risk card said the company shows no evidence
+# of "guaranteed production SLAs", which is the rule's own suggestion already
+# followed, and the finding survived three attempts and two surgical repairs
+# because there was nothing to repair.
+_SERVICE_LEVEL_NOUNS = (
+    r"SLAs?|uptime|availability|capacity|throughput|latency|"
+    r"service[- ]levels?|response times?|delivery"
+)
 _RISK_UNSUPPORTED_CLAIM_RE = re.compile(
-    r"\b(?:guaranteed|certain to|will definitely|cannot fail|"
+    r"\b(?:guaranteed(?!\s+(?:\w+\s+)?(?:" + _SERVICE_LEVEL_NOUNS + r")\b)"
+    r"|certain to|will definitely|cannot fail|"
     r"no competitor can)\b",
     re.IGNORECASE,
 )

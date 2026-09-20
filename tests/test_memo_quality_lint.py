@@ -675,6 +675,38 @@ def test_linter_blocks_generic_duplicate_risks_and_watch_commands(tmp_path):
     } <= codes
 
 
+def test_a_service_level_is_not_an_unsupported_claim():
+    """The rule is for the memo asserting certainty, not for a product term
+    that happens to contain the word. Live on 2026-09-20 a RadixArk risk
+    card said the company shows no evidence of "guaranteed production SLAs"
+    — the rule's own suggestion already followed, with the sources it
+    checked named — and the P0 survived three package attempts and two
+    surgical repairs because there was nothing to repair.
+    """
+    # Verbatim from that run's risks section.
+    real = (
+        "Reaching enterprise accounts requires proprietary enterprise "
+        "features, dedicated sales personnel, SOC 2 compliance, and "
+        "guaranteed production SLAs, none of which are evidenced in "
+        "RadixArk's corporate filings S1,S2."
+    )
+    assert not memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(real)
+    for allowed in (
+        "The company offers guaranteed uptime of 99.9%.",
+        "Guaranteed SLAs are table stakes for this buyer.",
+        "No guaranteed capacity is contracted beyond 2027.",
+    ):
+        assert not memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(allowed), allowed
+    # The assertions the rule exists for still fire.
+    for banned in (
+        "Returns are guaranteed by the structure of the round.",
+        "This outcome is guaranteed.",
+        "The company is certain to win the category.",
+        "No competitor can match the latency.",
+    ):
+        assert memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(banned), banned
+
+
 def test_meta_language_suggestion_shows_the_rewrite(tmp_path):
     """The 2026-09-17 compact run shipped with three meta_process_language
     findings the surgical repair had already tried and failed to fix. The
