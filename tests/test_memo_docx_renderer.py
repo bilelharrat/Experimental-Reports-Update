@@ -1661,6 +1661,89 @@ def test_repair_turns_key_value_items_into_rows():
     assert any("two-cell rows" in r for r in repairs)
 
 
+def test_repair_orders_column_keyed_rows():
+    """A table delivered as `columns` of {key, label} plus rows keyed by
+    those column keys. Every cell is already localized and in the right
+    column; only the order has to be recovered. Unrepaired, each row
+    reads as an empty row and the table is dropped — live on 2026-09-20
+    that emptied the Key Metrics Snapshot on both Gemini runs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "component": "key_metrics_snapshot",
+            "columns": [
+                {"key": "metric", "label": {"en": "Metric", "zh": "指标"}},
+                {"key": "value", "label": {"en": "Value", "zh": "数值"}},
+            ],
+            "rows": [
+                {
+                    "metric": {"en": "Revenue", "zh": "收入"},
+                    "value": {"en": "Not disclosed", "zh": "未披露"},
+                },
+                {
+                    "metric": {"en": "Runway", "zh": "现金可用期"},
+                    # A surplus key the headers do not name: the table has
+                    # two columns, so it is dropped rather than costing the
+                    # whole table.
+                    "value": {"en": "30 months", "zh": "30 个月"},
+                    "detail": {"en": "30 months", "zh": "30 个月"},
+                },
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][-1]
+    assert table["rows"] == [
+        {"cells": [{"en": "Revenue", "zh": "收入"}, {"en": "Not disclosed", "zh": "未披露"}]},
+        {"cells": [{"en": "Runway", "zh": "现金可用期"}, {"en": "30 months", "zh": "30 个月"}]},
+    ]
+    assert table["headers"] == [
+        {"en": "Metric", "zh": "指标"},
+        {"en": "Value", "zh": "数值"},
+    ]
+    assert any("column-keyed rows" in r and "'detail'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_drops_a_table_that_is_only_headers():
+    """Announced columns and no rows is still an empty table — the reader
+    gets a heading and one bare header row (RadixArk, 2026-09-20). Dropping
+    it lets the component gate report the component as missing instead of
+    counting the empty block's declared slug as coverage."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "title": {"en": "Key Metrics Snapshot", "zh": "关键指标快照"},
+            "headers": [{"en": "Metric", "zh": "指标"}, {"en": "Value", "zh": "数值"}],
+            "rows": [],
+        }
+    )
+    before = len(package["sections"][0]["blocks"])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"]) == before - 1
+    assert any("dropped empty table" in r for r in repairs)
+
+
+def test_repair_leaves_column_keyed_rows_that_disagree():
+    """With no header keys to declare the order, the rows have to agree on
+    it themselves — one that answers different columns is not a table this
+    can order, and guessing would put cells under the wrong heading."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "rows": [
+                {"metric": {"en": "Revenue", "zh": "收入"}},
+                {"value": {"en": "Not disclosed", "zh": "未披露"}},
+            ],
+        }
+    )
+    _repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert not any("column-keyed rows" in r for r in repairs)
+
+
 def test_repair_retypes_an_itemless_bullets_block():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append(

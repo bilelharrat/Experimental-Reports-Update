@@ -373,6 +373,50 @@ def _infer_block_type(block: dict) -> str:
     return "paragraph"
 
 
+def _adopt_column_keyed_rows(block: dict, repairs: list[str], where: str) -> None:
+    """Turn rows keyed by column name into rows of cells, in place.
+
+    The column order comes from the headers' own ``key`` fields when they
+    carry them, and otherwise from the first row's key order (JSON keeps
+    it). Every row must answer the same columns: a table where they
+    disagree is not one this can order, and is left for the main pass.
+    """
+    rows = block.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return
+    if not all(
+        isinstance(row, dict) and "cells" not in row and row for row in rows
+    ):
+        return
+    headers = block.get("headers")
+    order = [
+        str(header["key"])
+        for header in (headers if isinstance(headers, list) else [])
+        if isinstance(header, dict) and header.get("key")
+    ]
+    if order:
+        # The headers declare the columns, so a row may carry a key they
+        # do not name — live, a `deal_terms` row answered both "value"
+        # and "detail" with the same sentence, and the table has two
+        # columns. The extra key is surplus, not a lost column; dropping
+        # the whole table over it would cost ten real rows.
+        if any(not set(order) <= set(row) for row in rows):
+            return
+        extra = sorted({key for row in rows for key in row} - set(order))
+    else:
+        # Nothing declares the order but the rows themselves, so they all
+        # have to agree on it.
+        order = [str(key) for key in rows[0]]
+        if not order or any(set(row) != set(order) for row in rows):
+            return
+        extra = []
+    block["rows"] = [{"cells": [row[key] for key in order]} for row in rows]
+    note = f" (ignored {', '.join(repr(k) for k in extra)})" if extra else ""
+    repairs.append(
+        f"{where}.rows: ordered {len(rows)} column-keyed rows into cells{note}"
+    )
+
+
 def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
     """Normalize one block before the main pass; return the block(s) it
     stands for.
@@ -473,6 +517,17 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
                 "paragraph it already was"
             )
     if kind == "table":
+        # A column-keyed table: `columns` of {key, label} (renamed to
+        # `headers` above) and each row a dict keyed by those column keys
+        # instead of a list of cells. Every cell is already a localized
+        # object and in the right column — only the order has to be
+        # recovered, and the headers carry it. Unrepaired, each row reads
+        # as an empty row and the whole table is dropped: live on
+        # 2026-09-20 this silently emptied the Key Metrics Snapshot of
+        # twelve rows on RadixArk and the same table plus Deal Snapshot on
+        # Databricks, which is why `company_team` was the short section on
+        # every Gemini run.
+        _adopt_column_keyed_rows(block, repairs, where)
         # A key-value table delivered under `items` instead of `rows`: every
         # pair is a two-cell row, which is the layout this component renders
         # anyway. Live on 2026-09-20 the deal_terms table arrived this way
@@ -494,7 +549,13 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
                     f"{where}: turned {len(pairs)} key/value items into "
                     "two-cell rows"
                 )
-        if not (block.get("headers") or block.get("rows")):
+        # A table with no rows is a table with nothing in it, even when it
+        # announced its columns: the reader gets a heading and one bare
+        # header row. Live on 2026-09-20 the Key Metrics Snapshot shipped
+        # that way on RadixArk. Dropping it lets the component gate say
+        # what is actually true — the memo is missing that component —
+        # instead of passing on the declared slug of an empty block.
+        if not block.get("rows"):
             repairs.append(f"{where}: dropped empty table")
             return []
         for key in _TABLE_PROSE_BEFORE:
