@@ -530,6 +530,37 @@ def _repair_source_class_and_treatment(
         )
 
 
+# A localized value the model nested one level deeper than the contract, under
+# a name for the column plus a key for the machine:
+#     {"key": "metric", "label": {"en": "Metric", "zh": "指标"}}
+# where the renderer wants the localized object itself. Both halves are there
+# and already translated, so lifting the payload out loses nothing; the `key`
+# is the model's own bookkeeping and no reader ever sees it. Live on
+# 2026-09-19 and 2026-09-20 this one shape was 31 of 54 validation errors on
+# a package and blocked three runs between them.
+_LOCALIZED_PAYLOAD_KEYS = ("label", "header", "title", "text")
+
+
+def _unwrapped_localized(item: Any) -> tuple[dict, str] | None:
+    """The localized object nested inside ``item``, and the key it sat under."""
+    if not isinstance(item, dict) or "en" in item or "zh" in item:
+        return None
+    found = [key for key in _LOCALIZED_PAYLOAD_KEYS if key in item]
+    if len(found) != 1:
+        return None
+    key = found[0]
+    payload = item[key]
+    if isinstance(payload, dict) and ("en" in payload or "zh" in payload):
+        return payload, key
+    if (
+        isinstance(payload, str)
+        and payload.strip()
+        and not _is_language_neutral_text(payload)
+    ):
+        return {"en": payload, "zh": ""}, key
+    return None
+
+
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
     if not isinstance(items, list):
         return items
@@ -542,8 +573,17 @@ def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
         ):
             out.append({"en": item, "zh": ""})
             repairs.append(f"{where}[{index}]: wrapped plain string as bilingual en value")
-        else:
-            out.append(item)
+            continue
+        nested = _unwrapped_localized(item)
+        if nested is not None:
+            payload, key = nested
+            out.append(payload)
+            repairs.append(
+                f"{where}[{index}]: lifted the localized value out of "
+                f"{key!r}"
+            )
+            continue
+        out.append(item)
     return out
 
 

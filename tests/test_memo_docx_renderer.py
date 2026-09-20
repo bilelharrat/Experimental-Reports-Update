@@ -1567,6 +1567,49 @@ def test_repair_wraps_plain_english_strings_as_bilingual():
     assert not memo_docx_renderer.english_package_validation_errors(repaired)
 
 
+def test_repair_lifts_a_localized_value_out_of_its_wrapper():
+    """Gemini nests a table header one level deeper than the contract — a
+    name for the column plus a key for the machine — where the renderer
+    wants the localized object itself. Both halves are there and already
+    translated, so lifting it out loses nothing. Live this one shape was 30
+    of 54 validation errors on a package and blocked three runs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "headers": [
+                {"key": "metric", "label": {"en": "Metric", "zh": "指标"}},
+                {"header": {"en": "Value", "zh": "数值"}},
+            ],
+            "rows": [
+                {"cells": [{"en": "ARR", "zh": "年经常性收入"}, {"en": "$40M", "zh": "$40M"}]}
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    headers = repaired["sections"][0]["blocks"][-1]["headers"]
+    assert headers[0] == {"en": "Metric", "zh": "指标"}
+    assert headers[1] == {"en": "Value", "zh": "数值"}
+    assert sum("lifted the localized value" in r for r in repairs) == 2
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_leaves_an_ambiguous_wrapper_alone():
+    """Only an unambiguous nesting is lifted: a dict carrying its own `en`,
+    or two candidate payloads, is left for the validation feedback loop."""
+    already = {"en": "Metric", "zh": "指标", "label": {"en": "Other", "zh": "其他"}}
+    assert memo_docx_renderer._unwrapped_localized(already) is None
+    two_ways = {"label": {"en": "A", "zh": "甲"}, "title": {"en": "B", "zh": "乙"}}
+    assert memo_docx_renderer._unwrapped_localized(two_ways) is None
+    # A wrapper holding a plain string still lifts, as a bare string would.
+    assert memo_docx_renderer._unwrapped_localized(
+        {"key": "m", "label": "Total addressable market"}
+    ) == ({"en": "Total addressable market", "zh": ""}, "label")
+    # Nothing localized inside: left alone.
+    assert memo_docx_renderer._unwrapped_localized({"key": "m", "label": 7}) is None
+    assert memo_docx_renderer._unwrapped_localized("plain") is None
+
+
 def test_repair_normalizes_block_type_synonyms():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append(
