@@ -113,75 +113,77 @@ async function onSubmit() {
       <BrandMark :size="1100" />
     </div>
 
-    <!-- Summit Glass Card (exact match with macOS 480x560pt modal) -->
+    <!-- The macOS sheet at its own metrics: 480x560 inside 36pt horizontal
+         and 28pt vertical padding (MacLoginView's .frame and .padding). -->
     <div
-      class="relative z-10 flex h-[560px] w-[480px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] flex-col justify-between overflow-hidden rounded-[20px] border border-black/[0.08] bg-white/70 px-9 py-7 shadow-2xl shadow-black/15 backdrop-blur-2xl dark:border-white/[0.12] dark:bg-[#18191d]/85 dark:shadow-black/70"
+      class="relative z-10 h-[560px] w-[480px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[20px] border border-black/[0.08] bg-white/70 px-9 py-7 shadow-2xl shadow-black/15 backdrop-blur-2xl dark:border-white/[0.12] dark:bg-[#18191d]/85 dark:shadow-black/70"
     >
-      <!-- Card ambient lighting wash -->
+      <!-- The two lighting circles the Mac view sets behind the glass, at its
+           sizes and blurs, placed where its offsets put them relative to the
+           sheet's centre. -->
       <div
-        class="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-accent/20 blur-[65px] dark:bg-accent/25"
+        class="pointer-events-none absolute left-[-40px] top-[-40px] h-[320px] w-[320px] rounded-full bg-[#38A8E8]/[0.14] blur-[65px] dark:bg-[#38A8E8]/[0.22]"
         aria-hidden="true"
       />
       <div
-        class="pointer-events-none absolute -bottom-20 -right-20 h-72 w-72 rounded-full bg-[#7359F2]/12 blur-[60px] dark:bg-[#7359F2]/18"
+        class="pointer-events-none absolute bottom-[-30px] right-[-40px] h-[300px] w-[300px] rounded-full bg-[#735AF2]/[0.10] blur-[60px] dark:bg-[#735AF2]/[0.16]"
         aria-hidden="true"
       />
 
-      <!-- Rising summit watermark inside the card -->
+      <!-- Rising summit watermark inside the sheet -->
       <div
-        class="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 text-ink-primary/[0.04] dark:text-white/[0.04] [mask-image:linear-gradient(to_top,black_25%,transparent_90%)]"
+        class="pointer-events-none absolute bottom-[-30px] left-1/2 -translate-x-1/2 text-ink-primary/[0.04] dark:text-white/[0.04] [mask-image:linear-gradient(to_top,black_25%,transparent_90%)]"
         aria-hidden="true"
       >
         <BrandMark :size="520" />
       </div>
 
-      <div class="relative z-10 flex h-full flex-col justify-between">
-        <!-- Header & Brand Hero -->
-        <header class="flex flex-col items-center text-center">
-          <!-- BSH Brand Tile (72x72 Apple dock squircle with specular rim & glow) -->
+      <!-- One stack on 20pt gaps, centred in the sheet — the Mac view's body
+           is a VStack(spacing: 20) in a fixed frame, so its content sits as
+           one block in the middle rather than spread to the edges. -->
+      <div class="relative z-10 flex h-full flex-col justify-center gap-5">
+        <!-- Header & brand hero: VStack(spacing: 12) -->
+        <header class="flex flex-col items-center gap-3 text-center">
+          <!-- 72pt tile, 18pt corner -->
           <div class="login-tile">
             <BrandMark :size="38" class="relative z-10 text-ink-primary drop-shadow-sm" />
           </div>
 
-          <h1 class="mt-3.5 font-display text-[22px] font-bold tracking-tight text-ink-primary">
-            {{ t("auth.title") }}
-          </h1>
-          <p class="mt-0.5 text-[12px] font-medium text-ink-secondary">
-            {{ t("auth.terminal_subtitle") }}
-          </p>
+          <div class="flex flex-col gap-1">
+            <h1 class="font-display text-[22px] font-bold leading-[26px] tracking-tight text-ink-primary">
+              {{ t("auth.title") }}
+            </h1>
+            <p class="text-[12px] font-medium leading-[14px] text-ink-secondary">
+              {{ t("auth.terminal_subtitle") }}
+            </p>
+          </div>
 
-          <!-- Node Scope Pill -->
-          <div class="mt-3 flex items-center justify-center">
-            <div
-              class="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.04] px-3 py-1 font-mono text-[11px] text-ink-secondary dark:border-white/[0.12] dark:bg-white/[0.08]"
-            >
-              <span
-                class="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]"
-                aria-hidden="true"
-              />
-              <span class="font-medium">{{ nodeHost }}</span>
-              <span v-if="nodePort" class="text-ink-subtle">:{{ nodePort }}</span>
-            </div>
+          <!-- Server scope pill -->
+          <div
+            class="login-pill inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] leading-[13px]"
+          >
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#34C759]" aria-hidden="true" />
+            <span class="font-medium text-ink-secondary">{{ nodeHost }}</span>
+            <span v-if="nodePort" class="font-medium text-ink-subtle">:{{ nodePort }}</span>
           </div>
         </header>
 
-        <!-- Form Inputs & Actions -->
-        <form @submit.prevent="onSubmit" class="space-y-4">
-          <!-- Form Inputs -->
-          <div class="space-y-3">
-            <!-- Institutional Email -->
+        <!-- `contents` so the form's groups are items of the 20pt stack above,
+             exactly as the Mac view's VStack holds them. -->
+        <form class="contents" @submit.prevent="onSubmit">
+          <!-- Form inputs: VStack(spacing: 12) -->
+          <div class="flex flex-col gap-3">
+            <!-- Institutional email -->
             <div
-              class="group relative flex h-10 items-center rounded-[10px] border bg-black/[0.035] px-3.5 transition-all dark:bg-white/[0.05]"
-              :class="[
-                focusedField === 'email'
-                  ? 'border-accent shadow-[0_0_12px_rgba(var(--color-accent-glow),0.35)] ring-1 ring-accent'
-                  : 'border-black/[0.08] dark:border-white/[0.12] hover:border-black/[0.15] dark:hover:border-white/[0.2]',
-              ]"
+              class="login-field flex items-center rounded-xl px-3.5 py-[11px]"
+              :class="focusedField === 'email' ? 'login-field--focused' : ''"
             >
-              <Mail
-                class="h-4 w-4 shrink-0 transition-colors"
-                :class="focusedField === 'email' ? 'text-accent' : 'text-ink-secondary/70'"
-              />
+              <span class="flex w-[18px] shrink-0 justify-center">
+                <Mail
+                  class="h-4 w-4 transition-colors"
+                  :class="focusedField === 'email' ? 'text-[#38A8E8]' : 'text-ink-secondary/80'"
+                />
+              </span>
               <input
                 ref="emailInputRef"
                 v-model="email"
@@ -192,7 +194,7 @@ async function onSubmit() {
                 required
                 :disabled="submitting"
                 :placeholder="t('auth.email_placeholder')"
-                class="ml-2.5 w-full bg-transparent text-[13px] text-ink-primary outline-none placeholder:text-ink-subtle"
+                class="ml-2.5 w-full bg-transparent text-[13px] leading-4 text-ink-primary outline-none placeholder:text-ink-subtle"
                 @focus="focusedField = 'email'"
                 @blur="focusedField = null"
                 @keydown.enter.prevent="passwordInputRef?.focus()"
@@ -200,28 +202,26 @@ async function onSubmit() {
               <button
                 v-if="email"
                 type="button"
-                class="p-0.5 text-ink-subtle transition-colors hover:text-ink-secondary"
+                class="shrink-0 text-ink-subtle transition-colors hover:text-ink-secondary"
                 tabindex="-1"
                 :aria-label="t('auth.clear_email')"
                 @click="clearEmail"
               >
-                <X class="h-3.5 w-3.5" />
+                <X class="h-[11px] w-[11px]" />
               </button>
             </div>
 
             <!-- Password -->
             <div
-              class="group relative flex h-10 items-center rounded-[10px] border bg-black/[0.035] px-3.5 transition-all dark:bg-white/[0.05]"
-              :class="[
-                focusedField === 'password'
-                  ? 'border-accent shadow-[0_0_12px_rgba(var(--color-accent-glow),0.35)] ring-1 ring-accent'
-                  : 'border-black/[0.08] dark:border-white/[0.12] hover:border-black/[0.15] dark:hover:border-white/[0.2]',
-              ]"
+              class="login-field flex items-center rounded-xl px-3.5 py-[11px]"
+              :class="focusedField === 'password' ? 'login-field--focused' : ''"
             >
-              <Lock
-                class="h-4 w-4 shrink-0 transition-colors"
-                :class="focusedField === 'password' ? 'text-accent' : 'text-ink-secondary/70'"
-              />
+              <span class="flex w-[18px] shrink-0 justify-center">
+                <Lock
+                  class="h-4 w-4 transition-colors"
+                  :class="focusedField === 'password' ? 'text-[#38A8E8]' : 'text-ink-secondary/80'"
+                />
+              </span>
               <input
                 ref="passwordInputRef"
                 v-model="password"
@@ -230,39 +230,39 @@ async function onSubmit() {
                 required
                 :disabled="submitting"
                 :placeholder="t('auth.password')"
-                class="ml-2.5 w-full bg-transparent text-[13px] text-ink-primary outline-none placeholder:text-ink-subtle"
+                class="ml-2.5 w-full bg-transparent text-[13px] leading-4 text-ink-primary outline-none placeholder:text-ink-subtle"
                 @focus="focusedField = 'password'"
                 @blur="focusedField = null"
               />
               <button
                 type="button"
-                class="p-0.5 text-ink-subtle transition-colors hover:text-ink-secondary"
+                class="shrink-0 transition-colors"
+                :class="isPasswordVisible ? 'text-[#38A8E8]' : 'text-ink-secondary hover:text-ink-primary'"
                 tabindex="-1"
                 :aria-label="isPasswordVisible ? t('auth.hide_password') : t('auth.show_password')"
                 @click="isPasswordVisible = !isPasswordVisible"
               >
-                <EyeOff v-if="isPasswordVisible" class="h-3.5 w-3.5" />
-                <Eye v-else class="h-3.5 w-3.5" />
+                <EyeOff v-if="isPasswordVisible" class="h-3 w-3" />
+                <Eye v-else class="h-3 w-3" />
               </button>
-            </div>
-
-            <!-- Auth Error Banner -->
-            <div
-              v-if="errorMessage"
-              class="flex items-start gap-2.5 rounded-[10px] border border-red-500/25 bg-red-500/10 p-2.5 text-[12px] text-red-600 dark:text-red-400"
-            >
-              <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
-              <span class="leading-relaxed">{{ errorMessage }}</span>
             </div>
           </div>
 
-          <!-- Actions & Controls -->
-          <div class="space-y-3 pt-1">
-            <!-- Submit Button -->
+          <!-- Auth error: its own item in the 20pt stack, as on the Mac -->
+          <div
+            v-if="errorMessage"
+            class="flex items-start gap-2.5 rounded-[10px] border border-red-500/[0.22] bg-red-500/[0.08] p-3 text-[12px] leading-4 text-red-600 dark:text-red-400"
+          >
+            <AlertCircle class="mt-px h-[13px] w-[13px] shrink-0" />
+            <span>{{ errorMessage }}</span>
+          </div>
+
+          <!-- Actions: VStack(spacing: 12) -->
+          <div class="flex flex-col gap-3">
             <button
               type="submit"
               :disabled="submitting || !email.trim() || !password"
-              class="relative flex h-10 w-full items-center justify-center gap-2 rounded-[10px] border-t border-white/40 bg-gradient-to-b from-[#0B87D6] to-[#0370C2] text-[13px] font-semibold text-white shadow-lg shadow-[#0B87D6]/35 transition-all hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              class="login-submit relative flex h-[38px] w-full items-center justify-center gap-2 rounded-[11px] text-[13px] font-semibold text-white transition-[filter] hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed"
             >
               <template v-if="submitting">
                 <Loader2 class="h-4 w-4 animate-spin text-white" />
@@ -270,16 +270,15 @@ async function onSubmit() {
               </template>
               <template v-else>
                 <span>{{ t("auth.sign_in_terminal") }}</span>
-                <ArrowRight class="h-3.5 w-3.5" />
+                <ArrowRight class="h-3 w-3 text-white/90" />
               </template>
             </button>
 
-            <!-- Secondary Actions (Cancel / Continue without signing in) -->
-            <div class="flex items-center justify-between text-[12px]">
+            <div class="flex items-center justify-between">
               <button
                 v-if="canCancel"
                 type="button"
-                class="font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+                class="text-[12px] font-medium text-ink-secondary transition-colors hover:text-ink-primary"
                 @click="onCancel"
               >
                 {{ t("auth.cancel") }}
@@ -289,18 +288,18 @@ async function onSubmit() {
               <button
                 v-if="isAnonDevMode"
                 type="button"
-                class="inline-flex items-center gap-1 font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+                class="inline-flex items-center gap-1 text-[11px] font-medium text-ink-secondary transition-colors hover:text-ink-primary"
                 @click="onContinueWithoutSigningIn"
               >
                 <span>{{ t("auth.continue_without") }}</span>
-                <ChevronRight class="h-3 w-3" />
+                <ChevronRight class="h-[9px] w-[9px]" />
               </button>
             </div>
           </div>
         </form>
 
-        <!-- Footer Sync Note -->
-        <p class="text-center text-[11px] leading-relaxed text-ink-subtle">
+        <!-- Footer sync note -->
+        <p class="text-center text-[11px] leading-[14px] text-ink-subtle">
           {{ t("auth.sync_footer") }}
         </p>
       </div>

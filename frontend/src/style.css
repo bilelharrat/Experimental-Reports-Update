@@ -3225,6 +3225,98 @@ select.yf-range-item:hover {
     0 10px 28px -4px rgb(var(--color-accent-glow) / 0.5);
 }
 
+/* The sign-in sheet's controls, to MacLoginView's own numbers. The accent
+   here is the Mac target's AccentColor asset — sRGB(0.220, 0.659, 0.910) —
+   not the web's --color-accent, because the point is to match that view;
+   it stays a literal for the same reason, since the asset is universal and
+   does not change with appearance. */
+/* SwiftUI's strokeBorder draws inside the shape and takes no layout, so
+   these rims are inset shadows rather than borders: a real border would
+   add its width to the box and make a field 40pt tall where the Mac's is
+   38 (11pt padding, a 13pt line, 11pt padding). */
+.login-field {
+  background-color: rgb(0 0 0 / 0.035);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+  transition: box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.dark .login-field {
+  background-color: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.login-field:hover:not(.login-field--focused) {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+}
+
+.dark .login-field:hover:not(.login-field--focused) {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2);
+}
+
+.login-field--focused,
+.dark .login-field--focused {
+  box-shadow:
+    inset 0 0 0 1.5px rgb(56 168 232),
+    0 0 4px rgb(56 168 232 / 0.35);
+}
+
+.login-pill {
+  background-color: rgb(0 0 0 / 0.05);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+
+.dark .login-pill {
+  background-color: rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.12);
+}
+
+/* Accent to #0870C2 top to bottom, rimmed by a white gradient that fades
+   down the edge — a gradient border, which CSS draws only through a masked
+   pseudo-element. */
+.login-submit {
+  background-image: linear-gradient(to bottom, rgb(56 168 232), rgb(8 112 194));
+  box-shadow: 0 3px 8px rgb(56 168 232 / 0.35);
+}
+
+.login-submit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background-image: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.45),
+    rgb(255 255 255 / 0.1)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.login-submit:disabled {
+  background-image: linear-gradient(
+    to bottom,
+    rgb(56 168 232 / 0.35),
+    rgb(56 168 232 / 0.25)
+  );
+  box-shadow: none;
+}
+
+.login-submit:disabled::after {
+  background-image: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.15),
+    rgb(255 255 255 / 0.04)
+  );
+}
+
 .login-summit {
   pointer-events: none;
   position: absolute;
