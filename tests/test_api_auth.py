@@ -32,6 +32,7 @@ def _isolate_auth_stores(monkeypatch, tmp_path):
     from server import api as api_mod
 
     api_mod._login_failures.clear()
+    api_mod._ip_attempts.clear()
 
 
 def _make_user(email="user@bshventures.com", password="s3cret-passw0rd"):
@@ -222,6 +223,22 @@ def test_login_success_resets_failure_counter(client):
     for _ in range(4):
         bad = client.post("/api/auth/token", json={"email": email, "password": "wrong"})
         assert bad.status_code == 401
+
+
+def test_a_failed_bearer_never_falls_back_to_the_cookie(client):
+    """A presented credential is the one being judged. A dead or foreign
+    bearer must not ride on whatever session cookie the client holds —
+    with a shared cookie jar that turned one user's revoked token into
+    another user's session."""
+    email, password = _make_user()
+    login = client.post("/api/auth/token", json={"email": email, "password": password})
+    assert login.status_code == 200
+    assert client.cookies.get("bsh_session")  # the jar now holds a live session
+    # Cookie alone works for a safe method.
+    assert client.get("/api/auth/me").status_code == 200
+    # A bad bearer alongside that same live cookie is refused outright.
+    r = client.get("/api/auth/me", headers={"Authorization": "Bearer not-a-real-token"})
+    assert r.status_code == 401
 
 
 # --- Change password -----------------------------------------------------

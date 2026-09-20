@@ -54,6 +54,27 @@ Running without any credentials is off by default. To allow it locally, set
 tracked `.env.example` (copy it to `.env`, which is gitignored). All other
 environment variables are documented there too.
 
+### Accounts
+
+Registration is open and an administrator approves. A new account is `pending`
+— it holds a password and can do nothing — until an admin activates it from
+**Settings → Manage accounts** (`/accounts`) and assigns its role in the same
+act. The role is assigned, never inferred from the email domain: with open
+registration the address is the applicant's choice. Account status is checked
+on every request, so approving or disabling takes effect immediately.
+
+Password resets are carried by hand, since there is no mail path: the person
+asks from the sign-in page, which flags the account, and an admin mints a
+single-use link (24 h, hash-only at rest) from the accounts screen and sends
+it. Spending it — or changing a password — ends every other session for the
+account. An account flagged `must_reset` can change its password and nothing
+else until it does.
+
+Neither open form reveals whether an address is registered, in words or in
+timing. Both are throttled per caller (see `BSH_TRUSTED_PROXY`), sign-in is
+throttled per email and per caller, a bearer that fails never falls back to
+the session cookie, and every account decision lands on the firm audit trail.
+
 ### Account management (operator CLI)
 
 No passwords ship in source. Seed accounts are created with `must_reset` and an
@@ -73,9 +94,18 @@ Users can self-serve via `POST /api/auth/change-password`.
 
 - Rotate `BSH_RESEARCH_API_TOKEN` to a long random secret (the old
   `BSH-8688` was leaked and is burned), or leave it unset.
-- Ensure `BSH_ALLOW_ANON_DEV` is unset.
-- Set a real password for every seed account and run `revoke-all` once.
-- Cookies are `Secure` automatically behind TLS (`X-Forwarded-Proto: https`).
+- Ensure `BSH_ALLOW_ANON_DEV` is unset. With it set, every visitor is an
+  admin and registration, approval, roles and account status all stop
+  mattering.
+- Set a real password for every seed account (or send each a reset link
+  from `/accounts`) and run `revoke-all` once.
+- Set `BSH_TRUSTED_PROXY=1` only if your own reverse proxy sets
+  `X-Forwarded-For`; otherwise every caller shares one throttle bucket.
+- Cookies are `Secure` and HSTS is sent automatically behind TLS
+  (`X-Forwarded-Proto: https`, or `BSH_COOKIE_SECURE=1`).
+- `data/users.json`, `data/sessions.json` and `data/password_resets.json`
+  are written owner-only (0600); keep the data directory out of any
+  world-readable path.
 
 ## Frontend dev
 

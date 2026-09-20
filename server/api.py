@@ -334,14 +334,12 @@ def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> 
     token_hash = _hash_token_digest(normalized)
     token_kind = "sha256" if token_hash else "raw"
     digest = (token_hash or _sha256_token(normalized))[:12]
-    if token_hash:
-        display = f"sha256:{token_hash[:12]}..."
-    elif len(normalized) <= 8:
-        display = f"{normalized[:2]}...{normalized[-2:]}"
-    else:
-        display = f"{normalized[:4]}...{normalized[-4:]}"
+    # Only the fingerprint, never a character of the token itself: a
+    # fingerprint is enough to match a client's token against the server's
+    # in a debugging session, and the log is not a place for even eight
+    # characters of a live credential.
     return (
-        f"present=true kind={token_kind} value={display} len={len(normalized)} "
+        f"present=true kind={token_kind} len={len(normalized)} "
         f"sha256={digest} bearer_prefix={had_bearer_prefix}"
     )
 
@@ -377,16 +375,20 @@ def _enforce_cookie_csrf(request: Request) -> None:
     )
 
 
-def _require_active_account(email: str | None) -> None:
-    """A live token is not enough: the account behind it must still be
-    active. Checked on every request so approving, disabling or deleting
-    an account takes effect at once rather than whenever its 30-day
-    sessions happen to expire."""
+def _require_active_account(email: str | None, *, status_code: int = 403) -> None:
+    """A live token is not enough: the account behind it must still exist
+    and be active. Checked on every request so approving, disabling or
+    removing an account takes effect at once rather than whenever its
+    30-day sessions happen to expire.
+
+    At sign-in this is a 403 with the reason. On a request that carries a
+    session it is a 401: the SPA tears a session down only on 401, and a
+    session for an account that no longer works is a session to drop.
+    """
     record = auth_store.account(email)
     if record is None:
-        # Seeded before the account store grew statuses, or removed while
-        # signed in. verify_credentials already gates the former.
-        return
+        # A session whose account is gone: fail closed, not open.
+        raise HTTPException(status_code=status_code, detail="This account no longer exists.")
     status = record.get("status")
     if status == auth_store.STATUS_ACTIVE:
         return
@@ -395,7 +397,31 @@ def _require_active_account(email: str | None) -> None:
         if status == auth_store.STATUS_PENDING
         else "This account has been disabled."
     )
-    raise HTTPException(status_code=403, detail=detail)
+    raise HTTPException(status_code=status_code, detail=detail)
+
+
+# Everything a session flagged must_reset may reach until the password is
+# changed. Compared on the part after "/api/", since nginx strips the
+# /research prefix and the app sees both shapes.
+_PASSWORD_CHANGE_ONLY = frozenset(
+    {"auth/me", "auth/change-password", "auth/logout", "auth/sessions", "auth/sessions/revoke"}
+)
+
+
+def _enforce_password_change(request: Request, email: str | None) -> None:
+    """An account flagged ``must_reset`` — a seeded account on the shared
+    bootstrap password, or one an operator marked — can change its
+    password and nothing else. Until this ran, the flag was returned to
+    the client and enforced by no one."""
+    if not auth_store.must_reset(email):
+        return
+    tail = request.url.path.split("/api/", 1)[-1].strip("/")
+    if tail in _PASSWORD_CHANGE_ONLY:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Set a new password before using the account.",
+    )
 
 
 def require_api_token(request: Request) -> None:
@@ -431,15 +457,21 @@ def require_api_token(request: Request) -> None:
     # Path 2: session token in the Authorization header (web fetch, iOS).
     session = auth_store.validate_token(presented) if presented else None
     if session:
-        _require_active_account(session.get("email"))
+        _require_active_account(session.get("email"), status_code=401)
+        _enforce_password_change(request, session.get("email"))
         request.state.session_email = session.get("email")
         return
 
     # Path 3: session cookie (browser downloads / SSE). Guard mutations.
-    if cookie_token:
+    # Only when no bearer was presented: a bearer that failed above must
+    # not fall through to the cookie. A presented credential is the one
+    # being judged; downgrading silently to another would let a dead or
+    # foreign token ride on whatever cookie the client happens to hold.
+    if cookie_token and presented is None:
         session = auth_store.validate_token(cookie_token)
         if session:
-            _require_active_account(session.get("email"))
+            _require_active_account(session.get("email"), status_code=401)
+            _enforce_password_change(request, session.get("email"))
             request.state.session_email = session.get("email")
             _enforce_cookie_csrf(request)
             return
@@ -473,8 +505,9 @@ auth_router = APIRouter(prefix="/api/auth")
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(..., description="Account email address")
-    password: str = Field(..., description="Plain-text password — verified against PBKDF2 hash")
+    email: str = Field(..., max_length=auth_store.MAX_EMAIL_LENGTH, description="Account email address")
+    # Bounded so a multi-megabyte "password" cannot buy a KDF-priced request.
+    password: str = Field(..., max_length=1024, description="Plain-text password — verified against PBKDF2 hash")
 
 
 class LoginResponse(BaseModel):
@@ -486,22 +519,28 @@ class LoginResponse(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(..., description="Current password")
-    new_password: str = Field(..., min_length=8, description="New password (min 8 chars)")
+    current_password: str = Field(..., max_length=1024, description="Current password")
+    # The policy (auth_store.password_policy_error) is the floor, applied in
+    # the handler; this only bounds the body.
+    new_password: str = Field(..., max_length=1024, description="New password")
 
 
 class RegisterRequest(BaseModel):
-    email: str = Field(..., description="Account email address")
-    password: str = Field(..., description="Chosen password")
+    email: str = Field(..., max_length=auth_store.MAX_EMAIL_LENGTH, description="Account email address")
+    password: str = Field(..., max_length=1024, description="Chosen password")
 
 
 class ResetRequestBody(BaseModel):
-    email: str = Field(..., description="Account email address")
+    email: str = Field(..., max_length=auth_store.MAX_EMAIL_LENGTH, description="Account email address")
+
+
+class ResetTokenBody(BaseModel):
+    token: str = Field(..., max_length=256, description="Single-use token from the reset link")
 
 
 class ResetConsumeRequest(BaseModel):
-    token: str = Field(..., description="Single-use token from the reset link")
-    new_password: str = Field(..., description="New password")
+    token: str = Field(..., max_length=256, description="Single-use token from the reset link")
+    new_password: str = Field(..., max_length=1024, description="New password")
 
 
 class AccountDecisionRequest(BaseModel):
@@ -534,22 +573,48 @@ _ip_attempts: dict[str, list[float]] = {}
 
 
 def _client_key(request: Request) -> str:
+    """The caller, for per-caller throttling.
+
+    Behind a reverse proxy every request arrives from 127.0.0.1, which would
+    put the whole internet in one bucket — one bad actor locks everyone out
+    of registering. X-Forwarded-For fixes that, but it is client-supplied,
+    so it is read only when the operator says the proxy in front sets it
+    (``BSH_TRUSTED_PROXY=1``); otherwise the socket peer is the truth.
+    """
+    if os.environ.get("BSH_TRUSTED_PROXY") == "1":
+        forwarded = request.headers.get("x-forwarded-for") or ""
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
     return (request.client.host if request.client else "") or "unknown"
 
 
-def _rate_limit_ip(request: Request, bucket: str) -> None:
-    """Raise 429 when one caller has hammered an open form."""
+def _rate_limit_ip(request: Request, bucket: str, *, record: bool = True) -> None:
+    """Raise 429 when one caller has hammered an open form.
+
+    ``record`` counts this call toward the window. The open forms count
+    every call; sign-in counts only failures (``_record_ip_failure``),
+    because a person who signs in on three devices in an afternoon is not
+    an attack, and locking them out would be the bug.
+    """
     key = f"{bucket}:{_client_key(request)}"
     now = time.time()
     with _login_lock:
         hits = [t for t in _ip_attempts.get(key, []) if now - t < _IP_WINDOW_SECONDS]
-        hits.append(now)
+        if record:
+            hits.append(now)
         _ip_attempts[key] = hits
-        if len(hits) > _IP_MAX_ATTEMPTS:
+        if len(hits) > _IP_MAX_ATTEMPTS or (not record and len(hits) >= _IP_MAX_ATTEMPTS):
             raise HTTPException(
                 status_code=429,
                 detail="Too many attempts. Try again later.",
             )
+
+
+def _record_ip_failure(request: Request, bucket: str) -> None:
+    key = f"{bucket}:{_client_key(request)}"
+    with _login_lock:
+        _ip_attempts.setdefault(key, []).append(time.time())
 
 
 def _rate_limit_login(email: str) -> None:
@@ -632,9 +697,11 @@ def login(request: Request, response: Response, payload: LoginRequest) -> LoginR
     unless revoked via ``POST /api/auth/logout``.
     """
     _rate_limit_login(payload.email)
+    _rate_limit_ip(request, "login", record=False)
     email = auth_store.verify_credentials(payload.email, payload.password)
     if not email:
         _record_login_failure(payload.email)
+        _record_ip_failure(request, "login")
         logger.warning(
             "Login rejected for email=%r (no match or bad password)",
             payload.email,
@@ -670,7 +737,7 @@ def register(request: Request, payload: RegisterRequest) -> dict:
     if problem:
         raise HTTPException(status_code=400, detail=problem)
     email = (payload.email or "").strip()
-    if "@" not in email or len(email) < 3:
+    if not auth_store.valid_email(email):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     outcome = auth_store.register(email, payload.password)
     if outcome == "created":
@@ -700,11 +767,14 @@ def request_password_reset(request: Request, payload: ResetRequestBody) -> dict:
     }
 
 
-@auth_router.get("/reset/check")
-def check_reset_token(token: str) -> dict:
+@auth_router.post("/reset/check")
+def check_reset_token(request: Request, payload: ResetTokenBody) -> dict:
     """Whether a reset link is still good, so the page can say so before
-    the person types a new password twice."""
-    email = auth_store.peek_reset_token(token)
+    the person types a new password twice. A POST with the token in the
+    body: as a GET query string the token would sit in every access log
+    between the browser and this process."""
+    _rate_limit_ip(request, "reset")
+    email = auth_store.peek_reset_token(payload.token)
     if not email:
         raise HTTPException(
             status_code=404, detail="This reset link is invalid or has expired."
@@ -742,6 +812,43 @@ def consume_password_reset(
 # --- Account administration ----------------------------------------------
 
 
+def _effective_role(record: dict) -> str:
+    """What an account's role resolves to today: none while not active, the
+    assigned one if it has one, else the email mapping the seeds use."""
+    if record.get("status") != auth_store.STATUS_ACTIVE:
+        return "guest"
+    return record.get("role") or product_store.role_for_email(record.get("email"))
+
+
+def _other_active_admins(email: str) -> int:
+    key = auth_store.normalize_email(email)
+    return sum(
+        1
+        for row in auth_store.list_accounts()
+        if row["email"] != key and _effective_role(row) == "admin"
+    )
+
+
+def _audit_account_action(request: Request, action: str, email: str, detail: str = "") -> None:
+    """Account decisions go on the firm audit trail. The mutation
+    middleware skips /auth/ paths on purpose (sign-ins are not firm
+    actions), so these are written by hand — an approval or a disable is
+    exactly the kind of thing that trail exists to answer for."""
+    from server import firm
+
+    try:
+        firm.record_audit(
+            actor=_caller_email(request),
+            auth_kind=getattr(request.state, "auth_kind", None),
+            action=action,
+            path=request.url.path,
+            status=200,
+            detail=f"{auth_store.normalize_email(email)} {detail}".strip(),
+        )
+    except Exception:  # noqa: BLE001 — the decision stands even if the trail is unwritable
+        logger.warning("audit write failed for %s", action, exc_info=True)
+
+
 @router.get("/auth/accounts")
 def list_accounts(request: Request) -> dict:
     """Every account and its status, for the admin screen."""
@@ -769,28 +876,50 @@ def approve_account(
             status_code=400,
             detail=f"Choose a role: {', '.join(product_store.assignable_roles())}",
         )
-    if not auth_store.set_account_status(
-        email, auth_store.STATUS_ACTIVE, role=role, by=_caller_email(request)
-    ):
+    target = auth_store.normalize_email(email)
+    record = auth_store.account(target)
+    if record is None:
         raise HTTPException(status_code=404, detail="No such account")
-    logger.info(
-        "Account approved email=%s role=%s by=%s", email, role, _caller_email(request)
+    current = _effective_role(record)
+    if target == _caller_email(request) and role != current:
+        # Demoting yourself is the one role change nobody can undo for you.
+        raise HTTPException(status_code=400, detail="You cannot change your own role.")
+    if current == "admin" and role != "admin" and _other_active_admins(target) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="This is the last administrator. Make someone else an administrator first.",
+        )
+    was_active = record.get("status") == auth_store.STATUS_ACTIVE
+    auth_store.set_account_status(
+        target, auth_store.STATUS_ACTIVE, role=role, by=_caller_email(request)
     )
-    return {"account": auth_store.account(email)}
+    action = "account.role" if was_active else "account.approve"
+    _audit_account_action(request, action, target, f"-> {role}")
+    logger.info("%s email=%s role=%s by=%s", action, target, role, _caller_email(request))
+    return {"account": auth_store.account(target)}
 
 
 @router.post("/auth/accounts/{email}/disable")
 def disable_account(request: Request, email: str) -> dict:
     """Turn an account off. Its sessions end immediately."""
     _require_permission(request, "users:manage")
-    if auth_store._normalize_email(email) == _caller_email(request):
+    target = auth_store.normalize_email(email)
+    if target == _caller_email(request):
         raise HTTPException(
             status_code=400, detail="You cannot disable your own account."
         )
-    if not auth_store.set_account_status(email, auth_store.STATUS_DISABLED):
+    record = auth_store.account(target)
+    if record is None:
         raise HTTPException(status_code=404, detail="No such account")
-    logger.info("Account disabled email=%s by=%s", email, _caller_email(request))
-    return {"account": auth_store.account(email)}
+    if _effective_role(record) == "admin" and _other_active_admins(target) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="This is the last administrator. Make someone else an administrator first.",
+        )
+    auth_store.set_account_status(target, auth_store.STATUS_DISABLED)
+    _audit_account_action(request, "account.disable", target)
+    logger.info("Account disabled email=%s by=%s", target, _caller_email(request))
+    return {"account": auth_store.account(target)}
 
 
 @router.post("/auth/accounts/{email}/reset-link")
@@ -805,9 +934,10 @@ def mint_reset_link(request: Request, email: str) -> dict:
     token = auth_store.mint_reset_token(email)
     if not token:
         raise HTTPException(status_code=404, detail="No such account")
+    _audit_account_action(request, "account.reset_link", email)
     logger.info("Reset link minted email=%s by=%s", email, _caller_email(request))
     return {
-        "email": auth_store._normalize_email(email),
+        "email": auth_store.normalize_email(email),
         "token": token,
         "path": f"/reset?token={token}",
         "expires_in_hours": int(auth_store.RESET_TTL.total_seconds() // 3600),
@@ -961,8 +1091,14 @@ def change_password(
         raise HTTPException(status_code=403, detail="Session login required")
     if not auth_store.verify_credentials(email, payload.current_password):
         raise HTTPException(status_code=403, detail="Current password is incorrect")
+    problem = auth_store.password_policy_error(payload.new_password, email)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="Choose a password you have not used here.")
+    # set_password ends every session for the account; a fresh one is
+    # issued below so the caller stays signed in.
     auth_store.set_password(email, payload.new_password)
-    auth_store.revoke_email(email)
     session = auth_store.issue_session(email)
     _set_session_cookie(request, response, session["token"])
     return LoginResponse(**session, must_reset=False)

@@ -20,7 +20,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
+import stat
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,8 +49,25 @@ STATUS_ACTIVE = "active"
 STATUS_DISABLED = "disabled"
 STATUSES = (STATUS_PENDING, STATUS_ACTIVE, STATUS_DISABLED)
 
-# Long enough to be worth the 200k-iteration KDF behind it.
+# Long enough to be worth the 200k-iteration KDF behind it. The ceiling is
+# not a policy: it stops a 10MB "password" from becoming a KDF-priced request.
 MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_LENGTH = 256
+# RFC 5321's path limit; the shape check is deliberately loose (one "@",
+# something either side, a dot in the domain) because strict address
+# grammars reject real addresses, and approval is a human step anyway.
+MAX_EMAIL_LENGTH = 254
+_EMAIL_SHAPE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# An account keeps at most this many live sessions; a sign-in past it
+# retires the oldest. Bounds the store against a client that signs in on a
+# loop, and bounds the damage of a stolen credential that keeps minting.
+MAX_SESSIONS_PER_ACCOUNT = 25
+
+
+def valid_email(email: str | None) -> bool:
+    key = _normalize_email(email)
+    return bool(key) and len(key) <= MAX_EMAIL_LENGTH and bool(_EMAIL_SHAPE_RE.match(key))
 PBKDF2_ITERATIONS = 200_000
 PBKDF2_ALGO = "sha256"
 
@@ -85,6 +104,11 @@ def _normalize_email(email: str | None) -> str:
     return (email or "").strip().lower()
 
 
+def normalize_email(email: str | None) -> str:
+    """The canonical form of an address, as the store keys it."""
+    return _normalize_email(email)
+
+
 # ---- Password hashing ---------------------------------------------------
 
 def _hash_password(password: str, *, salt: bytes | None = None) -> dict:
@@ -118,26 +142,44 @@ def _verify_password(password: str, record: dict) -> bool:
 
 # ---- JSON store I/O -----------------------------------------------------
 
+class StoreUnreadableError(RuntimeError):
+    """A store file exists but cannot be read as the JSON object it should
+    be. Raised rather than swallowed: returning an empty default here would
+    let the next write replace every account with a fresh seed set."""
+
+
+_OWNER_ONLY = stat.S_IRUSR | stat.S_IWUSR
+
+
 def _read_json(path: Path, default: dict) -> dict:
     if not path.exists():
         return default
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict):
-            return default
-        return data
-    except (OSError, json.JSONDecodeError):
-        return default
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StoreUnreadableError(f"{path} is unreadable: {exc}") from exc
+    if not isinstance(data, dict):
+        raise StoreUnreadableError(f"{path} does not hold a JSON object")
+    return data
 
 
 def _write_json(path: Path, payload: dict) -> None:
+    """Atomic replace, owner-only. The tmp file is created 0600 before a
+    byte of hash material lands in it, and the final file is re-asserted
+    to 0600 in case it predates this rule (the default umask left the
+    old ones world-readable)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _OWNER_ONLY)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
     tmp.replace(path)
+    try:
+        os.chmod(path, _OWNER_ONLY)
+    except OSError:
+        pass
 
 
 def _load_users() -> dict:
@@ -209,6 +251,8 @@ def password_policy_error(password: str, email: str | None = None) -> str | None
     candidate = password or ""
     if len(candidate) < MIN_PASSWORD_LENGTH:
         return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if len(candidate) > MAX_PASSWORD_LENGTH:
+        return f"Password must be at most {MAX_PASSWORD_LENGTH} characters."
     if len(set(candidate)) < 4:
         return "Password must use more than a few distinct characters."
     local = _normalize_email(email).split("@")[0]
@@ -274,10 +318,14 @@ def register(email: str, password: str) -> str:
     open registration form must not do.
     """
     key = _normalize_email(email)
-    if not key or "@" not in key:
+    if not valid_email(key):
         return "invalid"
     if password_policy_error(password, key):
         return "invalid"
+    # The KDF runs before the address is looked up, so a taken address and a
+    # free one take the same time to answer. Looking first would have made
+    # "exists" a fast path — a stopwatch could tell them apart.
+    hashed = _hash_password(password)
     with _LOCK:
         payload = _load_users()
         users = payload.setdefault("users", {})
@@ -286,7 +334,7 @@ def register(email: str, password: str) -> str:
             return "exists"
         users[key] = {
             "email": key,
-            "password": _hash_password(password),
+            "password": hashed,
             "created_at": _iso(_now()),
             "status": STATUS_PENDING,
         }
@@ -457,6 +505,12 @@ def issue_session(email: str, *, ttl: timedelta = SESSION_TTL) -> dict:
         payload = _load_sessions()
         sessions = payload.setdefault("sessions", {})
         _purge_expired(sessions)
+        mine = sorted(
+            (hh for hh, row in sessions.items() if row.get("email") == key),
+            key=lambda hh: sessions[hh].get("created_at") or "",
+        )
+        for stale in mine[: max(0, len(mine) - (MAX_SESSIONS_PER_ACCOUNT - 1))]:
+            sessions.pop(stale, None)
         sessions[h] = {
             "email": key,
             "created_at": _iso(now),
@@ -722,11 +776,12 @@ def request_password_reset(email: str | None) -> bool:
         payload = _load_users()
         users = payload.setdefault("users", {})
         record = users.get(key)
-        if record is None:
-            return False
-        record["reset_requested_at"] = _iso(_now())
+        if record is not None:
+            record["reset_requested_at"] = _iso(_now())
+        # Saved either way: the write is the measurable part of this call,
+        # and an unknown address must cost the same as a known one.
         _save_users(payload)
-    return True
+    return record is not None
 
 
 def mint_reset_token(email: str, *, ttl: timedelta = RESET_TTL) -> str | None:
@@ -770,11 +825,22 @@ def consume_reset_token(raw_token: str, new_password: str) -> str | None:
     Every session for the account ends here: a reset is what someone does
     when they believe another person has the old password.
     """
-    email = peek_reset_token(raw_token)
-    if email is None:
+    if not raw_token:
         return None
-    if password_policy_error(new_password, email):
-        return None
+    with _LOCK:
+        payload = _load_resets()
+        resets = payload.setdefault("resets", {})
+        _purge_expired_resets(resets)
+        row = resets.get(_token_hash(raw_token))
+        email = row.get("email") if row else None
+        if email is None or password_policy_error(new_password, email):
+            if row is None:
+                _save_resets(payload)
+            return None
+        # Spent here, atomically: a second submission racing this one finds
+        # nothing, whichever of the two reached the lock first.
+        resets.pop(_token_hash(raw_token), None)
+        _save_resets(payload)
     if not set_password(email, new_password):
         return None
     _drop_resets_for(email)

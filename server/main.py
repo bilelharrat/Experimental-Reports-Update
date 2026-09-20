@@ -95,6 +95,37 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")
+async def _security_headers(request, call_next):
+    """The response headers a sign-in page is naked without.
+
+    Framing is limited to this origin — not denied outright, because the
+    file and external-research previews frame their own documents. Auth
+    responses carry a token and are marked uncacheable so no shared cache
+    keeps one. HSTS is sent only where the request is already secure: on a
+    plain-http local run it would be a promise the browser then holds the
+    developer to. A full script CSP is deliberately not here — index.html
+    ships an inline bootstrap script, and a policy that breaks the app
+    gets removed rather than kept.
+    """
+    response = await call_next(request)
+    headers = response.headers
+    headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("Referrer-Policy", "same-origin")
+    headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if "/api/auth/" in request.url.path:
+        headers["Cache-Control"] = "no-store"
+    from server.api import _cookie_secure
+
+    if _cookie_secure(request):
+        headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+
+@app.middleware("http")
 async def _audit_mutations(request, call_next):
     """Append every mutating /api call (who, what, status) to the firm audit trail."""
     response = await call_next(request)
