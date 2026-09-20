@@ -10986,7 +10986,9 @@ def _adopt_zh_translations(source: Any, translated: Any) -> None:
             if (
                 str(translated.get("zh") or "").strip()
                 and translated.get("en") == source.get("en")
-                and not str(source.get("zh") or "").strip()
+                # Not `is the slot empty` but `does it still need
+                # translating` — an English-filled zh must be replaceable.
+                and _zh_untranslated(source)
                 # Citation ids are links: a zh string that lost, gained
                 # or renumbered one stays blank and goes to the chaser.
                 and sorted(_citation_ids(translated["zh"]))
@@ -11442,14 +11444,37 @@ class BilingualChaser:
         self._pool.shutdown(wait=False)
 
 
+def _zh_untranslated(node: dict) -> bool:
+    """True when this localized {en, zh} leaf still needs translating.
+
+    Blank is the obvious case. The other is a zh half holding the English
+    back: live on 2026-09-19 Gemini filled nine scorecard cells with their
+    own English, every gap-fill skipped them because the slot was not
+    blank, and the document gate caught them only after the .docx had been
+    written — as a P1 nobody had to act on. Asking whether the slot is
+    FILLED was never the same question as whether it is TRANSLATED.
+
+    The English test is the rendered gate's own
+    (``memo_chinese_parity.english_left_untranslated``) so the two cannot
+    drift: conservative by design, since a zh half that is a number, a
+    ticker or a proper noun carries no CJK either and is already right.
+    """
+    en = str(node.get("en") or "").strip()
+    if not en:
+        return False
+    zh = str(node.get("zh") or "").strip()
+    if not zh:
+        return True
+    from . import memo_chinese_parity
+
+    return memo_chinese_parity.english_left_untranslated(zh)
+
+
 def _has_blank_zh(obj: Any) -> bool:
-    """True when any localized {en, zh} leaf has English but a blank zh."""
+    """True when any localized {en, zh} leaf still needs translating."""
     if isinstance(obj, dict):
-        if "en" in obj and "zh" in obj:
-            en = str(obj.get("en") or "").strip()
-            zh = str(obj.get("zh") or "").strip()
-            if en and not zh:
-                return True
+        if "en" in obj and "zh" in obj and _zh_untranslated(obj):
+            return True
         return any(_has_blank_zh(value) for value in obj.values())
     if isinstance(obj, list):
         return any(_has_blank_zh(value) for value in obj)
@@ -11457,14 +11482,9 @@ def _has_blank_zh(obj: Any) -> bool:
 
 
 def _count_blank_zh(obj: Any) -> int:
-    """Count localized {en, zh} leaves whose zh is still blank."""
+    """Count localized {en, zh} leaves that still need translating."""
     if isinstance(obj, dict):
-        own = 0
-        if "en" in obj and "zh" in obj:
-            en = str(obj.get("en") or "").strip()
-            zh = str(obj.get("zh") or "").strip()
-            if en and not zh:
-                own = 1
+        own = 1 if ("en" in obj and "zh" in obj and _zh_untranslated(obj)) else 0
         return own + sum(_count_blank_zh(value) for value in obj.values())
     if isinstance(obj, list):
         return sum(_count_blank_zh(value) for value in obj)

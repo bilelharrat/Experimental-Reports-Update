@@ -319,3 +319,45 @@ def test_chase_abandoned_unit_never_double_emits(tmp_path, monkeypatch):
     rows = stream.snapshot("phase_timing", phase="zh_chase:executive_summary")
     terminal = [e for e in rows if e["status"] in ("finished", "failed")]
     assert len(terminal) == 1 and terminal[0]["status"] == "failed"
+
+
+# The real cell text from the Databricks Gemini run of 2026-09-19: Gemini put
+# the English back in the zh half of nine scorecard cells.
+_ENGLISH_IN_ZH = (
+    "Massive and expanding data and AI software TAM driven by enterprise "
+    "cloud modernization and agentic AI pipelines."
+)
+
+
+def test_english_left_in_the_zh_half_still_counts_as_untranslated():
+    """Asking whether a Chinese slot is FILLED was never the same question as
+    whether it is TRANSLATED. Live on 2026-09-19 nine scorecard cells shipped
+    in English because the slot was not blank, so every gap-fill skipped them
+    and only the rendered-document gate noticed — too late to act on."""
+    node = {"en": _ENGLISH_IN_ZH, "zh": _ENGLISH_IN_ZH}
+    assert claude_runner._zh_untranslated(node) is True
+    assert claude_runner._has_blank_zh({"cell": node}) is True
+    assert claude_runner._count_blank_zh({"cell": node}) == 1
+
+
+def test_a_short_non_chinese_zh_half_is_left_alone():
+    """A zh half that is a number, a ticker or a proper noun carries no CJK
+    either and is already correct — the rule must not chase those."""
+    for zh in ("27.1x", "Databricks", "$7B", "2026-09-19", "IPO"):
+        node = {"en": zh, "zh": zh}
+        assert claude_runner._zh_untranslated(node) is False, zh
+
+
+def test_a_translated_cell_is_not_chased():
+    node = {"en": _ENGLISH_IN_ZH, "zh": "企业云现代化与智能体式 AI 流水线驱动的数据与 AI 软件市场空间庞大且持续扩张。"}
+    assert claude_runner._zh_untranslated(node) is False
+    assert claude_runner._count_blank_zh({"cell": node}) == 0
+
+
+def test_adoption_replaces_an_english_filled_zh_half():
+    """The chase merge adopted only into a blank slot, so a cell Gemini had
+    filled with English could never be corrected by a later translation."""
+    source = {"cell": {"en": _ENGLISH_IN_ZH, "zh": _ENGLISH_IN_ZH}}
+    translated = {"cell": {"en": _ENGLISH_IN_ZH, "zh": "企业云现代化驱动的数据与 AI 软件市场空间庞大。"}}
+    claude_runner._adopt_zh_translations(source, translated)
+    assert source["cell"]["zh"] == "企业云现代化驱动的数据与 AI 软件市场空间庞大。"
