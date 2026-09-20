@@ -409,3 +409,43 @@ def test_a_discarded_wave_is_not_translated(tmp_path, monkeypatch):
     # them was forwarded for translation.
     assert section_calls, "sections should still have been attempted"
     assert hooked == []
+
+
+def test_an_improved_section_replaces_the_early_draft_for_later_attempts(
+    tmp_path, monkeypatch
+):
+    """These futures live for the whole run, not for one package attempt, so
+    a second attempt harvests the same drafts the first one got. Live on
+    2026-09-19 attempt 2 restarted from attempt 1's pre-revision drafts and
+    spent nine length-revision calls arriving back where it had already
+    been."""
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    monkeypatch.setattr(
+        claude_runner, "_run_english_section", _fake_section([])
+    )
+    spec = _speculator(tmp_path)
+    for pass_id in _FIRST_WAVE + list(_STRAGGLERS):
+        spec.note_pass_result(pass_id, True)
+    result, reason = spec.consume()
+    assert reason is None and isinstance(result, dict)
+
+    section_id = sorted(spec.early_futures())[0]
+    original, error = spec.early_futures()[section_id].result(timeout=10)
+    assert error is None
+
+    improved = {"section": {"id": section_id, "blocks": [{"type": "marker"}]}}
+    spec.adopt_section_result(section_id, improved)
+
+    harvested, harvested_error = spec.early_futures()[section_id].result(
+        timeout=10
+    )
+    assert harvested_error is None
+    assert harvested is improved
+    assert harvested != original
+
+    # A section the speculator never started is not invented here.
+    spec.adopt_section_result("not_a_section", improved)
+    assert "not_a_section" not in spec.early_futures()

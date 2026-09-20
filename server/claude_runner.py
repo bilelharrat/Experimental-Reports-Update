@@ -7833,6 +7833,25 @@ class SpeculativeEnglish:
                 return {}
             return dict(self._early_futures)
 
+    def adopt_section_result(self, section_id: str, result: Any) -> None:
+        """Replace an early draft with a better one for later attempts.
+
+        These futures live for the whole run, not for one package attempt,
+        so a second attempt harvests the SAME drafts the first one got —
+        including sections the length gate had already brought up. Live on
+        2026-09-19 attempt 2 restarted from attempt 1's pre-revision
+        drafts and spent nine revision calls arriving back where it had
+        already been. A section that has been improved is stored back here
+        so the next attempt starts from the improvement.
+        """
+        from concurrent.futures import Future
+
+        settled: Future = Future()
+        settled.set_result((result, None))
+        with self._lock:
+            if section_id in self._early_futures:
+                self._early_futures[section_id] = settled
+
     def _abandon_early_sections(self, reason: str) -> None:
         with self._lock:
             already = self._early_abandoned
@@ -9911,6 +9930,12 @@ def run_memo_fast_english_package_parallel(
                     )
                     continue
                 previous = results[section_id]
+                # Carry the improvement back to the speculator, or a later
+                # package attempt harvests the draft this just replaced.
+                if speculative_english is not None:
+                    speculative_english.adopt_section_result(
+                        section_id, result
+                    )
                 result["claude_cost_usd"] = (
                     _to_float(previous.get("claude_cost_usd"))
                     + _to_float(result.get("claude_cost_usd"))
