@@ -366,3 +366,21 @@ def test_users_manage_is_admin_only():
     for role, perms in product_store.ROLE_PERMISSIONS.items():
         if role != "admin":
             assert "users:manage" not in perms
+
+
+def test_the_machine_role_is_not_on_the_menu(client):
+    """"service" is the shared env token's role — a machine credential,
+    never a person."""
+    headers = _admin(client)
+    offered = client.get("/api/auth/accounts", headers=headers).json()["roles"]
+    assert "service" not in offered
+    assert "analyst" in offered
+
+    _register(client, "newcomer@example.com")
+    r = client.post(
+        "/api/auth/accounts/newcomer@example.com/approve",
+        json={"role": "service"},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    assert auth_store.account("newcomer@example.com")["status"] == "pending"

@@ -748,7 +748,7 @@ def list_accounts(request: Request) -> dict:
     _require_permission(request, "users:manage")
     return {
         "accounts": auth_store.list_accounts(),
-        "roles": sorted(product_store.ROLE_PERMISSIONS),
+        "roles": product_store.assignable_roles(),
     }
 
 
@@ -764,10 +764,10 @@ def approve_account(
     """
     _require_permission(request, "users:manage")
     role = (payload.role or "").strip()
-    if role not in product_store.ROLE_PERMISSIONS:
+    if role not in product_store.assignable_roles():
         raise HTTPException(
             status_code=400,
-            detail=f"Choose a role: {', '.join(sorted(product_store.ROLE_PERMISSIONS))}",
+            detail=f"Choose a role: {', '.join(product_store.assignable_roles())}",
         )
     if not auth_store.set_account_status(
         email, auth_store.STATUS_ACTIVE, role=role, by=_caller_email(request)

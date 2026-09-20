@@ -118,6 +118,16 @@ def role_for_email(email: str | None, *, shared_auth: bool = False) -> str:
     return "analyst"
 
 
+# "service" is the shared env token's role — a machine credential, never a
+# person — so it is not on the menu when an admin approves an account.
+_UNASSIGNABLE_ROLES = frozenset({"service"})
+
+
+def assignable_roles() -> list[str]:
+    """The roles an administrator may give a person."""
+    return sorted(set(ROLE_PERMISSIONS) - _UNASSIGNABLE_ROLES)
+
+
 def permissions_for_role(role: str) -> list[str]:
     return sorted(ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS["guest"]))
 
