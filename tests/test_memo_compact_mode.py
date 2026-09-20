@@ -110,6 +110,53 @@ def test_spine_gate_accepts_parent_stage_pin_for_compact():
     assert any("pinned stage 'early'" in p and "'late'" in p for p in problems)
 
 
+# A seed company runs on `late_compact` like everyone else, and used to
+# be told to pin "late" — in the spine, in the memo prose and on the UI
+# chip — while its own scorecard was already scored on early weights
+# (RadixArk 2026-09-20__042036: team scored 16, above the late map's max
+# of 10). `declared_stage` is the one place the run says which stage it
+# classified; `pin_stage` stays the profile's own family.
+
+
+def test_declared_stage_follows_the_classified_stage(monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    seed = memo_structure.active_structure("early", "compact")
+    assert seed.stage == "late_compact"
+    assert seed.pin_stage == "late"
+    assert seed.declared_stage == "early"
+    # and it survives the package round trip
+    reloaded = memo_structure.for_package({"structure": seed.meta()})
+    assert reloaded.declared_stage == "early"
+    # a late company on the same profile declares late, unstamped
+    late = memo_structure.active_structure("late", "compact")
+    assert late.declared_stage == "late"
+    assert "overlay_stage" not in late.meta()
+
+
+def test_spine_gate_checks_the_declared_stage(monkeypatch):
+    from server import memo_pin_check
+
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    seed = memo_structure.active_structure("early", "compact")
+    assert not [
+        p
+        for p in memo_pin_check.check_spine_pins_v2({"stage": "early"}, seed)
+        if "pinned stage" in p
+    ]
+    problems = memo_pin_check.check_spine_pins_v2({"stage": "late"}, seed)
+    assert any("pinned stage 'late'" in p and "'early'" in p for p in problems)
+
+
+def test_an_unclassified_stage_never_becomes_a_declared_one():
+    # The spine schema enums early/growth/late. A stage the classifier
+    # could not name must not reach the pin.
+    odd = memo_structure.load_structure(
+        "late_compact", 1, overlay_stage="indeterminate"
+    )
+    assert odd.declared_stage == "late"
+    assert "overlay_stage" not in odd.meta()
+
+
 def test_spine_prompt_pins_parent_stage(monkeypatch, tmp_path):
     """The spine prompt must ask for the schema-legal parent stage."""
     from server import claude_runner
@@ -133,6 +180,17 @@ def test_spine_prompt_pins_parent_stage(monkeypatch, tmp_path):
     )
     assert '`stage`: "late"' in captured["prompt"]
 
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=tmp_path,
+        company_name="Acme",
+        common_context="",
+        add_dirs=[],
+        progress=None,
+        structure=memo_structure.active_structure("early", "compact"),
+    )
+    assert '`stage`: "early"' in captured["prompt"]
+
 
 # ---- mode mapping -----------------------------------------------------------
 
@@ -143,10 +201,15 @@ def test_active_structure_compact_mode(monkeypatch):
         "stage": "late_compact",
         "version": 1,
     }
-    # stages without a compact profile fall back to the late compact one
+    # Stages without a compact profile fall back to the late compact
+    # one — but the run still declares the stage it classified. Without
+    # `overlay_stage` in the package stamp, `for_package` would resolve
+    # a growth company back to "late" and every reader-facing stage (the
+    # spine pin, the memo prose, the UI chip) would say late.
     assert memo_structure.active_structure("growth", "compact").meta() == {
         "stage": "late_compact",
         "version": 1,
+        "overlay_stage": "growth",
     }
     # full mode is untouched
     assert memo_structure.active_structure("late", "full").meta() == {

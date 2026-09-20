@@ -278,13 +278,14 @@ class MemoStructure:
     # lens, stage-default weights). Carried in meta() so gates and the
     # renderer re-resolve the same effective weights.
     company_type: str | None = None
-    # The INVESTMENT stage whose overlay the type file was read at.
-    # Compact mode loads `late_compact` for every stage, and its
-    # `pin_stage` is "late", so keying the overlay off the profile made
-    # `growth` and `early` weight maps unreachable in the mode we
+    # The INVESTMENT stage this run CLASSIFIED, when the profile serving
+    # it belongs to another one. Compact mode loads `late_compact` for
+    # every stage, and its `pin_stage` is "late", so keying anything off
+    # the profile made `growth` and `early` unreachable in the mode we
     # actually ship — every type file's `growth:` block was dead code
     # (measured 2026-09-17 on the RadixArk seed run, which was scored on
-    # late weights). The classified stage travels here instead.
+    # late weights). The classified stage travels here instead, and
+    # `declared_stage` is what the run says out loud.
     overlay_stage: str | None = None
 
     @property
@@ -303,6 +304,21 @@ class MemoStructure:
         (pinned 'late' vs profile 'late_compact')."""
         stage = self.stage
         return stage[: -len("_compact")] if stage.endswith("_compact") else stage
+
+    @property
+    def declared_stage(self) -> str:
+        """The investment stage this run SAYS it is — what the spine pins,
+        the pin gate checks, the memo prose reads and the UI chip shows.
+
+        `pin_stage` answers a different question: which stage family the
+        profile belongs to. The two agree in full mode, where each stage
+        has its own profile. In compact mode they do not: every stage is
+        served by `late_compact`, so a seed company used to be told to
+        pin "late" — and did, correctly by the gate and wrongly by the
+        facts, while its own scorecard was already scored on early
+        weights (RadixArk 2026-09-20__042036: team scored 16, over the
+        late map's max of 10)."""
+        return self.overlay_stage or self.pin_stage
 
     def section(self, section_id: str) -> SectionDef | None:
         for s in self.sections:
@@ -423,11 +439,11 @@ class MemoStructure:
         meta: dict[str, Any] = {"stage": self.stage, "version": self.version}
         if self.company_type:
             meta["company_type"] = self.company_type
-            # Only when it disagrees with the profile: a `late` company in
-            # the compact profile resolves identically either way, and
-            # stamping it there would churn every existing package.
-            if self.overlay_stage and self.overlay_stage != self.pin_stage:
-                meta["overlay_stage"] = self.overlay_stage
+        # Only when it disagrees with the profile: a `late` company in
+        # the compact profile resolves identically either way, and
+        # stamping it there would churn every existing package.
+        if self.overlay_stage and self.overlay_stage != self.pin_stage:
+            meta["overlay_stage"] = self.overlay_stage
         return meta
 
     def profile_digest(self) -> str:
@@ -656,6 +672,11 @@ def _profile_path(stage: str, version: int = 1) -> Path:
     return STRUCTURES_DIR / f"{name}.md"
 
 
+# The investment stages a run can classify a company into — the spine
+# schema's `stage` enum, and the only values `declared_stage` may take.
+INVESTMENT_STAGES = ("early", "growth", "late")
+
+
 @lru_cache(maxsize=None)
 def load_structure(
     stage: str,
@@ -666,7 +687,19 @@ def load_structure(
     """Load a stage profile. With ``company_type``, the type file's
     scorecard overlay for this stage family (if any) replaces the
     profile's weights — the sum-100 validation still runs on the
-    result — and the structure carries the type in its meta."""
+    result — and the structure carries the type in its meta.
+
+    ``overlay_stage`` is the stage the run CLASSIFIED. It is kept on the
+    structure (and stamped into the package meta) whenever the profile
+    serving the run belongs to another stage, with or without a company
+    type: it is what the run declares as the company's stage, not just
+    where the weight overlay is read from."""
+    # A stage we do not recognise is not a stage the run can declare:
+    # the spine schema enums early/growth/late, so an unclassified run
+    # must fall back to the profile's own family rather than pin a word
+    # the schema will reject.
+    if overlay_stage not in INVESTMENT_STAGES:
+        overlay_stage = None
     if company_type:
         base = load_structure(stage, version)
         type_profile = load_company_type(company_type)
@@ -774,6 +807,8 @@ def load_structure(
             f"stage={structure.stage!r} version={structure.version} but was "
             f"loaded as stage={stage!r} version={version}"
         )
+    if overlay_stage and overlay_stage != structure.pin_stage:
+        structure = replace(structure, overlay_stage=overlay_stage)
     _validate_structure(structure)
     return structure
 

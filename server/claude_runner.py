@@ -6664,7 +6664,7 @@ against the stragglers when they land.
             else ""
         )
         v2_pins_block = f"""\
-{type_line}   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
+{type_line}   - `stage`: "{structure.declared_stage}" — this run's classified report stage.
    - `verdict`: the tier your evidence supports (Strong Buy / Buy /
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.

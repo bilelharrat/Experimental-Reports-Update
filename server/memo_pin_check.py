@@ -630,10 +630,10 @@ def check_spine_pins_v2(
     problems: list[str] = []
 
     stage = str(shared_facts.get("stage") or "").strip()
-    if stage and stage != structure.pin_stage:
+    if stage and stage != structure.declared_stage:
         problems.append(
             f"pinned stage {stage!r} does not match the run's classified "
-            f"stage {structure.pin_stage!r}"
+            f"stage {structure.declared_stage!r}"
         )
 
     scorecard = shared_facts.get("scorecard")
