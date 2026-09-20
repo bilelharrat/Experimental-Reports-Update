@@ -962,6 +962,15 @@ def test_gemini_drafts_a_section_one_call_per_subsection(tmp_path, monkeypatch):
     assert "already written" not in prompts[0]
     assert "already written" in prompts[1]
 
+    # The OTHER length instruction has to be divided too. Live on
+    # 2026-09-19 it was not: every piece was told the section is N words
+    # and that this figure overrides the range it had just been given, and
+    # six of seven sections came back about a third of their length.
+    section_words = structure.section("thesis_market").budget_words
+    piece_words = int(round(section_words / len(headings)))
+    assert f"Target: {piece_words} words of English for this ONE subsection" in prompts[0]
+    assert f"Target: {section_words} words" not in prompts[0]
+
 
 def test_a_bad_subsection_reply_costs_only_that_subsection(tmp_path, monkeypatch):
     """The point of the split: a failure costs one subsection, not the
@@ -1026,3 +1035,6 @@ def test_claude_never_takes_the_per_call_split(tmp_path, monkeypatch):
     assert error is None
     assert len(prompts) == 1
     assert "Write ONE subsection" not in prompts[0]
+    # A single-call section still states its own whole budget.
+    section_words = structure.section("thesis_market").budget_words
+    assert f"Target: {section_words} words of English for this whole" in prompts[0]

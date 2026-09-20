@@ -8402,7 +8402,8 @@ def _run_english_section_via_calls(
     piece_body = make_body(
         "\n" + memo_engine.length_contract(piece_target)
         if piece_target is not None
-        else ""
+        else "",
+        len(plan),
     )
     totals: dict[str, Any] = {}
     written: list[dict] = []
@@ -8833,17 +8834,38 @@ nothing precedes the first heading:
     # effective budget was 1,650, and the section came in at 2,733,
     # over its cap. The effective number is stated here, last and
     # explicitly, so there is never any question which one governs.
-    budget_block = ""
-    if section_def is not None and section_def.budget_words:
-        hard_cap = int(
-            section_def.budget_words
-            * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT)
-        )
-        budget_block = f"""
+    def _budget_block(parts: int = 1) -> str:
+        """The effective word budget, stated for whatever this call writes.
+
+        ``parts`` > 1 means the section is being drafted one subsection per
+        call, so each call gets its share. Live on 2026-09-19 this block
+        was left at the whole-section figure while the length contract
+        beside it had already been divided: every piece was told the
+        section is 1,900 words AND that this number overrides the range it
+        had just been given, and six of seven sections came back at about
+        a third of their length. One budget, stated once, for the unit
+        actually being written.
+        """
+        if section_def is None or not section_def.budget_words:
+            return ""
+        words = section_def.budget_words
+        cap = int(words * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT))
+        if parts > 1:
+            words = max(1, int(round(words / parts)))
+            cap = max(1, int(round(cap / parts)))
+            unit = f"this ONE subsection (one of {parts} in the section)"
+            gate = (
+                "the section's own cap is that figure times "
+                f"{parts}, and a deterministic gate rejects the assembled "
+                "section above it"
+            )
+        else:
+            unit = "this whole section"
+            gate = "a deterministic gate rejects the section above it"
+        return f"""
 ## Your word budget for this run
-Target: {section_def.budget_words} words of English for this whole
-section, table cells included. Hard cap: {hard_cap} words — a
-deterministic gate rejects the section above it.
+Target: {words} words of English for {unit}, table cells
+included. Hard cap: {cap} words — {gate}.
 
 These numbers OVERRIDE any range stated in the section contract above:
 that contract is written for the base profile, and this run's company
@@ -8852,6 +8874,8 @@ kind of company. Landing far UNDER the target is as wrong as running
 over — it means a judgment was asserted where it should have been
 explained.
 """
+
+    budget_block = _budget_block()
     note_block = (
         f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
@@ -8899,7 +8923,8 @@ defects:
     # The length block is the one part a per-subsection split must replace —
     # handing every piece the whole section's target would have each of them
     # write a whole section — so the body is built around it.
-    def _make_body(length_block: str) -> str:
+    def _make_body(length_block: str, parts: int = 1) -> str:
+        budget = _budget_block(parts)
         return f"""\
 You are drafting ONE SECTION of the English source package. Sibling workers
 draft the other sections in parallel; the shared fact sheet below pins
@@ -8915,7 +8940,7 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{length_block}
+{scaffold_block}{budget}{risk_contract}{note_block}{repair_block}{length_block}
 """
 
     body = _make_body(depth_block)
