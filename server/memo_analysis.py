@@ -192,6 +192,39 @@ def _write_decision_record_file(company_id: str, research_dir: Path) -> None:
         logger.exception("decision-record digest write failed for %s", company_id)
 
 
+def _write_known_sources_file(company_id: str, research_dir: Path) -> None:
+    """Refresh the known-sources digest (``known_sources.md``) from the
+    company's source cache before Phase 2, so every pass and the spine see
+    the pages earlier runs and sweeps already fetched. Best-effort, like
+    the tracked-news digest; leaves an existing file alone when the cache
+    is empty."""
+    try:
+        from . import source_cache
+
+        source_cache.write_known_sources_file(
+            company_id, research_dir, claude_runner.MEMO_KNOWN_SOURCES_FILENAME
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("known-sources digest write failed for %s", company_id)
+
+
+def _register_source_capture(report: dict, run_dir: Path) -> None:
+    """Point the subprocess funnel's source capture at this report's
+    company, for the resume and investigate entry points that do not go
+    through the fast pipeline's own registration."""
+    company_slug = run_dir.parent.name
+    company_id = str(report.get("company_id") or company_slug)
+    try:
+        claude_runner.register_memo_run_source_capture(
+            run_dir,
+            company_id=company_id,
+            run_id=str(report.get("run_id") or run_dir.name),
+            research_dir=research_store.RESEARCH_ROOT / company_slug,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("source capture registration failed for %s", company_id)
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -839,6 +872,136 @@ def _run_memo_pin_check(
     except Exception:  # noqa: BLE001
         logger.warning("memo pin check failed", exc_info=True)
         return []
+
+
+def _memo_fact_check_enabled() -> bool:
+    return _env_flag("BSH_MEMO_FACT_CHECK", default=True)
+
+
+def _run_memo_fact_check(
+    *,
+    run_dir: Path,
+    candidate: dict,
+    company_id: str,
+    research_dir: Path | None,
+    progress,
+    attempt: int | None = None,
+) -> list[str]:
+    """Deterministically trace every figure in the candidate to a source on
+    file (``memo_fact_check``).
+
+    Writes ``logs/fact_check.md`` and ``logs/fact_check.json`` and emits one
+    stage event either way; returns the repair feedback lines, which are
+    empty unless the corpus is rich enough for enforcement (see
+    ``BSH_MEMO_FACT_CHECK_REPAIR``). Never raises — like the pin check, the
+    checker must not be able to sink a run.
+    """
+    if not _memo_fact_check_enabled() or not isinstance(candidate, dict):
+        return []
+    try:
+        from . import memo_fact_check
+
+        result = memo_fact_check.check_memo_run(
+            run_dir=run_dir,
+            package=candidate,
+            company_id=company_id,
+            research_dir=research_dir,
+        )
+        logs_dir = run_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "fact_check.md").write_text(
+            memo_fact_check.render_markdown_report(result, attempt=attempt),
+            encoding="utf-8",
+        )
+        _write_json(logs_dir / "fact_check.json", result.to_dict())
+        coverage = (
+            f"{result.coverage_pct}% traceable"
+            if result.coverage_pct is not None
+            else "no figures"
+        )
+        progress.emit(
+            "stage",
+            stage="memo_fact_check",
+            message=(
+                f"Fact check: {result.checked} figures, {result.unsupported} "
+                f"unsupported ({coverage}); "
+                + ("enforced via repair" if result.repair_feed else "report only")
+                + (f" — {result.error}" if result.error else "")
+            ),
+            checked=result.checked,
+            verified=result.verified,
+            supported=result.supported,
+            derived=result.derived,
+            unsupported=result.unsupported,
+            coverage_pct=result.coverage_pct,
+            evidence_chars=result.evidence_chars,
+            thin_corpus=result.thin_corpus,
+            repair_feed=result.repair_feed,
+            repair_feed_reason=result.repair_feed_reason,
+            findings=[f.to_dict() for f in result.findings][:8],
+            attempt=attempt,
+        )
+        return result.summary_lines()
+    except Exception:  # noqa: BLE001
+        logger.warning("memo fact check failed", exc_info=True)
+        return []
+
+
+def _attach_memo_source_urls(
+    *,
+    run_dir: Path,
+    candidate: dict,
+    company_id: str,
+    progress,
+    attempt: int | None = None,
+) -> list[str]:
+    """Fill in source URLs the analysis passes or earlier runs already
+    recorded, before the renderer's URL rule judges the envelope. Logged
+    to ``logs/source_urls.md``; never raises."""
+    if not isinstance(candidate, dict):
+        return []
+    try:
+        from . import memo_fact_check
+
+        notes = memo_fact_check.attach_source_urls(
+            candidate, company_id=company_id, run_dir=run_dir
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("source URL attachment failed", exc_info=True)
+        return []
+    if not notes:
+        return []
+    try:
+        log_path = run_dir / "logs" / "source_urls.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"## attempt {attempt}\n" if attempt is not None else "## attachment\n")
+            handle.write("\n".join(f"- {note}" for note in notes) + "\n\n")
+    except OSError:
+        logger.warning("source URL log write failed", exc_info=True)
+    progress.emit(
+        "stage",
+        stage="memo_source_urls_attached",
+        message=(
+            f"Attached {len(notes)} source URL(s) recorded by the analysis "
+            "passes and earlier retrievals"
+        ),
+        attachments=notes[:20],
+        attempt=attempt,
+    )
+    return notes
+
+
+def _fact_check_payload(run_dir: Path | None) -> dict | None:
+    """The last fact-check result written for the run, for the report record."""
+    if run_dir is None:
+        return None
+    path = Path(run_dir) / "logs" / "fact_check.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _surgical_quality_repair(
@@ -3287,6 +3450,15 @@ def _run_fast_memo_pipeline(
     # Pinned per run, like the quality tier: a resume or repair pass must use
     # the engine the report was started with, not whatever the default is now.
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    # Every page the run's agents fetch lands in the company's source cache
+    # and the run's own manifest, so the next run starts from what this one
+    # found and the fact check can trace the memo's figures to text on file.
+    claude_runner.register_memo_run_source_capture(
+        run_dir,
+        company_id=str(report.get("company_id") or company_slug),
+        run_id=run_id,
+        research_dir=research_dir,
+    )
 
     stream.emit(
         "stage",
@@ -3332,6 +3504,20 @@ def _run_fast_memo_pipeline(
             ),
             thread=claude_runner._MEMO_PHASE1_THREAD,
             chars=len(fact_ledger),
+            path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
+    elif claude_runner._memo_fact_ledger_enabled():
+        # Say so out loud: without a ledger the run's headline facts depend
+        # on what each analysis pass happens to retrieve (the fact lottery).
+        stream.emit(
+            "stage",
+            stage="memo_fact_ledger_missing",
+            message=(
+                "No curated fact ledger for this company; headline facts "
+                "depend on per-pass retrieval. Add dated facts at "
+                f"{research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME}"
+            ),
+            thread=claude_runner._MEMO_PHASE1_THREAD,
             path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
         )
     company_type_info = _resolve_company_type(report_id, report, run_dir, stream)
@@ -3754,6 +3940,19 @@ def _run_fast_synthesis(
                     repairs=structure_repairs[:20],
                     attempt=attempt,
                 )
+        if isinstance(candidate, dict):
+            # Deterministic first: a source whose page the passes already
+            # recorded gets its URL here, so the URL rule below only fails
+            # sources nothing on file can vouch for.
+            url_notes = _attach_memo_source_urls(
+                run_dir=run_dir,
+                candidate=candidate,
+                company_id=company_slug,
+                progress=phase3_progress,
+                attempt=attempt,
+            )
+            if url_notes and last_attempt_path is not None:
+                _write_json(last_attempt_path, candidate)
         validation_errors = memo_docx_renderer.english_package_validation_errors(
             candidate
         )
@@ -3766,6 +3965,7 @@ def _run_fast_synthesis(
                 memo_docx_renderer.fill_blank_zh_placeholders(candidate),
                 check_parity=False,
             )
+            fact_lines: list[str] = []
             if isinstance(candidate, dict):
                 pin_lines = _run_memo_pin_check(
                     run_dir=run_dir,
@@ -3775,17 +3975,26 @@ def _run_fast_synthesis(
                 )
                 if pin_lines and _memo_pin_check_repair_enabled():
                     quality_findings = list(quality_findings) + pin_lines
-            if quality_findings and isinstance(candidate, dict):
+                fact_lines = _run_memo_fact_check(
+                    run_dir=run_dir,
+                    candidate=candidate,
+                    company_id=company_slug,
+                    research_dir=research_dir,
+                    progress=phase3_progress,
+                    attempt=attempt,
+                )
+            if (quality_findings or fact_lines) and isinstance(candidate, dict):
                 # Try the cheap surgical repair first: quality findings are
                 # localized string defects, and a full regeneration costs
                 # 10-18 minutes per round (the 40-60 minute runs on record
-                # were exactly these retries).
+                # were exactly these retries). Unsupported figures ride the
+                # same repair when the fact check enforces them.
                 repaired = _surgical_quality_repair(
                     run_dir=run_dir,
                     company_name=company_name,
                     run_id=run_id,
                     candidate=candidate,
-                    findings=quality_findings,
+                    findings=list(quality_findings) + fact_lines,
                     attempt=attempt,
                     progress=phase3_progress,
                     stream=stream,
@@ -3796,6 +4005,21 @@ def _run_fast_synthesis(
                     if last_attempt_path is not None:
                         _write_json(last_attempt_path, repaired)
                     quality_findings = []
+                    fact_lines = []
+                elif fact_lines:
+                    # Unsupported figures alone never cost a regeneration
+                    # round: the report keeps them as findings for the
+                    # analyst, and the memo ships.
+                    phase3_progress.emit(
+                        "stage",
+                        stage="memo_fact_check_unrepaired",
+                        message=(
+                            f"{len(fact_lines)} unsupported figure(s) could not "
+                            "be repaired; continuing with the fact-check findings "
+                            "recorded on the report"
+                        ),
+                        attempt=attempt,
+                    )
             quality_error = (
                 "; ".join(quality_findings) if quality_findings else None
             )
@@ -4542,6 +4766,7 @@ def _recover_done_memo_report(
         renderer_contract=contract,
         memo_chinese_parity=parity_result.to_dict(),
         memo_quality_lint=lint_result.to_dict(),
+        memo_fact_check=_fact_check_payload(run_dir),
         claude_cost_usd=terminal.get("cost_usd"),
         claude_duration_ms=terminal.get("duration_ms"),
     )
@@ -4705,7 +4930,11 @@ def recover_stale_reports() -> int:
             recovered=True,
         )
         lint_payload = lint_result.to_dict()
-        _update_report(report["id"], memo_quality_lint=lint_payload)
+        _update_report(
+            report["id"],
+            memo_quality_lint=lint_payload,
+            memo_fact_check=_fact_check_payload(run_dir),
+        )
         if lint_result.has_blocking_findings:
             msg = (
                 "Memo quality gate found "
@@ -5465,7 +5694,11 @@ def _finalize_memo_from_package(
         if recovered:
             payload["recovered"] = True
         stream.emit("stage", **payload)
-    _update_report(report_id, memo_quality_lint=lint_result.to_dict())
+    _update_report(
+        report_id,
+        memo_quality_lint=lint_result.to_dict(),
+        memo_fact_check=_fact_check_payload(run_dir),
+    )
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE5_THREAD)
 
     stream.emit(
@@ -5671,6 +5904,7 @@ def _resume(report_id: str) -> None:
         run_dir, str(report.get("model_quality") or "best")
     )
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    _register_source_capture(report, run_dir)
 
     package_path = _memo_package_path(run_dir)
     analysis_artifacts = _analysis_artifact_paths(run_dir)
@@ -6166,6 +6400,10 @@ def _run(report_id: str) -> None:
         str(report.get("company_id") or company_slug),
         research_store.RESEARCH_ROOT / company_slug,
     )
+    _write_known_sources_file(
+        str(report.get("company_id") or company_slug),
+        research_store.RESEARCH_ROOT / company_slug,
+    )
 
     with _creeping_report_progress(
         report_id,
@@ -6406,6 +6644,7 @@ def _investigate(report_id: str) -> None:
         run_dir, str(report.get("model_quality") or "best")
     )
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    _register_source_capture(report, run_dir)
     stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=False
     )
@@ -6427,6 +6666,9 @@ def _investigate(report_id: str) -> None:
         str(report.get("company_id") or company_slug), research_dir
     )
     _write_decision_record_file(
+        str(report.get("company_id") or company_slug), research_dir
+    )
+    _write_known_sources_file(
         str(report.get("company_id") or company_slug), research_dir
     )
 
@@ -6473,6 +6715,20 @@ def _investigate(report_id: str) -> None:
             ),
             thread=claude_runner._MEMO_PHASE1_THREAD,
             chars=len(fact_ledger),
+            path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
+    elif claude_runner._memo_fact_ledger_enabled():
+        # Say so out loud: without a ledger the run's headline facts depend
+        # on what each analysis pass happens to retrieve (the fact lottery).
+        stream.emit(
+            "stage",
+            stage="memo_fact_ledger_missing",
+            message=(
+                "No curated fact ledger for this company; headline facts "
+                "depend on per-pass retrieval. Add dated facts at "
+                f"{research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME}"
+            ),
+            thread=claude_runner._MEMO_PHASE1_THREAD,
             path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
         )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)

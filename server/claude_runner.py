@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from . import job_progress, memo_engine, memo_prompts, memo_structure
+from . import job_progress, memo_engine, memo_prompts, memo_structure, source_cache
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -3583,10 +3583,13 @@ these keys, all non-empty:
 - `treatment`: {"en": "...", "zh": ""} — one sentence on how the memo
   weighs and uses this source;
 - `as_of`: the data vintage as an ISO date string;
-- `url` (optional): the page URL for a source retrieved from the web —
-  the analysis artifacts record it; the memo renders the title as a link.
-  Omit it (never invent one) for files, filings held privately, or
-  interviews.
+- `url`: the page URL for a source retrieved from the web — REQUIRED for
+  every web-retrieved source (the analysis artifacts and the known-sources
+  list record it; the memo renders the title as a link, and the renderer
+  rejects a public source without one). Omit it only for a private file, a
+  filing held privately, an interview or an internal document, and say so
+  in `class` (for example "BSH primary diligence", "company-reported deck",
+  "internal model"). Never invent a URL.
 
 Do NOT reuse the analysis-pass evidence vocabulary (`source`,
 `source_class`, `label`, `detail`) for package sources — the renderer
@@ -4513,6 +4516,61 @@ def register_memo_run_quality(run_dir: Path, quality: str) -> None:
         _MEMO_RUN_QUALITY[key] = quality
 
 
+_MEMO_SOURCE_CAPTURE: dict[str, dict] = {}
+
+
+def register_memo_run_source_capture(
+    run_dir: Path,
+    *,
+    company_id: str,
+    run_id: str,
+    research_dir: Path | None = None,
+) -> None:
+    """Tell the subprocess funnel whose run this is, so every WebFetch and
+    WebSearch result its agents see is written to the company's source
+    cache and the run's own manifest (``source_cache``). Registered by
+    the pipeline driver at run start, like the quality tier."""
+    key = str(Path(run_dir).resolve())
+    with _MEMO_RUN_QUALITY_LOCK:
+        _MEMO_SOURCE_CAPTURE[key] = {
+            "company_id": str(company_id),
+            "run_id": str(run_id),
+            "research_dir": Path(research_dir) if research_dir else None,
+        }
+
+
+def memo_run_source_capture(run_dir: Path | None) -> dict | None:
+    if run_dir is None:
+        return None
+    key = str(Path(run_dir).resolve())
+    with _MEMO_RUN_QUALITY_LOCK:
+        found = _MEMO_SOURCE_CAPTURE.get(key)
+    return dict(found) if found else None
+
+
+def _with_source_capture(event_handler):
+    """Wrap a stream-json event handler so retrieval results also reach
+    the source cache. The capture never raises and runs after the
+    progress translation, so a cache fault cannot cost a run its
+    progress events."""
+
+    def handler(event: dict, progress, state: dict) -> None:
+        try:
+            event_handler(event, progress, state)
+        finally:
+            capture = state.get("source_capture")
+            if isinstance(capture, dict):
+                record = source_cache.observe_stream_event(event, capture)
+                if record is not None and capture.get("research_dir"):
+                    source_cache.write_known_sources_file(
+                        capture["company_id"],
+                        capture["research_dir"],
+                        MEMO_KNOWN_SOURCES_FILENAME,
+                    )
+
+    return handler
+
+
 def _memo_run_quality(run_dir: Path | None) -> str:
     if run_dir is None:
         return "best"
@@ -4757,12 +4815,16 @@ def _run_memo_local_json_artifact_inner(
     ).start()
 
     state: dict[str, Any] = {}
+    capture = memo_run_source_capture(run_dir)
+    if capture is not None:
+        capture.update({"run_dir": run_dir, "pending": {}, "recorded": 0})
+        state["source_capture"] = capture
     final_text, stream_error = _consume_stream_json_process(
         proc,
         stderr_log=stderr_log,
         progress=progress,
         state=state,
-        event_handler=_process_search_event,
+        event_handler=_with_source_capture(_process_search_event),
         timeout_sec=timeout_sec,
         timeout_label=timeout_label,
         silence_timeout_sec=silence_timeout_sec,
@@ -4779,6 +4841,8 @@ def _run_memo_local_json_artifact_inner(
     parsed["claude_duration_ms"] = result_event.get("duration_ms")
     parsed["claude_usage"] = result_event.get("usage")
     parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    if capture is not None and capture.get("recorded"):
+        parsed["retrieved_sources"] = int(capture["recorded"])
     return parsed, None
 
 
@@ -4887,6 +4951,54 @@ def _memo_recent_news_block(text: str | None) -> str:
 Auto-captured tracked news for this company. Treat items as dated leads:
 classify their evidence like any other source, verify against anything
 fresher you retrieve, and prefer the newer figure when they conflict.
+
+{text}
+"""
+
+
+MEMO_KNOWN_SOURCES_FILENAME = "known_sources.md"
+MEMO_KNOWN_SOURCES_MAX_CHARS = 6000
+
+
+def _memo_known_sources_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_KNOWN_SOURCES", "1") == "1"
+
+
+def load_memo_known_sources(research_dir: Path | str | None) -> str | None:
+    """Read the known-sources digest, when one exists.
+
+    ``known_sources.md`` is rendered into the research folder from the
+    company's source cache (``source_cache``): the pages earlier runs and
+    sweeps fetched, with URLs to cite and text files to reopen. Written
+    before Phase 2 and refreshed as this run's own retrievals land, so the
+    spine sees what the passes just found. Returns ``None`` when absent,
+    empty, or disabled via ``BSH_MEMO_KNOWN_SOURCES=0``.
+    """
+    if research_dir is None or not _memo_known_sources_enabled():
+        return None
+    path = Path(research_dir) / MEMO_KNOWN_SOURCES_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    if len(text) > MEMO_KNOWN_SOURCES_MAX_CHARS:
+        text = (
+            text[:MEMO_KNOWN_SOURCES_MAX_CHARS].rsplit("\n", 1)[0].rstrip()
+            + "\n(known sources truncated)"
+        )
+    return text
+
+
+def _memo_known_sources_block(text: str | None) -> str:
+    if not text:
+        return ""
+    return f"""
+## Known sources
+Pages the research already retrieved for this company. Prefer reopening
+one of these over searching for it again, and when a source in the memo
+comes from one of them, carry its URL.
 
 {text}
 """
@@ -5144,7 +5256,7 @@ Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
 {_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}{_memo_known_sources_block(load_memo_known_sources(research_dir))}
 BSH background:
 `{settings_path}`
 {lessons_block}
@@ -5345,7 +5457,7 @@ Files:
 Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}{_memo_known_sources_block(load_memo_known_sources(research_dir))}
 Read the relevant packet/artifact files. Do not rerun the analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
@@ -6597,6 +6709,7 @@ def run_memo_fast_english_spine(
     fact_ledger: str | None = None,
     recent_news: str | None = None,
     decision_record: str | None = None,
+    known_sources: str | None = None,
     schema: dict | None = None,
     extra_instructions: str = "",
     structure: memo_structure.MemoStructure | None = None,
@@ -6741,8 +6854,11 @@ against the stragglers when they land.
      Sections cite a note as [C2] wherever its result appears; a
      deterministic gate checks that every scenario MOIC and both
      fair-value bounds have a note whose formula or result shows them.
-   - Package `sources`: add `url` for every source the analysis
-     artifacts retrieved from the web (they record it); never invent one.
+   - Package `sources`: every web-retrieved source carries `url` (the
+     analysis artifacts and the Known sources block record it) — the
+     renderer rejects a public source without one. A private file,
+     interview or internal document says so in its `class` instead.
+     Never invent a URL.
 """
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. {worker_count} section
@@ -6792,7 +6908,7 @@ Produce ONE JSON object with:
 {extra_instructions}
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record, for_spine=True)}{speculative_block}{feedback_block}
+{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record, for_spine=True)}{_memo_known_sources_block(known_sources)}{speculative_block}{feedback_block}
 """
     resolved_schema = (
         schema
@@ -6908,6 +7024,7 @@ def run_memo_english_spine_standalone(
         fact_ledger=load_memo_fact_ledger(research_dir),
         recent_news=load_memo_recent_news(research_dir),
         decision_record=load_memo_decision_record(research_dir),
+        known_sources=load_memo_known_sources(research_dir),
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
         handoff=False,
         extra_instructions=(
@@ -7587,6 +7704,7 @@ class SpeculativeEnglish:
             fact_ledger=load_memo_fact_ledger(self._research_dir),
             recent_news=load_memo_recent_news(self._research_dir),
             decision_record=load_memo_decision_record(self._research_dir),
+            known_sources=load_memo_known_sources(self._research_dir),
             structure=self._structure,
         )
         if error is None and isinstance(result, dict):
@@ -10294,6 +10412,7 @@ def run_memo_fast_english_package_parallel(
                 fact_ledger=load_memo_fact_ledger(research_dir),
                 recent_news=load_memo_recent_news(research_dir),
                 decision_record=load_memo_decision_record(research_dir),
+                known_sources=load_memo_known_sources(research_dir),
                 structure=structure,
             )
             _finish_row(
@@ -10367,6 +10486,7 @@ def run_memo_fast_english_package_parallel(
             fact_ledger=load_memo_fact_ledger(research_dir),
             recent_news=load_memo_recent_news(research_dir),
             decision_record=load_memo_decision_record(research_dir),
+            known_sources=load_memo_known_sources(research_dir),
             structure=structure,
         )
         _finish_row(

@@ -38,6 +38,19 @@ and `claude_runner.load_memo_recent_news` injects it into every pass
 and the spine — never the shared section context (kill switch
 `BSH_MEMO_TRACKED_NEWS=0`).
 
+The retrieved-source cache rides the same mechanism (2026-09-20). The
+driver registers the run with `claude_runner.register_memo_run_source_capture`,
+and from then on every WebFetch and WebSearch result any subprocess of the
+run sees is written by `server/source_cache.py` to
+`data/research/<slug>/sources/` (deduped on canonical URL, newest text
+wins) and frozen in the run's own `sources/manifest.jsonl` — the
+point-in-time input record. Grounded Gemini sweeps (`company_news_research`)
+land there too. `known_sources.md`, rendered from the cache before Phase 2
+and refreshed as retrievals arrive, is injected into every pass and the
+spine so a page found once is offered every time (`BSH_MEMO_KNOWN_SOURCES=0`
+stops the injection). The Gemini research walk skips the `sources/`
+folder and inlines only the digest.
+
 ### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
 
 `memo_analysis._FAST_MEMO_PASSES` defines 8 pass specs (id, label,
@@ -285,7 +298,10 @@ pin echo, gates).
 | `BSH_MEMO_SPINE_SPECULATE_REQUIRE` (pin-feeding passes) | pin-affine launch gate; `none` = count-only |
 | `BSH_MEMO_SECTION_EARLY_START` (0) | affinity early sections |
 | `BSH_MEMO_PIN_CHECK` (1), `BSH_MEMO_PIN_CHECK_REPAIR` (0) | pin echo; feed repair |
-| `BSH_MEMO_FACT_LEDGER` (1) | inject `data/research/<slug>/fact_ledger.md` into passes + spine (file presence is the real switch) |
+| `BSH_MEMO_FACT_LEDGER` (1) | inject `data/research/<slug>/fact_ledger.md` into passes + spine (file presence is the real switch); a run without one emits `memo_fact_ledger_missing` |
+| `BSH_MEMO_KNOWN_SOURCES` (1) | inject `data/research/<slug>/known_sources.md` — the digest of the retrieved-source cache (`source_cache`) — into passes + spine; the capture itself always runs |
+| `BSH_MEMO_FACT_CHECK` (1), `BSH_MEMO_FACT_CHECK_REPAIR` (auto) | trace every figure in the English package to a source on file (`memo_fact_check`); feed unsupported figures to the surgical repair only when the corpus is rich enough (auto), always (1) or never (0) |
+| `BSH_MEMO_SOURCE_URL_REQUIRED` (1) | the renderer rejects a web-retrieved package source without a `url`; private material says so in its class |
 | `BSH_MEMO_TRACKED_NEWS` (1) | inject `data/research/<slug>/recent_news.md` (auto-refreshed from the tracking-updates store before Phase 2) into passes + spine |
 | `BSH_MEMO_SECTIONAL_REPAIR` (0) | hybrid per-section + envelope repair |
 | `BSH_MEMO_ZH_CHASING` (0), `BSH_MEMO_ZH_CHASE_WORKERS` (4), `BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC` (900) | chasing |
@@ -408,6 +424,20 @@ merge, schema-enforced counts) making the speculation safe.
 - Repair rounds fire on roughly half of runs, always for genuine
   voice/disclosure findings since the lint alignment; the hybrid path
   has handled every one since it shipped.
+- **Fact check** (2026-09-20): after the pin check, `memo_fact_check`
+  traces every figure in the candidate (money, percentages, multiples,
+  scaled amounts, thousands-separated and counted nouns; not years, ids
+  or bare small integers) to a source on file — the ledger, research
+  documents, the registry entry, the source cache, the run's frozen
+  sources and firm records; never model output. A figure is verified
+  (the cited source carries it), supported (something on file carries
+  the same value within one rounding step), derived (a calculation note's
+  result carries it) or unsupported. Results go to `logs/fact_check.{md,json}`
+  and the report's `memo_fact_check`; unsupported figures ride the surgical
+  repair only when the corpus is rich enough (`BSH_MEMO_FACT_CHECK_REPAIR`),
+  and never cost a regeneration round on their own. Before validation,
+  `attach_source_urls` fills URLs the passes or earlier runs recorded, and
+  the renderer then rejects a web-retrieved source without one.
 - Pin echo: 22 checked / 0 findings on six consecutive live runs.
 
 ## 6. Queued work

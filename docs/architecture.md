@@ -276,3 +276,36 @@ with artifacts under `data/serena_analysis/`.
   company.
 
 If a future change creates a coupling between the two, it's a defect.
+
+## Retrieved-source cache and fact check (2026-09-20)
+
+Memo facts used to enter a run through one hand-written registry entry,
+three optional digests in the research folder, and whatever each analysis
+pass happened to retrieve from the web — retrieval nothing logged, cached
+or verified (the "fact lottery" in `docs/memo-benchmarks.md`). Two modules
+close that:
+
+- `server/source_cache.py` — every WebFetch/WebSearch result a memo run's
+  agents see, and the research prose of every grounded Gemini sweep, is
+  written to `data/research/<slug>/sources/` (index + one text file per
+  content hash, deduped on canonical URL) and frozen in the run's
+  `sources/manifest.jsonl`. `known_sources.md`, rendered from the cache,
+  is injected into the analysis passes and the spine like the fact
+  ledger. The API exposes it at `GET /api/companies/{id}/source-cache`.
+- `server/memo_fact_check.py` — a deterministic gate beside the pin check:
+  every figure the English package states is traced to a source on file
+  (ledger, research documents, registry entry, cache, run sources, firm
+  records — never model output), with one rounding step of tolerance
+  across spellings ("$2.6B" is carried by "$2,580 million"). Results:
+  `logs/fact_check.{md,json}`, the report's `memo_fact_check` field,
+  `GET /api/reports/{id}/fact-check`, and the research desk's numbers
+  card (`numbers_lint.lint` now delegates here). Unsupported figures are
+  fed to the surgical repair only when the corpus is rich enough
+  (`BSH_MEMO_FACT_CHECK_REPAIR`, default `auto`).
+
+The fact ledger itself is editable from the research desk (Files tab) and
+at `GET/PUT /api/companies/{id}/fact-ledger`; a run without one emits
+`memo_fact_ledger_missing`. Package sources retrieved from the web must
+carry their URL (`BSH_MEMO_SOURCE_URL_REQUIRED`); before validation the
+pipeline attaches URLs the analysis passes or the cache already recorded.
+

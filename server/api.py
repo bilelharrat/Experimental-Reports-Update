@@ -3442,6 +3442,125 @@ def get_memo_number_lint(company_id: str) -> dict:
     return numbers_lint.lint(company_id)
 
 
+@router.get("/reports/{report_id}/fact-check")
+def get_report_fact_check(report_id: str) -> dict:
+    """The deterministic fact check recorded for a memo run (logs/fact_check.json)."""
+    import json as _json
+
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    run_dir = memo_analysis._resolve_run_dir(report)
+    path = (run_dir / "logs" / "fact_check.json") if run_dir is not None else None
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail="No fact check on record for this report")
+    try:
+        payload = _json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Fact check record unreadable") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Fact check record unreadable")
+    payload["report_id"] = report_id
+    return payload
+
+
+def _fact_ledger_path(company_id: str) -> Path:
+    from . import claude_runner, company_paths
+
+    return (
+        research_store.RESEARCH_ROOT
+        / company_paths.storage_key(company_id)
+        / claude_runner.MEMO_FACT_LEDGER_FILENAME
+    )
+
+
+def _fact_ledger_payload(company_id: str) -> dict:
+    from datetime import datetime, timezone
+
+    from . import claude_runner
+
+    path = _fact_ledger_path(company_id)
+    try:
+        text = path.read_text(encoding="utf-8")
+        updated_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except FileNotFoundError:
+        text, updated_at = "", None
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Fact ledger unreadable") from exc
+    return {
+        "company_id": company_id,
+        "exists": bool(text.strip()),
+        "text": text,
+        "path": memo_prep._rel(path),
+        "updated_at": updated_at,
+        "max_chars": claude_runner.MEMO_FACT_LEDGER_MAX_CHARS,
+        "enabled": claude_runner._memo_fact_ledger_enabled(),
+    }
+
+
+@router.get("/companies/{company_id}/fact-ledger")
+def get_fact_ledger(company_id: str) -> dict:
+    """The curated, dated headline facts injected into every memo run."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return _fact_ledger_payload(company_id)
+
+
+@router.put("/companies/{company_id}/fact-ledger")
+def put_fact_ledger(request: Request, company_id: str, payload: dict) -> dict:
+    """Replace the fact ledger. An empty text removes it. Capped at the
+    length the memo loader injects, so nothing is silently truncated."""
+    import os as _os
+
+    from . import claude_runner
+
+    _require_permission(request, "sources:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    text = (payload or {}).get("text")
+    if not isinstance(text, str):
+        raise HTTPException(status_code=400, detail="text must be a string")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    limit = claude_runner.MEMO_FACT_LEDGER_MAX_CHARS
+    if len(text) > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fact ledger is limited to {limit} characters; this one is {len(text)}",
+        )
+    path = _fact_ledger_path(company_id)
+    try:
+        if text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.{_os.getpid()}.tmp")
+            tmp.write_text(text + "\n", encoding="utf-8")
+            _os.replace(tmp, path)
+        elif path.exists():
+            path.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Fact ledger write failed") from exc
+    return _fact_ledger_payload(company_id)
+
+
+@router.get("/companies/{company_id}/source-cache")
+def get_source_cache(company_id: str, limit: int = 100) -> dict:
+    """What retrieval has fetched for this company: the pages memo runs and
+    news sweeps read, newest first, with the text on file for each."""
+    from . import source_cache
+
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    rows = source_cache.list_sources(company_id)
+    keep = ("id", "kind", "url", "title", "query", "chars", "fetched_at", "first_seen_at", "origins", "run_ids")
+    return {
+        "company_id": company_id,
+        "count": len(rows),
+        "sources": [
+            {**{key: row.get(key) for key in keep}, "links": len(row.get("links") or [])}
+            for row in rows[: max(1, min(limit, 500))]
+        ],
+    }
+
+
 # ---- Firm layer: search, comments & mentions, chat, audit, transcripts, signal score ----
 
 

@@ -192,6 +192,8 @@ def grounded(
                     queries=meta.get("queries"),
                 )
                 engine_meta["grounded"] = bool(meta.get("grounded"))
+                if meta.get("research_text"):
+                    engine_meta["research_text"] = meta["research_text"]
                 return data, engine_meta, None
             gemini_error = error or "gemini returned no object"
         else:

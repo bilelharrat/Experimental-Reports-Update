@@ -288,6 +288,15 @@ def sweep_company_news(company_id: str, *, lang: str | None = None) -> dict:
         feed["sweep"] = sweep
         return feed
 
+    # What the sweep read is evidence worth keeping: the fact check traces
+    # memo figures to it, and the next memo run sees its pages up front.
+    try:
+        from . import source_cache
+
+        source_cache.record_grounding(company_id, meta, origin="news_sweep")
+    except Exception:  # noqa: BLE001
+        logger.warning("company_news_research: source cache write failed", exc_info=True)
+
     researched = [row for row in (_clean_item(item) for item in data.get("items") or []) if row]
     merged, added = _merge_rows(existing, researched)
     sweep["added"] = len(added)

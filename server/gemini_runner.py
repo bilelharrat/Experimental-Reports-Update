@@ -1070,6 +1070,9 @@ def run_grounded_json(
     research_text = str(research or "").strip()
     if not research_text:
         return None, meta, f"gemini research step returned nothing ({name})"
+    # Callers that keep a source cache store the research prose alongside
+    # the page URIs: it is the text the structured answer was built from.
+    meta["research_text"] = research_text
     if not meta.get("grounded"):
         logger.warning(
             "gemini_runner: %s researched without searching — the result is "

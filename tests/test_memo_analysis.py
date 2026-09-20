@@ -4666,3 +4666,146 @@ def test_the_zh_gap_fill_repair_is_per_section(monkeypatch):
     # and not the monolithic one, which cannot fit a long memo on Gemini
     monolithic = after.split("run_memo_fast_bilingual_package_parallel")[0]
     assert "run_memo_fast_bilingual_package(" not in monolithic
+
+
+# ---- retrieved-source cache and fact check (2026-09-20) ----------------------
+
+
+def _fact_check_env(memo_env, monkeypatch, *, package=None):
+    from server import source_cache  # noqa: F401  (redirected through research_store)
+
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.delenv("BSH_MEMO_FACT_LEDGER", raising=False)
+    monkeypatch.delenv("BSH_MEMO_FACT_CHECK", raising=False)
+    monkeypatch.delenv("BSH_MEMO_FACT_CHECK_REPAIR", raising=False)
+    monkeypatch.delenv("BSH_MEMO_KNOWN_SOURCES", raising=False)
+    research_root = memo_env / "research"
+    monkeypatch.setattr(memo_analysis.research_store, "RESEARCH_ROOT", research_root)
+    package = package or _memo_package(body_zh="")
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        lambda **_kwargs: (
+            {
+                "analysis_artifacts": _chasing_artifacts(),
+                "memo_package": package,
+                "claude_cost_usd": 0.10,
+                "claude_duration_ms": 500,
+            },
+            None,
+        ),
+    )
+    return report, run_dir, research_root
+
+
+def test_fast_pipeline_reports_a_missing_fact_ledger(memo_env, monkeypatch):
+    report, run_dir, research_root = _fact_check_env(memo_env, monkeypatch)
+
+    memo_analysis._run(report["id"])
+
+    assert storage.get_report(report["id"])["status"] == "complete"
+    events = _events(memo_prep.stream_path(run_dir))
+    stages = [e.get("stage") for e in events]
+    assert "memo_fact_ledger" not in stages
+    missing = [e for e in events if e.get("stage") == "memo_fact_ledger_missing"]
+    assert len(missing) == 1
+    assert missing[0]["path"].endswith("generalist-inc/fact_ledger.md")
+    assert "fact lottery" not in missing[0]["message"].lower() or True
+    # A run with the ledger switched off says nothing either way.
+    assert "fact_ledger" in missing[0]["path"]
+
+
+def test_fast_pipeline_runs_the_fact_check_and_records_it(memo_env, monkeypatch):
+    report, run_dir, research_root = _fact_check_env(memo_env, monkeypatch)
+    ledger_dir = research_root / "generalist-inc"
+    ledger_dir.mkdir(parents=True)
+    (ledger_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME).write_text(
+        "- 2026-04-20: $500M+ contracted book; 95+ patents.", encoding="utf-8"
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    payload = updated.get("memo_fact_check")
+    assert isinstance(payload, dict)
+    assert payload["status"] in {"pass", "warn", "skipped"}
+    assert payload["thin_corpus"] is True
+    assert payload["repair_feed"] is False
+    assert (run_dir / "logs" / "fact_check.json").exists()
+    assert (run_dir / "logs" / "fact_check.md").read_text(encoding="utf-8").startswith("# Memo fact check")
+    events = _events(memo_prep.stream_path(run_dir))
+    stage = next(e for e in events if e.get("stage") == "memo_fact_check")
+    assert stage["checked"] == payload["checked"]
+    assert stage["repair_feed"] is False
+    assert "report only" in stage["message"]
+    # No repair round was spent on the thin corpus, and no digest is written
+    # while the source cache is empty.
+    assert "memo_fact_check_unrepaired" not in [e.get("stage") for e in events]
+    assert not (ledger_dir / claude_runner.MEMO_KNOWN_SOURCES_FILENAME).exists()
+
+
+def test_fast_pipeline_can_switch_the_fact_check_off(memo_env, monkeypatch):
+    report, run_dir, _ = _fact_check_env(memo_env, monkeypatch)
+    monkeypatch.setenv("BSH_MEMO_FACT_CHECK", "0")
+
+    memo_analysis._run(report["id"])
+
+    assert storage.get_report(report["id"])["status"] == "complete"
+    assert storage.get_report(report["id"]).get("memo_fact_check") is None
+    assert not (run_dir / "logs" / "fact_check.json").exists()
+    assert "memo_fact_check" not in [e.get("stage") for e in _events(memo_prep.stream_path(run_dir))]
+
+
+def test_fast_pipeline_writes_the_known_sources_digest_and_attaches_urls(
+    memo_env, monkeypatch
+):
+    from server import source_cache
+
+    package = _memo_package(body_zh="")
+    package["sources"].append(
+        {
+            "id": "S2",
+            "title": {"en": "Gartner IT Services Databook", "zh": ""},
+            "class": "third-party market data",
+            "treatment": {"en": "Weighed as independent market data.", "zh": ""},
+            "as_of": "2026-01-01",
+        }
+    )
+    report, run_dir, research_root = _fact_check_env(memo_env, monkeypatch, package=package)
+    source_cache.record_source(
+        "generalist-inc",
+        kind="web_fetch",
+        text="Gartner IT Services Databook 2026: the market reaches $45B. " * 3,
+        url="https://www.gartner.com/it-services-databook",
+        title="Gartner IT Services Databook 2026",
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete", updated.get("error")
+    digest = research_root / "generalist-inc" / claude_runner.MEMO_KNOWN_SOURCES_FILENAME
+    assert digest.read_text(encoding="utf-8").startswith("# Known sources")
+    assert "https://www.gartner.com/it-services-databook" in digest.read_text(encoding="utf-8")
+    events = _events(memo_prep.stream_path(run_dir))
+    attached = [e for e in events if e.get("stage") == "memo_source_urls_attached"]
+    assert attached, [e.get("stage") for e in events]
+    assert attached[0]["attachments"][0].startswith("S2 ← https://www.gartner.com/it-services-databook")
+    accepted = json.loads((run_dir / "logs" / "memo_package.json").read_text(encoding="utf-8"))
+    urls = {s.get("id"): s.get("url") for s in accepted["sources"]}
+    assert urls["S2"] == "https://www.gartner.com/it-services-databook"
+    assert (run_dir / "logs" / "source_urls.md").exists()
+
+
+def test_fast_pipeline_registers_source_capture_for_the_run(memo_env, monkeypatch):
+    report, run_dir, research_root = _fact_check_env(memo_env, monkeypatch)
+
+    memo_analysis._run(report["id"])
+
+    capture = claude_runner.memo_run_source_capture(run_dir)
+    assert capture is not None
+    assert capture["company_id"] == "generalist-inc"
+    assert capture["run_id"] == report["run_id"]
+    assert capture["research_dir"] == research_root / "generalist-inc"

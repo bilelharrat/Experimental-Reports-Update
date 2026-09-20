@@ -154,6 +154,21 @@ def _flatten(value: Any) -> str:
 
 
 def lint(company_id: str) -> dict:
+    """The company's latest memo checked against everything on file.
+
+    Delegates to ``memo_fact_check``, which adds the fact ledger, the research
+    folder's documents, the registry entry and the retrieved-source cache to
+    the firm records ``_corpus`` gathers, and recognises a figure carried in
+    another spelling or derived in a calculation note. Same payload shape as
+    before, so the research desk card and the Mac app read it unchanged.
+    """
+    from . import memo_fact_check
+
+    return memo_fact_check.check_company(company_id)
+
+
+def lint_firm_records_only(company_id: str) -> dict:
+    """The original check against firm records alone (kept for comparison)."""
     path, package = comps._latest_memo_package(company_id)
     if not package:
         return {"company_id": company_id, "memo_package": None, "checked": 0, "supported": 0, "unsupported": 0, "coverage_pct": None, "findings": [], "sources": [], "note": "No memo package on record"}

@@ -54,7 +54,9 @@ TEXT_SUFFIXES = {".md", ".txt", ".yaml", ".yml", ".json", ".csv"}
 # Inside a memo run directory these are machine plumbing or this run's own
 # output, never source material: the event stream is enormous and the
 # rendered DOCX/previews are what the run is trying to produce.
-_SKIP_DIRS = {"logs", "previews", "previews_cn", "memo", "__pycache__"}
+# `sources` is the source cache: hundreds of fetched pages that the
+# known_sources.md digest already summarises for the prompt.
+_SKIP_DIRS = {"logs", "previews", "previews_cn", "memo", "__pycache__", "sources"}
 _SKIP_SUFFIXES = {".docx", ".pdf.tmp", ".jsonl", ".png", ".jpg", ".jpeg", ".zip"}
 
 _RUN_ENGINE: dict[str, str] = {}
@@ -318,7 +320,7 @@ def inline_research(
 
     def priority(path: Path) -> tuple[int, str]:
         name = path.name.lower()
-        if name in {"fact_ledger.md", "recent_news.md", "decision_record.md"}:
+        if name in {"fact_ledger.md", "recent_news.md", "decision_record.md", "known_sources.md"}:
             return (0, name)
         # The run's own analysis artifacts: the package stage is written to
         # build on these, so they outrank raw sources.

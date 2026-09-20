@@ -257,7 +257,13 @@ def test_spine_schema_and_gate_cover_calculations():
 
 
 def test_contracts_describe_urls_and_citations():
-    assert "`url` (optional)" in claude_runner.MEMO_PACKAGE_SOURCES_CONTRACT
+    # A web-retrieved source must carry its page URL (2026-09-20); only private
+    # material may omit it, and the contract says which and how.
+    contract = claude_runner.MEMO_PACKAGE_SOURCES_CONTRACT
+    assert "`url`: the page URL" in contract
+    assert "REQUIRED for" in contract
+    assert "Never invent a URL" in contract
+    assert "private file" in contract
     assert "[C2]" in claude_runner.HUMAN_EXEC_MEMO_VOICE_CONTRACT
     assert "## Citations (structure v2)" in claude_runner.MEMO_STRUCTURE_V2_ADDENDUM
     assert "keep every one exactly as written" in claude_runner._MEMO_BILINGUAL_STYLE

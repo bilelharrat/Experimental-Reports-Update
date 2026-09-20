@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -2045,6 +2046,38 @@ def _citation_errors(package: dict) -> list[str]:
     return errors
 
 
+# A source whose class or title says it came from somewhere a reader cannot
+# browse to — diligence, an interview, a deck, the data room, an internal
+# model — may omit `url`. Everything else was retrieved from the web and must
+# carry the page it came from: four in five shipped citations had none, and a
+# citation the reader cannot follow is not a citation.
+_SOURCE_URL_OPTIONAL_RE = re.compile(
+    r"\b(?:diligence|interview|reference calls?|call notes?|founder updates?|"
+    r"management (?:call|meeting|interview|presentation)|data ?room|private|"
+    r"internal|bsh|memo studio|uploads?|uploaded|file|deck|transcripts?|kpis?|"
+    r"portfolio|investors?|intermediary|board|term sheet|cap table|model|"
+    r"company[- _]?(?:reported|disclosure|documents?|materials|data|provided)|"
+    r"company|proprietary|confidential|email|correspondence|survey|expert|primary)\b",
+    re.I,
+)
+
+
+def _memo_source_url_required_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_SOURCE_URL_REQUIRED", "1") == "1"
+
+
+def source_url_optional(source: dict) -> bool:
+    """Whether this source may omit its URL: its class or title marks it as
+    private material rather than a web page."""
+    haystack = " ".join(
+        [
+            _loc(source.get("class"), "en") or str(source.get("class") or ""),
+            _loc(source.get("title"), "en") or str(source.get("title") or ""),
+        ]
+    )
+    return bool(_SOURCE_URL_OPTIONAL_RE.search(haystack))
+
+
 def _validate_source(source: Any, location: str, errors: list[str]) -> None:
     if not isinstance(source, dict):
         errors.append(f"{location} must be an object")
@@ -2058,6 +2091,14 @@ def _validate_source(source: Any, location: str, errors: list[str]) -> None:
             ("http://", "https://")
         ):
             errors.append(f"{location}.url must be an http(s) URL when present")
+    elif _memo_source_url_required_enabled() and not source_url_optional(source):
+        source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
+        errors.append(
+            f"{location}.url is required: a source of class {source_class!r} is "
+            "web-retrieved, so carry the page URL the analysis artifacts or the "
+            "known-sources list recorded; if it is really a private file, "
+            "interview or internal document, say so in its class instead"
+        )
     _validate_localized_value(
         source.get("class"),
         f"{location}.class",

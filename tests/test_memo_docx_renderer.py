@@ -2172,10 +2172,12 @@ def test_a_source_classed_in_only_one_of_its_two_fields_is_completed():
              "class": "company_reported"},
             # the slug sitting in treatment, no class (attempt 2)
             {"id": "s2", "title": "Forbes ranking", "as_of": "2023-11-01",
+             "url": "https://www.forbes.com/lists/example/",
              "treatment": {"en": "independent_secondary", "zh": ""}},
             # a real treatment sentence is left exactly as written
             {"id": "s3", "title": "Gartner", "as_of": "2024-04-10",
              "class": "third-party market data",
+             "url": "https://www.gartner.com/en/documents/example",
              "treatment": {"en": "Discounted; vendor-commissioned.", "zh": ""}},
         ],
     )
