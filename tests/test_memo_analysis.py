@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -4346,6 +4347,18 @@ def _chasing_env(memo_env, monkeypatch):
     return report, run_dir
 
 
+def _blank_zh(node) -> None:
+    """Empty every zh half, the way a spine that wrote only English does."""
+    if isinstance(node, dict):
+        if isinstance(node.get("en"), str) and "zh" in node:
+            node["zh"] = ""
+        for value in node.values():
+            _blank_zh(value)
+    elif isinstance(node, list):
+        for value in node:
+            _blank_zh(value)
+
+
 def test_fast_pipeline_chasing_end_to_end(memo_env, monkeypatch):
     report, run_dir = _chasing_env(memo_env, monkeypatch)
     package = _memo_package(body_zh="")
@@ -4353,13 +4366,15 @@ def test_fast_pipeline_chasing_end_to_end(memo_env, monkeypatch):
     def fake_parallel_english(**kwargs):
         assert callable(kwargs["on_spine"]), "attempt 1 must receive hooks"
         assert callable(kwargs["on_section"])
-        kwargs["on_spine"](
-            {
-                "package_skeleton": {
-                    k: v for k, v in package.items() if k != "sections"
-                }
-            }
+        # A spine writes English and leaves zh for later, so the skeleton
+        # it pins is untranslated — and a skeleton that arrived translated
+        # is no longer chased at all, because there would be nothing in it
+        # to adopt.
+        skeleton = copy.deepcopy(
+            {k: v for k, v in package.items() if k != "sections"}
         )
+        _blank_zh(skeleton)
+        kwargs["on_spine"]({"package_skeleton": skeleton})
         for section in package["sections"]:
             kwargs["on_section"](section["id"], section)
         return {

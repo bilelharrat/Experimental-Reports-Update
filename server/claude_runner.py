@@ -11392,6 +11392,43 @@ def _package_calculations(shared_facts: Any) -> list[dict]:
     return out
 
 
+def _localized_pinned_calculations(spine_payload: Any) -> list[dict]:
+    """The spine's calculation notes in the shape the package stores them.
+
+    The spine pins a calculation's `label` and `meaning` as plain strings;
+    the package carries them as localized `{en, zh}` values, and those
+    twenty strings were the single largest block of untranslated text left
+    for the serial gap-fill at the end of every run (RadixArk
+    2026-09-20__042036: twenty of twenty-six). They are pinned before the
+    first section starts, so they can be translated in parallel with the
+    memo instead — the envelope chase just never carried them, because it
+    carries `package_skeleton` and the calculations are pinned beside it
+    under `shared_facts`.
+
+    Adoption matches on `en` and on list length, so a package whose
+    calculations drifted from the pins simply adopts nothing.
+    """
+    facts = (spine_payload or {}).get("shared_facts")
+    pinned = facts.get("calculations") if isinstance(facts, dict) else None
+    if not isinstance(pinned, list) or not pinned:
+        return []
+    out: list[dict] = []
+    for note in pinned:
+        if not isinstance(note, dict):
+            return []
+        carried: dict[str, Any] = {}
+        for key in ("label", "meaning"):
+            value = note.get(key)
+            if isinstance(value, str) and value.strip():
+                carried[key] = {"en": value, "zh": ""}
+            elif isinstance(value, dict) and isinstance(value.get("en"), str):
+                carried[key] = {"en": value["en"], "zh": ""}
+        if not carried:
+            return []
+        out.append(carried)
+    return out
+
+
 def _adopt_zh_translations(source: Any, translated: Any) -> None:
     """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
 
@@ -11596,8 +11633,12 @@ class BilingualChaser:
         try:
             skeleton = (spine_payload or {}).get("package_skeleton")
             if isinstance(skeleton, dict) and skeleton:
+                payload = dict(skeleton)
+                calculations = _localized_pinned_calculations(spine_payload)
+                if calculations:
+                    payload["calculations"] = calculations
                 self._submit(
-                    "envelope", "package envelope (chase)", skeleton, 4.01
+                    "envelope", "package envelope (chase)", payload, 4.01
                 )
         except Exception:  # noqa: BLE001
             logger.warning("zh chase spine hook failed", exc_info=True)
@@ -11624,6 +11665,22 @@ class BilingualChaser:
     def _submit(
         self, unit_id: str, label: str, payload: dict, phase_index: float
     ) -> None:
+        # Nothing to chase is not a small unit, it is no unit. Gemini writes
+        # both halves of a section in one pass, so on 2026-09-20 both live
+        # runs dispatched all eight units, paid for all eight, and adopted
+        # zero strings from any of them — the only blanks left in the
+        # package were the source treatments (written after the spine, by
+        # our own repair) and the pinned calculations. Claude's sections
+        # arrive English-only and are chased exactly as before.
+        if not _count_blank_zh(payload):
+            if self._stream is not None:
+                self._stream.emit(
+                    "stage",
+                    stage="memo_zh_chase_not_needed",
+                    message=f"{label} arrived translated; not chasing it",
+                    unit_id=unit_id,
+                )
+            return
         with self._lock:
             if unit_id in self._futures:
                 return
