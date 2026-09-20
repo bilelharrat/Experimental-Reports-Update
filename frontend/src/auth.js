@@ -87,6 +87,10 @@ export const isAuthenticated = computed(
   () => session.value !== null || isAnonDev(),
 );
 export const sessionEmail = computed(() => session.value?.email ?? null);
+// True while the server holds this session to a password change and
+// nothing else. Set by the login response, kept fresh by /auth/me on every
+// boot, and cleared by the fresh session a successful change returns.
+export const mustResetPassword = computed(() => Boolean(session.value?.must_reset));
 export const sessionInitials = computed(() =>
   accountInitials(sessionName.value || session.value?.email, "?"),
 );
@@ -94,10 +98,15 @@ export const sessionInitials = computed(() =>
 function _applyIdentity(me) {
   if (!me || typeof me !== "object") return;
   const email = me.email || null;
-  if (email && session.value && session.value.email !== email) {
-    const next = { ...session.value, email };
-    _writeStoredSession(next);
-    session.value = next;
+  if (session.value) {
+    const mustReset = Boolean(me.must_reset);
+    const emailChanged = Boolean(email) && session.value.email !== email;
+    if (emailChanged || Boolean(session.value.must_reset) !== mustReset) {
+      const next = { ...session.value, must_reset: mustReset };
+      if (emailChanged) next.email = email;
+      _writeStoredSession(next);
+      session.value = next;
+    }
   }
   sessionName.value = me.name || (email ? displayNameFromEmail(email) : null) || null;
 }

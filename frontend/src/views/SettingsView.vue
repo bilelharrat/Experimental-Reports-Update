@@ -21,6 +21,22 @@ import { openWelcomeTour } from "../welcomeTour.js";
 
 const t = useT();
 
+const signingOutElsewhere = ref(false);
+const sessionsNotice = ref("");
+async function signOutElsewhere() {
+  if (signingOutElsewhere.value) return;
+  signingOutElsewhere.value = true;
+  sessionsNotice.value = "";
+  try {
+    const res = await api.revokeSessions();
+    sessionsNotice.value = t("accounts.signed_out_others", { count: res?.revoked ?? 0 });
+  } catch (e) {
+    sessionsNotice.value = e?.detail || e?.message || "";
+  } finally {
+    signingOutElsewhere.value = false;
+  }
+}
+
 const settings = ref(null);
 const profile = ref(null);
 const loading = ref(true);
@@ -461,6 +477,32 @@ async function importDeskState(event) {
             <span class="shrink-0 text-ink-secondary">{{ t("settings.account") }}</span>
             <span class="min-w-0 truncate font-semibold text-ink-primary">{{ account.email }}</span>
           </div>
+        </div>
+        <!-- The account's own controls. Signing out elsewhere is what
+             someone does about a session they do not recognise, and the
+             password change is the stronger form of the same act. -->
+        <div v-if="account.email" class="mt-3 flex flex-wrap items-center gap-2">
+          <RouterLink :to="{ name: 'change-password' }" class="btn-bordered btn-sm">
+            {{ t("user.change_password") }}
+          </RouterLink>
+          <button
+            type="button"
+            class="btn-bordered btn-sm"
+            :disabled="signingOutElsewhere"
+            data-testid="sign-out-elsewhere"
+            @click="signOutElsewhere"
+          >
+            {{ t("accounts.sign_out_others") }}
+          </button>
+          <RouterLink
+            v-if="(account.permissions || []).includes('users:manage')"
+            :to="{ name: 'accounts' }"
+            class="btn-bordered btn-sm"
+            data-testid="manage-accounts"
+          >
+            {{ t("settings.manage_accounts") }}
+          </RouterLink>
+          <span v-if="sessionsNotice" class="text-footnote text-ink-muted">{{ sessionsNotice }}</span>
         </div>
         <details class="mt-3">
           <summary class="cursor-pointer text-footnote text-ink-muted focus-ring rounded-subbox px-1 py-1">

@@ -197,6 +197,9 @@ async function mountRouteWithRouter(path) {
       { path: "/innovation-lab", name: "innovation-lab", component: InnovationLabView },
       { path: "/settings", name: "settings", component: SettingsView },
       { path: "/user", name: "user-center", redirect: { name: "settings" } },
+      // Settings links to these; the table must know them or the links throw.
+      { path: "/account/password", name: "change-password", component: { template: "<div />" } },
+      { path: "/accounts", name: "accounts", component: { template: "<div />" } },
       { path: "/source-library", name: "source-library", component: SourceLibraryView },
       { path: "/companies/:companyId/competitors/:competitorId", name: "competitor-detail", component: CompetitorDetailView, props: true },
       { path: "/innovation-lab/hormuz", name: "hormuz-library", component: { template: "<div />" } },

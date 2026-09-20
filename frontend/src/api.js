@@ -166,11 +166,6 @@ function publicPost(path, body) {
   });
 }
 
-/** GET an endpoint that is reachable without a session. */
-function publicGet(path) {
-  return _publicCall(path, { method: "GET" });
-}
-
 export const api = {
   // --- Auth ---
   // login() is the only call that runs without a bearer header (it IS
@@ -203,8 +198,7 @@ export const api = {
     publicPost("/api/auth/register", { email, password }),
   requestPasswordReset: (email) =>
     publicPost("/api/auth/reset/request", { email }),
-  checkResetToken: (token) =>
-    publicGet(`/api/auth/reset/check?token=${encodeURIComponent(token)}`),
+  checkResetToken: (token) => publicPost("/api/auth/reset/check", { token }),
   consumePasswordReset: (token, newPassword) =>
     publicPost("/api/auth/reset/consume", { token, new_password: newPassword }),
 
@@ -224,6 +218,14 @@ export const api = {
       method: "POST",
     }),
 
+  changePassword: (currentPassword, newPassword) =>
+    request("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }),
   listSessions: () => request("/api/auth/sessions"),
   revokeSessions: (sessionId) =>
     request(

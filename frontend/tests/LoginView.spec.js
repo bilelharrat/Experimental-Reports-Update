@@ -21,6 +21,15 @@ vi.mock("../src/auth.js", () => ({
   isAnonDev: vi.fn(() => false),
 }));
 
+vi.mock("../src/api.js", () => ({
+  api: {
+    register: vi.fn(),
+    requestPasswordReset: vi.fn(),
+  },
+}));
+
+import { api } from "../src/api.js";
+
 describe("LoginView Summit Glass Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -74,5 +83,61 @@ describe("LoginView Summit Glass Component", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Invalid email or password");
+  });
+
+  it("sends a must_reset sign-in to the password screen and nowhere else", async () => {
+    vi.mocked(auth.signIn).mockResolvedValueOnce({ token: "t", must_reset: true });
+    const wrapper = mount(LoginView);
+    await wrapper.find("input[type='text']").setValue("robert@bshventures.com");
+    await wrapper.find("input[type='password']").setValue("correct-horse-battery");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(mockReplace).toHaveBeenCalledWith({ name: "change-password" });
+  });
+
+  it("requests access from the sign-up mode and shows the pending panel", async () => {
+    vi.mocked(api.register).mockResolvedValueOnce({ status: "pending" });
+    const wrapper = mount(LoginView);
+    const toSignUp = wrapper.findAll("button").find((b) => /need an account/i.test(b.text()));
+    await toSignUp.trigger("click");
+    expect(wrapper.text()).toContain("Create account");
+
+    await wrapper.find("input[type='text']").setValue("newcomer@example.com");
+    const passwords = wrapper.findAll("input[type='password']");
+    expect(passwords.length).toBe(2);
+    await passwords[0].setValue("correct-horse-battery");
+    await passwords[1].setValue("correct-horse-battery");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(api.register).toHaveBeenCalledWith("newcomer@example.com", "correct-horse-battery");
+    expect(wrapper.find("[data-testid='auth-notice']").text()).toContain("Request received");
+    expect(auth.signIn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a sign-up whose passwords differ before calling the server", async () => {
+    const wrapper = mount(LoginView);
+    await wrapper.findAll("button").find((b) => /need an account/i.test(b.text())).trigger("click");
+    await wrapper.find("input[type='text']").setValue("newcomer@example.com");
+    const passwords = wrapper.findAll("input[type='password']");
+    await passwords[0].setValue("correct-horse-battery");
+    await passwords[1].setValue("something-else-entirely");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(api.register).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("do not match");
+  });
+
+  it("asks for a reset from the forgot mode and says the same thing either way", async () => {
+    vi.mocked(api.requestPasswordReset).mockResolvedValueOnce({ status: "requested" });
+    const wrapper = mount(LoginView);
+    await wrapper.findAll("button").find((b) => /forgot password/i.test(b.text())).trigger("click");
+    // No password field in this mode: only the address is asked for.
+    expect(wrapper.find("input[type='password']").exists()).toBe(false);
+    await wrapper.find("input[type='text']").setValue("someone@example.com");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(api.requestPasswordReset).toHaveBeenCalledWith("someone@example.com");
+    expect(wrapper.find("[data-testid='auth-notice']").text()).toContain("Request sent");
   });
 });

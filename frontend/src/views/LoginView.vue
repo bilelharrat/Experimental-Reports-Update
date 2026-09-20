@@ -155,8 +155,14 @@ async function onSubmit() {
   submitting.value = true;
   errorMessage.value = null;
   try {
-    await signIn(trimmedEmail, password.value);
+    const res = await signIn(trimmedEmail, password.value);
     password.value = "";
+    if (res?.must_reset) {
+      // The server will refuse this session anything else until the
+      // password is changed, so there is nowhere else worth sending it.
+      router.replace({ name: "change-password" });
+      return;
+    }
     // Bounce back to wherever they were trying to go, default home.
     const next = typeof route.query.next === "string" ? route.query.next : "/";
     router.replace(postAuthPath(next));

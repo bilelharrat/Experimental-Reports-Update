@@ -46,6 +46,9 @@ async function load() {
 
 onMounted(load);
 
+// One server call serves three cases — approving a pending account,
+// re-enabling a disabled one, and changing an active one's role — because
+// the server's "approve" is "make active with this role".
 async function approve(account) {
   const role = chosenRole.value[account.email];
   if (!role) return;
@@ -161,25 +164,32 @@ function shortDate(value) {
             <td class="px-4 py-2.5 text-ink-subtle">{{ shortDate(account.created_at) }}</td>
             <td class="px-4 py-2.5">
               <div class="flex items-center justify-end gap-2">
-                <template v-if="account.status === 'pending'">
-                  <select
-                    v-model="chosenRole[account.email]"
-                    class="field w-36"
-                    :aria-label="t('accounts.choose_role')"
-                  >
-                    <option value="">{{ t("accounts.choose_role") }}</option>
-                    <option v-for="role in roles" :key="role" :value="role">{{ role }}</option>
-                  </select>
-                  <button
-                    type="button"
-                    class="btn-filled btn-sm"
-                    :disabled="!chosenRole[account.email] || busyEmail === account.email"
-                    @click="approve(account)"
-                  >
-                    <Check class="h-3.5 w-3.5" />
-                    <span>{{ t("accounts.approve") }}</span>
-                  </button>
-                </template>
+                <select
+                  v-model="chosenRole[account.email]"
+                  class="field w-36"
+                  :aria-label="t('accounts.choose_role')"
+                >
+                  <option value="">{{ t("accounts.choose_role") }}</option>
+                  <option v-for="role in roles" :key="role" :value="role">{{ role }}</option>
+                </select>
+                <button
+                  type="button"
+                  :class="account.status === 'active' ? 'btn-bordered btn-sm' : 'btn-filled btn-sm'"
+                  :disabled="!chosenRole[account.email] || busyEmail === account.email"
+                  :data-testid="`account-action-${account.status}`"
+                  @click="approve(account)"
+                >
+                  <Check class="h-3.5 w-3.5" />
+                  <span>
+                    {{
+                      account.status === "pending"
+                        ? t("accounts.approve")
+                        : account.status === "disabled"
+                          ? t("accounts.enable")
+                          : t("accounts.set_role")
+                    }}
+                  </span>
+                </button>
 
                 <button
                   type="button"

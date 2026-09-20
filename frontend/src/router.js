@@ -1,6 +1,12 @@
 import { watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
-import { isAuthenticated, isAnonDev, session, validateSession } from "./auth.js";
+import {
+  isAuthenticated,
+  isAnonDev,
+  mustResetPassword,
+  session,
+  validateSession,
+} from "./auth.js";
 import { postAuthPath } from "./state.js";
 
 const HomeView = () => import("./views/HomeView.vue");
@@ -25,6 +31,7 @@ const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const MarketsView = () => import("./views/MarketsView.vue");
 const ResetPasswordView = () => import("./views/ResetPasswordView.vue");
 const AccountsView = () => import("./views/AccountsView.vue");
+const ChangePasswordView = () => import("./views/ChangePasswordView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 const ReportsView = () => import("./views/ReportsView.vue");
 const ResearchDeskView = () => import("./views/ResearchDeskView.vue");
@@ -65,6 +72,14 @@ export const router = createRouter({
       path: "/accounts",
       name: "accounts",
       component: AccountsView,
+    },
+    {
+      path: "/account/password",
+      name: "change-password",
+      component: ChangePasswordView,
+      // The one route a must_reset session may use besides sign-out; the
+      // guard below sends such a session here from anywhere else.
+      meta: { passwordChange: true },
     },
     {
       path: "/login",
@@ -194,6 +209,17 @@ router.beforeEach((to) => {
   // Any non-public route requires a session.
   if (!to.meta?.public && !isAuthenticated.value) {
     return { name: "login", query: { next: to.fullPath } };
+  }
+  // A session held to a password change goes there and nowhere else. The
+  // server already refuses it everything but that call; this keeps the
+  // person from landing on a desk of 403s.
+  if (
+    session.value !== null &&
+    mustResetPassword.value &&
+    !to.meta?.public &&
+    !to.meta?.passwordChange
+  ) {
+    return { name: "change-password" };
   }
   return true;
 });
