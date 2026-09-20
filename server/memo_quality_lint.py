@@ -318,6 +318,17 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bpaper-mark outcome\b", re.IGNORECASE),
     re.compile(r"\bflat-to-modest carry\b", re.IGNORECASE),
 )
+# Nouns that turn "document" into a modifier rather than a name for this
+# memo — a document store is a product, not a self-reference.
+_DOCUMENT_COMPOUND_NOUNS = (
+    r"(?:stores?|repositor(?:y|ies)|corpus|corpora|indexe?s?|librar(?:y|ies)|"
+    r"set|sets|collections?|databases?|intelligence|management|search|"
+    r"retrieval|understanding|processing|extraction|ingestion|classification|"
+    r"pipelines?|workflows?|types?|formats?|sources?|volume|volumes|count|"
+    r"counts|AI|Q&A)\b"
+)
+
+
 _META_LANGUAGE_PATTERNS = (
     re.compile(r"\b(?:the|this|our) memo\b", re.IGNORECASE),
     re.compile(r"\b(?:the|this|our) analysis\b", re.IGNORECASE),
@@ -334,7 +345,16 @@ _META_LANGUAGE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(r"\bour section\b", re.IGNORECASE),
-    re.compile(r"\b(?:the|this|our) document\b", re.IGNORECASE),
+    # "document" naming the memo itself, never "document" modifying the
+    # noun after it. Glean sells enterprise document search, so "the
+    # document stores", "the document index", "this document corpus" are
+    # its product — and the gate read them as the memo talking about
+    # itself. Live on 2026-09-20 that failed a whole package attempt no
+    # repair agent could have cleared, because the prose was right.
+    re.compile(
+        r"\b(?:the|this|our) document\b(?!\s+" + _DOCUMENT_COMPOUND_NOUNS + r")",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bmemo language was\b", re.IGNORECASE),
     re.compile(r"\bthe sponsor (?:itself )?(?:implies|frames|flags)\b", re.IGNORECASE),
     re.compile(

@@ -322,6 +322,7 @@ Banned phrase / rewrite guidance:
 | Unresolved inquiry framing | Risk factors / deal-mechanics disclosure |
 | Missing proof | Named gap, then the risk. |
 | Recommendation labels | Recommendation: BSH commits... / Recommendation: pass on... |
+| BSH should ... / what BSH should do | BSH moves when... / The trigger is a new priced round. (the firm acts, it is not advised) |
 | Decision discipline | named risks |
 | False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |

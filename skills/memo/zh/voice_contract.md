@@ -1,5 +1,5 @@
 ---
-en_sha256: 60f6d271130b96d243e00e05007789c167c582f5edd7dfa4a25b0adb31b7bb68
+en_sha256: 0e0045b0614a9c32e60ea1cec7c10986e7d68e00b92e4944e85ce4fe8e1cc618
 ---
 ## 人写的高管级备忘录语气契约
 
@@ -279,6 +279,7 @@ Decision / Closing View（投资决定 / 收尾观点）必须使用同一条主
 | 未决问询框架 | 风险因素 / 交易机制披露 |
 | "Missing proof"（证据缺失） | 点名缺口，然后是风险。 |
 | 投资建议标签 | Recommendation: BSH 承诺出资…… / Recommendation: 放弃…… |
+| BSH should ...（BSH 应当……）/ what BSH should do | BSH moves when...（触发条件出现时本机构行动）/ The trigger is a new priced round.（写清触发条件本身）——由本机构作为主语采取行动，而不是被建议去做什么 |
 | "Decision discipline"（决策纪律） | 点名的风险 |
 | 虚假精确 | 陈述证据区间，不要过度建模。 |
 | "not treated as ARR"（不按 ARR 处理） | "not revenue-recognized"（未确认为收入） |

@@ -707,6 +707,44 @@ def test_a_service_level_is_not_an_unsupported_claim():
         assert memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(banned), banned
 
 
+def test_a_document_store_is_not_the_memo_talking_about_itself():
+    """The rule bans "the document" as a name for this memo, not
+    "document" modifying the noun after it. Live on 2026-09-20 a Glean
+    memo — enterprise DOCUMENT search — lost a whole package attempt to
+    the phrase "the document stores" in a list of the systems Glean
+    indexes. No repair agent could have cleared it: the prose was right,
+    and the word recurs on every attempt for this company.
+    """
+    def fires(text):
+        return any(
+            pattern.search(text)
+            for pattern in memo_quality_lint._META_LANGUAGE_PATTERNS
+        )
+
+    # Verbatim from that run's thesis section.
+    real = (
+        "The company sells a subscription platform that indexes everything "
+        "a company already runs — Slack, Salesforce, Confluence, Jira, "
+        "GitHub, the document stores — and answers questions across all of "
+        "it while respecting who is allowed to see what."
+    )
+    assert not fires(real)
+    for allowed in (
+        "Glean indexes the document repositories a company already runs.",
+        "Aryn brought agentic document intelligence into the platform.",
+        "This document corpus reached 27B items in May 2026.",
+        "Our document search share is the number that matters.",
+    ):
+        assert not fires(allowed), allowed
+    # The self-reference the rule exists for still fires.
+    for banned in (
+        "The document states that revenue tripled.",
+        "Figures in this document were not independently verified.",
+        "Our document assumes the round closes in March.",
+    ):
+        assert fires(banned), banned
+
+
 def test_meta_language_suggestion_shows_the_rewrite(tmp_path):
     """The 2026-09-17 compact run shipped with three meta_process_language
     findings the surgical repair had already tried and failed to fix. The
@@ -751,8 +789,16 @@ def test_voice_contract_names_the_phrases_the_gate_rejects():
         '"our analysis"',
         '"this document"',
         '"the\n  framework"',
+        # The gate bans "BSH should" as advice the firm is given rather
+        # than the call the firm makes. A `watch` verdict has to state a
+        # trigger, and "BSH should move when..." is the natural English
+        # for one — so the writers wrote it on every attempt of the Glean
+        # run (2026-09-20), four findings on attempt 2 alone, while the
+        # contract named the recommendation form and never this phrase.
+        "BSH should",
     ):
         assert phrase in contract, phrase
+    assert "BSH moves when" in contract
     # The rewrite, not just the ban.
     assert "every multiple we use" in contract
     assert "What the gap\n    costs us" in contract
