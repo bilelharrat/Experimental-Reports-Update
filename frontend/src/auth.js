@@ -166,8 +166,16 @@ export async function signIn(email, password) {
 
 function _reload(path) {
   if (typeof window === "undefined" || !window.location) return;
-  if (path) window.location.replace(appBasePath().replace(/\/$/, "") + path);
-  else window.location.reload();
+  if (path) {
+    window.location.replace(appBasePath().replace(/\/$/, "") + path);
+    return;
+  }
+  // Reload in place, minus the flag that lets the sign-in page show while
+  // a session exists: with it kept, the reloaded page would sit on an
+  // empty form instead of being sent on by the guard.
+  const url = new URL(window.location.href);
+  url.searchParams.delete("switch");
+  window.location.replace(url.toString());
 }
 
 /** Take up a session the server minted outside the login form — today the
