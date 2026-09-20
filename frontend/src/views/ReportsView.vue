@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  ShieldCheck,
   Sparkles,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
@@ -555,6 +556,16 @@ onMounted(loadReports);
                   >
                     <Sparkles class="h-2.5 w-2.5" />
                     {{ r.memo_quality_lint.overall_score }}
+                  </span>
+                  <span
+                    v-if="r.memo_fact_check?.coverage_pct != null"
+                    class="inline-flex items-center gap-0.5 rounded-[5px] px-1.5 py-px text-caption2 font-semibold tabular"
+                    :class="r.memo_fact_check.unsupported ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'"
+                    :title="t('research.fact_check_traced', { pct: r.memo_fact_check.coverage_pct })"
+                    data-testid="fact-check-chip"
+                  >
+                    <ShieldCheck class="h-2.5 w-2.5" />
+                    {{ r.memo_fact_check.coverage_pct }}%
                   </span>
                 </div>
 

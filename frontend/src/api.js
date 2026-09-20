@@ -524,6 +524,17 @@ export const api = {
     }),
   getMemoNumberLint: (companyId) =>
     request(`/api/companies/${companyId}/memo-number-lint`),
+  getFactLedger: (companyId) =>
+    request(`/api/companies/${companyId}/fact-ledger`),
+  putFactLedger: (companyId, text) =>
+    request(`/api/companies/${companyId}/fact-ledger`, {
+      method: "PUT",
+      body: JSON.stringify({ text }),
+    }),
+  getSourceCache: (companyId) =>
+    request(`/api/companies/${companyId}/source-cache`),
+  getReportFactCheck: (reportId) =>
+    request(`/api/reports/${reportId}/fact-check`),
   getSignalScore: (companyId) =>
     request(`/api/companies/${companyId}/signal-score`),
   intakeDeck: async ({ file, companyId, companyName }) => {

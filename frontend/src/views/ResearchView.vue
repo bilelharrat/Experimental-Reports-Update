@@ -473,6 +473,7 @@ const gateDiagnostics = computed(() => {
   };
   add(tr("research.gate_quality"), r.memo_quality_lint);
   add(tr("research.gate_chinese_parity"), r.memo_chinese_parity);
+  add(tr("research.gate_fact_check"), r.memo_fact_check);
   return items;
 });
 const gateFindings = computed(() => {
@@ -481,6 +482,7 @@ const gateFindings = computed(() => {
   const gates = [
     [tr("research.gate_quality"), r.memo_quality_lint],
     [tr("research.gate_chinese_parity"), r.memo_chinese_parity],
+    [tr("research.gate_fact_check"), r.memo_fact_check],
   ];
   return gates.flatMap(([gateLabel, payload]) => {
     const findings = payload?.findings;

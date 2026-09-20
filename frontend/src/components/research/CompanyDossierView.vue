@@ -32,6 +32,7 @@ import MemoStudioEditor from "../MemoStudioEditor.vue";
 import ICPrepCard from "./ICPrepCard.vue";
 import ICRoomCard from "./ICRoomCard.vue";
 import NumberLintCard from "./NumberLintCard.vue";
+import FactLedgerCard from "./FactLedgerCard.vue";
 import ThesisTrackerCard from "./ThesisTrackerCard.vue";
 import CompanyCommentsCard from "./CompanyCommentsCard.vue";
 import UnifiedDocumentsView from "../UnifiedDocumentsView.vue";
@@ -352,6 +353,8 @@ onUnmounted(() => {
       @open-report="openMemo"
       @files-changed="documentsRefresh += 1"
     />
+
+    <FactLedgerCard v-if="shows('files')" :key="`ledger-${companyId}`" :company-id="companyId" />
 
     <FounderRadarCard v-if="shows('team')" :company-id="companyId" :company="company" />
 
