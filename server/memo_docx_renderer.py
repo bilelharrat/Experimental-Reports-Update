@@ -257,6 +257,11 @@ _SOURCE_KEY_SYNONYMS = {
     "kind": "class",
     "detail": "treatment",
     "name": "title",
+    # When the source was current. Live on 2026-09-20 every one of ten
+    # sources dated itself under `date` and the attempt died ten times
+    # over on "as_of is required".
+    "date": "as_of",
+    "as_of_date": "as_of",
 }
 
 # A block names its own fields as often as it names the schema's. Each of
@@ -371,6 +376,77 @@ def _infer_block_type(block: dict) -> str:
     if not any(block.get(key) for key in _CONTENT_KEYS):
         return "spacer"
     return "paragraph"
+
+
+def _series_from_column_keyed_points(data: Any, where: str) -> list[dict] | None:
+    """One series per measure, from points that name their own columns.
+
+    The model writes a scenario chart the way it writes a table row —
+    ``{"scenario": {en, zh}, "moic": 1.4, "irr": "7.0%"}`` — where the
+    contract wants ``series`` of ``{label, points: [{x, y}]}``. The one
+    non-numeric column is the x axis; every column that is a real number
+    in EVERY point is a series, labelled by its own name, because here
+    the column name is what the numbers are (unlike a flat ``{label,
+    value}`` list, where the name carries nothing and the block title
+    has to supply it). A column that is a number in some points and a
+    string in others is not a series and is left out — ``irr: "7.0%"``
+    is text, not a value this can plot.
+    """
+    if not isinstance(data, list) or not data:
+        return None
+    points = [point for point in data if isinstance(point, dict)]
+    if len(points) != len(data):
+        return None
+    shared = set(points[0])
+    for point in points[1:]:
+        shared &= set(point)
+    if not shared:
+        return None
+
+    def _is_number(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    # The x axis is the column the model wrote bilingually — a scenario
+    # name, a year, a segment. The other text columns are formatted
+    # numbers ("7.0%", "$90M"), which read as labels too, so asking only
+    # "is it non-numeric" found three axes where there was one.
+    localized = [
+        key
+        for key in shared
+        if all(
+            isinstance(point[key], dict)
+            and isinstance(point[key].get("en"), str)
+            and point[key]["en"].strip()
+            for point in points
+        )
+    ]
+    if len(localized) == 1:
+        labels = localized
+    else:
+        labels = [
+            key
+            for key in shared
+            if all(
+                not _is_number(point[key]) and _content_text(point[key]).strip()
+                for point in points
+            )
+        ]
+    measures = [
+        key for key in shared if all(_is_number(point[key]) for point in points)
+    ]
+    if len(labels) != 1 or not 1 <= len(measures) <= 4:
+        return None
+    x_key = labels[0]
+    return [
+        {
+            "label": str(measure).replace("_", " ").replace("-", " ").strip(),
+            "points": [
+                {"x": _content_text(point[x_key]), "y": point[measure]}
+                for point in points
+            ],
+        }
+        for measure in sorted(measures, key=lambda key: sorted(shared).index(key))
+    ]
 
 
 def _adopt_column_keyed_rows(block: dict, repairs: list[str], where: str) -> None:
@@ -502,6 +578,25 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
                 f"{where}: turned a flat 'data' list of {len(usable)} points "
                 "into one series"
             )
+        else:
+            derived = _series_from_column_keyed_points(data, where)
+            if derived:
+                block["series"] = derived
+                block.pop("data", None)
+                names = ", ".join(repr(one["label"]) for one in derived)
+                repairs.append(
+                    f"{where}: read {len(derived)} series ({names}) off "
+                    "points that named their own columns"
+                )
+
+    # A chart with nothing left to plot is the placeholder an empty table
+    # is, and dropping it is what already happens to a chart whose series
+    # carry no points. Reaching validation without one is fatal — "series
+    # must be a list of 1-4 series" ended a live attempt on 2026-09-20
+    # after every section had already been written.
+    if kind == "chart" and not block.get("series"):
+        repairs.append(f"{where}: dropped a chart with no series to plot")
+        return []
 
     # A bullets block with no items, carrying its content as `text`: that is
     # a paragraph, and typing it as one is what the block already is. Live on

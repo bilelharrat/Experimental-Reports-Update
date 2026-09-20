@@ -1661,6 +1661,78 @@ def test_repair_turns_key_value_items_into_rows():
     assert any("two-cell rows" in r for r in repairs)
 
 
+def test_repair_reads_a_chart_off_points_that_name_their_columns():
+    """A scenario chart written the way a table row is written. The one
+    bilingual column is the x axis; the formatted-number columns ("7.0%",
+    "$90M") are text, not values, and are left out. Live on 2026-09-20
+    this failed a whole attempt as "series must be a list of 1-4 series"
+    after every section had already been written."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Return Scenarios", "zh": "回报情景"},
+            "reading": {"en": "Base case returns 1.4x.", "zh": "基准情景 1.4 倍。"},
+            "data": [
+                {
+                    "scenario": {"en": "Bear", "zh": "悲观"},
+                    "moic": 0.17,
+                    "irr": "-45%",
+                    "exit_value": "$90M",
+                },
+                {
+                    "scenario": {"en": "Base", "zh": "基准"},
+                    "moic": 1.4,
+                    "irr": "7.0%",
+                    "exit_value": "$1.0B",
+                },
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    chart = repaired["sections"][0]["blocks"][-1]
+    assert chart["series"] == [
+        {
+            "label": "moic",
+            "points": [{"x": "Bear", "y": 0.17}, {"x": "Base", "y": 1.4}],
+        }
+    ]
+    assert "data" not in chart
+    assert any("named their own columns" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_drops_a_chart_with_nothing_to_plot():
+    """Reaching validation with no series is fatal, and a chart nobody
+    could render is worth less than the attempt it costs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "title": {"en": "Mystery", "zh": "谜"},
+            "data": [{"a": "one", "b": "two"}],
+        }
+    )
+    before = len(package["sections"][0]["blocks"])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"]) == before - 1
+    assert any("no series to plot" in r for r in repairs)
+
+
+def test_repair_dates_a_source_that_used_its_own_word():
+    """Ten of ten sources dated themselves under `date` on 2026-09-20 and
+    the attempt died ten times over on "as_of is required"."""
+    package = copy.deepcopy(_package())
+    source = dict(package["sources"][0])
+    source["date"] = source.pop("as_of")
+    package["sources"][0] = source
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sources"][0]["as_of"] == package["sources"][0]["date"]
+    assert any("renamed 'date' to 'as_of'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
 def test_repair_orders_column_keyed_rows():
     """A table delivered as `columns` of {key, label} plus rows keyed by
     those column keys. Every cell is already localized and in the right
