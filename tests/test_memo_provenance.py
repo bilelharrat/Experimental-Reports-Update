@@ -238,6 +238,13 @@ def test_spine_schema_and_gate_cover_calculations():
     block = claude_runner._render_shared_facts_block(good, V2)
     assert "Calculation notes (cite the id in square brackets" in block
     assert "- C2 Fair value range: 25x × $24M = $600M" in block
+    # The gate rejects an id that was never pinned, so the prompt has to say
+    # which ids exist. Live on 2026-09-20 a spine pinned seven notes, the
+    # sections cited [C8] fourteen times, and the run died with no document.
+    pinned = [note["id"] for note in good["calculations"]]
+    assert f"These {len(pinned)} are the ONLY calculation ids" in block
+    assert ", ".join(f"[{cid}]" for cid in pinned) in block
+    assert "show the arithmetic in the sentence itself" in block
     missing = copy.deepcopy(good)
     missing["calculations"] = [missing["calculations"][1]]  # fair value only
     problems = memo_pin_check.check_spine_pins_v2(missing, V2)

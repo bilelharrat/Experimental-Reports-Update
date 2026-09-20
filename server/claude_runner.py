@@ -5760,10 +5760,29 @@ def _render_shared_facts_block(
             )
     calculations = shared_facts.get("calculations")
     if isinstance(calculations, list) and calculations:
+        pinned_ids = [
+            str(note.get("id"))
+            for note in calculations
+            if isinstance(note, dict) and note.get("id")
+        ]
+        # The gate rejects an id that was never pinned, and the prompt never
+        # said which ids exist. Live on 2026-09-20 a spine pinned seven
+        # notes, the sections cited [C8] fourteen times, and the run died
+        # after three attempts and a surgical repair — no document. The
+        # ceiling is stated here, with the way out when a section needs
+        # arithmetic nobody pinned.
+        available = ", ".join(f"[{cid}]" for cid in pinned_ids) or "none"
         lines.append(
             "Calculation notes (cite the id in square brackets — [C2] — "
             "wherever the result appears in prose or a table cell; the "
-            "renderer links it to the Calculation notes appendix):"
+            "renderer links it to the Calculation notes appendix). "
+            f"These {len(pinned_ids)} are the ONLY calculation ids that "
+            f"exist for this memo: {available}. Citing any other id — "
+            "another number in the sequence above all — fails a "
+            "deterministic gate and costs the whole package a rewrite. "
+            "When a number you need has no note here, show the arithmetic "
+            "in the sentence itself ($40M ARR / 200 customers = $200K per "
+            "customer) and cite no [C#] at all:"
         )
         for note in calculations:
             if not isinstance(note, dict):
