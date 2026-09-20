@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-vue-next";
 import BrandMark from "../components/BrandMark.vue";
+import { api } from "../api.js";
 import { isAnonDev, signIn } from "../auth.js";
 import { useT } from "../i18n.js";
 import { postAuthPath } from "../state.js";
@@ -21,12 +22,52 @@ const t = useT();
 const route = useRoute();
 const router = useRouter();
 
+// One card, four states: sign in, request access, ask for a reset, and the
+// two "we heard you" panels that follow the last two. Keeping them in the
+// same sheet means the Mac metrics are written once.
+const MODE_SIGN_IN = "signin";
+const MODE_SIGN_UP = "signup";
+const MODE_FORGOT = "forgot";
+const MODE_PENDING = "pending";
+const MODE_RESET_SENT = "reset_sent";
+
+const mode = ref(MODE_SIGN_IN);
 const email = ref("");
 const password = ref("");
+const confirmPassword = ref("");
 const isPasswordVisible = ref(false);
 const focusedField = ref(null);
 const errorMessage = ref(null);
 const submitting = ref(false);
+
+const isSignUp = computed(() => mode.value === MODE_SIGN_UP);
+const isForgot = computed(() => mode.value === MODE_FORGOT);
+const isForm = computed(() =>
+  [MODE_SIGN_IN, MODE_SIGN_UP, MODE_FORGOT].includes(mode.value),
+);
+
+function switchMode(next) {
+  mode.value = next;
+  errorMessage.value = null;
+  password.value = "";
+  confirmPassword.value = "";
+}
+
+const canSubmit = computed(() => {
+  if (submitting.value || !email.value.trim()) return false;
+  if (isForgot.value) return true;
+  if (!password.value) return false;
+  if (isSignUp.value) return Boolean(confirmPassword.value);
+  return true;
+});
+
+const submitLabel = computed(() => {
+  if (isSignUp.value)
+    return submitting.value ? t("auth.creating_account") : t("auth.create_account");
+  if (isForgot.value)
+    return submitting.value ? t("auth.requesting_reset") : t("auth.request_reset");
+  return submitting.value ? t("auth.authenticating") : t("auth.sign_in_terminal");
+});
 
 const emailInputRef = ref(null);
 const passwordInputRef = ref(null);
@@ -73,9 +114,44 @@ onMounted(() => {
 });
 
 async function onSubmit() {
-  if (submitting.value) return;
+  if (submitting.value || !canSubmit.value) return;
   const trimmedEmail = email.value.trim();
-  if (!trimmedEmail || !password.value) return;
+
+  if (isSignUp.value) {
+    if (password.value !== confirmPassword.value) {
+      errorMessage.value = t("auth.passwords_differ");
+      return;
+    }
+    submitting.value = true;
+    errorMessage.value = null;
+    try {
+      await api.register(trimmedEmail, password.value);
+      password.value = "";
+      confirmPassword.value = "";
+      mode.value = MODE_PENDING;
+    } catch (e) {
+      errorMessage.value = e?.detail || e?.message || t("auth.unknown_error");
+    } finally {
+      submitting.value = false;
+    }
+    return;
+  }
+
+  if (isForgot.value) {
+    submitting.value = true;
+    errorMessage.value = null;
+    try {
+      await api.requestPasswordReset(trimmedEmail);
+      mode.value = MODE_RESET_SENT;
+    } catch (e) {
+      errorMessage.value = e?.detail || e?.message || t("auth.unknown_error");
+    } finally {
+      submitting.value = false;
+    }
+    return;
+  }
+
+  if (!password.value) return;
   submitting.value = true;
   errorMessage.value = null;
   try {
@@ -88,7 +164,9 @@ async function onSubmit() {
     if (e && e.status === 401) {
       errorMessage.value = t("auth.invalid_credentials");
     } else {
-      errorMessage.value = e?.message || t("auth.unknown_error");
+      // 403 carries the reason an account cannot be used yet — awaiting
+      // approval, or disabled — which is the whole point of showing it.
+      errorMessage.value = e?.detail || e?.message || t("auth.unknown_error");
     }
   } finally {
     submitting.value = false;
@@ -170,7 +248,7 @@ async function onSubmit() {
 
         <!-- `contents` so the form's groups are items of the 20pt stack above,
              exactly as the Mac view's VStack holds them. -->
-        <form class="contents" @submit.prevent="onSubmit">
+        <form v-if="isForm" class="contents" @submit.prevent="onSubmit">
           <!-- Form inputs: VStack(spacing: 12) -->
           <div class="flex flex-col gap-3">
             <!-- Institutional email -->
@@ -213,6 +291,7 @@ async function onSubmit() {
 
             <!-- Password -->
             <div
+              v-if="!isForgot"
               class="login-field flex items-center rounded-xl px-3.5 py-[11px]"
               :class="focusedField === 'password' ? 'login-field--focused' : ''"
             >
@@ -246,6 +325,34 @@ async function onSubmit() {
                 <Eye v-else class="h-3 w-3" />
               </button>
             </div>
+            <!-- Confirm, sign-up only -->
+            <div
+              v-if="isSignUp"
+              class="login-field flex items-center rounded-xl px-3.5 py-[11px]"
+              :class="focusedField === 'confirm' ? 'login-field--focused' : ''"
+            >
+              <span class="flex w-[18px] shrink-0 justify-center">
+                <Lock
+                  class="h-4 w-4 transition-colors"
+                  :class="focusedField === 'confirm' ? 'text-[#38A8E8]' : 'text-ink-secondary/80'"
+                />
+              </span>
+              <input
+                v-model="confirmPassword"
+                :type="isPasswordVisible ? 'text' : 'password'"
+                autocomplete="new-password"
+                required
+                :disabled="submitting"
+                :placeholder="t('auth.confirm_password')"
+                class="ml-2.5 w-full bg-transparent text-[13px] leading-4 text-ink-primary outline-none placeholder:text-ink-subtle"
+                @focus="focusedField = 'confirm'"
+                @blur="focusedField = null"
+              />
+            </div>
+
+            <p v-if="isForgot" class="text-[12px] leading-4 text-ink-subtle">
+              {{ t("auth.forgot_body") }}
+            </p>
           </div>
 
           <!-- Auth error: its own item in the 20pt stack, as on the Mac -->
@@ -264,17 +371,48 @@ async function onSubmit() {
               :disabled="submitting || !email.trim() || !password"
               class="login-submit relative flex h-[38px] w-full items-center justify-center gap-2 rounded-[11px] text-[13px] font-semibold text-white transition-[filter] hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed"
             >
-              <template v-if="submitting">
-                <Loader2 class="h-4 w-4 animate-spin text-white" />
-                <span>{{ t("auth.authenticating") }}</span>
-              </template>
-              <template v-else>
-                <span>{{ t("auth.sign_in_terminal") }}</span>
-                <ArrowRight class="h-3 w-3 text-white/90" />
-              </template>
+              <Loader2 v-if="submitting" class="h-4 w-4 animate-spin text-white" />
+              <span>{{ submitLabel }}</span>
+              <ArrowRight v-if="!submitting" class="h-3 w-3 text-white/90" />
             </button>
 
-            <div class="flex items-center justify-between">
+            <!-- Move between the three forms -->
+            <div class="flex items-center justify-between text-[11px]">
+              <button
+                v-if="!isForgot"
+                type="button"
+                class="font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+                @click="switchMode(MODE_FORGOT)"
+              >
+                {{ t("auth.forgot") }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+                @click="switchMode(MODE_SIGN_IN)"
+              >
+                {{ t("auth.back_to_sign_in") }}
+              </button>
+
+              <button
+                v-if="!isForgot"
+                type="button"
+                class="inline-flex items-center gap-1 font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+                @click="switchMode(isSignUp ? MODE_SIGN_IN : MODE_SIGN_UP)"
+              >
+                <span>{{ isSignUp ? t("auth.have_account") : t("auth.need_account") }}</span>
+                <ChevronRight class="h-[9px] w-[9px]" />
+              </button>
+            </div>
+
+            <!-- Cancel and the local bypass: both are situational, so the
+                 row itself goes when neither applies rather than leaving a
+                 band of empty space in the sheet. -->
+            <div
+              v-if="canCancel || isAnonDevMode"
+              class="flex items-center justify-between"
+            >
               <button
                 v-if="canCancel"
                 type="button"
@@ -297,6 +435,24 @@ async function onSubmit() {
             </div>
           </div>
         </form>
+
+        <!-- Request received / reset requested: the same sheet, one message
+             and a way back. -->
+        <div v-else class="flex flex-col gap-3 text-center" data-testid="auth-notice">
+          <h2 class="font-display text-[15px] font-semibold text-ink-primary">
+            {{ mode === MODE_PENDING ? t("auth.pending_title") : t("auth.reset_requested_title") }}
+          </h2>
+          <p class="text-[12px] leading-[17px] text-ink-secondary">
+            {{ mode === MODE_PENDING ? t("auth.pending_body") : t("auth.reset_requested_body") }}
+          </p>
+          <button
+            type="button"
+            class="text-[12px] font-medium text-ink-secondary transition-colors hover:text-ink-primary"
+            @click="switchMode(MODE_SIGN_IN)"
+          >
+            {{ t("auth.back_to_sign_in") }}
+          </button>
+        </div>
 
         <!-- Footer sync note -->
         <p class="text-center text-[11px] leading-[14px] text-ink-subtle">

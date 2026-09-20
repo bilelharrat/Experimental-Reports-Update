@@ -142,6 +142,35 @@ async function request(path, opts = {}) {
   return res.json();
 }
 
+async function _publicCall(path, init) {
+  const res = await fetch(withBase(path), init);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = await res.json();
+      detail = j?.detail || "";
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw _httpError(res.status, res.statusText, detail);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+/** POST to an endpoint that is reachable without a session. */
+function publicPost(path, body) {
+  return _publicCall(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** GET an endpoint that is reachable without a session. */
+function publicGet(path) {
+  return _publicCall(path, { method: "GET" });
+}
+
 export const api = {
   // --- Auth ---
   // login() is the only call that runs without a bearer header (it IS
@@ -167,6 +196,40 @@ export const api = {
   me: () => request("/api/auth/me"),
   logout: () =>
     request("/api/auth/logout", { method: "POST" }),
+
+  // The three public forms. Like login() they run without a bearer
+  // header, because the caller has no session yet by definition.
+  register: (email, password) =>
+    publicPost("/api/auth/register", { email, password }),
+  requestPasswordReset: (email) =>
+    publicPost("/api/auth/reset/request", { email }),
+  checkResetToken: (token) =>
+    publicGet(`/api/auth/reset/check?token=${encodeURIComponent(token)}`),
+  consumePasswordReset: (token, newPassword) =>
+    publicPost("/api/auth/reset/consume", { token, new_password: newPassword }),
+
+  // Account administration (admin only, server-enforced).
+  listAccounts: () => request("/api/auth/accounts"),
+  approveAccount: (email, role) =>
+    request(`/api/auth/accounts/${encodeURIComponent(email)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    }),
+  disableAccount: (email) =>
+    request(`/api/auth/accounts/${encodeURIComponent(email)}/disable`, {
+      method: "POST",
+    }),
+  mintResetLink: (email) =>
+    request(`/api/auth/accounts/${encodeURIComponent(email)}/reset-link`, {
+      method: "POST",
+    }),
+
+  listSessions: () => request("/api/auth/sessions"),
+  revokeSessions: (sessionId) =>
+    request(
+      `/api/auth/sessions/revoke${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+      { method: "POST" },
+    ),
 
   options: () => request("/api/options"),
   listCompanies: () => request("/api/companies"),

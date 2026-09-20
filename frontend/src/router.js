@@ -23,6 +23,8 @@ const TrackingView = () => import("./views/TrackingView.vue");
 const NewsDeskView = () => import("./views/NewsDeskView.vue");
 const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const MarketsView = () => import("./views/MarketsView.vue");
+const ResetPasswordView = () => import("./views/ResetPasswordView.vue");
+const AccountsView = () => import("./views/AccountsView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 const ReportsView = () => import("./views/ReportsView.vue");
 const ResearchDeskView = () => import("./views/ResearchDeskView.vue");
@@ -52,6 +54,18 @@ function routerHistoryBase() {
 export const router = createRouter({
   history: createWebHistory(routerHistoryBase()),
   routes: [
+    {
+      path: "/reset",
+      name: "reset-password",
+      component: ResetPasswordView,
+      // Whoever follows a reset link has no session by definition.
+      meta: { public: true },
+    },
+    {
+      path: "/accounts",
+      name: "accounts",
+      component: AccountsView,
+    },
     {
       path: "/login",
       name: "login",

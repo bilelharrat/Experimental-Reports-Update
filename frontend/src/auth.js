@@ -116,6 +116,21 @@ export async function signIn(email, password) {
   return res;
 }
 
+/** Take up a session the server minted outside the login form — today the
+ *  password-reset flow, which signs the person in as it spends the link. */
+export async function adoptSession(res) {
+  if (!res?.token) return null;
+  _writeStoredSession(res);
+  session.value = res;
+  sessionName.value = displayNameFromEmail(res.email) || null;
+  try {
+    _applyIdentity(await api.me());
+  } catch {
+    // The session is live; identity enrichment is best-effort.
+  }
+  return res;
+}
+
 export async function signOut() {
   const had = session.value;
   // Clear local state first so the router guard kicks the user to
