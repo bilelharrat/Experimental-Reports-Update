@@ -94,6 +94,9 @@
 <h1>How a memo gets written</h1>
 <p class="lede">The investment-memo pipeline, end to end — what runs, in what order, and which file tells each agent what to do.</p>
 <p class="meta">BSH Research Center · updated 2026-09-20 · numbers from the Surge AI run <code>2026-09-20__070546</code></p>
+<div class="note warn" style="margin-top:22px">
+<b>Which report this describes.</b> Everything below is the <b>compact</b> report — the one we actually run and the one all recent work targets. Compact is a misleading name by now: it is seven sections and about 20,000 words. The full report (<code>late_v2</code>, twelve sections) shares every phase, every gate and every skill file described here; it differs only in the structure profile it loads. Where a number is mode-specific it is marked <span class="tag acc">compact</span>.
+</div>
 
 <div class="note">
 <b>The one-paragraph version.</b> A memo is not written by one model call. It is written by about twenty agents working in five phases. Python never writes a sentence of the memo — it decides who runs, in what order, what each one is allowed to see, and whether the result is good enough to keep. The editorial judgment lives in Markdown files under <code>skills/memo/</code>, which non-engineers edit. The result is two Word documents, English and Chinese, around 20,000 words each.
@@ -111,7 +114,7 @@
     <div><span class="tag">8 agents</span><span class="tag acc">in parallel</span></div></div><div class="t">4m 33s</div></div>
   <div class="phase"><div class="n">3</div><div class="body"><b>Synthesis and sensitivities</b>
     One agent fixes the facts everyone must agree on. Then seven writers write seven sections at once.
-    <div><span class="tag">1 + 7 agents</span><span class="tag acc">the expensive half</span></div></div><div class="t">7m 30s</div></div>
+    <div><span class="tag">1 + 7 + 1 agents</span><span class="tag acc">the expensive half</span></div></div><div class="t">7m 30s</div></div>
   <div class="phase"><div class="n">4</div><div class="body"><b>Memo package drafting</b>
     Translate into Chinese, assemble one package, check every promised fact is present.
     <div><span class="tag">up to 8 agents</span></div></div><div class="t">2m 10s</div></div>
@@ -152,11 +155,12 @@
 </table>
 
 <div class="note warn">
-<b>Why eight and not twelve.</b> There used to be twelve. Every pass fills whatever limit it is given, so twelve passes handed the writers more than three hundred findings to write a 3,500-word memo from — and the writing phase is the expensive one. Passes that read the <i>same</i> evidence were merged, so one agent forms one judgment from one reading instead of two agents splitting it. Passes that read different evidence, or whose job is to <i>disagree</i>, stayed separate. <code>alternative_explanations</code> survives precisely because its job is to argue with the others.
+<b>Why eight and not twelve.</b> There used to be twelve, for every report — this was never a compact-only change. Passes that read the <i>same</i> evidence were merged, so one agent forms one judgment from one reading instead of two agents splitting it. Passes that read different evidence, or whose job is to <i>disagree</i>, stayed separate: <code>alternative_explanations</code> survives precisely because its job is to argue with the others. The saving is four fewer agents in the cheap half of the run.
+<p style="margin-bottom:0"><b>What it did not do is cut the evidence</b>, though the original note claimed that was the point. Caps are <i>per pass</i>, so dropping four passes dropped the finding count by about a quarter, not a third — 233 findings now against "more than three hundred" before. That note also justified the cut by "a 3,500-word memo", which is what compact used to be; it is 20,400 words now. Eight is still the right number, for the merge reason, not the ratio.</p>
 </div>
 
 <h2>Phase 3 — The spine, then the writers</h2>
-<p>This is the part worth understanding, because it is where most of the engineering is.</p>
+<p>This is the part worth understanding, because it is where most of the engineering is. Three kinds of agent run here: one spine, seven section writers, and one side agent writing records nobody reads during the run.</p>
 
 <h3>Step one: fix the facts (the "spine")</h3>
 <p>One agent reads all eight research files and produces <b>no prose at all</b>. It produces a set of <b>pins</b>: the facts every section must agree on.</p>
@@ -170,8 +174,8 @@
 </ul>
 <p>The spine is the answer to a real problem: seven writers working in parallel will otherwise each invent their own valuation, their own verdict, and their own version of the growth rate. Pinning happens once, before any of them start.</p>
 
-<h3>Step two: seven writers, at once</h3>
-<p>Each section gets its own agent. Each agent receives the same shared context plus its own section contract:</p>
+<h3>Step two: one writer per section, all at once</h3>
+<p>Each section gets its own agent — seven in <span class="tag acc">compact</span>, twelve in the full report. Each agent receives the same shared context plus its own section contract:</p>
 <div class="flow">shared by every writer (cached, byte-identical)      per writer
 ────────────────────────────────────────────────      ──────────────────────────
 voice_contract.md      how the memo is allowed          its own `## section:` block
@@ -181,7 +185,7 @@ structure_addendum.md  citations, charts, honesty,      the pinned facts it must
 types/&lt;type&gt;.md        where the case usually lives     its word budget
                        for this kind of company         (1,400–2,800 words)</div>
 
-<p>A compact memo's seven sections and their budgets:</p>
+<p>The <span class="tag acc">compact</span> profile's seven sections and their budgets — this table is the one thing that changes in the full report, which loads twelve sections instead:</p>
 <table>
 <thead><tr><th>Section</th><th>Budget</th><th>Subsections</th></tr></thead>
 <tbody>
@@ -198,6 +202,14 @@ types/&lt;type&gt;.md        where the case usually lives     its word budget
 <h3>Step three: one section is still too big for one answer</h3>
 <p>A 2,600-word section with three subsections is more than a model reliably returns in a single structured reply. So a section is not one call. It is one call <i>per subsection</i>, run in order, each one seeing what came before.</p>
 <p>This was the single biggest reliability fix in the project, and it landed differently on the two engines — see below.</p>
+
+<h3>And one side agent nobody reads</h3>
+<p>Alongside the writers, a ninth agent writes seven <b>private analysis artifacts</b> into <code>analysis/</code> — a claim register, scenario swim lanes, a downside scenario, a countercase, a source-treatment log, risk sensitivities, and a coverage check. They are derived from the eight pass files and they are <b>records, not inputs</b>: the section writers never read them. If this agent fails, the run continues with stub files.</p>
+<p>So <code>analysis/</code> ends a run with fifteen markdown files. Eight are research that fed the memo. Seven are an audit trail written in parallel with it. Worth knowing before you open the folder and try to work out which is which.</p>
+
+<div class="note">
+<b>How much evidence actually reaches the writing.</b> The eight passes handed Phase 3 <b>233 findings</b> on the Surge AI run. The memo that came out cites a source or a calculation <b>every 45–58 words</b>, uses 17 of its 19 sources, and cites every one of its calculation notes. Sections land at or slightly over their word budgets, not under. The writers are not short of material.
+</div>
 
 <h2>Phase 4 — Chinese</h2>
 <p>Every piece of text in the memo is a pair: <code>{en, zh}</code>. The English is written first and the Chinese has to catch up. Two mechanisms do it.</p>
@@ -287,7 +299,7 @@ types/&lt;type&gt;.md        where the case usually lives     its word budget
 <tr><td>Wall clock (compact memo)</td><td>~14–20 min</td><td>~10–17 min</td></tr>
 <tr><td>Cost per memo</td><td>$18–30</td><td>tokens recorded; pricing not yet configured</td></tr>
 <tr><td>Output</td><td colspan="2">~20,000–22,000 words × 2 languages, two .docx files</td></tr>
-<tr><td>Agents per run</td><td colspan="2">~20 (1 classifier + 8 researchers + 1 spine + 7 writers + translators)</td></tr>
+<tr><td>Agents per run</td><td colspan="2">~21 (1 classifier + 8 researchers + 1 spine + 7 writers + 1 artifacts + translators)</td></tr>
 <tr><td>Tests guarding it</td><td colspan="2">1,813 backend + 396 frontend</td></tr>
 </tbody>
 </table>
