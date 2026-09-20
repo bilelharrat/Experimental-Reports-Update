@@ -432,3 +432,100 @@ def test_a_broken_settings_file_never_breaks_a_call(monkeypatch):
         lambda: (_ for _ in ()).throw(OSError("disk gone")),
     )
     assert ai_engine.policy() == "claude"
+
+
+# --- One desk per account ---------------------------------------------------
+
+
+def _signed_in(client, email: str, monkeypatch, tmp_path) -> dict:
+    """A live session for ``email`` with the auth bypass off."""
+    from server import auth_store
+
+    monkeypatch.setattr(auth_store, "USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(auth_store, "SESSIONS_FILE", tmp_path / "sessions.json")
+    monkeypatch.delenv("BSH_ALLOW_ANON_DEV", raising=False)
+    monkeypatch.delenv("BSH_RESEARCH_API_TOKEN", raising=False)
+    monkeypatch.setenv("BSH_COOKIE_SECURE", "0")
+    if auth_store.account(email) is None:
+        auth_store.create_user(email, "correct-horse-battery")
+        auth_store.set_account_status(email, auth_store.STATUS_ACTIVE, role="analyst")
+    token = client.post(
+        "/api/auth/token", json={"email": email, "password": "correct-horse-battery"}
+    ).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_each_account_has_its_own_desk(client, monkeypatch, tmp_path):
+    """One blob served everyone, so a second account saw the first one's
+    pinned tickers, alert rules and book. Each signed-in caller has their
+    own now; the firm blob is untouched by either."""
+    one = _signed_in(client, "one@example.com", monkeypatch, tmp_path)
+    two = _signed_in(client, "two@example.com", monkeypatch, tmp_path)
+
+    client.put(
+        "/api/desk/prefs",
+        json={"data": {"bsh.marketPinnedTickers": ["NVDA"], "bsh.bookLots": [{"shares": 10, "cost": 5}]}},
+        headers=one,
+    )
+    assert client.get("/api/desk/prefs", headers=two).json()["data"] == {}
+    assert client.get("/api/desk/prefs", headers=one).json()["data"]["bsh.marketPinnedTickers"] == ["NVDA"]
+    assert desk_store.load_prefs()["data"] == {}
+
+    client.put("/api/desk/prefs", json={"data": {"bsh.marketPinnedTickers": ["SPY"]}}, headers=two)
+    assert client.get("/api/desk/prefs", headers=one).json()["data"]["bsh.marketPinnedTickers"] == ["NVDA"]
+
+
+def test_the_firm_readers_span_every_desk(client, monkeypatch, tmp_path):
+    """Alerts, digests and the filings watch saw one blob; they now see the
+    union of every desk, which is exactly what one blob held."""
+    one = _signed_in(client, "one@example.com", monkeypatch, tmp_path)
+    two = _signed_in(client, "two@example.com", monkeypatch, tmp_path)
+    desk_store.save_prefs({"bsh.marketPinnedTickers": ["QQQ"]})  # the firm's
+    client.put(
+        "/api/desk/prefs",
+        json={"data": {
+            "bsh.marketPinnedTickers": ["NVDA", "QQQ"],
+            "bsh.marketAlertRules": [{"id": "r1", "ticker": "NVDA", "kind": "price", "threshold": 100, "direction": "above"}],
+        }},
+        headers=one,
+    )
+    client.put(
+        "/api/desk/prefs",
+        json={"data": {
+            "bsh.marketPinnedTickers": ["SPY"],
+            "bsh.marketAlertRules": [{"id": "r2", "ticker": "SPY", "kind": "price", "threshold": 400, "direction": "below"}],
+        }},
+        headers=two,
+    )
+    pins = desk_store.pinned_tickers()
+    assert pins[0] == "QQQ"  # the firm's desk is read first
+    assert sorted(pins) == ["NVDA", "QQQ", "SPY"]  # accounts read in hash order
+    assert sorted(r["id"] for r in desk_store.alert_rules()) == ["r1", "r2"]
+
+
+def test_a_rule_present_on_two_desks_fires_once(monkeypatch):
+    """The operator's desk is adopted from the firm blob, so the same rule
+    can sit in both; the alert engine must see it once."""
+    rule = {"id": "r1", "ticker": "NVDA", "kind": "price", "threshold": 100, "direction": "above"}
+    desk_store.save_prefs({"bsh.marketAlertRules": [rule]})
+    desk_store.adopt_firm_prefs("op@example.com")
+    assert [r["id"] for r in desk_store.alert_rules()] == ["r1"]
+
+
+def test_an_anonymous_or_shared_caller_gets_the_firm_desk(client, monkeypatch):
+    monkeypatch.setenv("BSH_ALLOW_ANON_DEV", "1")
+    client.put("/api/desk/prefs", json={"data": {"bsh.marketPinnedTickers": ["QQQ"]}})
+    assert desk_store.load_prefs()["data"]["bsh.marketPinnedTickers"] == ["QQQ"]
+    assert desk_store.load_prefs(owner="one@example.com")["data"] == {}
+
+
+def test_the_firm_desk_can_be_adopted_once(monkeypatch):
+    desk_store.save_prefs({"bsh.marketPinnedTickers": ["QQQ"]})
+    assert desk_store.adopt_firm_prefs("op@example.com") is True
+    assert desk_store.load_prefs(owner="op@example.com")["data"]["bsh.marketPinnedTickers"] == ["QQQ"]
+    # Their desk exists now, so a second adoption changes nothing.
+    desk_store.save_prefs({"bsh.marketPinnedTickers": ["NVDA"]}, owner="op@example.com")
+    assert desk_store.adopt_firm_prefs("op@example.com") is False
+    assert desk_store.load_prefs(owner="op@example.com")["data"]["bsh.marketPinnedTickers"] == ["NVDA"]
+    # And nobody is adopted by accident.
+    assert desk_store.adopt_firm_prefs("") is False

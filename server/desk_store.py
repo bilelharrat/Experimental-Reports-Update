@@ -26,6 +26,7 @@ a module lock; write volume is tiny (one analyst).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import threading
@@ -117,12 +118,31 @@ def _write_json(name: str, payload: Any) -> None:
 
 
 # --- Prefs blob -------------------------------------------------------------
+#
+# One blob per account, plus the firm's. The blob was a single file for
+# everyone, and it holds personal things — recently pinned tickers, alert
+# rules, a book of positions — so a second account saw the first one's
+# desk. A signed-in caller now reads and writes their own file; the firm
+# blob (``prefs.json``) is what the shared-token and anon-dev callers use
+# and what the morning brief reads as the firm watchlist. The server-side
+# readers that drive alerts, digests and filings watch span every desk,
+# which is exactly what they saw when there was only one.
 
 
-def load_prefs() -> dict:
-    """The desk prefs blob, or an empty stub when nothing was saved yet."""
-    with _LOCK:
-        payload = _read_json(PREFS_FILE, None)
+def _owner_key(owner: str | None) -> str | None:
+    key = str(owner or "").strip().lower()
+    return key or None
+
+
+def _prefs_file(owner: str | None) -> str:
+    key = _owner_key(owner)
+    if key is None:
+        return PREFS_FILE
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    return f"prefs.{digest}.json"
+
+
+def _as_prefs(payload: Any) -> dict:
     if not isinstance(payload, dict):
         return {"updated_at": None, "data": {}}
     data = payload.get("data")
@@ -130,6 +150,42 @@ def load_prefs() -> dict:
         "updated_at": payload.get("updated_at"),
         "data": data if isinstance(data, dict) else {},
     }
+
+
+def load_prefs(owner: str | None = None) -> dict:
+    """The desk prefs blob for ``owner`` (the firm's when None), or an empty
+    stub when nothing was saved yet."""
+    with _LOCK:
+        payload = _read_json(_prefs_file(owner), None)
+    return _as_prefs(payload)
+
+
+def _every_desk_data() -> list[dict]:
+    """The ``data`` of every desk on disk, the firm's first. Read inline:
+    the lock is not reentrant."""
+    with _LOCK:
+        payloads = [_read_json(PREFS_FILE, None)]
+        if DESK_ROOT.exists():
+            for path in sorted(DESK_ROOT.glob("prefs.*.json")):
+                payloads.append(_read_json(path.name, None))
+    return [_as_prefs(p)["data"] for p in payloads]
+
+
+def adopt_firm_prefs(owner: str) -> bool:
+    """Copy the firm blob into ``owner``'s desk if they have none yet — the
+    one-off migration for the operator whose desk the firm blob was, under
+    anon-dev, before desks were per account. Returns whether it copied."""
+    key = _owner_key(owner)
+    if key is None:
+        return False
+    with _LOCK:
+        if _read_json(_prefs_file(key), None) is not None:
+            return False
+        firm = _read_json(PREFS_FILE, None)
+        if not isinstance(firm, dict):
+            return False
+        _write_json(_prefs_file(key), firm)
+    return True
 
 
 ALERT_RULE_KINDS = ("pct", "earnings", "volume", "price", "sma_cross")
@@ -200,7 +256,9 @@ _VALIDATED_PREF_KEYS = {
 }
 
 
-def save_prefs(data: dict, *, expected_updated_at: Any = _UNSET) -> dict:
+def save_prefs(
+    data: dict, *, expected_updated_at: Any = _UNSET, owner: str | None = None
+) -> dict:
     """Persist the desk prefs blob.
 
     The frontend owns the key shape; the keys the server itself reads
@@ -222,15 +280,16 @@ def save_prefs(data: dict, *, expected_updated_at: Any = _UNSET) -> dict:
     encoded = json.dumps(data, ensure_ascii=False)
     if len(encoded.encode("utf-8")) > MAX_PREFS_BYTES:
         raise ValueError("prefs payload too large")
+    name = _prefs_file(owner)
     with _LOCK:
         # Compare-and-write under one lock hold. Read inline: _LOCK is not
         # reentrant, so load_prefs() here would deadlock.
-        stored = _read_json(PREFS_FILE, None)
+        stored = _read_json(name, None)
         current = stored.get("updated_at") if isinstance(stored, dict) else None
         if expected_updated_at is not _UNSET and expected_updated_at != current:
             raise PrefsConflict(current)
         payload = {"updated_at": _next_stamp(current), "data": data}
-        _write_json(PREFS_FILE, payload)
+        _write_json(name, payload)
     return payload
 
 
@@ -241,29 +300,48 @@ def alert_rules() -> list[dict]:
     original storage keys, so rules live under ``bsh.marketAlertRules``
     (same shape ``marketWatchlist.js`` writes).
     """
-    rules = load_prefs()["data"].get("bsh.marketAlertRules")
-    return [row for row in rules if isinstance(row, dict)] if isinstance(rules, list) else []
+    # Deduped by id: the operator's desk was adopted from the firm blob, so
+    # the same rule can sit in both, and one rule must fire once.
+    out: list[dict] = []
+    seen: set[str] = set()
+    for data in _every_desk_data():
+        rules = data.get("bsh.marketAlertRules")
+        if not isinstance(rules, list):
+            continue
+        for row in rules:
+            if not isinstance(row, dict):
+                continue
+            rule_id = str(row.get("id") or "")
+            if rule_id and rule_id in seen:
+                continue
+            if rule_id:
+                seen.add(rule_id)
+            out.append(row)
+    return out
 
 
 def pinned_tickers() -> list[str]:
     """Watchlist tickers from the synced prefs blob."""
-    raw = load_prefs()["data"].get("bsh.marketPinnedTickers")
-    if not isinstance(raw, list):
-        return []
     out: list[str] = []
-    for item in raw:
-        ticker = str(item or "").strip().upper()
-        if ticker and ticker not in out:
-            out.append(ticker)
+    for data in _every_desk_data():
+        raw = data.get("bsh.marketPinnedTickers")
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            ticker = str(item or "").strip().upper()
+            if ticker and ticker not in out:
+                out.append(ticker)
     return out
 
 
 def book_lots() -> list[dict]:
     """Position lots from the synced prefs blob (``bsh.bookLots``)."""
-    raw = load_prefs()["data"].get("bsh.bookLots")
-    if not isinstance(raw, list):
-        return []
-    return [row for row in raw if isinstance(row, dict)]
+    out: list[dict] = []
+    for data in _every_desk_data():
+        raw = data.get("bsh.bookLots")
+        if isinstance(raw, list):
+            out.extend(row for row in raw if isinstance(row, dict))
+    return out
 
 
 # --- Alert events -----------------------------------------------------------

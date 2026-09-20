@@ -1841,9 +1841,11 @@ class SignalLedgerBody(BaseModel):
 
 
 @router.get("/desk/prefs")
-def get_desk_prefs() -> dict:
-    """Server copy of the market-desk localStorage blob."""
-    return desk_store.load_prefs()
+def get_desk_prefs(request: Request) -> dict:
+    """Server copy of the market-desk localStorage blob — the caller's own.
+    Shared-token and anon-dev callers, who are nobody in particular, get
+    the firm's."""
+    return desk_store.load_prefs(owner=_caller_email(request))
 
 
 @router.put("/desk/prefs")
@@ -1856,13 +1858,14 @@ def put_desk_prefs(request: Request, body: DeskPrefsBody) -> dict:
     another device. Callers that omit it keep the unconditional save.
     """
     _require_permission(request, "desk:write")
+    owner = _caller_email(request)
     conditional = "base_updated_at" in body.model_fields_set
     try:
         if conditional:
             return desk_store.save_prefs(
-                body.data, expected_updated_at=body.base_updated_at
+                body.data, expected_updated_at=body.base_updated_at, owner=owner
             )
-        return desk_store.save_prefs(body.data)
+        return desk_store.save_prefs(body.data, owner=owner)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except desk_store.PrefsConflict as exc:
