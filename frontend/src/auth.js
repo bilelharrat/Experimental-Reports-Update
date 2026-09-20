@@ -66,21 +66,50 @@ function _clearStoredSession() {
 export const session = ref(_readStoredSession());
 export const sessionName = ref(null);
 
+// Whether the server is running with BSH_ALLOW_ANON_DEV=1, which makes
+// every request admin with no sign-in.
+//
+// The server states this by injecting a meta tag into the HTML it serves.
+// Under `vite dev` the HTML comes from Vite instead, so the tag is never
+// there — and this used to fall back to guessing from the URL: localhost
+// on a dev port meant anon dev, whatever the server actually did. With
+// the bypass turned off that guess let the SPA past its own sign-in wall
+// and render a desk whose every request 401s. The client does not guess
+// any more; when there is no tag it asks (`probeAnonDev`) and, until the
+// answer arrives, assumes it is NOT bypassed, which fails closed.
+const _anonDevProbe = ref(null);
+
 export function isAnonDev() {
   if (typeof document === "undefined") return false;
   const el = document.querySelector('meta[name="bsh-research-anon-dev"]');
   if (el?.content?.trim() === "1") return true;
-  if (typeof window !== "undefined" && window.location) {
-    const host = window.location.hostname;
-    const port = window.location.port;
-    if (
-      (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") &&
-      (port === "5173" || port === "5181" || port === "8010" || port === "8011")
-    ) {
+  return _anonDevProbe.value === true;
+}
+
+/** Ask the server whether it is in anon-dev mode. Resolves to a boolean and
+ *  is cheap: one unauthenticated GET, once per boot. */
+export async function probeAnonDev() {
+  if (typeof document !== "undefined") {
+    const el = document.querySelector('meta[name="bsh-research-anon-dev"]');
+    if (el?.content?.trim() === "1") {
+      _anonDevProbe.value = true;
       return true;
     }
   }
-  return false;
+  if (_anonDevProbe.value !== null) return _anonDevProbe.value;
+  try {
+    const res = await fetch(withBase("/api/auth/me"), {
+      headers: { "X-BSH-Client": "web" },
+      credentials: "same-origin",
+    });
+    const body = res.ok ? await res.json() : null;
+    _anonDevProbe.value = body?.auth === "anon_dev";
+  } catch {
+    // Unreachable server: assume no bypass, which sends the person to the
+    // sign-in page rather than into a desk that cannot load anything.
+    _anonDevProbe.value = false;
+  }
+  return _anonDevProbe.value;
 }
 
 export const isAuthenticated = computed(

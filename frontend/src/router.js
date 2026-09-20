@@ -4,6 +4,7 @@ import {
   isAuthenticated,
   isAnonDev,
   mustResetPassword,
+  probeAnonDev,
   session,
   validateSession,
 } from "./auth.js";
@@ -201,7 +202,13 @@ export const router = createRouter({
   ],
 });
 
-router.beforeEach((to) => {
+// Settled once per boot, before the first guarded navigation, so the guard
+// never decides on a guess about whether the server wants a sign-in.
+let _anonDevSettled = null;
+
+router.beforeEach(async (to) => {
+  if (!_anonDevSettled) _anonDevSettled = probeAnonDev();
+  await _anonDevSettled;
   // Already signed in or in anon dev mode and trying to reach /login → bounce home.
   if (to.name === "login" && (session.value !== null || isAnonDev()) && !to.query.switch) {
     return postAuthPath(typeof to.query.next === "string" ? to.query.next : "/");
