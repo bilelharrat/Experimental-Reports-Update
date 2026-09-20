@@ -781,6 +781,13 @@ def _section_en_word_count(section: dict) -> int:
     return words
 
 
+def section_en_word_count(section: dict) -> int:
+    """Public name for the count the compact-budget gate enforces, so other
+    modules measure a section the way the renderer does rather than growing
+    a second counter that drifts from this one."""
+    return _section_en_word_count(section)
+
+
 # How far over its target a section may run before the gate fires, when the
 # profile does not set a per-section multiple of its own.
 _BUDGET_GRACE = 1.10

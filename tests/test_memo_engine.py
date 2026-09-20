@@ -752,6 +752,49 @@ def test_en_word_count_reads_a_raw_worker_draft_too():
     assert memo_engine.en_word_count(raw) == 17
 
 
+def test_renderable_count_ignores_words_the_renderer_cannot_use():
+    """The depth gate must measure what the reader gets, not what the worker
+    returned. Live on 2026-09-19 a Gemini `thesis_market` counted 3,753
+    words against a 2,610 floor while the renderer could use 1,625. The
+    other 2,128 sat in shapes Gemini invented — a bullet item given as
+    `{"title": ..., "text": ...}` rather than a localized string, which the
+    repair step does not wrap — so the section shipped ~1,000 words short
+    and no depth round ever fired.
+    """
+    section = {
+        "blocks": [
+            {"type": "paragraph", "text": {"en": "one two three", "zh": ""}},
+            {
+                "type": "bullet_list",
+                "items": [
+                    {"title": "four five", "text": "six seven eight nine"},
+                    {"title": "ten eleven", "text": "twelve thirteen"},
+                ],
+            },
+        ]
+    }
+    # Counting the draft as returned sees all of it.
+    assert memo_engine.en_word_count(section) == 13
+    # The renderer can only use the one properly localized paragraph.
+    assert memo_engine.renderable_en_word_count(section) == 3
+    assert memo_engine.renderable_en_word_count(None) == 0
+
+
+def test_renderable_count_still_reads_a_raw_worker_draft():
+    """The reason en_word_count counts plain strings must survive: a raw
+    draft is repaired before counting, so it does not read as 0."""
+    raw = {
+        "blocks": [
+            {"type": "paragraph", "text": "one two three four five"},
+            {"type": "bullet_list", "items": ["six seven eight"]},
+        ]
+    }
+    from server import memo_docx_renderer
+
+    assert memo_docx_renderer.section_en_word_count(raw) == 0
+    assert memo_engine.renderable_en_word_count(raw) == 8
+
+
 def test_a_gemini_section_worker_drafts_under_the_length_contract(tmp_path, monkeypatch):
     prompts: list[str] = []
 

@@ -605,9 +605,12 @@ def en_word_count(section: dict | None) -> int:
     ``content``, ``title``, cells), because the repair step wraps them as
     ``{"en", "zh"}`` only later — counts the strings themselves, so the gate
     reads the draft the worker actually returned: a live run measured five
-    full sections as 0 before this. On a repaired package this counts
-    exactly as the renderer's compact-ceiling gate does
-    (``memo_docx_renderer._section_en_word_count``).
+    full sections as 0 before this.
+
+    This counts what the worker WROTE, which is not the same as what the
+    reader gets: a string the repair step cannot wrap is dropped by the
+    renderer, and this still counts it. Anything deciding whether a section
+    is long enough wants ``renderable_en_word_count`` instead.
     """
     words = 0
 
@@ -628,6 +631,37 @@ def en_word_count(section: dict | None) -> int:
 
     walk((section or {}).get("blocks") or [])
     return words
+
+
+def renderable_en_word_count(section: dict | None) -> int:
+    """English words the RENDERER will accept from this section.
+
+    ``en_word_count`` counts every plain string a raw draft carries, which
+    is right for reading a worker's own output but wrong for deciding
+    whether a section is deep enough: a string in a shape the repair step
+    cannot wrap never reaches the reader. On the live Gemini run of
+    2026-09-19 that gap let ``thesis_market`` through the depth gate at
+    3,753 words against a 2,610 floor when the renderer could use only
+    1,625 of them — 2,128 words sat in nodes with no ``en`` key, the
+    section shipped a thousand words short, and no depth round ever fired.
+
+    So repair a copy exactly as the package pipeline will, then count what
+    survives. A merely raw draft is unaffected — the repair wraps its plain
+    strings, which is the case ``en_word_count`` exists for.
+    """
+    if not isinstance(section, dict):
+        return 0
+    # Local import: the renderer pulls in python-docx, and memo_engine is
+    # imported on paths that never render anything.
+    from server import memo_docx_renderer
+
+    repaired, _ = memo_docx_renderer.repair_package_structure(
+        {"sections": [section]}
+    )
+    sections = repaired.get("sections") if isinstance(repaired, dict) else None
+    if not isinstance(sections, list) or not sections:
+        return 0
+    return memo_docx_renderer.section_en_word_count(sections[0])
 
 
 def length_contract(target: WordTarget) -> str:

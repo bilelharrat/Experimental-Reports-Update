@@ -9552,7 +9552,9 @@ def run_memo_fast_english_package_parallel(
                 target = depth_targets.get(section_id)
                 if target is None:
                     continue
-                words = memo_engine.en_word_count(result.get("section"))
+                words = memo_engine.renderable_en_word_count(
+                    result.get("section")
+                )
                 if target.distance(words):
                     off_band[section_id] = words
             if not off_band:
@@ -9615,7 +9617,9 @@ def run_memo_fast_english_package_parallel(
             )
             for section_id, result in revised.items():
                 target = depth_targets[section_id]
-                words = memo_engine.en_word_count(result.get("section"))
+                words = memo_engine.renderable_en_word_count(
+                    result.get("section")
+                )
                 if target.distance(words) >= target.distance(
                     off_band[section_id]
                 ):
