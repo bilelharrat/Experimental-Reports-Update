@@ -6,6 +6,8 @@ Only the model differs, and the mechanism by which research reaches it.
 """
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -108,10 +110,12 @@ def test_the_prompt_and_schema_reach_gemini_unchanged(tmp_path, monkeypatch):
 
     def fake(**kwargs):
         seen.update(kwargs)
-        return {"answer": "ok"}, None
+        return {"answer": "ok"}, {}, None
 
     monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
-    monkeypatch.setattr(memo_engine.gemini_runner, "run_structured_prompt", fake)
+    monkeypatch.setattr(
+        memo_engine.gemini_runner, "run_structured_prompt_with_meta", fake
+    )
 
     data, error = memo_engine.run_artifact(
         prompt="THE MEMO PROMPT",
@@ -260,12 +264,12 @@ def test_a_file_the_prompt_names_by_path_is_inlined_even_under_logs(tmp_path):
 
     def fake(**kw):
         seen.update(kw)
-        return {"ok": True}, None
+        return {"ok": True}, {}, None
 
     import pytest as _pytest
     mp = _pytest.MonkeyPatch()
     mp.setattr(monkeypatch_target, "is_available", lambda: True)
-    mp.setattr(monkeypatch_target, "run_structured_prompt", fake)
+    mp.setattr(monkeypatch_target, "run_structured_prompt_with_meta", fake)
     try:
         memo_engine.run_artifact(
             prompt=prompt, schema=SCHEMA, add_dirs=[run],
@@ -359,8 +363,8 @@ def test_the_claude_tier_model_never_reaches_gemini(tmp_path, monkeypatch):
     seen: dict = {}
     monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
     monkeypatch.setattr(
-        memo_engine.gemini_runner, "run_structured_prompt",
-        lambda **kw: (seen.update(kw) or ({"ok": True}, None)),
+        memo_engine.gemini_runner, "run_structured_prompt_with_meta",
+        lambda **kw: (seen.update(kw) or ({"ok": True}, {}, None)),
     )
     run_dir = tmp_path / "r"; run_dir.mkdir()
     memo_engine.register_run_engine(run_dir, "gemini")
@@ -671,12 +675,46 @@ def test_a_profile_with_its_own_word_ranges_is_read_as_written(tmp_path):
     assert set(targets) == set(growth.section_ids)
 
 
-def test_a_profile_with_word_ceilings_is_left_alone(tmp_path):
+def test_a_profile_with_ceilings_gets_a_floor_under_them(tmp_path):
+    """The compact profile states a target and a hard cap per section, and
+    the renderer already rejects anything above the cap. What it never had
+    is a FLOOR: Claude overshoots, so nobody needed one, and the gate
+    skipped the profile the fund actually ships. Gemini fails the other
+    way — a monolithic call came back at ~2,700 words — so a short section
+    stood as written.
+
+    The band is the profile's own numbers, so it cannot drift from what the
+    Claude twin is asked for.
+    """
     run = tmp_path / "g"
     run.mkdir()
     memo_engine.register_run_engine(run, "gemini")
     compact = memo_structure.load_structure("late_compact")
-    assert any(section.budget_words for section in compact.sections)
+    targets = memo_engine.section_word_targets(run, compact)
+    assert set(targets) == set(compact.section_ids)
+
+    for section in compact.sections:
+        band = targets[section.id]
+        cap = int(
+            section.budget_words
+            * (section.budget_hard_multiple or memo_engine._BUDGET_GRACE)
+        )
+        # the target IS the Claude twin's budget, and the ceiling IS the
+        # renderer's cap — no second opinion about either
+        assert band.target == section.budget_words
+        assert band.high == cap
+        assert band.low == int(round(section.budget_words * 0.90))
+        # a draft at the budget sits inside the band; a thin one does not
+        assert band.distance(section.budget_words) == 0
+        assert band.distance(int(section.budget_words * 0.5)) > 0
+
+
+def test_the_floor_is_off_on_claude(tmp_path):
+    """Claude overshoots and has the renderer's cap; it never sees this."""
+    run = tmp_path / "c"
+    run.mkdir()
+    memo_engine.register_run_engine(run, "claude")
+    compact = memo_structure.load_structure("late_compact")
     assert memo_engine.section_word_targets(run, compact) == {}
 
 
@@ -716,6 +754,49 @@ def test_en_word_count_reads_a_raw_worker_draft_too():
         ]
     }
     assert memo_engine.en_word_count(raw) == 17
+
+
+def test_renderable_count_ignores_words_the_renderer_cannot_use():
+    """The depth gate must measure what the reader gets, not what the worker
+    returned. Live on 2026-09-19 a Gemini `thesis_market` counted 3,753
+    words against a 2,610 floor while the renderer could use 1,625. The
+    other 2,128 sat in shapes Gemini invented — a bullet item given as
+    `{"title": ..., "text": ...}` rather than a localized string, which the
+    repair step does not wrap — so the section shipped ~1,000 words short
+    and no depth round ever fired.
+    """
+    section = {
+        "blocks": [
+            {"type": "paragraph", "text": {"en": "one two three", "zh": ""}},
+            {
+                "type": "bullet_list",
+                "items": [
+                    {"title": "four five", "text": "six seven eight nine"},
+                    {"title": "ten eleven", "text": "twelve thirteen"},
+                ],
+            },
+        ]
+    }
+    # Counting the draft as returned sees all of it.
+    assert memo_engine.en_word_count(section) == 13
+    # The renderer can only use the one properly localized paragraph.
+    assert memo_engine.renderable_en_word_count(section) == 3
+    assert memo_engine.renderable_en_word_count(None) == 0
+
+
+def test_renderable_count_still_reads_a_raw_worker_draft():
+    """The reason en_word_count counts plain strings must survive: a raw
+    draft is repaired before counting, so it does not read as 0."""
+    raw = {
+        "blocks": [
+            {"type": "paragraph", "text": "one two three four five"},
+            {"type": "bullet_list", "items": ["six seven eight"]},
+        ]
+    }
+    from server import memo_docx_renderer
+
+    assert memo_docx_renderer.section_en_word_count(raw) == 0
+    assert memo_engine.renderable_en_word_count(raw) == 8
 
 
 def test_a_gemini_section_worker_drafts_under_the_length_contract(tmp_path, monkeypatch):
@@ -797,3 +878,270 @@ def test_the_trim_pass_forbids_cutting_content_rather_than_words():
         assert promise in block
     for forbidden in ("drop a subsection heading", "summarize a table", "soften a risk"):
         assert forbidden in block
+
+
+def _split_draft(run: Path, section_id: str, structure, **extra):
+    (run / "logs").mkdir(parents=True, exist_ok=True)
+    spine = run / "logs" / "spine.json"
+    spine.write_text("{}")
+    return claude_runner._run_english_section(
+        run_dir=run,
+        section_id=section_id,
+        common_context="",
+        shared_facts_block="## Shared fact sheet",
+        spine_path=spine,
+        add_dirs=[run],
+        progress=None,
+        timeout_sec=10,
+        structure=structure,
+        **extra,
+    )
+
+
+def test_gemini_drafts_a_section_one_call_per_subsection(tmp_path, monkeypatch):
+    """A whole section in one Gemini response is all-or-nothing: on
+    2026-09-19 a valuation_returns ran past the 64k output ceiling and lost
+    every word, and a malformed thesis_market cost the entire wave a respin.
+    Claude splits a section into files for the same reason; Gemini has no
+    filesystem, so it splits into calls."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    section_def = structure.section("thesis_market")
+    headings = [f"{n}. {s.en}" for n, s in enumerate(section_def.subsections, 1)]
+    assert len(headings) > 1
+
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        number = len(prompts)
+        return (
+            {
+                "piece": number,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": headings[number - 1], "zh": "标题"},
+                    },
+                    {"type": "paragraph", "text": {"en": "body", "zh": "正文"}},
+                ],
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+
+    gem = tmp_path / "g"
+    memo_engine.register_run_engine(gem, "gemini")
+    result, error = _split_draft(gem, "thesis_market", structure)
+
+    assert error is None
+    # One call per subsection, not one for the section.
+    assert len(prompts) == len(headings)
+    # Every piece assembled, in plan order.
+    blocks = result["section"]["blocks"]
+    assert [
+        b["text"]["en"] for b in blocks if b.get("type") == "heading"
+    ] == headings
+    assert len(blocks) == 2 * len(headings)
+
+    # Each call is told to write exactly one subsection...
+    for index, heading in enumerate(headings):
+        assert f'Write subsection {index + 1} ("{heading}"' in prompts[index]
+    # ...under its own share of the band, never the whole section's.
+    section_target = memo_engine.section_word_targets(gem, structure)[
+        "thesis_market"
+    ]
+    piece_target = memo_engine.split_target(section_target, len(headings))
+    assert f"{piece_target.low:,}–{piece_target.high:,} English words" in prompts[0]
+    assert (
+        f"{section_target.low:,}–{section_target.high:,} English words"
+        not in prompts[0]
+    )
+    # A later call can see what the earlier ones wrote, the way one Claude
+    # agent writing all the files can.
+    assert "already written" not in prompts[0]
+    assert "already written" in prompts[1]
+
+    # The OTHER length instruction has to be divided too. Live on
+    # 2026-09-19 it was not: every piece was told the section is N words
+    # and that this figure overrides the range it had just been given, and
+    # six of seven sections came back about a third of their length.
+    section_words = structure.section("thesis_market").budget_words
+    piece_words = int(round(section_words / len(headings)))
+    assert f"Target: {piece_words} words of English for this ONE subsection" in prompts[0]
+    assert f"Target: {section_words} words" not in prompts[0]
+
+
+def test_a_bad_subsection_reply_costs_only_that_subsection(tmp_path, monkeypatch):
+    """The point of the split: a failure costs one subsection, not the
+    section. A whole-section call had to be thrown away entire."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    section_def = structure.section("thesis_market")
+    headings = [f"{n}. {s.en}" for n, s in enumerate(section_def.subsections, 1)]
+
+    asked: list[int] = []
+
+    def fake_artifact(**kw):
+        number = int(
+            re.search(r"Write subsection (\d+)", kw["prompt"]).group(1)
+        )
+        first_try = number not in asked
+        asked.append(number)
+        if number == 2 and first_try:
+            # Headless: the one defect that costs a retry.
+            return {"piece": 2, "blocks": [{"type": "paragraph"}]}, None
+        return (
+            {
+                "piece": number,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": headings[number - 1], "zh": "标题"},
+                    }
+                ],
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    gem = tmp_path / "g2"
+    memo_engine.register_run_engine(gem, "gemini")
+    result, error = _split_draft(gem, "thesis_market", structure)
+
+    assert error is None
+    # One extra call — the retry — not a whole section redrafted.
+    assert asked == [1, 2, 2, 3]
+    assert len(result["section"]["blocks"]) == len(headings)
+
+
+def test_claude_never_takes_the_per_call_split(tmp_path, monkeypatch):
+    structure = memo_structure.load_structure("late_compact", 1)
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        return {"section": {"id": "thesis_market", "blocks": []}}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    monkeypatch.setattr(claude_runner, "_section_handoff_enabled", lambda *a, **k: False)
+    cla = tmp_path / "c2"
+    memo_engine.register_run_engine(cla, "claude")
+    _result, error = _split_draft(cla, "thesis_market", structure)
+    assert error is None
+    assert len(prompts) == 1
+    assert "Write ONE subsection" not in prompts[0]
+    # A single-call section still states its own whole budget.
+    section_words = structure.section("thesis_market").budget_words
+    assert f"Target: {section_words} words of English for this whole" in prompts[0]
+
+
+def _headed(headings, words_each=3):
+    """An assembled section: one heading block per subsection, each followed
+    by a paragraph."""
+    blocks = []
+    for index, heading in enumerate(headings):
+        blocks.append(
+            {"type": "heading", "level": 2, "text": {"en": heading, "zh": "标题"}}
+        )
+        blocks.append(
+            {
+                "type": "paragraph",
+                "text": {"en": " ".join(["w"] * words_each), "zh": "正文"},
+            }
+        )
+    return {"id": "thesis_market", "blocks": blocks}
+
+
+def test_a_length_revision_is_split_too(tmp_path, monkeypatch):
+    """A lengthening revision is the biggest call in a Gemini run — it
+    restates the whole section and then some. Left whole it was the one call
+    with no partial credit, and on 2026-09-19 a company_team revision died on
+    one bad token at 38,544 characters and lost the round."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    section_def = structure.section("thesis_market")
+    headings = [f"{n}. {s.en}" for n, s in enumerate(section_def.subsections, 1)]
+
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        number = int(re.search(r"Write subsection (\d+)", kw["prompt"]).group(1))
+        return (
+            {
+                "piece": number,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": headings[number - 1], "zh": "标题"},
+                    }
+                ],
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    gem = tmp_path / "g3"
+    memo_engine.register_run_engine(gem, "gemini")
+    (gem / "logs").mkdir(parents=True, exist_ok=True)
+    draft_path = gem / "logs" / "thesis_market.length-1.json"
+    draft_path.write_text(
+        json.dumps(_headed(headings)), encoding="utf-8"
+    )
+
+    _result, error = _split_draft(
+        gem, "thesis_market", structure, depth_revision=(draft_path, 9)
+    )
+    assert error is None
+    # Still one call per subsection, not one call carrying the whole draft.
+    assert len(prompts) == len(headings)
+    # Each call revises its OWN slice, written beside the draft.
+    for index in range(len(headings)):
+        slice_path = draft_path.with_name(
+            f"{draft_path.stem}.piece-{index + 1:02d}.json"
+        )
+        assert slice_path.exists()
+        assert str(slice_path) in prompts[index]
+        assert "## Length extension" in prompts[index]
+    # And no call is handed the whole draft.
+    assert all(str(draft_path) not in prompt for prompt in prompts)
+
+
+def test_an_uncuttable_draft_is_revised_whole(tmp_path, monkeypatch):
+    """A draft whose headings do not line up with the plan is revised as one
+    call rather than sliced wrongly."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        return {"section": {"id": "thesis_market", "blocks": []}}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    gem = tmp_path / "g4"
+    memo_engine.register_run_engine(gem, "gemini")
+    (gem / "logs").mkdir(parents=True, exist_ok=True)
+    draft_path = gem / "logs" / "thesis_market.length-1.json"
+    draft_path.write_text(
+        json.dumps(_headed(["Something Else Entirely"])), encoding="utf-8"
+    )
+
+    _result, error = _split_draft(
+        gem, "thesis_market", structure, depth_revision=(draft_path, 9)
+    )
+    assert error is None
+    assert len(prompts) == 1
+    assert "Write ONE subsection" not in prompts[0]
+    assert str(draft_path) in prompts[0]

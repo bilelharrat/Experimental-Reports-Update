@@ -1567,6 +1567,321 @@ def test_repair_wraps_plain_english_strings_as_bilingual():
     assert not memo_docx_renderer.english_package_validation_errors(repaired)
 
 
+def test_repair_lifts_a_localized_value_out_of_its_wrapper():
+    """Gemini nests a table header one level deeper than the contract — a
+    name for the column plus a key for the machine — where the renderer
+    wants the localized object itself. Both halves are there and already
+    translated, so lifting it out loses nothing. Live this one shape was 30
+    of 54 validation errors on a package and blocked three runs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "headers": [
+                {"key": "metric", "label": {"en": "Metric", "zh": "指标"}},
+                {"header": {"en": "Value", "zh": "数值"}},
+            ],
+            "rows": [
+                {"cells": [{"en": "ARR", "zh": "年经常性收入"}, {"en": "$40M", "zh": "$40M"}]}
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    headers = repaired["sections"][0]["blocks"][-1]["headers"]
+    assert headers[0] == {"en": "Metric", "zh": "指标"}
+    assert headers[1] == {"en": "Value", "zh": "数值"}
+    assert sum("lifted the localized value" in r for r in repairs) == 2
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_leaves_an_ambiguous_wrapper_alone():
+    """Only an unambiguous nesting is lifted: a dict carrying its own `en`,
+    or two candidate payloads, is left for the validation feedback loop."""
+    already = {"en": "Metric", "zh": "指标", "label": {"en": "Other", "zh": "其他"}}
+    assert memo_docx_renderer._unwrapped_localized(already) is None
+    two_ways = {"label": {"en": "A", "zh": "甲"}, "title": {"en": "B", "zh": "乙"}}
+    assert memo_docx_renderer._unwrapped_localized(two_ways) is None
+    # A wrapper holding a plain string still lifts, as a bare string would.
+    assert memo_docx_renderer._unwrapped_localized(
+        {"key": "m", "label": "Total addressable market"}
+    ) == ({"en": "Total addressable market", "zh": ""}, "label")
+    # Nothing localized inside: left alone.
+    assert memo_docx_renderer._unwrapped_localized({"key": "m", "label": 7}) is None
+    assert memo_docx_renderer._unwrapped_localized("plain") is None
+
+
+def test_repair_joins_a_bullet_delivered_as_lead_and_body():
+    """A bullet given as a lead line plus a body. The contract wants one
+    localized string, and the renderer already bolds a bullet's lead by
+    splitting at its first ". ", so joining is both lossless and the look
+    the split was reaching for."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": [
+                {
+                    "title": {"en": "What this opens:", "zh": "这打开了："},
+                    "text": {"en": "A $16B market by 2026.", "zh": "到 2026 年 160 亿美元市场。"},
+                }
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][-1]["items"][0] == {
+        "en": "What this opens: A $16B market by 2026.",
+        "zh": "这打开了： 到 2026 年 160 亿美元市场。",
+    }
+    assert any("joined the 'title' and 'text'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_turns_key_value_items_into_rows():
+    """A key-value table delivered under `items` instead of `rows`. On the
+    run before, the same table was dropped as empty while its content sat
+    in `items` unread."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "component": "deal_terms",
+            "items": [
+                {"key": {"en": "Round", "zh": "轮次"}, "value": {"en": "Seed", "zh": "种子"}},
+                {"key": {"en": "Size", "zh": "规模"}, "value": {"en": "$100M", "zh": "1 亿美元"}},
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][-1]
+    assert table["rows"] == [
+        {"cells": [{"en": "Round", "zh": "轮次"}, {"en": "Seed", "zh": "种子"}]},
+        {"cells": [{"en": "Size", "zh": "规模"}, {"en": "$100M", "zh": "1 亿美元"}]},
+    ]
+    assert "items" not in table
+    assert any("two-cell rows" in r for r in repairs)
+
+
+def test_repair_reads_a_chart_off_points_that_name_their_columns():
+    """A scenario chart written the way a table row is written. The one
+    bilingual column is the x axis; the formatted-number columns ("7.0%",
+    "$90M") are text, not values, and are left out. Live on 2026-09-20
+    this failed a whole attempt as "series must be a list of 1-4 series"
+    after every section had already been written."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Return Scenarios", "zh": "回报情景"},
+            "reading": {"en": "Base case returns 1.4x.", "zh": "基准情景 1.4 倍。"},
+            "data": [
+                {
+                    "scenario": {"en": "Bear", "zh": "悲观"},
+                    "moic": 0.17,
+                    "irr": "-45%",
+                    "exit_value": "$90M",
+                },
+                {
+                    "scenario": {"en": "Base", "zh": "基准"},
+                    "moic": 1.4,
+                    "irr": "7.0%",
+                    "exit_value": "$1.0B",
+                },
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    chart = repaired["sections"][0]["blocks"][-1]
+    assert chart["series"] == [
+        {
+            "label": "moic",
+            "points": [{"x": "Bear", "y": 0.17}, {"x": "Base", "y": 1.4}],
+        }
+    ]
+    assert "data" not in chart
+    assert any("named their own columns" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_drops_a_chart_with_nothing_to_plot():
+    """Reaching validation with no series is fatal, and a chart nobody
+    could render is worth less than the attempt it costs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "title": {"en": "Mystery", "zh": "谜"},
+            "data": [{"a": "one", "b": "two"}],
+        }
+    )
+    before = len(package["sections"][0]["blocks"])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"]) == before - 1
+    assert any("no series to plot" in r for r in repairs)
+
+
+def test_repair_dates_a_source_that_used_its_own_word():
+    """Ten of ten sources dated themselves under `date` on 2026-09-20 and
+    the attempt died ten times over on "as_of is required"."""
+    package = copy.deepcopy(_package())
+    source = dict(package["sources"][0])
+    source["date"] = source.pop("as_of")
+    package["sources"][0] = source
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sources"][0]["as_of"] == package["sources"][0]["date"]
+    assert any("renamed 'date' to 'as_of'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_orders_column_keyed_rows():
+    """A table delivered as `columns` of {key, label} plus rows keyed by
+    those column keys. Every cell is already localized and in the right
+    column; only the order has to be recovered. Unrepaired, each row
+    reads as an empty row and the table is dropped — live on 2026-09-20
+    that emptied the Key Metrics Snapshot on both Gemini runs."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "component": "key_metrics_snapshot",
+            "columns": [
+                {"key": "metric", "label": {"en": "Metric", "zh": "指标"}},
+                {"key": "value", "label": {"en": "Value", "zh": "数值"}},
+            ],
+            "rows": [
+                {
+                    "metric": {"en": "Revenue", "zh": "收入"},
+                    "value": {"en": "Not disclosed", "zh": "未披露"},
+                },
+                {
+                    "metric": {"en": "Runway", "zh": "现金可用期"},
+                    # A surplus key the headers do not name: the table has
+                    # two columns, so it is dropped rather than costing the
+                    # whole table.
+                    "value": {"en": "30 months", "zh": "30 个月"},
+                    "detail": {"en": "30 months", "zh": "30 个月"},
+                },
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][-1]
+    assert table["rows"] == [
+        {"cells": [{"en": "Revenue", "zh": "收入"}, {"en": "Not disclosed", "zh": "未披露"}]},
+        {"cells": [{"en": "Runway", "zh": "现金可用期"}, {"en": "30 months", "zh": "30 个月"}]},
+    ]
+    assert table["headers"] == [
+        {"en": "Metric", "zh": "指标"},
+        {"en": "Value", "zh": "数值"},
+    ]
+    assert any("column-keyed rows" in r and "'detail'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_drops_a_table_that_is_only_headers():
+    """Announced columns and no rows is still an empty table — the reader
+    gets a heading and one bare header row (RadixArk, 2026-09-20). Dropping
+    it lets the component gate report the component as missing instead of
+    counting the empty block's declared slug as coverage."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "title": {"en": "Key Metrics Snapshot", "zh": "关键指标快照"},
+            "headers": [{"en": "Metric", "zh": "指标"}, {"en": "Value", "zh": "数值"}],
+            "rows": [],
+        }
+    )
+    before = len(package["sections"][0]["blocks"])
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"]) == before - 1
+    assert any("dropped empty table" in r for r in repairs)
+
+
+def test_repair_leaves_column_keyed_rows_that_disagree():
+    """With no header keys to declare the order, the rows have to agree on
+    it themselves — one that answers different columns is not a table this
+    can order, and guessing would put cells under the wrong heading."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "rows": [
+                {"metric": {"en": "Revenue", "zh": "收入"}},
+                {"value": {"en": "Not disclosed", "zh": "未披露"}},
+            ],
+        }
+    )
+    _repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert not any("column-keyed rows" in r for r in repairs)
+
+
+def test_repair_retypes_an_itemless_bullets_block():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": None,
+            "text": {"en": "Prose that never was a list.", "zh": "从来不是列表的散文。"},
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][-1]
+    assert block["type"] == "paragraph" and "items" not in block
+    assert any("retyped an itemless" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_maps_a_flat_chart_data_list_onto_series():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Gross MOIC by scenario", "zh": "各情景总回报倍数"},
+            "reading_note": {"en": "Base case returns 0.9x.", "zh": "基准情形 0.9 倍。"},
+            "data": [
+                {"label": {"en": "Bear", "zh": "悲观"}, "value": 0.3},
+                {"label": {"en": "Base", "zh": "基准"}, "value": 0.9},
+                {"label": {"en": "Bull", "zh": "乐观"}, "value": 3.15},
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    chart = repaired["sections"][0]["blocks"][-1]
+    assert chart["series"] == [
+        {
+            "label": "Gross MOIC by scenario",
+            "points": [{"x": "Bear", "y": 0.3}, {"x": "Base", "y": 0.9}, {"x": "Bull", "y": 3.15}],
+        }
+    ]
+    assert "data" not in chart
+    # The reading note arrives under the analysis passes' word for it.
+    assert chart["reading"]["en"] == "Base case returns 0.9x."
+    assert any("into one series" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_leaves_a_half_usable_chart_data_list_alone():
+    """Mapping only happens when EVERY point maps; a partial list is a
+    judgment call and goes to the validation feedback loop."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Mixed", "zh": "混合"},
+            "data": [
+                {"label": {"en": "Bear", "zh": "悲观"}, "value": 0.3},
+                {"label": {"en": "Base", "zh": "基准"}, "value": None},
+            ],
+        }
+    )
+    repaired, _repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert all("series" not in b for b in blocks if b.get("type") == "chart")
+
+
 def test_repair_normalizes_block_type_synonyms():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append(
@@ -2074,3 +2389,70 @@ def test_an_unknown_type_is_read_from_the_blocks_fields():
     kinds = [b["type"] for b in repaired["sections"][0]["blocks"]]
     assert kinds == ["bullets", "heading", "paragraph", "spacer"]
     assert _block_errors(repaired) == []
+
+
+# ---- an empty chart is a placeholder, not a fatal defect --------------------
+#
+# 2026-09-19, RadixArk on Gemini. The model announced a chart and put nothing
+# in it: one series, no label, no points. An empty TABLE has been dropped
+# rather than fatal since the first Gemini runs; this shape had never been
+# taught, so it failed renderer validation through all three package
+# attempts and the surgical repair, and killed a memo that was otherwise
+# finished — seven sections at the right length, 378 other defects already
+# absorbed by the same pass that should have absorbed this one.
+
+
+def _expand(block):
+    repairs = []
+    return memo_docx_renderer._expand_block(dict(block), repairs, "b"), repairs
+
+
+def test_a_chart_with_nothing_in_it_is_dropped():
+    out, repairs = _expand(
+        {"type": "chart", "chart_type": "line",
+         "series": [{"label": "", "points": []}]}
+    )
+    assert out == []
+    assert any("dropped empty chart" in r for r in repairs)
+
+
+def test_a_chart_keeps_the_series_that_have_data():
+    out, repairs = _expand(
+        {
+            "type": "chart",
+            "chart_type": "grouped_bar",
+            "series": [
+                {"label": "Revenue", "points": [{"x": "2026", "y": 1.0}]},
+                {"label": "", "points": []},
+            ],
+        }
+    )
+    assert len(out) == 1
+    assert [s["label"] for s in out[0]["series"]] == ["Revenue"]
+    assert any("dropped 1 series with no points" in r for r in repairs)
+
+
+def test_a_healthy_chart_is_left_alone():
+    chart = {
+        "type": "chart",
+        "chart_type": "line",
+        "series": [{"label": "Revenue", "points": [{"x": "2026", "y": 1.0}]}],
+    }
+    out, repairs = _expand(chart)
+    assert out == [chart]
+    assert repairs == []
+
+
+def test_the_dropped_chart_no_longer_fails_validation():
+    """End to end: the block that ended the run passes the gate once the
+    repair pass has seen it."""
+    package = _package()
+    section = package["sections"][0]
+    section["blocks"].append(
+        {"type": "chart", "chart_type": "line",
+         "series": [{"label": "", "points": []}]}
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert any("empty chart" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "series" in e], errors

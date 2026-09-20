@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from server import memo_structure
+from server import memo_quality_lint, memo_structure
 
 # Late v1 defaults; check_package_pins resolves the package's own
 # structure from its meta stamp and uses role-based lookups.
@@ -612,6 +612,33 @@ def _pin_sentence(value: object) -> str:
     return str(value or "").strip().rstrip(".。 ")
 
 
+def _echoed_pin_strings(shared_facts: dict) -> list[tuple[str, str]]:
+    """(label, text) for every pin a section must reproduce verbatim."""
+    out: list[tuple[str, str]] = []
+    for key in ("recommendation_sentence", "decision_history_sentence"):
+        value = shared_facts.get(key)
+        if isinstance(value, str) and value.strip():
+            out.append((key, value))
+    highlights = shared_facts.get("highlights")
+    for index, highlight in enumerate(
+        highlights if isinstance(highlights, list) else []
+    ):
+        if not isinstance(highlight, dict):
+            continue
+        headline = highlight.get("headline")
+        if isinstance(headline, str) and headline.strip():
+            out.append((f"highlights[{index}].headline", headline))
+    risks = shared_facts.get("risks")
+    for index, risk in enumerate(risks if isinstance(risks, list) else []):
+        if not isinstance(risk, dict):
+            continue
+        for key in ("summary", "impact"):
+            value = risk.get(key)
+            if isinstance(value, str) and value.strip():
+                out.append((f"risks[{index}].{key}", value))
+    return out
+
+
 def check_spine_pins_v2(
     shared_facts: dict,
     structure,
@@ -630,11 +657,28 @@ def check_spine_pins_v2(
     problems: list[str] = []
 
     stage = str(shared_facts.get("stage") or "").strip()
-    if stage and stage != structure.pin_stage:
+    if stage and stage != structure.declared_stage:
         problems.append(
             f"pinned stage {stage!r} does not match the run's classified "
-            f"stage {structure.pin_stage!r}"
+            f"stage {structure.declared_stage!r}"
         )
+
+    # Every pin below is echoed VERBATIM by the sections the echo gate
+    # checks, so a phrase the quality gate bans inside one is a P0 no
+    # section is allowed to fix. Catching it here costs one cheap spine
+    # retry; catching it at the package costs the whole wave and then
+    # ships the finding anyway — live on 2026-09-20 the Glean spine
+    # pinned "...and BSH should move when...", three package attempts
+    # and three surgical repairs failed to clear it, and the memo went
+    # out with three copies of the same P0.
+    for label, pinned in _echoed_pin_strings(shared_facts):
+        banned = memo_quality_lint.banned_body_voice_phrase(pinned)
+        if banned:
+            problems.append(
+                f"pinned {label} uses {banned!r}, which the memo's voice "
+                "gate rejects — every section must echo this pin word for "
+                "word, so rewrite it here"
+            )
 
     scorecard = shared_facts.get("scorecard")
     total_score: int | None = None

@@ -6,6 +6,7 @@ never needs a real key.
 from __future__ import annotations
 
 import json
+import os
 
 import httpx
 from pathlib import Path
@@ -234,7 +235,8 @@ def test_blocked_prompt_reports_the_block_reason(monkeypatch, key):
 
 def test_truncated_response_is_reported_not_silently_empty(monkeypatch, key):
     envelope = {"candidates": [{"content": {"parts": []}, "finishReason": "MAX_TOKENS"}]}
-    _stub_post(monkeypatch, [_response(200, envelope)])
+    # asked twice: truncated both times (PARSE_RETRIES=1)
+    _stub_post(monkeypatch, [_response(200, envelope), _response(200, envelope)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
     )
@@ -616,7 +618,8 @@ def test_a_truncated_response_says_so_instead_of_a_parse_error(monkeypatch, key)
             }
         ]
     }
-    _stub_post(monkeypatch, [_response(200, envelope)])
+    # asked twice: truncated both times (PARSE_RETRIES=1)
+    _stub_post(monkeypatch, [_response(200, envelope), _response(200, envelope)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA, name="memo English package"
     )
@@ -664,7 +667,11 @@ def test_a_parse_failure_shows_how_the_output_ends(monkeypatch, key):
     """The head of a 60KB package never says whether it was cut off; the
     tail does. The live failure message showed only the head."""
     text = '{"memo_package": {"sections": [{"id": "executive_summary", "text": "' + "x" * 500
-    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    # asked twice: unparseable both times (PARSE_RETRIES=1)
+    _stub_post(
+        monkeypatch,
+        [_response(200, _envelope(text)), _response(200, _envelope(text))],
+    )
     data, error = gemini_runner.run_structured_prompt(system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh")
     assert data is None
     assert "ends:" in error and error.rstrip("'\"").endswith("x" * 40)
@@ -691,7 +698,9 @@ def test_a_parse_failure_names_the_decoder_reason_and_keeps_the_raw_output(
     import tempfile
 
     monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
-    _stub_post(monkeypatch, [_response(200, _envelope('{"a": 1,, "b": 2}'))])
+    # asked twice: the reply does not parse either time (PARSE_RETRIES=1)
+    bad = _envelope('{"a": 1,, "b": 2}')
+    _stub_post(monkeypatch, [_response(200, bad), _response(200, bad)])
     data, error = gemini_runner.run_structured_prompt(
         system_prompt="s", user_prompt="u", schema=SCHEMA,
         name="memo Chinese package (section x)",
@@ -792,3 +801,182 @@ def test_a_document_that_ends_early_is_not_mistaken_for_a_dropped_bracket():
     parsed, reason = gemini_runner._loads_object('{"a": [1, 2')
     assert parsed is None
     assert reason
+
+
+# ---- one re-ask when a reply is not valid JSON ------------------------------
+#
+# Two live memo runs died this way on 2026-09-19, each on a single malformed
+# token in one section of an otherwise finished memo. The second was
+# `"] satisfy: true}` — a missing comma and an unquoted key — three times in
+# one reply: braces balanced, prose intact, 25,853 characters of real work
+# discarded because nothing asked again. Chasing each malformation is
+# whack-a-mole; the Claude path already re-asks a section whose structured
+# output fails, and this is the same insurance.
+
+_BAD = gemini_runner.UNPARSEABLE_MARKER + " (name=x, 10 chars): Expecting ','"
+
+
+def _run_returning(*results):
+    """Patch the single-shot call to return each result in turn."""
+    seen: list[str] = []
+    it = iter(results)
+
+    def fake(**kwargs):
+        seen.append(kwargs["user_prompt"])
+        return next(it)
+
+    return fake, seen
+
+
+def test_an_unparseable_reply_is_asked_again(monkeypatch):
+    fake, seen = _run_returning(
+        (None, {}, _BAD),
+        ({"ok": True}, {}, None),
+    )
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True}
+    assert error is None
+    assert len(seen) == 2
+    # the retry carries the original ask plus what went wrong
+    assert seen[0] == "ORIGINAL"
+    assert seen[1].startswith("ORIGINAL")
+    assert "not valid JSON" in seen[1]
+    assert "Quote every key" in seen[1]
+
+
+def test_it_gives_up_after_one_retry(monkeypatch):
+    fake, seen = _run_returning((None, {}, _BAD), (None, {}, _BAD))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None
+    assert gemini_runner.UNPARSEABLE_MARKER in error
+    assert len(seen) == 2
+
+
+def test_a_good_reply_costs_one_call(monkeypatch):
+    fake, seen = _run_returning(({"ok": True}, {}, None))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True} and error is None
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "gemini returned an empty response (x)",
+        "gemini API key not configured",
+    ],
+)
+def test_a_failure_nothing_can_fix_is_not_retried(error, monkeypatch):
+    """An empty reply and a missing key come back the same the second
+    time — paying twice for them buys nothing."""
+    fake, seen = _run_returning((None, {}, error))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, got = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None and got == error
+    assert len(seen) == 1
+
+
+def test_a_reply_that_ran_past_the_ceiling_is_asked_to_cut(monkeypatch):
+    """2026-09-19: a `valuation_returns` section blew a 64,000-token ceiling
+    writing a section budgeted at 1,900 words, and the wave failed with
+    nothing having asked it to be shorter. The first version of this retry
+    excluded output limits on the reasoning that they come back the same —
+    true of an empty reply, not of a model that can be told what it did.
+    """
+    over = (
+        f"gemini response {gemini_runner.OUTPUT_LIMIT_MARKER} before "
+        "finishing (x); raise max_output_tokens"
+    )
+    fake, seen = _run_returning((None, {}, over), ({"ok": True}, {}, None))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data == {"ok": True} and error is None
+    assert len(seen) == 2
+    assert seen[1].startswith("ORIGINAL")
+    assert "materially shorter" in seen[1]
+    # and it must not lose the required content in the process
+    assert "every pinned fact" in seen[1]
+
+
+def test_it_still_gives_up_after_one_over_length_retry(monkeypatch):
+    over = (
+        f"gemini response {gemini_runner.OUTPUT_LIMIT_MARKER} before "
+        "finishing (x); raise max_output_tokens"
+    )
+    fake, seen = _run_returning((None, {}, over), (None, {}, over))
+    monkeypatch.setattr(gemini_runner, "_run", fake)
+    data, error = gemini_runner.run_structured_prompt(
+        system_prompt="s", user_prompt="ORIGINAL", schema={}, name="x"
+    )
+    assert data is None
+    assert gemini_runner.OUTPUT_LIMIT_MARKER in error
+    assert len(seen) == 2
+
+
+# A real Gemini response envelope: the memo pipeline read everything in it
+# except this block, so every Gemini run reported $0.00 next to a Claude run's
+# real dollars and the two could not be compared on cost.
+_USAGE_PAYLOAD = {
+    "candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}],
+    "usageMetadata": {
+        "promptTokenCount": 120000,
+        "candidatesTokenCount": 8000,
+        "thoughtsTokenCount": 2000,
+        "cachedContentTokenCount": 100000,
+        "totalTokenCount": 130000,
+    },
+}
+
+
+def test_usage_is_read_off_the_response():
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert usage["input_tokens"] == 120000
+    # Thinking is billed as output and is most of a reasoning call, so it
+    # belongs in the output count rather than beside it.
+    assert usage["output_tokens"] == 10000
+    assert usage["thinking_tokens"] == 2000
+    assert usage["cached_input_tokens"] == 100000
+    assert gemini_runner._usage_from_payload({}) is None
+
+
+def test_an_unpriced_model_reports_no_cost_rather_than_zero(monkeypatch):
+    """Published prices move. A stale table would report confident, wrong
+    dollars, which is worse than reporting none — so an unpriced model
+    records its tokens and leaves the cost unknown."""
+    for name in list(os.environ):
+        if name.startswith("BSH_GEMINI_USD_PER_MTOK"):
+            monkeypatch.delenv(name, raising=False)
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") is None
+
+
+def test_a_configured_price_produces_a_cost(monkeypatch):
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN", "0.30")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT", "2.50")
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    # 0.12M in * 0.30 + 0.01M out * 2.50
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") == 0.061
+
+
+def test_a_per_model_price_wins_over_the_general_one(monkeypatch):
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN", "0.30")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT", "2.50")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN_GEMINI_3_8_FLASH", "0.10")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT_GEMINI_3_8_FLASH", "1.00")
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") == 0.022
+    # A different model still falls back to the general price.
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-pro") == 0.061

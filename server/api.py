@@ -999,6 +999,9 @@ class WorkspacePreferencePatch(BaseModel):
     agent_alerts: bool | None = None
     compact_density: bool | None = None
     language: str | None = None
+    # "gemini" | "gemini-only" | "claude" — which engine answers the
+    # web-grounded research surfaces (server/ai_engine.py). Desk-wide.
+    research_engine: str | None = None
 
 
 class ThreadIn(BaseModel):

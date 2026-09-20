@@ -362,3 +362,90 @@ def test_wrapper_respins_all_sections_after_stale_pins(tmp_path, monkeypatch):
     assert section_calls.count("executive_summary") == 1
     assert section_calls.count("company_overview") == 2
     assert result["memo_package"]["company"]["name"] == "Generalist, Inc."
+
+
+def test_a_discarded_wave_is_not_translated(tmp_path, monkeypatch):
+    """2026-09-17, Figure AI. The delta check condemned the speculative
+    spine at 04:57:12, and five sections still drafting against it finished
+    two to three minutes later. Each was handed to the chase hook anyway,
+    so the run paid $1.77 to translate prose it had already thrown away. A
+    section that lands after its wave is discarded goes nowhere.
+    """
+    import threading
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    gate = threading.Event()
+    section_calls: list[str] = []
+
+    def blocking_section(*, section_id, **_kw):
+        section_calls.append(section_id)
+        # Hold every section mid-draft until the wave is condemned, the
+        # way a live section holds while the delta check runs.
+        gate.wait(timeout=10)
+        return {"section": {"id": section_id, "blocks": []}}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_english_section", blocking_section
+    )
+    hooked: list[str] = []
+    spec = _speculator(
+        tmp_path,
+        on_section=lambda section_id, _s: hooked.append(section_id),
+    )
+    for pass_id in _PASS_IDS:
+        spec.note_pass_result(pass_id, True)
+    spec.consume()
+    spec._abandon_early_sections("pins stale: a late pass moved a pin")
+    gate.set()
+    for future in list(spec._early_futures.values()):
+        future.result(timeout=10)
+    spec.shutdown()
+
+    # The drafts still ran — they were already paid for — but not one of
+    # them was forwarded for translation.
+    assert section_calls, "sections should still have been attempted"
+    assert hooked == []
+
+
+def test_an_improved_section_replaces_the_early_draft_for_later_attempts(
+    tmp_path, monkeypatch
+):
+    """These futures live for the whole run, not for one package attempt, so
+    a second attempt harvests the same drafts the first one got. Live on
+    2026-09-19 attempt 2 restarted from attempt 1's pre-revision drafts and
+    spent nine length-revision calls arriving back where it had already
+    been."""
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    monkeypatch.setattr(
+        claude_runner, "_run_english_section", _fake_section([])
+    )
+    spec = _speculator(tmp_path)
+    for pass_id in _FIRST_WAVE + list(_STRAGGLERS):
+        spec.note_pass_result(pass_id, True)
+    result, reason = spec.consume()
+    assert reason is None and isinstance(result, dict)
+
+    section_id = sorted(spec.early_futures())[0]
+    original, error = spec.early_futures()[section_id].result(timeout=10)
+    assert error is None
+
+    improved = {"section": {"id": section_id, "blocks": [{"type": "marker"}]}}
+    spec.adopt_section_result(section_id, improved)
+
+    harvested, harvested_error = spec.early_futures()[section_id].result(
+        timeout=10
+    )
+    assert harvested_error is None
+    assert harvested is improved
+    assert harvested != original
+
+    # A section the speculator never started is not invented here.
+    spec.adopt_section_result("not_a_section", improved)
+    assert "not_a_section" not in spec.early_futures()

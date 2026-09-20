@@ -18,12 +18,26 @@ against a per-run cap of ten subprocesses nothing queues, so no pass
 arrives after the spine has drawn its pins — the delta check exists for
 the day that changes.
 
-Why eight and not twelve: every pass fills every schema cap it is given,
-so twelve passes handed Phase 3 more than three hundred findings to write
-a 3,500-word memo from, and Phase 3 and 4 are the expensive half of a run.
-Passes that read the SAME evidence are merged, so one agent forms one
-judgment from one reading instead of two agents splitting it. Passes that
-read different evidence — or whose job is to disagree — stay apart.
+Why eight and not twelve: passes that read the SAME evidence are merged,
+so one agent forms one judgment from one reading instead of two agents
+splitting it. Passes that read different evidence — or whose job is to
+disagree — stay apart. Phase 3 and 4 are the expensive half of a run, so
+the saving is real: four fewer agents, four fewer readings.
+
+What the merge did NOT do is cut the evidence, and the original note
+here said otherwise. Every pass fills every schema cap it is given, and
+the caps are PER PASS, so dropping four passes dropped the finding count
+by about a quarter, not by a third: measured on the Surge AI compact run
+(2026-09-20__070546), eight passes handed Phase 3 233 findings, against
+the "more than three hundred" twelve used to hand it.
+
+That note also justified the cut by the memo those findings had to fill —
+"a 3,500-word memo". The compact memo is 20,400 words now. The ratio
+inverted, from roughly twelve words of memo per finding to ninety, and
+the memo is still not short of evidence: one citation mark every 45-58
+words, 17 of 19 sources cited, every calculation note cited, and sections
+landing at or slightly over their word budgets rather than under. Eight
+is still right — for the merge reason above, not for the ratio.
 
 ## pass: numbers_integrity
 ```yaml

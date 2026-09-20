@@ -345,4 +345,30 @@ describe("ReportCustomizerModal", () => {
       expect.objectContaining({ engine: "gemini" }),
     );
   });
+
+  // The quality tiers are Claude model/effort pairs and a Gemini run drops
+  // them, so the selector must not look live once Gemini is picked.
+  it("disables the quality tiers while Gemini is the engine", async () => {
+    const wrapper = mountModal();
+
+    const navButtons = wrapper.findAll("nav button");
+    await navButtons[1].trigger("click");
+
+    const tierIds = ["balanced", "best", "economy"];
+    for (const id of tierIds) {
+      expect(wrapper.find(`[data-testid="quality-${id}"]`).attributes("disabled")).toBeUndefined();
+    }
+
+    await wrapper.find('[data-testid="engine-gemini"]').trigger("click");
+    for (const id of tierIds) {
+      expect(wrapper.find(`[data-testid="quality-${id}"]`).attributes("disabled")).toBeDefined();
+    }
+    expect(wrapper.text()).toContain("Gemini runs one model");
+
+    // Switching back hands the choice straight back.
+    await wrapper.find('[data-testid="engine-claude"]').trigger("click");
+    for (const id of tierIds) {
+      expect(wrapper.find(`[data-testid="quality-${id}"]`).attributes("disabled")).toBeUndefined();
+    }
+  });
 });

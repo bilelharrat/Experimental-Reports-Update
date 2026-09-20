@@ -1,5 +1,5 @@
 ---
-en_sha256: b1d52da51706c06b2050a2c8052082e615520aee3a5c78d5ea12d26f43f8478e
+en_sha256: 2f43531527d50371790a1e4e2901e6842eab57b57bd4ad31d871f3e553650ac0
 ---
 ---
 stage: late_compact
@@ -393,7 +393,7 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
-budget_words: 1900
+budget_words: 2400
 budget_hard_multiple: 1.3
 scorecard_dimensions:
 - valuation
@@ -421,7 +421,7 @@ subsections:
   zh: 退出路径
 ```
 
-1,800-1,900 词。本节的每一个数字都是推导出来的，因此每一个数字都要展示其算式，
+2,300-2,400 词。本节的每一个数字都是推导出来的，因此每一个数字都要展示其算式，
 并带上对应计算注释的 [C#]。先说明入场价格已经预设了什么，再说它是否合理；并且
 给读者一个可以据以判断倍数的对比 —— 这一类型的公司通常按什么倍数成交，以及这家
 公司为何落在相对于它们的那个位置。退出预期也属于本节：上市在现实中可能何时发生，

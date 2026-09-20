@@ -1,5 +1,5 @@
 ---
-en_sha256: 9ed63b4fc0c81a6dc5c4001dbc2462a741d35e9c60f59be555eeff592dcbe17d
+en_sha256: c7f21bcd19ad09211a8da273a6287bcd4e7d4c925edbf948f977bd990ff5ccdb
 ---
 ---
 type: ai_foundation_model
@@ -27,12 +27,20 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 4
+  early:
+    market_size_growth: 17
+    industry_position: 8
+    moat: 13
+    revenue_growth_quality: 7
+    business_model_ue: 12
+    team_governance: 27
+    valuation: 8
+    exit_certainty: 4
+    risk_reward: 4
 section_emphasis:
   thesis_market: 1.25
   business_financials: 1.15
-  company_team: 1.1
-  valuation_returns: 0.9
-  investment_decision: 0.85
+  company_team: 1.15
 research_focus:
   all: >-
     这是一家前沿大模型研发公司。阅读每一个数字时都要透过四个核心命题：

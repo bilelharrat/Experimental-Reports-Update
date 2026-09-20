@@ -118,3 +118,101 @@ def test_a_profile_without_budgets_is_left_alone():
     assert all(s.budget_words is None for s in v2.sections)
     same = memo_structure._emphasized_sections(v2.sections, {"risks": 2.0})
     assert same == v2.sections
+
+
+# ---- every stage reaches its own overlay -------------------------------------
+#
+# 2026-09-17, the RadixArk seed run. Compact mode loads `late_compact` for
+# EVERY classified stage, and the overlay was keyed off the profile's
+# `pin_stage` — which is "late". So the `growth:` block in all five type
+# files was unreachable in the mode the fund actually ships, and a seed
+# company was scored on late-stage weights: 15% of its score on revenue
+# growth it could not have, and team governance at the LOWEST weight in
+# the map for a company whose founders are the whole case.
+
+
+@pytest.mark.parametrize("company_type", memo_structure.COMPANY_TYPE_KEYS)
+@pytest.mark.parametrize("stage", ("early", "growth", "late"))
+def test_every_stage_and_type_resolves_its_own_weights(
+    stage, company_type, monkeypatch
+):
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    structure = memo_structure.active_structure(
+        stage, "compact", company_type=company_type
+    )
+    weights = structure.scorecard_weights()
+    assert sum(weights.values()) == 100, (stage, company_type)
+    assert set(weights) == set(memo_structure.SCORECARD_DIMENSION_KEYS)
+    assert structure.overlay_stage == stage
+
+
+@pytest.mark.parametrize("company_type", memo_structure.COMPANY_TYPE_KEYS)
+def test_the_stages_are_actually_different(company_type, monkeypatch):
+    """If early, growth and late produced the same map the overlay would
+    be doing nothing — which is exactly the bug this replaced."""
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    maps = {
+        stage: memo_structure.active_structure(
+            stage, "compact", company_type=company_type
+        ).scorecard_weights()
+        for stage in ("early", "growth", "late")
+    }
+    assert maps["early"] != maps["late"], company_type
+    assert maps["growth"] != maps["late"], company_type
+    # Seed buys the founders; late buys the evidence.
+    assert (
+        maps["early"]["team_governance"] > maps["late"]["team_governance"]
+    ), company_type
+    # And cannot be scored on revenue it does not have yet.
+    assert (
+        maps["early"]["revenue_growth_quality"]
+        <= maps["late"]["revenue_growth_quality"]
+    ), company_type
+
+
+def test_a_rerender_resolves_the_weights_the_run_used(monkeypatch):
+    """The stage that chose the overlay has to survive into the package,
+    or the renderer re-resolves different weights than the memo was
+    written against."""
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    run = memo_structure.active_structure(
+        "growth", "compact", company_type="robotics"
+    )
+    reloaded = memo_structure.for_package({"structure": run.meta()})
+    assert reloaded.scorecard_weights() == run.scorecard_weights()
+    assert reloaded.overlay_stage == "growth"
+
+
+# ---- the sections a type may not squeeze ------------------------------------
+
+
+@pytest.mark.parametrize("company_type", memo_structure.COMPANY_TYPE_KEYS)
+def test_the_incompressible_sections_keep_their_budget(
+    company_type, monkeypatch
+):
+    """Four cap overruns across three live runs, all in these two
+    sections, every one of them costing a repair pass."""
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    base = memo_structure.active_structure("late", "compact")
+    typed = memo_structure.active_structure(
+        "late", "compact", company_type=company_type
+    )
+    for section_id in memo_structure._EMPHASIS_EXEMPT:
+        assert (
+            typed.section(section_id).budget_words
+            == base.section(section_id).budget_words
+        ), (company_type, section_id)
+
+
+@pytest.mark.parametrize("company_type", memo_structure.COMPANY_TYPE_KEYS)
+def test_no_type_declares_an_emphasis_it_cannot_apply(company_type):
+    """A multiplier the loader ignores is a lie in the file — the same
+    two-places-disagree bug the exemption exists to fix."""
+    profile = memo_structure.load_company_type(company_type)
+    if profile is None:
+        return
+    for section_id in profile.section_emphasis:
+        assert section_id not in memo_structure._EMPHASIS_EXEMPT, (
+            company_type,
+            section_id,
+        )

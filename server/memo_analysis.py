@@ -4289,21 +4289,35 @@ def _run_fast_synthesis(
         # Chinese fill that didn't land (blank `zh` after a unit drifted).
         # The monolithic bilingual pass only fills blank `zh` strings — run
         # it once over the merged package as a targeted repair.
+        # Per unit, not in one call. The monolithic pass asks for the whole
+        # bilingual package in one response, which on Gemini is past its
+        # 64k output ceiling: a 2026-09-19 Databricks run reached the final
+        # render with EIGHT untranslated cells in one table, and the repair
+        # that should have filled them could not fit the answer. The
+        # parallel pass translates one section at a time and, with
+        # `only_missing`, touches only the strings that are still blank.
+        # Claude is unaffected in substance — it gets the same gap-fill,
+        # split across calls rather than one, which is what its own chasing
+        # path already does.
         phase4_progress.emit(
             "stage",
             stage="memo_package_zh_repair",
             message=(
-                "Merged package failed renderer validation; running one "
-                "monolithic Chinese fill repair pass"
+                "Merged package failed renderer validation; filling the "
+                "blank Chinese per section"
             ),
             validation_error=package_error[:2000],
         )
-        repair_result, repair_error = claude_runner.run_memo_fast_bilingual_package(
-            run_dir=run_dir,
-            company_name=company_name,
-            run_id=run_id,
-            english_package_path=final_package_path,
-            progress=phase4_progress,
+        repair_result, repair_error = (
+            claude_runner.run_memo_fast_bilingual_package_parallel(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                english_package_path=final_package_path,
+                progress=phase4_progress,
+                stream=stream,
+                only_missing=True,
+            )
         )
         if not repair_error and isinstance(repair_result, dict):
             repaired = repair_result.get("memo_package")

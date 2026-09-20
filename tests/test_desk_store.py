@@ -372,3 +372,63 @@ def test_quotes_diagnostics_reports_cache_state(client, monkeypatch):
     assert entry["age_seconds"] >= 0
     assert stats["quote_ttl_seconds"] == live_quotes.QUOTE_TTL_SECONDS
     live_quotes.clear_cache()
+
+
+# ---- the research engine is a desk-wide setting, not an env-only knob ------
+#
+# 2026-09-19: the operator asked to choose the engine in Settings rather
+# than by editing .env and restarting. The policy now reads the stored
+# setting first, so a person changing it in the UI sees it take effect.
+
+
+def test_research_engine_setting_beats_the_env_pin(monkeypatch, tmp_path):
+    from server import ai_engine, product_store, storage
+
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
+
+    # nothing stored: the env pin still applies, as it did before
+    assert product_store.research_engine() is None
+    assert ai_engine.policy() == "gemini"
+
+    product_store.update_preferences(None, {"research_engine": "claude"})
+    assert product_store.research_engine() == "claude"
+    assert ai_engine.policy() == "claude"
+
+    product_store.update_preferences(None, {"research_engine": "gemini-only"})
+    assert ai_engine.policy() == "gemini-only"
+
+
+def test_research_engine_rejects_an_unknown_engine(monkeypatch, tmp_path):
+    import pytest as _pytest
+
+    from server import product_store, storage
+
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
+    with _pytest.raises(ValueError, match="research_engine must be one of"):
+        product_store.update_preferences(None, {"research_engine": "gpt"})
+
+
+def test_research_engine_is_desk_wide_not_per_user(monkeypatch, tmp_path):
+    """Like the memo cap: it decides where the workspace spends, so one
+    person's choice is the desk's, not their own."""
+    from server import product_store, storage
+
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
+    product_store.update_preferences("someone@example.com", {"research_engine": "claude"})
+    # read back with no user at all — the global branch carries it
+    assert product_store.research_engine() == "claude"
+
+
+def test_a_broken_settings_file_never_breaks_a_call(monkeypatch):
+    """A settings read failing must degrade to the env/default chain, not
+    take down every research surface with it."""
+    from server import ai_engine, product_store
+
+    monkeypatch.setenv("BSH_AI_ENGINE", "claude")
+    monkeypatch.setattr(
+        product_store,
+        "research_engine",
+        lambda: (_ for _ in ()).throw(OSError("disk gone")),
+    )
+    assert ai_engine.policy() == "claude"

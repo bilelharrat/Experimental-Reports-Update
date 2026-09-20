@@ -319,3 +319,135 @@ def test_chase_abandoned_unit_never_double_emits(tmp_path, monkeypatch):
     rows = stream.snapshot("phase_timing", phase="zh_chase:executive_summary")
     terminal = [e for e in rows if e["status"] in ("finished", "failed")]
     assert len(terminal) == 1 and terminal[0]["status"] == "failed"
+
+
+# The real cell text from the Databricks Gemini run of 2026-09-19: Gemini put
+# the English back in the zh half of nine scorecard cells.
+_ENGLISH_IN_ZH = (
+    "Massive and expanding data and AI software TAM driven by enterprise "
+    "cloud modernization and agentic AI pipelines."
+)
+
+
+def test_english_left_in_the_zh_half_still_counts_as_untranslated():
+    """Asking whether a Chinese slot is FILLED was never the same question as
+    whether it is TRANSLATED. Live on 2026-09-19 nine scorecard cells shipped
+    in English because the slot was not blank, so every gap-fill skipped them
+    and only the rendered-document gate noticed — too late to act on."""
+    node = {"en": _ENGLISH_IN_ZH, "zh": _ENGLISH_IN_ZH}
+    assert claude_runner._zh_untranslated(node) is True
+    assert claude_runner._has_blank_zh({"cell": node}) is True
+    assert claude_runner._count_blank_zh({"cell": node}) == 1
+
+
+def test_a_short_non_chinese_zh_half_is_left_alone():
+    """A zh half that is a number, a ticker or a proper noun carries no CJK
+    either and is already correct — the rule must not chase those."""
+    for zh in ("27.1x", "Databricks", "$7B", "2026-09-19", "IPO"):
+        node = {"en": zh, "zh": zh}
+        assert claude_runner._zh_untranslated(node) is False, zh
+
+
+def test_a_translated_cell_is_not_chased():
+    node = {"en": _ENGLISH_IN_ZH, "zh": "企业云现代化与智能体式 AI 流水线驱动的数据与 AI 软件市场空间庞大且持续扩张。"}
+    assert claude_runner._zh_untranslated(node) is False
+    assert claude_runner._count_blank_zh({"cell": node}) == 0
+
+
+def test_adoption_replaces_an_english_filled_zh_half():
+    """The chase merge adopted only into a blank slot, so a cell Gemini had
+    filled with English could never be corrected by a later translation."""
+    source = {"cell": {"en": _ENGLISH_IN_ZH, "zh": _ENGLISH_IN_ZH}}
+    translated = {"cell": {"en": _ENGLISH_IN_ZH, "zh": "企业云现代化驱动的数据与 AI 软件市场空间庞大。"}}
+    claude_runner._adopt_zh_translations(source, translated)
+    assert source["cell"]["zh"] == "企业云现代化驱动的数据与 AI 软件市场空间庞大。"
+
+
+def test_an_already_translated_section_is_not_chased(tmp_path, monkeypatch):
+    """Gemini writes both halves of a section in one pass. On 2026-09-20
+    both live runs dispatched all eight chase units, paid for all eight,
+    and adopted zero strings — every section arrived translated."""
+    calls: list[str] = []
+
+    def fake_unit(*, unit_label, unit_path, **kwargs):
+        calls.append(unit_label)
+        return (
+            _fill_unit(json.loads(unit_path.read_text(encoding="utf-8"))),
+            None,
+        )
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    chaser = _chaser(tmp_path)
+    done = {
+        "id": "executive_summary",
+        "title": _loc("Executive Summary", "执行摘要"),
+        "blocks": [{"type": "paragraph", "text": _loc("Alpha.", "甲。")}],
+    }
+    chaser.on_section("executive_summary", done)
+    chaser.on_section("company_team", _section("company_team"))
+    chaser.collect(join_timeout_sec=5)
+    chaser.shutdown()
+    assert calls == ["section company_team (chase)"]
+
+
+def test_the_envelope_chase_carries_the_pinned_calculations(tmp_path, monkeypatch):
+    """The skeleton alone has nothing blank in it, so the envelope chase
+    could only ever adopt zero. The calculation notes are pinned beside it
+    and are the largest block of untranslated text left for the serial
+    gap-fill (twenty of twenty-six strings on RadixArk 2026-09-20)."""
+
+    def fake_unit(*, unit_path, **kwargs):
+        return (
+            _fill_unit(json.loads(unit_path.read_text(encoding="utf-8"))),
+            None,
+        )
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    chaser = _chaser(tmp_path)
+    chaser.on_spine(
+        {
+            "package_skeleton": {
+                "schema_version": 1,
+                "company": {"name": "Test Co", "descriptor": _loc("AI", "人工智能")},
+            },
+            "shared_facts": {
+                "calculations": [
+                    {
+                        "id": "C1",
+                        "label": "Entry multiple",
+                        "formula": "$400M / $0M",
+                        "meaning": "The entry prices a company with no revenue.",
+                    }
+                ]
+            },
+        }
+    )
+    outcome = chaser.collect(join_timeout_sec=5)
+    chaser.shutdown()
+    package = {
+        "company": {"name": "Test Co", "descriptor": _loc("AI", "人工智能")},
+        "calculations": [
+            {
+                "id": "C1",
+                "label": _loc("Entry multiple"),
+                "formula": "$400M / $0M",
+                "meaning": _loc("The entry prices a company with no revenue."),
+            }
+        ],
+    }
+    stats = chaser.merge_into(package, outcome["units"])
+    assert stats["adopted"] == 2
+    assert package["calculations"][0]["label"]["zh"] == "中文:Entry multiple"
+    # The English half and the unlocalized formula are never touched.
+    assert package["calculations"][0]["label"]["en"] == "Entry multiple"
+    assert package["calculations"][0]["formula"] == "$400M / $0M"
+
+
+def test_pinned_calculations_that_are_not_notes_are_left_alone():
+    assert claude_runner._localized_pinned_calculations({}) == []
+    assert claude_runner._localized_pinned_calculations(
+        {"shared_facts": {"calculations": ["C1"]}}
+    ) == []
+    assert claude_runner._localized_pinned_calculations(
+        {"shared_facts": {"calculations": [{"id": "C1"}]}}
+    ) == []

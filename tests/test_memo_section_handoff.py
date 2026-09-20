@@ -276,7 +276,15 @@ def test_only_the_bad_piece_is_re_asked(tmp_path, monkeypatch):
         if len(prompts) == 1:
             for number in range(1, len(EXEC_SUBSECTIONS) + 1):
                 _write_piece(tmp_path, number, _piece_payload(number))
-            _write_piece(tmp_path, 3, None, raw='{"piece": 3, "blocks": [')
+            # truncated mid-string: not a missing closer, so it stays a
+            # parse failure (an unclosed empty array now closes to `[]`)
+            _write_piece(
+                tmp_path,
+                3,
+                None,
+                raw='{"piece": 3, "blocks": [{"type": "paragraph", '
+                    '"text": {"en": "cut off mid-wo',
+            )
             return _manifest(range(1, len(EXEC_SUBSECTIONS) + 1)), None
         _write_piece(tmp_path, 3, _piece_payload(3))
         return _manifest([3]), None
@@ -391,3 +399,185 @@ def test_other_sections_still_answer_inline(tmp_path, monkeypatch):
     assert "## How this section reaches us" not in captured["prompt"]
     assert captured["schema"] is claude_runner._MEMO_ENGLISH_SECTION_SCHEMA
     assert captured.get("allowed_tools") is None
+
+
+def test_an_unparseable_piece_is_kept_for_diagnosis(tmp_path):
+    """The retry writes the same filename, so the defect erases itself.
+
+    `valuation_returns` piece 1 failed to parse on both 2026-09-17 runs —
+    Figure AI at line 10, Databricks at line 11, same section, same piece.
+    Neither copy survived, so a repeat defect still has no evidence.
+    """
+    path = tmp_path / "01.json"
+    bad = '{"piece": 1, "blocks": [\n{"type": "heading"},\n},\n]}'
+    path.write_text(bad, encoding="utf-8")
+
+    error = claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert error and "not valid JSON" in error
+    assert "kept as `01.invalid-1.json`" in error
+    kept = tmp_path / "01.invalid-1.json"
+    assert kept.read_text(encoding="utf-8") == bad
+
+    # A second failure on the same piece keeps its own copy.
+    path.write_text(bad + " ", encoding="utf-8")
+    error = claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert "kept as `01.invalid-2.json`" in error
+    assert (tmp_path / "01.invalid-2.json").exists()
+
+
+def test_keeping_the_evidence_never_fails_the_run(tmp_path, monkeypatch):
+    """Forensics is not worth losing a memo over."""
+    path = tmp_path / "01.json"
+    path.write_text("{oops", encoding="utf-8")
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    # patched only after the fixture is on disk
+    monkeypatch.setattr(claude_runner.Path, "write_text", boom)
+    error = claude_runner._section_piece_error(path, 1, "heading")
+    assert error and "not valid JSON" in error
+    assert "kept as" not in error
+
+
+def test_a_good_piece_leaves_no_debris(tmp_path):
+    path = tmp_path / "01.json"
+    path.write_text(
+        json.dumps(
+            {
+                "piece": 1,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": "1. What the price assumes", "zh": "1."},
+                    },
+                    {"type": "paragraph", "text": {"en": "Body.", "zh": "正文。"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    claude_runner._section_piece_error(path, 1, "What the price assumes")
+    assert not list(tmp_path.glob("*.invalid-*.json"))
+
+
+# ---- a dropped closer is not worth a subprocess -----------------------------
+#
+# 2026-09-17, RadixArk `risks` piece 3, recovered because the invalid piece
+# was kept: the file was whole, every string complete, and the writer had
+# closed the last block's inner `text` object then gone straight to closing
+# the array — dropping ONE `}`. The identical shape had already cost two
+# silent retries on the Figure AI and Databricks runs.
+
+REAL_DROPPED_BRACE = (
+    '{"piece": 3, "blocks": [\n'
+    '{"type": "heading", "level": 2, "text": {"en": "3. What would '
+    'change our mind", "zh": "3. 什么会改变我们的判断"}},\n'
+    '{"type": "paragraph", "text": {"en": "Weighing it: the case rests '
+    'on price and pedigree.", "zh": "权衡："}\n'   # <- block never closed
+    "]}\n"
+)
+
+
+def test_a_dropped_closer_is_repaired_in_place(tmp_path):
+    path = tmp_path / "03.json"
+    path.write_text(REAL_DROPPED_BRACE, encoding="utf-8")
+
+    error = claude_runner._section_piece_error(
+        path, 3, "3. What would change our mind"
+    )
+    assert error is None, error
+    # the file on disk is now valid for every reader after us
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [b["type"] for b in data["blocks"]] == ["heading", "paragraph"]
+    # and no prose was lost
+    assert "price and pedigree" in data["blocks"][1]["text"]["en"]
+    # the original is still there to diagnose
+    assert (tmp_path / "03.invalid-1.json").exists()
+
+
+def test_the_repair_only_adds_punctuation(tmp_path):
+    """It must never reach into the content to make something parse."""
+    closed = claude_runner._closed_unclosed_json(REAL_DROPPED_BRACE)
+    assert closed is not None
+    _data, text = closed
+    stripped = REAL_DROPPED_BRACE.rstrip()
+    assert len(text) == len(stripped) + 1
+    assert sorted(text) == sorted(stripped + "}")
+
+
+def test_genuinely_broken_json_is_still_re_asked(tmp_path):
+    """A truncated string is not a missing closer, and no amount of
+    punctuation should make it parse into something we would ship."""
+    path = tmp_path / "01.json"
+    path.write_text(
+        '{"piece": 1, "blocks": [{"type": "paragraph", "text": {"en": '
+        '"the sentence stops mid-wo',
+        encoding="utf-8",
+    )
+    error = claude_runner._section_piece_error(path, 1, "heading")
+    assert error and "not valid JSON" in error
+    assert "kept as" in error
+
+
+def test_a_closed_piece_still_faces_every_check(tmp_path):
+    """Closing the brackets must not smuggle a piece past validation —
+    this one parses once closed but has no heading first."""
+    path = tmp_path / "02.json"
+    path.write_text(
+        '{"piece": 2, "blocks": [\n'
+        '{"type": "paragraph", "text": {"en": "No heading here.", '
+        '"zh": "无标题。"}\n]}\n',
+        encoding="utf-8",
+    )
+    error = claude_runner._section_piece_error(path, 2, "Some heading")
+    assert error is not None
+    assert "not valid JSON" not in error
+
+
+# The same dropped brace, mid-file instead of at the end. 2026-09-17,
+# Elorian `business_financials` piece 1: the writer closed the block's
+# inner `text` object, wrote the comma that separates block from block,
+# and never closed the block — so the parser complained about the NEXT
+# line ("expecting property name"), several lines after the real defect.
+REAL_MIDFILE_BRACE = (
+    '{"piece": 1, "blocks": [\n'
+    '{"type": "heading", "level": 2, "text": {"en": "1. How it makes '
+    'money", "zh": "1. 如何赚钱"}},\n'
+    '{"type": "paragraph", "text": {"en": "The strongest demand signal '
+    'is a sentence.", "zh": ""},\n'          # <- block never closed
+    '{"type": "paragraph", "text": {"en": "Zero revenue at seed is '
+    'normal.", "zh": ""}}\n'
+    "]}\n"
+)
+
+
+def test_a_brace_dropped_mid_file_is_repaired(tmp_path):
+    path = tmp_path / "01.json"
+    path.write_text(REAL_MIDFILE_BRACE, encoding="utf-8")
+    error = claude_runner._section_piece_error(path, 1, "1. How it makes money")
+    assert error is None, error
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [b["type"] for b in data["blocks"]] == [
+        "heading", "paragraph", "paragraph",
+    ]
+    # both paragraphs survive — the defect was punctuation, not content
+    assert "strongest demand signal" in data["blocks"][1]["text"]["en"]
+    assert "Zero revenue at seed" in data["blocks"][2]["text"]["en"]
+    assert (tmp_path / "01.invalid-1.json").exists()
+
+
+def test_the_mid_file_repair_adds_one_character(tmp_path):
+    closed = claude_runner._closed_unclosed_json(REAL_MIDFILE_BRACE)
+    assert closed is not None
+    _data, text = closed
+    stripped = REAL_MIDFILE_BRACE.rstrip()
+    assert len(text) == len(stripped) + 1
+    assert sorted(text) == sorted(stripped + "}")
+
+
+def test_the_repair_gives_up_on_a_big_file(tmp_path):
+    """A bounded search, not an open one."""
+    huge = "{\n" + "\n".join('  "k%d": 1,' % i for i in range(500)) + "\n"
+    assert claude_runner._closed_unclosed_json(huge) is None

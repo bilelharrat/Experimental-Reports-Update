@@ -825,3 +825,157 @@ def test_tied_thinnest_dimensions_break_by_weight_not_key_order():
     assert thinnest.index("risk-reward balance (10/20)") < (
         thinnest.index("business model and unit economics (6/12)")
     )
+
+
+def test_moat_is_a_risk_area():
+    """2026-09-17, RadixArk: the spine chose `area: "moat"` for the memo's
+    central risk — "the asset the price is paid for does not belong to
+    RadixArk" — was rejected by the enum, and on retry filed it under
+    `competition`, which is not what the argument says. Moat is weighted
+    as high as 18, the heaviest dimension in three type files, and had
+    nowhere to file a risk."""
+    assert "moat" in memo_structure.RISK_AREA_KEYS
+    labels = memo_structure.RISK_AREA_LABELS["moat"]
+    assert labels["en"] and labels["zh"]
+    # every scored dimension the exec summary can call weak needs a home
+    assert set(memo_structure.RISK_AREA_KEYS) <= set(
+        memo_structure.RISK_AREA_LABELS
+    )
+
+
+def test_the_spine_prompt_offers_every_risk_area():
+    """The enum is enforced server-side; if the prompt omits an area the
+    writer never learns it exists and can only be rejected for guessing."""
+    import inspect
+
+    from server import claude_runner
+
+    source = inspect.getsource(claude_runner.run_memo_fast_english_spine)
+    listed = source.split("which aspect it concentrates on", 1)[1][:400]
+    for area in memo_structure.RISK_AREA_KEYS:
+        assert area in listed, area
+
+
+def _dims(scores: dict, weights: dict) -> dict:
+    return {
+        k: {"score": s, "max": weights[k], "why": "why.", "evidence": ["e."]}
+        for k, s in scores.items()
+    }
+
+
+def test_highlights_rank_on_points_not_ratio():
+    """2026-09-17, RadixArk. The early-stage weight maps widened the
+    spread from 10-18 to 3-25, and ranking on score-to-weight ratio put
+    industry position (5/5, worth five points) ahead of team and
+    governance (22/25, worth twenty-two) — so the executive summary
+    opened on the least consequential dimension it had.
+    """
+    weights = {
+        "market_size_growth": 17, "industry_position": 5, "moat": 13,
+        "revenue_growth_quality": 10, "business_model_ue": 15,
+        "team_governance": 25, "valuation": 8, "exit_certainty": 4,
+        "risk_reward": 3,
+    }
+    scores = {
+        "market_size_growth": 14, "industry_position": 5, "moat": 7,
+        "revenue_growth_quality": 3, "business_model_ue": 7,
+        "team_governance": 22, "valuation": 7, "exit_certainty": 3,
+        "risk_reward": 2,
+    }
+    lines = claude_runner._render_case_summary_lines(
+        {}, _dims(scores, weights), weights
+    )
+    summary = lines[0]
+    rests = summary.split("rests on", 1)[1].split(";", 1)[0]
+    assert "team and governance (22/25)" in rests
+    assert "market size and growth (14/17)" in rests
+    # the five-pointer must not outrank the twenty-two-pointer
+    assert rests.index("team and governance") < rests.index("valuation")
+    assert "industry position" not in rests
+
+
+def test_a_heavy_but_weak_dimension_is_still_not_a_highlight():
+    """Points alone would promote a dimension the company is bad at:
+    10 of 25 outscores a perfect 8 of 8 but is not a strength."""
+    weights = dict(
+        market_size_growth=17, industry_position=5, moat=13,
+        revenue_growth_quality=10, business_model_ue=15,
+        team_governance=25, valuation=8, exit_certainty=4, risk_reward=3,
+    )
+    scores = dict(
+        market_size_growth=14, industry_position=4, moat=11,
+        revenue_growth_quality=2, business_model_ue=6,
+        team_governance=10, valuation=8, exit_certainty=3, risk_reward=2,
+    )
+    summary = claude_runner._render_case_summary_lines(
+        {}, _dims(scores, weights), weights
+    )[0]
+    rests = summary.split("rests on", 1)[1].split(";", 1)[0]
+    assert "team and governance" not in rests   # 10/25 = 0.40, below the bar
+    assert "market size and growth (14/17)" in rests
+    assert "moat (11/13)" in rests
+
+
+def test_the_spine_is_told_to_rank_on_points():
+    import inspect
+
+    from server import claude_runner as cr
+
+    source = inspect.getsource(cr.run_memo_fast_english_spine)
+    rule = source.split("`highlights`: EXACTLY three", 1)[1][:700]
+    assert "contribute the most POINTS" in rule
+    assert "60%" in rule
+    assert "largest first" in rule
+
+
+def test_a_pinned_sentence_may_not_use_a_phrase_the_voice_gate_bans():
+    """Every pin here is echoed word for word by the sections the echo
+    gate checks, so a banned phrase inside one is a P0 no section is
+    allowed to fix. Live on 2026-09-20 the Glean spine pinned "...and BSH
+    should move when a new priced round sets a real entry price"; three
+    package attempts and three surgical repairs failed to clear it, and
+    the memo shipped with three copies of the same finding.
+
+    One cheap spine retry here replaces all of that.
+    """
+    facts = _good_shared_facts()
+    facts["recommendation_sentence"] = (
+        "Recommendation: watch Glean — the growth is top-decile but the "
+        "only priced mark is the June 2025 Series F at $7.2B, and BSH "
+        "should move when a new priced round sets a real entry price."
+    )
+    problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+    assert any(
+        "recommendation_sentence" in p and "BSH should" in p for p in problems
+    ), problems
+
+    # The rewrite the voice contract now spells out passes.
+    facts["recommendation_sentence"] = (
+        "Recommendation: watch Glean — the growth is top-decile but the "
+        "only priced mark is the June 2025 Series F at $7.2B, and BSH "
+        "moves when a new priced round sets a real entry price."
+    )
+    assert memo_pin_check.check_spine_pins_v2(facts, V2) == []
+
+
+def test_the_voice_check_covers_every_verbatim_pin():
+    """Not just the recommendation: highlights, risk summaries and risk
+    impacts are echoed verbatim too, and are just as unfixable."""
+    for path, setter in (
+        (
+            "highlights[0].headline",
+            lambda f: f["highlights"][0].__setitem__(
+                "headline", "BSH should back this category leader."
+            ),
+        ),
+        (
+            "risks[0].summary",
+            lambda f: f["risks"][0].__setitem__(
+                "summary", "The memo treats concentration as the main risk."
+            ),
+        ),
+    ):
+        facts = _good_shared_facts()
+        setter(facts)
+        problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+        assert any(path in p for p in problems), (path, problems)

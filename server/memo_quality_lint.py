@@ -148,7 +148,18 @@ _PACKET_PROCESS_LABEL_PATTERNS = (
     re.compile(r"\bNo-go\b", re.IGNORECASE),
     re.compile(r"\bprohibited visual\b", re.IGNORECASE),
     re.compile(r"\bMust-prove\b", re.IGNORECASE),
-    re.compile(r"\bBenchmark gaps?\b", re.IGNORECASE),
+    # A copied packet HEADER reads "Benchmark Gaps" on its own line or
+    # followed by a colon. Bare "benchmark gap" is the ordinary English
+    # for a measured performance difference, and AI-infrastructure memos
+    # are required to produce exactly that — the ai_infra type file tells
+    # the competitive pass to "Benchmark against NVIDIA's own stack ...
+    # and the leading open-source engines". On the 2026-09-17 RadixArk
+    # run this rejected "the benchmark gap on unique-prompt traffic is
+    # already 1-4%", the correct term for the thing being analysed, and
+    # was the memo's only P0. Same failure as the bare "confidence:"
+    # above: the writer cannot see what the trigger is.
+    re.compile(r"^\s*Benchmark gaps?\s*:?\s*$", re.IGNORECASE),
+    re.compile(r"\bBenchmark gaps?\s*:", re.IGNORECASE),
     re.compile(r"\bReadiness Reviews?\b", re.IGNORECASE),
     re.compile(r"\bWaivers?\b", re.IGNORECASE),
     re.compile(r"\bMemo Uses?\b", re.IGNORECASE),
@@ -287,8 +298,24 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bdiligence thresholds?\b", re.IGNORECASE),
     re.compile(r"\bNext Diligence Actions\b", re.IGNORECASE),
     re.compile(r"\bsupport thresholds?\b", re.IGNORECASE),
-    re.compile(r"\bnamed institutional lead\b", re.IGNORECASE),
-    re.compile(r"\bnamed lead\b", re.IGNORECASE),
+    # A named lead is a checklist item when the memo DEMANDS one, and
+    # evidence when it names what would change the call — which is what
+    # a pass or watch verdict is required to state, and what a risk
+    # card's "What we watch" row is FOR. Live on 2026-09-20 the Surge AI
+    # memo lost two P0s to "a closed priced round with a named
+    # institutional lead", the plainest available wording for the signal
+    # it was asked to name. Fires as a demand or as a line-initial
+    # label, not inside prose.
+    re.compile(
+        r"(?:^\s*"
+        r"|\b(?:conditions?|requirements?|gates?|thresholds?)\s*:\s*"
+        r"(?:\w+\s+){0,3}"
+        r"|\b(?:requires?|required|requiring|needs?|needed|confirm|"
+        r"conditional(?:\s+on)?|contingent\s+on|subject\s+to|pending|"
+        r"before)\s+(?:\w+\s+){0,3})"
+        r"named\s+(?:institutional\s+)?lead\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bdown-?round protection\b", re.IGNORECASE),
     re.compile(r"\bMFN\b"),
     re.compile(r"\brequire data room\b", re.IGNORECASE),
@@ -307,6 +334,17 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bpaper-mark outcome\b", re.IGNORECASE),
     re.compile(r"\bflat-to-modest carry\b", re.IGNORECASE),
 )
+# Nouns that turn "document" into a modifier rather than a name for this
+# memo — a document store is a product, not a self-reference.
+_DOCUMENT_COMPOUND_NOUNS = (
+    r"(?:stores?|repositor(?:y|ies)|corpus|corpora|indexe?s?|librar(?:y|ies)|"
+    r"set|sets|collections?|databases?|intelligence|management|search|"
+    r"retrieval|understanding|processing|extraction|ingestion|classification|"
+    r"pipelines?|workflows?|types?|formats?|sources?|volume|volumes|count|"
+    r"counts|AI|Q&A)\b"
+)
+
+
 _META_LANGUAGE_PATTERNS = (
     re.compile(r"\b(?:the|this|our) memo\b", re.IGNORECASE),
     re.compile(r"\b(?:the|this|our) analysis\b", re.IGNORECASE),
@@ -323,7 +361,16 @@ _META_LANGUAGE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(r"\bour section\b", re.IGNORECASE),
-    re.compile(r"\b(?:the|this|our) document\b", re.IGNORECASE),
+    # "document" naming the memo itself, never "document" modifying the
+    # noun after it. Glean sells enterprise document search, so "the
+    # document stores", "the document index", "this document corpus" are
+    # its product — and the gate read them as the memo talking about
+    # itself. Live on 2026-09-20 that failed a whole package attempt no
+    # repair agent could have cleared, because the prose was right.
+    re.compile(
+        r"\b(?:the|this|our) document\b(?!\s+" + _DOCUMENT_COMPOUND_NOUNS + r")",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bmemo language was\b", re.IGNORECASE),
     re.compile(r"\bthe sponsor (?:itself )?(?:implies|frames|flags)\b", re.IGNORECASE),
     re.compile(
@@ -362,8 +409,20 @@ _RISK_GENERIC_FILLER_PATTERNS = (
     re.compile(r"\bthere are risks?\b", re.IGNORECASE),
     re.compile(r"\bthe company faces risks?\b", re.IGNORECASE),
 )
+# Contractual service levels a company either offers or does not: "guaranteed
+# SLAs", "guaranteed uptime". The word names a product term there, not a
+# promise the memo is making, and the rule below must not read it as one —
+# live on 2026-09-20 a RadixArk risk card said the company shows no evidence
+# of "guaranteed production SLAs", which is the rule's own suggestion already
+# followed, and the finding survived three attempts and two surgical repairs
+# because there was nothing to repair.
+_SERVICE_LEVEL_NOUNS = (
+    r"SLAs?|uptime|availability|capacity|throughput|latency|"
+    r"service[- ]levels?|response times?|delivery"
+)
 _RISK_UNSUPPORTED_CLAIM_RE = re.compile(
-    r"\b(?:guaranteed|certain to|will definitely|cannot fail|"
+    r"\b(?:guaranteed(?!\s+(?:\w+\s+)?(?:" + _SERVICE_LEVEL_NOUNS + r")\b)"
+    r"|certain to|will definitely|cannot fail|"
     r"no competitor can)\b",
     re.IGNORECASE,
 )
@@ -392,6 +451,49 @@ _DISCLOSURE_LANGUAGE_PATTERNS = (
     re.compile(r"\baccredited investors\b", re.IGNORECASE),
     re.compile(r"\bpartial or total loss\b", re.IGNORECASE),
 )
+
+
+# Internal plumbing the memo may READ but must never cite. A reader has
+# no idea what "the registry" is, and naming it presents an internal
+# lookup as though it were a public source. 2026-09-17, RadixArk run 3:
+# the writer found a good formulation for "we looked everywhere and
+# found nothing" — "no figure exists in the launch release, the company
+# blog, the registry or any press coverage we reviewed" — and reused it
+# across four sections, five findings in one memo. The surgical repair
+# saw the generic self-reference advice, which offered rewrites for "this
+# memo" and "the analysis" and said nothing about the registry, and left
+# every one of them in place.
+_INTERNAL_SOURCE_RE = re.compile(
+    r"\b(?:the registry|embedded in the registry|source material)\b",
+    re.IGNORECASE,
+)
+
+_META_SUGGESTION_SELF = (
+    "Delete the self-reference and keep the judgment: "
+    '"every multiple in this memo" -> "every multiple we use"; '
+    '"the margin risk that carries this memo" -> "the margin risk that '
+    'carries the investment case"; "What the gap costs the analysis" -> '
+    '"What the gap costs us". Never name the memo, the analysis, the '
+    "document, the framework or the section — name the investment "
+    "instead. Table headers and table cells count."
+)
+
+_META_SUGGESTION_INTERNAL = (
+    "Never cite our own plumbing as a source. The registry and the "
+    "source packet are internal inputs the reader cannot see, so naming "
+    'them presents a lookup as evidence: "no figure exists in the launch '
+    'release, the company blog, the registry or any press coverage we '
+    'reviewed" -> "no figure exists in the launch release, the company '
+    'blog or any press coverage we reviewed". Name public sources only, '
+    "and drop the internal one from the list."
+)
+
+
+def _meta_language_suggestion(match_text: str) -> str:
+    """Advice that fits the phrase actually matched."""
+    if _INTERNAL_SOURCE_RE.search(match_text):
+        return _META_SUGGESTION_INTERNAL
+    return _META_SUGGESTION_SELF
 
 
 def lint_memo_docx(
@@ -456,6 +558,34 @@ def render_markdown_report(result: MemoLintResult) -> str:
             f"{_md_cell(finding.suggestion)} |"
         )
     return "\n".join(lines).strip() + "\n"
+
+
+def banned_body_voice_phrase(text: str) -> str | None:
+    """The first body-voice phrase this gate will reject, or None.
+
+    The same patterns `_lint_blocks` applies to body prose, exposed so a
+    gate that runs EARLIER can ask the same question. A pin that fails
+    here cannot be repaired later: the echo gate requires the pinned
+    sentence verbatim in every place it appears, so a banned phrase
+    inside one is a P0 the sections are forbidden to fix. Live on
+    2026-09-20 the Glean spine pinned "...and BSH should move when..."
+    and the memo shipped with three copies of it, after three package
+    attempts and three surgical repairs that never had a legal move.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    for pattern in _SELL_SIDE_BANNED_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group(0)
+    if not any(
+        pattern.search(text) for pattern in _DISCLOSURE_LANGUAGE_PATTERNS
+    ):
+        for pattern in _META_LANGUAGE_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                return match.group(0)
+    return None
 
 
 def _extract_docx_blocks(
@@ -692,18 +822,7 @@ def _lint_blocks(
                         "P0",
                         "meta_process_language",
                         match.group(0),
-                        (
-                            "Delete the self-reference and keep the "
-                            "judgment: \"every multiple in this memo\" -> "
-                            "\"every multiple we use\"; \"the margin risk "
-                            "that carries this memo\" -> \"the margin risk "
-                            "that carries the investment case\"; \"What the "
-                            "gap costs the analysis\" -> \"What the gap "
-                            "costs us\". Never name the memo, the analysis, "
-                            "the document, the framework or the section — "
-                            "name the investment instead. Table headers and "
-                            "table cells count."
-                        ),
+                        _meta_language_suggestion(match.group(0)),
                     )
                 )
                 break

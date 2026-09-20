@@ -161,6 +161,7 @@ def update_preferences(email: str | None, patch: dict) -> dict:
         "compact_density",
         "language",
         "memo_parallel_runs",
+        "research_engine",
     }
     normalized = {
         key: patch[key]
@@ -169,6 +170,11 @@ def update_preferences(email: str | None, patch: dict) -> dict:
     }
     if "language" in normalized and normalized["language"] not in {"en", "zh"}:
         raise ValueError("language must be 'en' or 'zh'")
+    if "research_engine" in normalized:
+        if normalized["research_engine"] not in RESEARCH_ENGINES:
+            raise ValueError(
+                "research_engine must be one of " + ", ".join(RESEARCH_ENGINES)
+            )
     for key in ("weekly_summary", "stock_auto_refresh", "agent_alerts", "compact_density"):
         if key in normalized:
             normalized[key] = bool(normalized[key])
@@ -180,7 +186,7 @@ def update_preferences(email: str | None, patch: dict) -> dict:
     # server's memory), so they never live in a per-user override.
     global_only = {
         key: normalized.pop(key)
-        for key in ("memo_parallel_runs",)
+        for key in ("memo_parallel_runs", "research_engine")
         if key in normalized
     }
     with _LOCK:
@@ -224,6 +230,33 @@ def memo_parallel_runs() -> int:
         "memo_parallel_runs", MEMO_PARALLEL_RUNS_DEFAULT
     )
     return _clamp_memo_parallel_runs(raw)
+
+
+# Which engine answers the three web-grounded research surfaces — the
+# founder/team dossier, the daily desk note and the company news sweep.
+# Machine-global for the same reason as the memo cap: it decides where the
+# workspace spends, so it is a desk-wide setting rather than a per-user one.
+RESEARCH_ENGINES = ("gemini", "gemini-only", "claude")
+
+
+def _normalize_research_engine(raw) -> str | None:
+    value = str(raw or "").strip().lower()
+    return value if value in RESEARCH_ENGINES else None
+
+
+def research_engine() -> str | None:
+    """The stored desk-wide engine policy, or None when nothing is set.
+
+    None means "not configured here", which lets ``ai_engine.policy()``
+    keep falling through to ``BSH_AI_ENGINE`` and then its own default —
+    so an existing deployment's env pin keeps working until somebody
+    chooses in the UI.
+    """
+    with _LOCK:
+        payload = _read_yaml(default_preferences(None))
+    return _normalize_research_engine(
+        (payload.get("preferences") or {}).get("research_engine")
+    )
 
 
 def display_name(email: str | None) -> str:

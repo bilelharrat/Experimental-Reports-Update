@@ -403,7 +403,7 @@ def run_artifact(
         + (f"{referenced}\n\n" if referenced else "")
         + f"{research}\n"
     )
-    return gemini_runner.run_structured_prompt(
+    data, meta, error = gemini_runner.run_structured_prompt_with_meta(
         system_prompt="",
         user_prompt=combined,
         schema=schema,
@@ -413,6 +413,19 @@ def run_artifact(
         thinking_level=memo_thinking_level(),
         max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
     )
+    if isinstance(data, dict):
+        # The pipeline carries per-call spend in these two keys, set from
+        # the Claude CLI's result event. A Gemini call reports the same
+        # thing in `usageMetadata`, so it rides the same fields and every
+        # phase timing, run total and UI reader works unchanged — the name
+        # is the pipeline's, not a claim about which engine ran.
+        # Only what the call actually reported: a null here would put the
+        # key on every payload and say nothing.
+        if meta.get("usage") is not None and "claude_usage" not in data:
+            data["claude_usage"] = meta["usage"]
+        if meta.get("cost_usd") is not None and "claude_cost_usd" not in data:
+            data["claude_cost_usd"] = meta["cost_usd"]
+    return data, error
 
 
 def memo_gemini_model() -> str:
@@ -474,6 +487,10 @@ _LATE_V1_WORDS: dict[str, int] = {
 
 # Accepted floor and suggested ceiling, as shares of a section's target.
 LENGTH_BAND = (0.90, 1.15)
+
+# Mirrors memo_docx_renderer's fallback when a section sets no multiple, so
+# the floor sits under the same ceiling the renderer enforces.
+_BUDGET_GRACE = 1.10
 
 # Revision passes an out-of-band section gets before its draft stands as-is.
 # Each trim takes roughly a sixth off; a valuation section that came back
@@ -551,6 +568,26 @@ def section_word_targets(run_dir: Path | str | None, structure) -> dict[str, Wor
     targets: dict[str, WordTarget] = {}
     for section in structure.sections:
         if section.budget_words:
+            # A compact profile states a target and a hard cap per section,
+            # and the renderer already rejects anything above the cap. What
+            # it never had is a FLOOR — Claude overshoots, so nobody needed
+            # one. Gemini's failure is the opposite: a monolithic call came
+            # back at ~2,700 words against a ~12,200 reference. Without a
+            # floor here the gate skipped the profile the fund actually
+            # ships, so a short Gemini section stood as written.
+            #
+            # The band is the profile's own numbers — target, and the cap
+            # the renderer enforces — so it can never drift from what the
+            # Claude twin is asked for.
+            cap = int(
+                section.budget_words
+                * (section.budget_hard_multiple or _BUDGET_GRACE)
+            )
+            targets[section.id] = WordTarget(
+                target=section.budget_words,
+                low=int(round(section.budget_words * LENGTH_BAND[0])),
+                high=cap,
+            )
             continue
         match = _WORD_RANGE_RE.search(section.contract_md or "")
         if not match:
@@ -581,9 +618,12 @@ def en_word_count(section: dict | None) -> int:
     ``content``, ``title``, cells), because the repair step wraps them as
     ``{"en", "zh"}`` only later — counts the strings themselves, so the gate
     reads the draft the worker actually returned: a live run measured five
-    full sections as 0 before this. On a repaired package this counts
-    exactly as the renderer's compact-ceiling gate does
-    (``memo_docx_renderer._section_en_word_count``).
+    full sections as 0 before this.
+
+    This counts what the worker WROTE, which is not the same as what the
+    reader gets: a string the repair step cannot wrap is dropped by the
+    renderer, and this still counts it. Anything deciding whether a section
+    is long enough wants ``renderable_en_word_count`` instead.
     """
     words = 0
 
@@ -604,6 +644,53 @@ def en_word_count(section: dict | None) -> int:
 
     walk((section or {}).get("blocks") or [])
     return words
+
+
+def split_target(target: WordTarget, parts: int) -> WordTarget:
+    """One subsection's share of a section's length band.
+
+    A section drafted one subsection per call must not hand each call the
+    whole section's target, or every piece writes a whole section. The band
+    arithmetic stays here so it cannot drift from the band it divides.
+    """
+    if parts <= 1:
+        return target
+    return WordTarget(
+        target=max(1, int(round(target.target / parts))),
+        low=max(1, int(round(target.low / parts))),
+        high=max(1, int(round(target.high / parts))),
+    )
+
+
+def renderable_en_word_count(section: dict | None) -> int:
+    """English words the RENDERER will accept from this section.
+
+    ``en_word_count`` counts every plain string a raw draft carries, which
+    is right for reading a worker's own output but wrong for deciding
+    whether a section is deep enough: a string in a shape the repair step
+    cannot wrap never reaches the reader. On the live Gemini run of
+    2026-09-19 that gap let ``thesis_market`` through the depth gate at
+    3,753 words against a 2,610 floor when the renderer could use only
+    1,625 of them — 2,128 words sat in nodes with no ``en`` key, the
+    section shipped a thousand words short, and no depth round ever fired.
+
+    So repair a copy exactly as the package pipeline will, then count what
+    survives. A merely raw draft is unaffected — the repair wraps its plain
+    strings, which is the case ``en_word_count`` exists for.
+    """
+    if not isinstance(section, dict):
+        return 0
+    # Local import: the renderer pulls in python-docx, and memo_engine is
+    # imported on paths that never render anything.
+    from server import memo_docx_renderer
+
+    repaired, _ = memo_docx_renderer.repair_package_structure(
+        {"sections": [section]}
+    )
+    sections = repaired.get("sections") if isinstance(repaired, dict) else None
+    if not isinstance(sections, list) or not sections:
+        return 0
+    return memo_docx_renderer.section_en_word_count(sections[0])
 
 
 def length_contract(target: WordTarget) -> str:

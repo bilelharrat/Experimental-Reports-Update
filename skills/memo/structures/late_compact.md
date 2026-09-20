@@ -420,7 +420,7 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
-budget_words: 1900
+budget_words: 2400
 budget_hard_multiple: 1.3
 scorecard_dimensions:
 - valuation
@@ -448,7 +448,7 @@ subsections:
   zh: 退出路径
 ```
 
-1,800-1,900 words. Every number here is derived, so every number here shows its arithmetic and carries the [C#] of its calculation note. Say what the entry price already assumes before you say whether it is fair, and give the reader the comparison that lets them judge the multiple — what companies of this type trade at, and why this one sits where it does against them. The exit outlook belongs here too: when a listing could realistically happen and what has to be true first. Content per subsection:
+2,300-2,400 words. Every number here is derived, so every number here shows its arithmetic and carries the [C#] of its calculation note. Say what the entry price already assumes before you say whether it is fair, and give the reader the comparison that lets them judge the multiple — what companies of this type trade at, and why this one sits where it does against them. The exit outlook belongs here too: when a listing could realistically happen and what has to be true first. Content per subsection:
 
 1. What the price assumes: the entry multiple against the 2-3
    comparables that matter (one bullet each, target first), then the

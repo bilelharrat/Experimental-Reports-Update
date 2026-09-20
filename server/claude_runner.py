@@ -5509,11 +5509,18 @@ def _render_case_summary_lines(
             if isinstance(item, dict) and item.get("dimension") in by_key:
                 strong.append(str(item["dimension"]))
     if not strong:
+        # Same rule the spine is given: qualify on ratio, rank on points.
+        # Ranking on ratio alone let a 5/5 dimension outrank a 22/25 one
+        # once the early-stage weight maps widened the spread to 3-25
+        # (2026-09-17, RadixArk: the executive summary opened on industry
+        # position, worth five points, ahead of the founders, worth 22).
+        qualified = [r for r in ratios if r[0] >= 0.6] or ratios
         strong = [
             dimension
             for _r, dimension, _s, _w in sorted(
-                ratios,
+                qualified,
                 key=lambda r: (
+                    -r[2],
                     -r[0],
                     memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
                 ),
@@ -5753,10 +5760,29 @@ def _render_shared_facts_block(
             )
     calculations = shared_facts.get("calculations")
     if isinstance(calculations, list) and calculations:
+        pinned_ids = [
+            str(note.get("id"))
+            for note in calculations
+            if isinstance(note, dict) and note.get("id")
+        ]
+        # The gate rejects an id that was never pinned, and the prompt never
+        # said which ids exist. Live on 2026-09-20 a spine pinned seven
+        # notes, the sections cited [C8] fourteen times, and the run died
+        # after three attempts and a surgical repair — no document. The
+        # ceiling is stated here, with the way out when a section needs
+        # arithmetic nobody pinned.
+        available = ", ".join(f"[{cid}]" for cid in pinned_ids) or "none"
         lines.append(
             "Calculation notes (cite the id in square brackets — [C2] — "
             "wherever the result appears in prose or a table cell; the "
-            "renderer links it to the Calculation notes appendix):"
+            "renderer links it to the Calculation notes appendix). "
+            f"These {len(pinned_ids)} are the ONLY calculation ids that "
+            f"exist for this memo: {available}. Citing any other id — "
+            "another number in the sequence above all — fails a "
+            "deterministic gate and costs the whole package a rewrite. "
+            "When a number you need has no note here, show the arithmetic "
+            "in the sentence itself ($40M ARR / 200 customers = $200K per "
+            "customer) and cite no [C#] at all:"
         )
         for note in calculations:
             if not isinstance(note, dict):
@@ -6068,6 +6094,89 @@ def _spine_piece_plan(
     return plan
 
 
+def _closed_unclosed_json(raw: str) -> tuple[Any, str] | None:
+    """Parse text that is valid JSON except for a dropped closing brace.
+
+    The writer closes a block's inner `text` object and then forgets to
+    close the block itself. Seen three times, in three places:
+
+    - 2026-09-17 RadixArk `risks` piece 3 — dropped at the END, before
+      the array closed;
+    - 2026-09-17 Elorian `business_financials` piece 1 — dropped MID
+      FILE, before a trailing comma, so the parser reported "expecting
+      property name" on the NEXT line;
+    - and twice before that, on `valuation_returns`, invisibly, because
+      the invalid piece was not kept.
+
+    In every case the file was whole and every string complete: one
+    character was missing. So try inserting a single closer at each line
+    boundary (before a trailing comma, where there is one), then two,
+    and nothing else. It never edits content, and the caller still runs
+    every structural check on the result — which is what catches a wrong
+    guess.
+    """
+    trimmed = raw.rstrip()
+    if not trimmed or len(trimmed.splitlines()) > 400:
+        return None
+
+    def _spots(text: str) -> list[int]:
+        """End of each line, before any trailing comma or whitespace."""
+        out: list[int] = []
+        pos = 0
+        for line in text.split("\n"):
+            cut = len(line)
+            while cut > 0 and line[cut - 1] in " \t\r,":
+                cut -= 1
+            out.append(pos + cut)
+            pos += len(line) + 1
+        return out
+
+    def _try(text: str) -> tuple[Any, str] | None:
+        try:
+            return json.loads(text), text
+        except json.JSONDecodeError:
+            return None
+
+    for spot in _spots(trimmed):
+        for closer in ("}", "]"):
+            hit = _try(trimmed[:spot] + closer + trimmed[spot:])
+            if hit is not None:
+                return hit
+    for spot in _spots(trimmed):
+        for first in ("}", "]"):
+            once = trimmed[:spot] + first + trimmed[spot:]
+            for spot2 in _spots(once):
+                if spot2 < spot:
+                    continue
+                for second in ("}", "]"):
+                    hit = _try(once[:spot2] + second + once[spot2:])
+                    if hit is not None:
+                        return hit
+    return None
+
+
+def _keep_unparsed_piece(path: Path, raw: str) -> Path | None:
+    """Save text that would not parse, before the retry overwrites it.
+
+    A re-ask writes the same filename, so by the time anyone looks the
+    only copy of the defect is gone. `valuation_returns` piece 1 failed
+    to parse on BOTH 2026-09-17 runs — Figure AI at line 10, Databricks
+    at line 11, same section, same piece — and neither copy survived, so
+    a defect that has now happened twice still cannot be diagnosed.
+    """
+    try:
+        for index in range(1, 10):
+            keep = path.with_name(
+                f"{path.stem}.invalid-{index}{path.suffix}"
+            )
+            if not keep.exists():
+                keep.write_text(raw, encoding="utf-8")
+                return keep
+    except OSError:  # a full disk must never fail a run over forensics
+        logger.warning("could not preserve unparsed piece %s", path)
+    return None
+
+
 def _spine_piece_error(
     path: Path, stem: str, keys: tuple[str, ...], required: tuple[str, ...]
 ) -> str | None:
@@ -6081,10 +6190,19 @@ def _spine_piece_error(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return (
-            f"`{path.name}` is not valid JSON: {exc.msg} at line "
-            f"{exc.lineno} column {exc.colno}"
-        )
+        kept = _keep_unparsed_piece(path, raw)
+        repaired = _closed_unclosed_json(raw)
+        if repaired is None:
+            return (
+                f"`{path.name}` is not valid JSON: {exc.msg} at line "
+                f"{exc.lineno} column {exc.colno}"
+                + (f" (kept as `{kept.name}`)" if kept else "")
+            )
+        data, text = repaired
+        try:
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            logger.warning("could not rewrite closed piece %s", path)
     if not isinstance(data, dict):
         return f"`{path.name}` is not a JSON object"
     missing = [key for key in required if key not in data]
@@ -6105,12 +6223,95 @@ def _spine_piece_error(
     return None
 
 
-def _spine_handoff_contract(plan, pieces_dir: Path) -> str:
-    file_lines = "\n".join(
-        f"- `{path.name}` — {what}: "
-        + ", ".join(f"`{key}`" for key in keys)
-        for _stem, _target, keys, _required, what, path in plan
-    )
+def _schema_limit_lines(node: dict, keys: tuple[str, ...]) -> list[str]:
+    """Every bound a piece's own sub-schema puts on its values, in words.
+
+    Under the handoff the model returns a RECEIPT, so the only schema the
+    CLI shows it is the manifest's. The spine's own limits are enforced
+    here, after the files land, and were never stated anywhere the writer
+    could read them — the contract even told it that "the schema limits in
+    your instructions still apply" when there were none in its
+    instructions. The 2026-09-17 Figure AI run paid three separate piece
+    retries for marginal overruns (21 items against 20, 115 characters
+    against 40, 132 against 100): good guesses at a number nobody had
+    given it. Generated from the schema so the prompt cannot drift from
+    what the validator enforces.
+    """
+    lines: list[str] = []
+
+    def bounds(schema: dict) -> str:
+        parts: list[str] = []
+        if isinstance(schema.get("maxLength"), int):
+            parts.append(f"at most {schema['maxLength']} characters")
+        if isinstance(schema.get("minItems"), int) and isinstance(
+            schema.get("maxItems"), int
+        ):
+            low, high = schema["minItems"], schema["maxItems"]
+            parts.append(
+                f"exactly {low} items"
+                if low == high
+                else f"{low}-{high} items"
+            )
+        elif isinstance(schema.get("maxItems"), int):
+            parts.append(f"at most {schema['maxItems']} items")
+        elif isinstance(schema.get("minItems"), int):
+            parts.append(f"at least {schema['minItems']} items")
+        enum = schema.get("enum")
+        if isinstance(enum, list) and len(enum) <= 8:
+            parts.append("one of " + "/".join(str(v) for v in enum))
+        for bound, word in (("minimum", "at least"), ("maximum", "at most")):
+            if isinstance(schema.get(bound), (int, float)):
+                parts.append(f"{word} {schema[bound]}")
+        return ", ".join(parts)
+
+    def walk(schema: dict, label: str, depth: int = 0) -> None:
+        # Depth 5 reaches `calculations[].inputs[].name`, which a live run
+        # overran at 132 characters against 100. A shallower walk would
+        # have left exactly that field unstated.
+        if not isinstance(schema, dict) or depth > 5:
+            return
+        text = bounds(schema)
+        if text:
+            lines.append(f"{label}: {text}")
+        children = schema.get("properties") or {}
+        # Nine scorecard dimensions declare the identical shape. Printing
+        # each one cost ~40 lines of prompt saying the same four things,
+        # so siblings that are structurally equal collapse to one.
+        shapes = {
+            json.dumps(v, sort_keys=True, default=str)
+            for v in children.values()
+            if isinstance(v, dict)
+        }
+        if len(children) > 2 and len(shapes) == 1:
+            first = next(iter(children))
+            walk(children[first], f"{label}.<each>", depth + 1)
+            return
+        for child, child_schema in children.items():
+            walk(child_schema, f"{label}.{child}", depth + 1)
+        items = schema.get("items")
+        if isinstance(items, dict):
+            walk(items, f"{label}[]", depth + 1)
+
+    declared = node.get("properties") or {}
+    for key in keys:
+        child = declared.get(key)
+        if isinstance(child, dict):
+            walk(child, key)
+    return lines
+
+
+def _spine_handoff_contract(plan, pieces_dir: Path, schema: dict) -> str:
+    blocks = []
+    for _stem, target, keys, _required, what, path in plan:
+        head = (
+            f"- `{path.name}` — {what}: "
+            + ", ".join(f"`{key}`" for key in keys)
+        )
+        limits = _schema_limit_lines(_schema_at(schema, target), keys)
+        blocks.append(
+            "\n".join([head] + [f"    {line}" for line in limits])
+        )
+    file_lines = "\n".join(blocks)
     example_stem, _t, example_keys, _r, _w, example_path = plan[0]
     return f"""\
 ## How the spine reaches us (read this twice)
@@ -6136,8 +6337,15 @@ scenarios.
 
 Write each file ONCE, with a single write, the moment that part is
 settled. Never read a file back, never measure it with `wc`, `awk`, `jq`
-or any other shell command, and never trim it to a length. The schema
-limits in your instructions still apply to every value.
+or any other shell command, and never trim it to a length.
+
+The limits listed under each file above are the ones checked here after
+the file lands, and they are the ONLY place those numbers appear — your
+reply carries a receipt, so the CLI never shows you the spine's own
+schema. Write inside them the first time. A value that overruns costs a
+whole retry for that part. Where a field holds a number and a sibling
+field holds the reasoning, keep them apart: the short field takes the
+figure alone, the long one takes the explanation.
 
 When every file is written, return only:
 {{"pieces": [{{"file": "{example_path.name}"}}, ...]}}
@@ -6224,7 +6432,7 @@ def _run_english_spine_via_pieces(
 
     totals: dict[str, Any] = {}
     result, error = _run_memo_local_json_artifact(
-        prompt=body + _spine_handoff_contract(plan, pieces_dir),
+        prompt=body + _spine_handoff_contract(plan, pieces_dir, schema),
         schema=_MEMO_SPINE_MANIFEST_SCHEMA,
         run_dir=run_dir,
         progress=progress,
@@ -6456,7 +6664,7 @@ against the stragglers when they land.
             else ""
         )
         v2_pins_block = f"""\
-{type_line}   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
+{type_line}   - `stage`: "{structure.declared_stage}" — this run's classified report stage.
    - `verdict`: the tier your evidence supports (Strong Buy / Buy /
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.
@@ -6491,10 +6699,15 @@ against the stragglers when they land.
      two decimals ("1.49x", not "1.5x") so a miss never rounds onto the
      floor and every section states the same side of it. Base MOIC must be consistent with
      exit_value against the entry valuation after reasonable dilution.
-   - `highlights`: EXACTLY three. Pick the three scorecard dimensions
-     with the highest score-to-max ratio (each at least 60% of its max —
-     a weak dimension is never a highlight; a deterministic gate checks
-     this and rejects duplicates). Per item: `dimension` (the scorecard
+   - `highlights`: EXACTLY three. First keep every dimension scoring at
+     least 60% of its max — a weak dimension is never a highlight, and a
+     deterministic gate checks this and rejects duplicates. Of those,
+     pick the three that contribute the most POINTS (score, not ratio),
+     and list them in that order, largest first. The dimensions are not
+     worth the same: this run's weights range from single digits to the
+     mid twenties, so a perfect 5 of 5 is worth less to the case than 22
+     of 25 and must not outrank it. What the case rests on is what earns
+     the most of the score, among the things the company does well. Per item: `dimension` (the scorecard
      key), `headline` (ONE plain verdict sentence a reader can quote,
      at most one number, written for someone who has never seen the
      company. It must say what is TRUE about this company and why that
@@ -6510,7 +6723,7 @@ against the stragglers when they land.
      Plain text only: no asterisks or other markdown. The executive summary repeats the
      headline and evidence verbatim.
    - each risk ALSO carries `area` — which aspect it concentrates on:
-     market / technology / competition / commercialization /
+     market / technology / competition / moat / commercialization /
      concentration / team_governance_regulatory / valuation_exit — and
      `impact`: what it costs the investment in plain words with the ONE
      number that sizes it ("the base case returns 0.9x — a loss even if
@@ -7557,7 +7770,26 @@ class SpeculativeEnglish:
             section_note=section_note,
             structure=self._structure,
         )
-        if error is None and isinstance(result, dict) and self._on_section:
+        # The delta check may have condemned this whole wave while the
+        # section was still drafting. Handing it to the hook anyway starts
+        # a Chinese translation of prose nobody will ship: on the
+        # 2026-09-17 Figure AI run five chases were dispatched two to
+        # three minutes AFTER the discard, costing $1.77 to translate
+        # sections already thrown away.
+        with self._lock:
+            doomed = self._early_abandoned
+        if doomed:
+            if self._stream is not None:
+                self._stream.emit(
+                    "stage",
+                    stage="memo_early_section_not_forwarded",
+                    message=(
+                        f"{section_id} finished after its wave was "
+                        "discarded; not translating it"
+                    ),
+                    section=section_id,
+                )
+        elif error is None and isinstance(result, dict) and self._on_section:
             try:
                 self._on_section(section_id, result["section"])
             except Exception:  # noqa: BLE001
@@ -7619,6 +7851,25 @@ class SpeculativeEnglish:
             if self._early_abandoned:
                 return {}
             return dict(self._early_futures)
+
+    def adopt_section_result(self, section_id: str, result: Any) -> None:
+        """Replace an early draft with a better one for later attempts.
+
+        These futures live for the whole run, not for one package attempt,
+        so a second attempt harvests the SAME drafts the first one got —
+        including sections the length gate had already brought up. Live on
+        2026-09-19 attempt 2 restarted from attempt 1's pre-revision
+        drafts and spent nine revision calls arriving back where it had
+        already been. A section that has been improved is stored back here
+        so the next attempt starts from the improvement.
+        """
+        from concurrent.futures import Future
+
+        settled: Future = Future()
+        settled.set_result((result, None))
+        with self._lock:
+            if section_id in self._early_futures:
+                self._early_futures[section_id] = settled
 
     def _abandon_early_sections(self, reason: str) -> None:
         with self._lock:
@@ -7900,27 +8151,51 @@ def _section_piece_error(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return (
-            f"piece {number} (`{path.name}`) is not valid JSON: {exc.msg} "
-            f"at line {exc.lineno} column {exc.colno}"
-        )
+        kept = _keep_unparsed_piece(path, raw)
+        repaired = _closed_unclosed_json(raw)
+        if repaired is None:
+            return (
+                f"piece {number} (`{path.name}`) is not valid JSON: "
+                f"{exc.msg} at line {exc.lineno} column {exc.colno}"
+                + (f" (kept as `{kept.name}`)" if kept else "")
+            )
+        # A missing closer only. Write the closed form back so every
+        # check below — and every reader after it — sees valid JSON; the
+        # original is already preserved beside it. Cheaper than a whole
+        # subprocess to re-ask for prose that is already correct.
+        data, text = repaired
+        try:
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            logger.warning("could not rewrite closed piece %s", path)
+    return _section_piece_payload_error(
+        data, number, f"`{path.name}`", heading_en
+    )
+
+
+def _section_piece_payload_error(
+    data: Any, number: int, where: str, heading_en: str
+) -> str | None:
+    """Why this subsection payload cannot be used, or None when it is good.
+
+    Shared by both deliveries — the file a Claude worker writes and the
+    response a Gemini call returns — so a piece means the same thing
+    whichever way it arrived.
+    """
     if not isinstance(data, dict):
-        return f"piece {number} (`{path.name}`) is not a JSON object"
+        return f"piece {number} ({where}) is not a JSON object"
     blocks = data.get("blocks")
     if not isinstance(blocks, list) or not blocks:
-        return (
-            f"piece {number} (`{path.name}`) has no non-empty `blocks` list"
-        )
+        return f"piece {number} ({where}) has no non-empty `blocks` list"
     for index, block in enumerate(blocks):
         if not isinstance(block, dict):
             return (
-                f"piece {number} (`{path.name}`) block {index} is not a "
-                "JSON object"
+                f"piece {number} ({where}) block {index} is not a JSON object"
             )
     first = blocks[0]
     if first.get("type") != "heading":
         return (
-            f"piece {number} (`{path.name}`) must open with its heading "
+            f"piece {number} ({where}) must open with its heading "
             f'block ("{heading_en}"), not a {first.get("type") or "typeless"} '
             "block"
         )
@@ -7928,7 +8203,7 @@ def _section_piece_error(
     found = text.get("en") if isinstance(text, dict) else text
     if _normalized_heading(found or "") != _normalized_heading(heading_en):
         return (
-            f"piece {number} (`{path.name}`) opens with the heading "
+            f"piece {number} ({where}) opens with the heading "
             f'"{found}" where the scaffold fixes "{heading_en}"'
         )
     return None
@@ -8035,6 +8310,313 @@ def _accumulate_call_cost(totals: dict, result: dict | None) -> None:
         totals["duration_ms"] = (totals.get("duration_ms") or 0) + int(duration)
     if totals.get("usage") is None:
         totals["usage"] = result.get("claude_usage")
+
+
+_MEMO_ENGLISH_SECTION_PIECE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "piece": {"type": "integer"},
+        "blocks": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+    },
+    "required": ["piece", "blocks"],
+}
+
+
+def _split_section_draft(
+    draft: dict, plan: list[tuple[int, str, str, Path]]
+) -> dict[int, list[dict]] | None:
+    """Cut an assembled section back into its subsections, or None.
+
+    The blocks carry their subsection headings, so a draft can be handed
+    back one piece at a time. Returns None when the headings do not line up
+    with the plan — a draft that cannot be cut cleanly is revised whole
+    rather than sliced wrongly.
+    """
+    blocks = draft.get("blocks") if isinstance(draft, dict) else None
+    if not isinstance(blocks, list) or not blocks:
+        return None
+    wanted = [_normalized_heading(heading_en) for _n, heading_en, _z, _p in plan]
+    groups: dict[int, list[dict]] = {}
+    current: int | None = None
+    for block in blocks:
+        if not isinstance(block, dict):
+            return None
+        if block.get("type") == "heading":
+            text = block.get("text")
+            found = text.get("en") if isinstance(text, dict) else text
+            normalized = _normalized_heading(found or "")
+            if normalized in wanted:
+                current = wanted.index(normalized) + 1
+                if current in groups:
+                    return None  # the same heading twice: not a clean cut
+                groups[current] = []
+        if current is None:
+            return None  # content before the first heading
+        groups[current].append(block)
+    if len(groups) != len(plan):
+        return None
+    return groups
+
+
+def _section_draft_slices(
+    run_dir: Path, section_id: str, section_def, draft_path: Path
+) -> dict[int, tuple[Path, int]] | None:
+    """Write each subsection's slice of a draft beside it, for revision.
+
+    Gemini has no filesystem, but ``memo_engine.run_artifact`` inlines every
+    file a prompt names by path, so a slice reaches the worker the same way
+    the whole draft did. Returns None when the draft cannot be cut cleanly.
+    """
+    try:
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+    groups = _split_section_draft(draft, plan)
+    if groups is None:
+        return None
+    slices: dict[int, tuple[Path, int]] = {}
+    for number, _heading_en, _heading_zh, _path in plan:
+        blocks = groups[number]
+        slice_path = draft_path.with_name(
+            f"{draft_path.stem}.piece-{number:02d}.json"
+        )
+        payload = {"id": section_id, "blocks": blocks}
+        try:
+            slice_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return None
+        slices[number] = (
+            slice_path,
+            memo_engine.renderable_en_word_count(payload),
+        )
+    return slices
+
+
+def _section_split_calls_enabled(
+    section_id: str, section_def, run_dir: Path | None = None
+) -> bool:
+    """Whether this section is drafted one call per subsection.
+
+    The Gemini counterpart of ``_section_handoff_enabled``. Claude splits a
+    section into files because one response cannot carry it; Gemini has the
+    same problem and no filesystem, so it splits into CALLS instead. Same
+    reason, same plan, different transport.
+    """
+    if run_dir is None or memo_engine.run_engine(run_dir) != "gemini":
+        return False
+    if os.environ.get("BSH_MEMO_GEMINI_SECTION_SPLIT", "1") != "1":
+        return False
+    return bool(section_def is not None and len(section_def.subsections) > 1)
+
+
+def _section_call_piece_prompt(
+    *,
+    body: str,
+    section_id: str,
+    number: int,
+    heading_en: str,
+    heading_zh: str,
+    plan: list[tuple[int, str, str, Path]],
+    written: list[dict],
+    reason: str | None = None,
+) -> str:
+    """Ask for ONE subsection, in the response, with the ones already
+    written alongside it so the section stays one argument."""
+    siblings = "\n".join(
+        f'- subsection {other} ("{other_en}")'
+        + (" — already written, below" if other < number else " — comes later")
+        for other, other_en, _zh, _path in plan
+        if other != number
+    )
+    done_block = ""
+    if written:
+        done_block = (
+            "\n## The subsections you have already written\n"
+            "These are final and are being used as they stand. Do not repeat "
+            "their points, contradict their numbers, or re-introduce what "
+            "they already defined — continue the same argument.\n\n"
+            + json.dumps(written, ensure_ascii=False, indent=2)
+            + "\n"
+        )
+    retry_block = ""
+    if reason:
+        retry_block = (
+            f"\n## Your last attempt at this subsection was unusable\n"
+            f"{reason}\n"
+            "Write it again, correctly, and change nothing else.\n"
+        )
+    return f"""{body}
+## Write ONE subsection
+This section is delivered one subsection per reply, because a whole section
+in a single response is all-or-nothing: a live run ran past the output
+ceiling mid-section and every word of it was lost. You are still writing
+ONE section — the split is a delivery detail.
+
+Write subsection {number} ("{heading_en}" / "{heading_zh}") and nothing
+else. Its siblings:
+{siblings}
+{done_block}{retry_block}
+Return only:
+{{"piece": {number}, "blocks": [ ... ]}}
+matching the attached schema. `blocks` opens with that subsection's heading
+block — {{"type": "heading", "level": 2, "text": {{"en": "{heading_en}",
+"zh": "{heading_zh}"}}}} — and then carries every block belonging to it.
+Same block shapes and same bilingual {{en, zh}} objects you would use
+inline: every reader-facing string is an object with BOTH halves filled,
+never a bare string and never an English sentence left in the `zh` half.
+"""
+
+
+def _run_english_section_via_calls(
+    *,
+    run_dir: Path,
+    section_id: str,
+    section_def,
+    make_body,
+    depth_target,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+    piece_drafts: dict[int, tuple[Path, int]] | None = None,
+) -> tuple[dict | None, str | None]:
+    """Draft one section as one call per subsection, then assemble it here.
+
+    The Gemini twin of ``_run_english_section_via_pieces``: same plan, same
+    per-piece validation, same assembly, and the piece travels back in the
+    response because the engine has no filesystem to write to.
+
+    It buys what the file handoff buys on Claude — a failure costs one
+    subsection instead of the whole section. Live on 2026-09-19 a Gemini
+    `valuation_returns` ran past the 64k output ceiling and lost every word,
+    and a `thesis_market` came back with 2,128 of its words in shapes the
+    renderer drops; both cost a full section respin, and one of them cost
+    the whole wave.
+
+    The calls run in order, each carrying the subsections already written,
+    because on Claude one agent writes them all in a single session and can
+    see what it has said. Sections are still drafted in parallel with each
+    other, so the wave's width is unchanged.
+    """
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+    piece_target = (
+        memo_engine.split_target(depth_target, len(plan))
+        if depth_target is not None
+        else None
+    )
+
+    def _length_block(number: int) -> str:
+        """This piece's length instruction — a fresh contract, or the
+        revision brief for its own slice of the previous draft."""
+        if piece_target is None:
+            return ""
+        slice_draft = (piece_drafts or {}).get(number)
+        if slice_draft is None:
+            return "\n" + memo_engine.length_contract(piece_target)
+        slice_path, slice_words = slice_draft
+        revise = (
+            memo_engine.length_extension
+            if slice_words < piece_target.low
+            else memo_engine.length_condense
+        )
+        return "\n" + revise(piece_target, slice_path, slice_words)
+
+    totals: dict[str, Any] = {}
+    written: list[dict] = []
+    blocks: list[dict] = []
+
+    for number, heading_en, heading_zh, _path in plan:
+        piece_body = make_body(_length_block(number), len(plan))
+        reason: str | None = None
+        for attempt in range(1, MEMO_SECTION_PIECE_MAX_RETRIES + 1):
+            halt_error = _memo_run_halt_error(run_dir)
+            if halt_error:
+                return None, halt_error
+            if reason is not None and progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_section_piece_retry",
+                    message=(
+                        f"{section_id}: {reason}; asking for that subsection "
+                        f"again (attempt {attempt} of "
+                        f"{MEMO_SECTION_PIECE_MAX_RETRIES})"
+                    ),
+                    section_id=section_id,
+                    piece=number,
+                )
+            result, error = _run_memo_local_json_artifact(
+                prompt=_section_call_piece_prompt(
+                    body=piece_body,
+                    section_id=section_id,
+                    number=number,
+                    heading_en=heading_en,
+                    heading_zh=heading_zh,
+                    plan=plan,
+                    written=written,
+                    reason=reason,
+                ),
+                schema=_MEMO_ENGLISH_SECTION_PIECE_SCHEMA,
+                run_dir=run_dir,
+                progress=progress,
+                progress_message=(
+                    f"Drafting {section_id} subsection {number}"
+                ),
+                timeout_label=(
+                    f"memo English section ({section_id} piece {number})"
+                ),
+                timeout_sec=timeout_sec,
+                silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+                add_dirs=add_dirs,
+                model=_memo_role_model("SECTION", run_dir),
+                effort=_memo_role_effort("SECTION", run_dir),
+                append_system_prompt=common_context,
+            )
+            _accumulate_call_cost(totals, result)
+            if error:
+                reason = f"the call failed: {str(error)[:200]}"
+                continue
+            reason = _section_piece_payload_error(
+                result, number, "the reply", heading_en
+            )
+            if reason is None:
+                break
+        if reason is not None:
+            return None, (
+                f"section {section_id}: subsection {number} is still "
+                f"unusable after {MEMO_SECTION_PIECE_MAX_RETRIES} attempts "
+                f"({reason})"
+            )
+        piece_blocks = list(result["blocks"])
+        blocks.extend(piece_blocks)
+        written.append({"piece": number, "blocks": piece_blocks})
+
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_assembled",
+            message=(
+                f"{section_id}: assembled {len(plan)} subsection replies into "
+                f"{len(blocks)} blocks"
+            ),
+            section_id=section_id,
+        )
+    return (
+        {
+            "section": {"id": section_id, "blocks": blocks},
+            "claude_cost_usd": totals.get("cost"),
+            "claude_duration_ms": totals.get("duration_ms"),
+            "claude_usage": totals.get("usage"),
+        },
+        None,
+    )
 
 
 def _run_english_section_via_pieces(
@@ -8377,17 +8959,38 @@ nothing precedes the first heading:
     # effective budget was 1,650, and the section came in at 2,733,
     # over its cap. The effective number is stated here, last and
     # explicitly, so there is never any question which one governs.
-    budget_block = ""
-    if section_def is not None and section_def.budget_words:
-        hard_cap = int(
-            section_def.budget_words
-            * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT)
-        )
-        budget_block = f"""
+    def _budget_block(parts: int = 1) -> str:
+        """The effective word budget, stated for whatever this call writes.
+
+        ``parts`` > 1 means the section is being drafted one subsection per
+        call, so each call gets its share. Live on 2026-09-19 this block
+        was left at the whole-section figure while the length contract
+        beside it had already been divided: every piece was told the
+        section is 1,900 words AND that this number overrides the range it
+        had just been given, and six of seven sections came back at about
+        a third of their length. One budget, stated once, for the unit
+        actually being written.
+        """
+        if section_def is None or not section_def.budget_words:
+            return ""
+        words = section_def.budget_words
+        cap = int(words * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT))
+        if parts > 1:
+            words = max(1, int(round(words / parts)))
+            cap = max(1, int(round(cap / parts)))
+            unit = f"this ONE subsection (one of {parts} in the section)"
+            gate = (
+                "the section's own cap is that figure times "
+                f"{parts}, and a deterministic gate rejects the assembled "
+                "section above it"
+            )
+        else:
+            unit = "this whole section"
+            gate = "a deterministic gate rejects the section above it"
+        return f"""
 ## Your word budget for this run
-Target: {section_def.budget_words} words of English for this whole
-section, table cells included. Hard cap: {hard_cap} words — a
-deterministic gate rejects the section above it.
+Target: {words} words of English for {unit}, table cells
+included. Hard cap: {cap} words — {gate}.
 
 These numbers OVERRIDE any range stated in the section contract above:
 that contract is written for the base profile, and this run's company
@@ -8396,6 +8999,8 @@ kind of company. Landing far UNDER the target is as wrong as running
 over — it means a judgment was asserted where it should have been
 explained.
 """
+
+    budget_block = _budget_block()
     note_block = (
         f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
@@ -8439,7 +9044,13 @@ defects:
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
-    body = f"""\
+    #
+    # The length block is the one part a per-subsection split must replace —
+    # handing every piece the whole section's target would have each of them
+    # write a whole section — so the body is built around it.
+    def _make_body(length_block: str, parts: int = 1) -> str:
+        budget = _budget_block(parts)
+        return f"""\
 You are drafting ONE SECTION of the English source package. Sibling workers
 draft the other sections in parallel; the shared fact sheet below pins
 everything the sections must agree on. Repeat the pinned recommendation,
@@ -8454,8 +9065,37 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{depth_block}
+{scaffold_block}{budget}{risk_contract}{note_block}{repair_block}{length_block}
 """
+
+    body = _make_body(depth_block)
+    if _section_split_calls_enabled(section_id, section_def, run_dir):
+        # A lengthening revision is the BIGGEST call in a Gemini run — it
+        # restates the whole section and then some. Left whole it was the
+        # one call with no partial credit, and on 2026-09-19 a company_team
+        # revision died on one bad token at 38,544 characters, losing the
+        # round. The draft carries its subsection headings, so it can be
+        # cut and each piece revised against its own slice.
+        piece_drafts: dict[int, tuple[Path, int]] | None = None
+        if depth_revision is not None:
+            piece_drafts = _section_draft_slices(
+                run_dir, section_id, section_def, depth_revision[0]
+            )
+        # A draft that will not cut cleanly is revised whole rather than
+        # sliced wrongly.
+        if depth_revision is None or piece_drafts is not None:
+            return _run_english_section_via_calls(
+                run_dir=run_dir,
+                section_id=section_id,
+                section_def=section_def,
+                make_body=_make_body,
+                depth_target=depth_target,
+                common_context=common_context,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+                piece_drafts=piece_drafts,
+            )
     if _section_handoff_enabled(section_id, section_def, run_dir):
         return _run_english_section_via_pieces(
             run_dir=run_dir,
@@ -9326,7 +9966,9 @@ def run_memo_fast_english_package_parallel(
                 target = depth_targets.get(section_id)
                 if target is None:
                     continue
-                words = memo_engine.en_word_count(result.get("section"))
+                words = memo_engine.renderable_en_word_count(
+                    result.get("section")
+                )
                 if target.distance(words):
                     off_band[section_id] = words
             if not off_band:
@@ -9389,7 +10031,9 @@ def run_memo_fast_english_package_parallel(
             )
             for section_id, result in revised.items():
                 target = depth_targets[section_id]
-                words = memo_engine.en_word_count(result.get("section"))
+                words = memo_engine.renderable_en_word_count(
+                    result.get("section")
+                )
                 if target.distance(words) >= target.distance(
                     off_band[section_id]
                 ):
@@ -9403,6 +10047,12 @@ def run_memo_fast_english_package_parallel(
                     )
                     continue
                 previous = results[section_id]
+                # Carry the improvement back to the speculator, or a later
+                # package attempt harvests the draft this just replaced.
+                if speculative_english is not None:
+                    speculative_english.adopt_section_result(
+                        section_id, result
+                    )
                 result["claude_cost_usd"] = (
                     _to_float(previous.get("claude_cost_usd"))
                     + _to_float(result.get("claude_cost_usd"))
@@ -10742,6 +11392,43 @@ def _package_calculations(shared_facts: Any) -> list[dict]:
     return out
 
 
+def _localized_pinned_calculations(spine_payload: Any) -> list[dict]:
+    """The spine's calculation notes in the shape the package stores them.
+
+    The spine pins a calculation's `label` and `meaning` as plain strings;
+    the package carries them as localized `{en, zh}` values, and those
+    twenty strings were the single largest block of untranslated text left
+    for the serial gap-fill at the end of every run (RadixArk
+    2026-09-20__042036: twenty of twenty-six). They are pinned before the
+    first section starts, so they can be translated in parallel with the
+    memo instead — the envelope chase just never carried them, because it
+    carries `package_skeleton` and the calculations are pinned beside it
+    under `shared_facts`.
+
+    Adoption matches on `en` and on list length, so a package whose
+    calculations drifted from the pins simply adopts nothing.
+    """
+    facts = (spine_payload or {}).get("shared_facts")
+    pinned = facts.get("calculations") if isinstance(facts, dict) else None
+    if not isinstance(pinned, list) or not pinned:
+        return []
+    out: list[dict] = []
+    for note in pinned:
+        if not isinstance(note, dict):
+            return []
+        carried: dict[str, Any] = {}
+        for key in ("label", "meaning"):
+            value = note.get(key)
+            if isinstance(value, str) and value.strip():
+                carried[key] = {"en": value, "zh": ""}
+            elif isinstance(value, dict) and isinstance(value.get("en"), str):
+                carried[key] = {"en": value["en"], "zh": ""}
+        if not carried:
+            return []
+        out.append(carried)
+    return out
+
+
 def _adopt_zh_translations(source: Any, translated: Any) -> None:
     """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
 
@@ -10756,7 +11443,9 @@ def _adopt_zh_translations(source: Any, translated: Any) -> None:
             if (
                 str(translated.get("zh") or "").strip()
                 and translated.get("en") == source.get("en")
-                and not str(source.get("zh") or "").strip()
+                # Not `is the slot empty` but `does it still need
+                # translating` — an English-filled zh must be replaceable.
+                and _zh_untranslated(source)
                 # Citation ids are links: a zh string that lost, gained
                 # or renumbered one stays blank and goes to the chaser.
                 and sorted(_citation_ids(translated["zh"]))
@@ -10944,8 +11633,12 @@ class BilingualChaser:
         try:
             skeleton = (spine_payload or {}).get("package_skeleton")
             if isinstance(skeleton, dict) and skeleton:
+                payload = dict(skeleton)
+                calculations = _localized_pinned_calculations(spine_payload)
+                if calculations:
+                    payload["calculations"] = calculations
                 self._submit(
-                    "envelope", "package envelope (chase)", skeleton, 4.01
+                    "envelope", "package envelope (chase)", payload, 4.01
                 )
         except Exception:  # noqa: BLE001
             logger.warning("zh chase spine hook failed", exc_info=True)
@@ -10972,6 +11665,22 @@ class BilingualChaser:
     def _submit(
         self, unit_id: str, label: str, payload: dict, phase_index: float
     ) -> None:
+        # Nothing to chase is not a small unit, it is no unit. Gemini writes
+        # both halves of a section in one pass, so on 2026-09-20 both live
+        # runs dispatched all eight units, paid for all eight, and adopted
+        # zero strings from any of them — the only blanks left in the
+        # package were the source treatments (written after the spine, by
+        # our own repair) and the pinned calculations. Claude's sections
+        # arrive English-only and are chased exactly as before.
+        if not _count_blank_zh(payload):
+            if self._stream is not None:
+                self._stream.emit(
+                    "stage",
+                    stage="memo_zh_chase_not_needed",
+                    message=f"{label} arrived translated; not chasing it",
+                    unit_id=unit_id,
+                )
+            return
         with self._lock:
             if unit_id in self._futures:
                 return
@@ -11212,14 +11921,37 @@ class BilingualChaser:
         self._pool.shutdown(wait=False)
 
 
+def _zh_untranslated(node: dict) -> bool:
+    """True when this localized {en, zh} leaf still needs translating.
+
+    Blank is the obvious case. The other is a zh half holding the English
+    back: live on 2026-09-19 Gemini filled nine scorecard cells with their
+    own English, every gap-fill skipped them because the slot was not
+    blank, and the document gate caught them only after the .docx had been
+    written — as a P1 nobody had to act on. Asking whether the slot is
+    FILLED was never the same question as whether it is TRANSLATED.
+
+    The English test is the rendered gate's own
+    (``memo_chinese_parity.english_left_untranslated``) so the two cannot
+    drift: conservative by design, since a zh half that is a number, a
+    ticker or a proper noun carries no CJK either and is already right.
+    """
+    en = str(node.get("en") or "").strip()
+    if not en:
+        return False
+    zh = str(node.get("zh") or "").strip()
+    if not zh:
+        return True
+    from . import memo_chinese_parity
+
+    return memo_chinese_parity.english_left_untranslated(zh)
+
+
 def _has_blank_zh(obj: Any) -> bool:
-    """True when any localized {en, zh} leaf has English but a blank zh."""
+    """True when any localized {en, zh} leaf still needs translating."""
     if isinstance(obj, dict):
-        if "en" in obj and "zh" in obj:
-            en = str(obj.get("en") or "").strip()
-            zh = str(obj.get("zh") or "").strip()
-            if en and not zh:
-                return True
+        if "en" in obj and "zh" in obj and _zh_untranslated(obj):
+            return True
         return any(_has_blank_zh(value) for value in obj.values())
     if isinstance(obj, list):
         return any(_has_blank_zh(value) for value in obj)
@@ -11227,14 +11959,9 @@ def _has_blank_zh(obj: Any) -> bool:
 
 
 def _count_blank_zh(obj: Any) -> int:
-    """Count localized {en, zh} leaves whose zh is still blank."""
+    """Count localized {en, zh} leaves that still need translating."""
     if isinstance(obj, dict):
-        own = 0
-        if "en" in obj and "zh" in obj:
-            en = str(obj.get("en") or "").strip()
-            zh = str(obj.get("zh") or "").strip()
-            if en and not zh:
-                own = 1
+        own = 1 if ("en" in obj and "zh" in obj and _zh_untranslated(obj)) else 0
         return own + sum(_count_blank_zh(value) for value in obj.values())
     if isinstance(obj, list):
         return sum(_count_blank_zh(value) for value in obj)

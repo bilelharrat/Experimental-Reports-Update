@@ -468,3 +468,96 @@ def test_null_for_a_required_field_still_fails(tmp_path):
     spine = claude_runner._assemble_spine(_plan(tmp_path))
     errors = claude_runner._schema_errors(spine, _schema())
     assert any("recommendation_sentence" in e for e in errors)
+
+
+# ---- the limits the model is asked to respect -------------------------------
+#
+# 2026-09-17, the Figure AI run. Three separate pieces were re-asked for
+# marginal overruns: key_metrics with 21 items against 20, entry.valuation
+# with 115 characters against 40, and calculations[].inputs[].name with 132
+# against 100. All three limits live in the spine schema, which under the
+# handoff the model NEVER SEES — its reply is a receipt, so the only schema
+# the CLI shows it is the manifest's. The contract even told it that "the
+# schema limits in your instructions still apply" when its instructions
+# carried none. Each overrun bought a fresh subprocess to correct a number
+# nobody had given it.
+
+
+def _contract(tmp_path, structure=V2):
+    schema = _schema(structure)
+    plan = claude_runner._spine_piece_plan(tmp_path, schema)
+    return claude_runner._spine_handoff_contract(
+        plan, tmp_path / "pieces", schema
+    )
+
+
+def test_the_contract_states_the_limits_that_were_overrun(tmp_path):
+    contract = _contract(tmp_path)
+    assert "key_metrics: at most 20 items" in contract
+    assert "entry.valuation: at most 40 characters" in contract
+    assert (
+        "calculations[].inputs[].name: at most 100 characters" in contract
+    )
+
+
+def test_the_contract_no_longer_claims_the_limits_are_elsewhere(tmp_path):
+    contract = _contract(tmp_path)
+    assert "limits in your instructions still apply" not in contract
+    assert "the ONLY place those numbers appear" in contract
+
+
+def test_identical_siblings_collapse_to_one_line(tmp_path):
+    """Nine scorecard dimensions declare the same four bounds. Printing
+    each cost about forty lines of prompt repeating itself."""
+    contract = _contract(tmp_path)
+    assert "scorecard.dimensions.<each>.why: at most 180 characters" in (
+        contract
+    )
+    assert "scorecard.dimensions.market_size_growth.why" not in contract
+    # nine dimensions collapsed to one line, so the only other 180 is
+    # key_metrics[].name
+    assert contract.count("<each>.why: at most 180") == 1
+    assert contract.count("scorecard.dimensions.") == 5
+
+
+def test_the_limits_are_read_from_the_schema_not_typed_in(tmp_path):
+    """The whole point: one definition. Move the cap and the sentence the
+    model reads moves with it."""
+    schema = _schema()
+    facts = schema["properties"]["shared_facts"]["properties"]
+    facts["entry"]["properties"]["valuation"]["maxLength"] = 41
+    facts["key_metrics"]["maxItems"] = 21
+    plan = claude_runner._spine_piece_plan(tmp_path, schema)
+    contract = claude_runner._spine_handoff_contract(
+        plan, tmp_path / "pieces", schema
+    )
+    assert "entry.valuation: at most 41 characters" in contract
+    assert "key_metrics: at most 21 items" in contract
+
+
+def test_an_exact_count_reads_as_exact(tmp_path):
+    contract = _contract(tmp_path)
+    assert "highlights: exactly 3 items" in contract
+    assert "3-3 items" not in contract
+
+
+def test_enums_are_spelled_out(tmp_path):
+    contract = _contract(tmp_path)
+    assert "verdict: one of Strong Buy/Buy/Watch/Pass" in contract
+    assert "risks[].likelihood: one of High/Medium/Low" in contract
+
+
+def test_the_contract_stays_small_enough_to_prepend(tmp_path):
+    """It rides in front of the spine body on every run, so it has to earn
+    its tokens: the limits must not cost more than the instructions."""
+    assert len(_contract(tmp_path)) < 8000
+
+
+def test_a_v1_spine_only_states_the_limits_it_has(tmp_path):
+    contract = _contract(tmp_path, memo_structure.LATE)
+    assert "05_highlights.json" not in contract
+    assert "07_calculations.json" not in contract
+    assert "calculations[].inputs" not in contract
+    # the parts v1 does have still carry their limits
+    assert "04_metrics.json" in contract
+    assert "key_metrics: at most" in contract

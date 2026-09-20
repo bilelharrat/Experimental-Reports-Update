@@ -288,14 +288,19 @@ def test_the_section_prompt_states_the_budget_this_run_actually_uses():
     words" while its effective target was 1,650. The section wrote 2,733
     and blew its cap. The prompt now states the effective numbers last and
     says they override the prose.
+
+    The example moved from `valuation_returns` to `thesis_market` when
+    valuation and the decision section became exempt from the re-cut
+    (`memo_structure._EMPHASIS_EXEMPT`) — the test needs a section a type
+    still moves.
     """
     from server import claude_runner, memo_structure
 
     typed = memo_structure.load_structure(
         "late_compact", 1, "ai_foundation_model"
     )
-    section = typed.section("valuation_returns")
-    base = COMPACT.section("valuation_returns")
+    section = typed.section("thesis_market")
+    base = COMPACT.section("thesis_market")
     assert section.budget_words != base.budget_words, (
         "this test needs a section the type emphasis actually moves"
     )
@@ -304,7 +309,7 @@ def test_the_section_prompt_states_the_budget_this_run_actually_uses():
 
     def fake(**kwargs):
         captured.update(kwargs)
-        return {"section": {"id": "valuation_returns", "blocks": []}}, None
+        return {"section": {"id": "thesis_market", "blocks": []}}, None
 
     import pathlib
     import tempfile
@@ -317,7 +322,7 @@ def test_the_section_prompt_states_the_budget_this_run_actually_uses():
     try:
         claude_runner._run_english_section(
             run_dir=run_dir,
-            section_id="valuation_returns",
+            section_id="thesis_market",
             common_context="ctx",
             shared_facts_block="facts",
             spine_path=run_dir / "spine.json",

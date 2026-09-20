@@ -1,5 +1,5 @@
 ---
-en_sha256: 922841b7d8da8de4030f18ebaf87f07cfb649fa416fc44a9f998abde13e26066
+en_sha256: 0e0045b0614a9c32e60ea1cec7c10986e7d68e00b92e4944e85ce4fe8e1cc618
 ---
 ## 人写的高管级备忘录语气契约
 
@@ -65,6 +65,14 @@ en_sha256: 922841b7d8da8de4030f18ebaf87f07cfb649fa416fc44a9f998abde13e26066
   使用模型 / 代理变量 / 敏感性这类词汇；
 - 允许使用破折号（em dash）。优先使用短句。不要为了避开破折号而用冒号-分号的
   机械结构来填充；
+- 绝不把我们自己的内部管线当作来源引用。公司登记表（registry）、来源包、本次
+  运行的中间产物以及各分析轮次都是你阅读的内部输入；读者看不到其中任何一项，
+  因此点名引用会把一次内部查询包装成公开证据。在说明"我们查了哪些地方"时，
+  只列读者自己能够核验的渠道："no revenue figure appears in the launch
+  release, the company blog or any press coverage we reviewed"（发布稿、
+  公司博客或我们查阅的任何媒体报道中都没有营收数字）—— 绝不要写成
+  "...the launch release, the company blog, the registry or any press
+  coverage"。表格中解释数据缺口的单元格同样适用；
 - 数据时点只用绝对日期表达："figures are as of March 2026"（数据截至 2026 年
   3 月）、"no disclosure since the January launch window"（自 1 月发布窗口
   以来没有披露）。绝不把数据陈旧程度锚定在备忘录本身："at the memo date"、
@@ -271,6 +279,7 @@ Decision / Closing View（投资决定 / 收尾观点）必须使用同一条主
 | 未决问询框架 | 风险因素 / 交易机制披露 |
 | "Missing proof"（证据缺失） | 点名缺口，然后是风险。 |
 | 投资建议标签 | Recommendation: BSH 承诺出资…… / Recommendation: 放弃…… |
+| BSH should ...（BSH 应当……）/ what BSH should do | BSH moves when...（触发条件出现时本机构行动）/ The trigger is a new priced round.（写清触发条件本身）——由本机构作为主语采取行动，而不是被建议去做什么 |
 | "Decision discipline"（决策纪律） | 点名的风险 |
 | 虚假精确 | 陈述证据区间，不要过度建模。 |
 | "not treated as ARR"（不按 ARR 处理） | "not revenue-recognized"（未确认为收入） |

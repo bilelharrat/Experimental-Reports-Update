@@ -675,6 +675,106 @@ def test_linter_blocks_generic_duplicate_risks_and_watch_commands(tmp_path):
     } <= codes
 
 
+def test_a_service_level_is_not_an_unsupported_claim():
+    """The rule is for the memo asserting certainty, not for a product term
+    that happens to contain the word. Live on 2026-09-20 a RadixArk risk
+    card said the company shows no evidence of "guaranteed production SLAs"
+    — the rule's own suggestion already followed, with the sources it
+    checked named — and the P0 survived three package attempts and two
+    surgical repairs because there was nothing to repair.
+    """
+    # Verbatim from that run's risks section.
+    real = (
+        "Reaching enterprise accounts requires proprietary enterprise "
+        "features, dedicated sales personnel, SOC 2 compliance, and "
+        "guaranteed production SLAs, none of which are evidenced in "
+        "RadixArk's corporate filings S1,S2."
+    )
+    assert not memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(real)
+    for allowed in (
+        "The company offers guaranteed uptime of 99.9%.",
+        "Guaranteed SLAs are table stakes for this buyer.",
+        "No guaranteed capacity is contracted beyond 2027.",
+    ):
+        assert not memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(allowed), allowed
+    # The assertions the rule exists for still fire.
+    for banned in (
+        "Returns are guaranteed by the structure of the round.",
+        "This outcome is guaranteed.",
+        "The company is certain to win the category.",
+        "No competitor can match the latency.",
+    ):
+        assert memo_quality_lint._RISK_UNSUPPORTED_CLAIM_RE.search(banned), banned
+
+
+def test_a_document_store_is_not_the_memo_talking_about_itself():
+    """The rule bans "the document" as a name for this memo, not
+    "document" modifying the noun after it. Live on 2026-09-20 a Glean
+    memo — enterprise DOCUMENT search — lost a whole package attempt to
+    the phrase "the document stores" in a list of the systems Glean
+    indexes. No repair agent could have cleared it: the prose was right,
+    and the word recurs on every attempt for this company.
+    """
+    def fires(text):
+        return any(
+            pattern.search(text)
+            for pattern in memo_quality_lint._META_LANGUAGE_PATTERNS
+        )
+
+    # Verbatim from that run's thesis section.
+    real = (
+        "The company sells a subscription platform that indexes everything "
+        "a company already runs — Slack, Salesforce, Confluence, Jira, "
+        "GitHub, the document stores — and answers questions across all of "
+        "it while respecting who is allowed to see what."
+    )
+    assert not fires(real)
+    for allowed in (
+        "Glean indexes the document repositories a company already runs.",
+        "Aryn brought agentic document intelligence into the platform.",
+        "This document corpus reached 27B items in May 2026.",
+        "Our document search share is the number that matters.",
+    ):
+        assert not fires(allowed), allowed
+    # The self-reference the rule exists for still fires.
+    for banned in (
+        "The document states that revenue tripled.",
+        "Figures in this document were not independently verified.",
+        "Our document assumes the round closes in March.",
+    ):
+        assert fires(banned), banned
+
+
+def test_a_named_lead_is_evidence_unless_the_memo_demands_one():
+    """The ban belongs to the diligence-checklist cluster — "confirm
+    before funding", "we still need", "require data room". A pass or
+    watch verdict is REQUIRED to state what would change the call, and a
+    risk card's "What we watch" row is required to name the signal; a
+    named lead is the plainest wording for both. Live on 2026-09-20 the
+    Surge AI memo lost two P0s to exactly that sentence.
+    """
+    for allowed in (
+        # Verbatim from that run's executive summary and risks table.
+        "What would change the call is specific: a closed priced round "
+        "with a named institutional lead, a disclosed gross margin and "
+        "customer mix, or an entry near the $11B low end of the range.",
+        "A closed round with a named lead and a disclosed price, which "
+        "would replace the reference mark with a cleared one.",
+        "The June round had no named lead, which is the fact that "
+        "matters here.",
+    ):
+        assert not memo_quality_lint.banned_body_voice_phrase(allowed), allowed
+    # The checklist the ban exists for still fires.
+    for banned in (
+        "Named institutional lead",
+        "Conditions: named lead, audited margin, signed contracts.",
+        "Requirements: a named institutional lead.",
+        "BSH requires a named institutional lead before funding.",
+        "Contingent on a named lead being disclosed.",
+    ):
+        assert memo_quality_lint.banned_body_voice_phrase(banned), banned
+
+
 def test_meta_language_suggestion_shows_the_rewrite(tmp_path):
     """The 2026-09-17 compact run shipped with three meta_process_language
     findings the surgical repair had already tried and failed to fix. The
@@ -719,9 +819,109 @@ def test_voice_contract_names_the_phrases_the_gate_rejects():
         '"our analysis"',
         '"this document"',
         '"the\n  framework"',
+        # The gate bans "BSH should" as advice the firm is given rather
+        # than the call the firm makes. A `watch` verdict has to state a
+        # trigger, and "BSH should move when..." is the natural English
+        # for one — so the writers wrote it on every attempt of the Glean
+        # run (2026-09-20), four findings on attempt 2 alone, while the
+        # contract named the recommendation form and never this phrase.
+        "BSH should",
     ):
         assert phrase in contract, phrase
+    assert "BSH moves when" in contract
     # The rewrite, not just the ban.
     assert "every multiple we use" in contract
     assert "What the gap\n    costs us" in contract
     assert "in a table header, not in a table cell" in contract
+
+
+def test_benchmark_gap_prose_is_not_a_packet_label(tmp_path):
+    """2026-09-17, RadixArk: the memo's only P0 was the correct technical
+    term for the thing it was analysing.
+
+    `Benchmark gaps?` was written to catch a copied packet HEADER. Bare
+    "benchmark gap" is ordinary English for a measured performance
+    difference, and the ai_infra type file tells the competitive pass to
+    benchmark against NVIDIA's stack and the open-source engines — so the
+    memo is required to produce the phrase the linter rejected.
+    """
+    path = tmp_path / "benchmark-prose.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "IV. Competitive position",
+            "SGLang runs about 29% ahead of vLLM on prefix-heavy agentic "
+            "traffic, and the benchmark gap on unique-prompt workloads is "
+            "already down to 1-4%.",
+        ],
+    )
+    result = memo_quality_lint.lint_memo_docx(path)
+    assert not [
+        f for f in result.findings if f.code == "packet_process_label"
+    ]
+
+
+def test_a_copied_benchmark_header_is_still_caught(tmp_path):
+    path = tmp_path / "benchmark-header.docx"
+    _save_docx(
+        path,
+        paragraphs=["IV. Competitive position", "Benchmark Gaps", "Body."],
+    )
+    result = memo_quality_lint.lint_memo_docx(path)
+    assert any(f.code == "packet_process_label" for f in result.findings)
+
+
+def test_citing_the_registry_gets_registry_advice(tmp_path):
+    """2026-09-17, RadixArk run 3: five findings in one memo, all the same
+    habit — listing our internal registry among the places searched. The
+    surgical repair was handed the generic self-reference advice, which
+    offers rewrites for "this memo" and "the analysis" and says nothing
+    about the registry, and left every one of them in place.
+    """
+    path = tmp_path / "registry-cite.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "No revenue, bookings, backlog or customer count appears in "
+            "the launch release, the company blog, the registry or any "
+            "press coverage we reviewed.",
+        ],
+    )
+    finding = next(
+        f
+        for f in memo_quality_lint.lint_memo_docx(path).findings
+        if f.code == "meta_process_language"
+    )
+    assert "internal inputs" in finding.suggestion
+    assert "Name public sources only" in finding.suggestion
+    # and NOT the advice for a different defect
+    assert "every multiple we use" not in finding.suggestion
+
+
+def test_self_reference_still_gets_self_reference_advice(tmp_path):
+    path = tmp_path / "self-ref.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "VI. Risks",
+            "The margin risk that carries this memo shrinks.",
+        ],
+    )
+    finding = next(
+        f
+        for f in memo_quality_lint.lint_memo_docx(path).findings
+        if f.code == "meta_process_language"
+    )
+    assert "every multiple we use" in finding.suggestion
+    assert "internal inputs" not in finding.suggestion
+
+
+def test_the_contract_tells_writers_not_to_cite_the_registry():
+    from server import memo_prompts
+
+    contract = memo_prompts.load_prompt("voice_contract.md")
+    assert "never cite our own plumbing as a source" in contract
+    assert "the reader cannot see any of them" in contract
+    # the rewrite, not just the ban
+    assert "or any press coverage we reviewed" in contract

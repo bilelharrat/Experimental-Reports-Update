@@ -22,6 +22,7 @@ const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
 const TrackingView = () => import("./views/TrackingView.vue");
 const NewsDeskView = () => import("./views/NewsDeskView.vue");
 const MarketRadarView = () => import("./views/MarketRadarView.vue");
+const MarketsView = () => import("./views/MarketsView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 const ReportsView = () => import("./views/ReportsView.vue");
 const ResearchDeskView = () => import("./views/ResearchDeskView.vue");
@@ -60,14 +61,26 @@ export const router = createRouter({
     { path: "/", name: "home", component: HomeView },
     { path: "/research-desk", name: "research-desk", component: ResearchDeskView, props: true },
     { path: "/research-desk/:companyId", name: "research-desk-company", component: ResearchDeskView, props: true },
-    { path: "/news-desk", name: "news-desk", component: NewsDeskView },
+    // Market, Pulse and News are one desk with three tabs (?tab=). The old
+    // paths stay as redirects: they are in bookmarks, in the Mac app's deep
+    // links, and in every link already sent to somebody.
+    { path: "/markets", name: "markets", component: MarketsView },
+    {
+      path: "/news-desk",
+      name: "news-desk",
+      redirect: () => ({ name: "markets", query: { tab: "news" } }),
+    },
     { path: "/reports", name: "reports", component: ReportsView },
     { path: "/tracking", name: "tracking", component: TrackingView },
-    { path: "/market-radar", name: "market-radar", component: MarketRadarView },
+    {
+      path: "/market-radar",
+      name: "market-radar",
+      redirect: () => ({ name: "markets", query: { tab: "market" } }),
+    },
     {
       path: "/weekly-summary",
       name: "weekly-summary",
-      component: WeeklySummaryView,
+      redirect: () => ({ name: "markets", query: { tab: "pulse" } }),
     },
     {
       path: "/trader-stats",

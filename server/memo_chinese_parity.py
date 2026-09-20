@@ -417,6 +417,18 @@ def _large_english_only_block(text: str) -> bool:
     return len(text) >= 80 and len(LATIN_RE.findall(text)) >= 45
 
 
+def english_left_untranslated(text: str) -> bool:
+    """True when this string is Chinese-slot prose that never got translated.
+
+    The same rule the rendered-document gate reports as
+    ``english_only_body_prose``, exposed so the package pipeline can catch
+    it while there is still something to do about it. Deliberately
+    conservative — a zh half that is a number, a ticker or a proper noun
+    carries no CJK either and is correct as it stands.
+    """
+    return _large_english_only_block(text)
+
+
 def _finding(
     severity: str,
     code: str,

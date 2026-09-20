@@ -1,5 +1,5 @@
 ---
-en_sha256: 57c8dbb9e3fc0d800d5855ab152ba8c67514e30877aa698d9390476a5d04a3c5
+en_sha256: 5f15652be005cb7b9b5debf5efbc671d682aee883c07fbe4f4b3277cef526deb
 ---
 ## 风险清单格式契约（硬性要求 —— 渲染前校验）
 
@@ -22,9 +22,10 @@ en_sha256: 57c8dbb9e3fc0d800d5855ab152ba8c67514e30877aa698d9390476a5d04a3c5
      可得的答案 —— 哪个方面、结论、有多大 —— 第四行是解释：
        1. `Risk Type` / `风险类型` —— 共享事实表将该风险归入的领域，
           以标签形式给出：Market / Technology / Competition /
-          Commercialization / Concentration / Team, governance &
-          regulation / Valuation & exit（中文 市场 / 技术 / 竞争 /
-          商业化 / 集中度 / 团队、治理与监管 / 估值与退出）。不是一句话。
+          Moat & defensibility / Commercialization / Concentration /
+          Team, governance & regulation / Valuation & exit（中文
+          市场 / 技术 / 竞争 / 护城河与壁垒 / 商业化 / 集中度 /
+          团队、治理与监管 / 估值与退出）。不是一句话。
        2. `Verdict` / `一句话结论` —— 已钉定的风险摘要逐字原文：
           一句平实的话，至多含一个数字。
        3. `Impact` / `影响有多大` —— 已钉定的影响逐字原文：该风险让

@@ -1,10 +1,14 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { nextTick } from "vue";
 import { mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import Sidebar from "../src/components/Sidebar.vue";
 import { session } from "../src/auth.js";
 import {
+  ALL_SECTORS,
   companyViews,
+  setDeskDiffsOnly,
+  setDeskSector,
   setCompanySort,
   setSidebarCollapsed,
   trackedCompanyIds,
@@ -83,15 +87,15 @@ describe("Sidebar", () => {
     expect(text).toContain("NVIDIA");
     expect(text).toContain("Zeta Labs");
     expect(text).toContain("Home");
-    expect(text).toContain("Market");
-    expect(text).toContain("Pulse");
-    expect(text).toContain("News");
+    // Market, Pulse and News became three tabs of one desk, so the nav
+    // carries a single Markets row rather than three rows for one idea.
+    expect(text).toContain("Markets");
+    expect(text).not.toContain("Pulse");
+    expect(text).not.toContain("News");
     expect(text).toContain("Reports");
     expect(text).toContain("Tracking");
-    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Market"));
-    expect(text.indexOf("Market")).toBeLessThan(text.indexOf("Pulse"));
-    expect(text.indexOf("Pulse")).toBeLessThan(text.indexOf("News"));
-    expect(text.indexOf("News")).toBeLessThan(text.indexOf("Reports"));
+    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Markets"));
+    expect(text.indexOf("Markets")).toBeLessThan(text.indexOf("Reports"));
     expect(text.indexOf("Reports")).toBeLessThan(text.indexOf("Tracking"));
     expect(text).not.toContain("Portfolio");
     expect(text).not.toContain("Top Players");
@@ -159,7 +163,7 @@ describe("Sidebar", () => {
 
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("false");
     expect(wrapper.text()).toContain("Acme Inc.");
-    expect(wrapper.text()).toContain("Pulse");
+    expect(wrapper.text()).toContain("Markets");
   });
 
   it("shows the account in the footer with Settings and Sign out behind it", async () => {
@@ -228,5 +232,90 @@ describe("Sidebar", () => {
     expect(nvdaMonogram).toBeTruthy();
     const src = nvdaMonogram.find("img").attributes("src");
     expect(src).toMatch(/nvidia\.com|NVDA/);
+  });
+});
+
+// ---- the directory column, now that it is this list -------------------------
+//
+// The Research Desk carried its own company column — search, a sector popup,
+// a Diffs toggle and a deck drop — beside this one. Two lists, one job, and
+// between them they left the dossier about half the window. The column is
+// gone; these are the behaviours that came across with it.
+
+describe("Sidebar company directory", () => {
+  const sectored = [
+    { id: "acme", name: "Acme Corp", sector: "Industrial AI", is_modified: true },
+    { id: "globex", name: "Globex Corporation", sector: "Fintech" },
+    { id: "initech", name: "Initech", sector: "Fintech" },
+  ];
+
+  beforeEach(() => {
+    setDeskSector(ALL_SECTORS);
+    setDeskDiffsOnly(false);
+  });
+
+  it("filters the list by sector", async () => {
+    const wrapper = mountSidebar(sectored);
+    expect(wrapper.text()).toContain("Acme Corp");
+
+    setDeskSector("Fintech");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Globex Corporation");
+    expect(wrapper.text()).toContain("Initech");
+    expect(wrapper.text()).not.toContain("Acme Corp");
+  });
+
+  it("shows only changed companies when Diffs is on", async () => {
+    const wrapper = mountSidebar(sectored);
+    const diffs = wrapper.find('[data-testid="sidebar-diffs-toggle"]');
+    expect(diffs.exists()).toBe(true);
+
+    await diffs.trigger("click");
+    await nextTick();
+
+    // Acme carries is_modified; the other two have been seen and changed nothing
+    expect(wrapper.text()).toContain("Acme Corp");
+    expect(wrapper.text()).not.toContain("Globex Corporation");
+  });
+
+  it("hides the sector popup when there is only one sector to pick", () => {
+    const oneSector = [
+      { id: "a", name: "Acme Corp", sector: "Fintech" },
+      { id: "b", name: "Globex Corporation", sector: "Fintech" },
+    ];
+    expect(mountSidebar(oneSector).find("select").exists()).toBe(false);
+    expect(mountSidebar(sectored).find("select").exists()).toBe(true);
+  });
+
+  it("shows the deck drop affordance only while a deck is over it", async () => {
+    // A permanent drop box cost three lines of the rail to say something a
+    // reader already knows how to do.
+    const wrapper = mountSidebar(sectored);
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
+
+    await wrapper.find("section").trigger("dragover", {
+      dataTransfer: { types: ["Files"] },
+    });
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      true,
+    );
+
+    await wrapper.find("section").trigger("dragleave");
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
+  });
+
+  it("ignores a drag that carries no file", async () => {
+    const wrapper = mountSidebar(sectored);
+    await wrapper.find("section").trigger("dragover", {
+      dataTransfer: { types: ["text/plain"] },
+    });
+    expect(wrapper.find('[data-testid="sidebar-deck-overlay"]').exists()).toBe(
+      false,
+    );
   });
 });

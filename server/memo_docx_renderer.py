@@ -257,6 +257,11 @@ _SOURCE_KEY_SYNONYMS = {
     "kind": "class",
     "detail": "treatment",
     "name": "title",
+    # When the source was current. Live on 2026-09-20 every one of ten
+    # sources dated itself under `date` and the attempt died ten times
+    # over on "as_of is required".
+    "date": "as_of",
+    "as_of_date": "as_of",
 }
 
 # A block names its own fields as often as it names the schema's. Each of
@@ -272,6 +277,8 @@ _BLOCK_KEY_SYNONYMS = {
     # A table's header row.
     "columns": "headers",
     "column_headers": "headers",
+    # A chart's reading note under the analysis passes' word for it.
+    "reading_note": "reading",
 }
 
 # A bullets or callout list under a key that echoes the block's own type.
@@ -371,6 +378,121 @@ def _infer_block_type(block: dict) -> str:
     return "paragraph"
 
 
+def _series_from_column_keyed_points(data: Any, where: str) -> list[dict] | None:
+    """One series per measure, from points that name their own columns.
+
+    The model writes a scenario chart the way it writes a table row —
+    ``{"scenario": {en, zh}, "moic": 1.4, "irr": "7.0%"}`` — where the
+    contract wants ``series`` of ``{label, points: [{x, y}]}``. The one
+    non-numeric column is the x axis; every column that is a real number
+    in EVERY point is a series, labelled by its own name, because here
+    the column name is what the numbers are (unlike a flat ``{label,
+    value}`` list, where the name carries nothing and the block title
+    has to supply it). A column that is a number in some points and a
+    string in others is not a series and is left out — ``irr: "7.0%"``
+    is text, not a value this can plot.
+    """
+    if not isinstance(data, list) or not data:
+        return None
+    points = [point for point in data if isinstance(point, dict)]
+    if len(points) != len(data):
+        return None
+    shared = set(points[0])
+    for point in points[1:]:
+        shared &= set(point)
+    if not shared:
+        return None
+
+    def _is_number(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    # The x axis is the column the model wrote bilingually — a scenario
+    # name, a year, a segment. The other text columns are formatted
+    # numbers ("7.0%", "$90M"), which read as labels too, so asking only
+    # "is it non-numeric" found three axes where there was one.
+    localized = [
+        key
+        for key in shared
+        if all(
+            isinstance(point[key], dict)
+            and isinstance(point[key].get("en"), str)
+            and point[key]["en"].strip()
+            for point in points
+        )
+    ]
+    if len(localized) == 1:
+        labels = localized
+    else:
+        labels = [
+            key
+            for key in shared
+            if all(
+                not _is_number(point[key]) and _content_text(point[key]).strip()
+                for point in points
+            )
+        ]
+    measures = [
+        key for key in shared if all(_is_number(point[key]) for point in points)
+    ]
+    if len(labels) != 1 or not 1 <= len(measures) <= 4:
+        return None
+    x_key = labels[0]
+    return [
+        {
+            "label": str(measure).replace("_", " ").replace("-", " ").strip(),
+            "points": [
+                {"x": _content_text(point[x_key]), "y": point[measure]}
+                for point in points
+            ],
+        }
+        for measure in sorted(measures, key=lambda key: sorted(shared).index(key))
+    ]
+
+
+def _adopt_column_keyed_rows(block: dict, repairs: list[str], where: str) -> None:
+    """Turn rows keyed by column name into rows of cells, in place.
+
+    The column order comes from the headers' own ``key`` fields when they
+    carry them, and otherwise from the first row's key order (JSON keeps
+    it). Every row must answer the same columns: a table where they
+    disagree is not one this can order, and is left for the main pass.
+    """
+    rows = block.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return
+    if not all(
+        isinstance(row, dict) and "cells" not in row and row for row in rows
+    ):
+        return
+    headers = block.get("headers")
+    order = [
+        str(header["key"])
+        for header in (headers if isinstance(headers, list) else [])
+        if isinstance(header, dict) and header.get("key")
+    ]
+    if order:
+        # The headers declare the columns, so a row may carry a key they
+        # do not name — live, a `deal_terms` row answered both "value"
+        # and "detail" with the same sentence, and the table has two
+        # columns. The extra key is surplus, not a lost column; dropping
+        # the whole table over it would cost ten real rows.
+        if any(not set(order) <= set(row) for row in rows):
+            return
+        extra = sorted({key for row in rows for key in row} - set(order))
+    else:
+        # Nothing declares the order but the rows themselves, so they all
+        # have to agree on it.
+        order = [str(key) for key in rows[0]]
+        if not order or any(set(row) != set(order) for row in rows):
+            return
+        extra = []
+    block["rows"] = [{"cells": [row[key] for key in order]} for row in rows]
+    note = f" (ignored {', '.join(repr(k) for k in extra)})" if extra else ""
+    repairs.append(
+        f"{where}.rows: ordered {len(rows)} column-keyed rows into cells{note}"
+    )
+
+
 def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
     """Normalize one block before the main pass; return the block(s) it
     stands for.
@@ -399,8 +521,136 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
         block["type"] = kind
         repairs.append(f"{where}.type: normalized {raw_type!r} to {kind!r}")
     out: list[dict] = []
+    if kind == "chart":
+        # A series with no points is the same placeholder an empty table is:
+        # the model announced a chart and then had nothing to put in it. The
+        # table case has been dropped rather than fatal since the first
+        # Gemini runs; this one had not, so on 2026-09-19 a RadixArk memo
+        # that was otherwise finished — seven sections, 378 other defects
+        # already absorbed — died on one chart nobody could have rendered.
+        series = block.get("series")
+        if isinstance(series, list):
+            kept = [
+                one
+                for one in series
+                if isinstance(one, dict)
+                and isinstance(one.get("points"), list)
+                and one.get("points")
+            ]
+            if len(kept) != len(series):
+                repairs.append(
+                    f"{where}.series: dropped "
+                    f"{len(series) - len(kept)} series with no points"
+                )
+            if not kept:
+                repairs.append(f"{where}: dropped empty chart")
+                return []
+            block["series"] = kept
+    # A single-series chart whose points arrived as a flat `data` list —
+    # {"label": {en, zh}, "value": n} per point — where the contract wants
+    # `series` of {label, points:[{x, y}]}. The points map one to one; only
+    # the legend label has to come from somewhere, and the block's own title
+    # is where it comes from, as a callout's missing title already comes from
+    # its body. Live on 2026-09-20 this cost a valuation chart its block.
+    if kind == "chart" and not block.get("series"):
+        data = block.get("data")
+        points = [
+            {"x": _content_text(point.get("label")), "y": point.get("value")}
+            for point in data
+            if isinstance(point, dict)
+        ] if isinstance(data, list) else []
+        usable = [
+            point
+            for point in points
+            if str(point["x"]).strip()
+            and not isinstance(point["y"], bool)
+            and isinstance(point["y"], (int, float))
+        ]
+        if usable and len(usable) == len(points):
+            block["series"] = [
+                {
+                    "label": _content_text(block.get("title")) or "Series 1",
+                    "points": usable,
+                }
+            ]
+            block.pop("data", None)
+            repairs.append(
+                f"{where}: turned a flat 'data' list of {len(usable)} points "
+                "into one series"
+            )
+        else:
+            derived = _series_from_column_keyed_points(data, where)
+            if derived:
+                block["series"] = derived
+                block.pop("data", None)
+                names = ", ".join(repr(one["label"]) for one in derived)
+                repairs.append(
+                    f"{where}: read {len(derived)} series ({names}) off "
+                    "points that named their own columns"
+                )
+
+    # A chart with nothing left to plot is the placeholder an empty table
+    # is, and dropping it is what already happens to a chart whose series
+    # carry no points. Reaching validation without one is fatal — "series
+    # must be a list of 1-4 series" ended a live attempt on 2026-09-20
+    # after every section had already been written.
+    if kind == "chart" and not block.get("series"):
+        repairs.append(f"{where}: dropped a chart with no series to plot")
+        return []
+
+    # A bullets block with no items, carrying its content as `text`: that is
+    # a paragraph, and typing it as one is what the block already is. Live on
+    # 2026-09-20 six of these failed a run's validation as "items must be a
+    # non-empty list" while their prose sat unread in `text`.
+    if kind == "bullets" and not block.get("items"):
+        if _content_text(block.get("text") or block.get("body")):
+            block.pop("items", None)
+            block["type"] = "paragraph"
+            kind = "paragraph"
+            repairs.append(
+                f"{where}: retyped an itemless bullets block as the "
+                "paragraph it already was"
+            )
     if kind == "table":
-        if not (block.get("headers") or block.get("rows")):
+        # A column-keyed table: `columns` of {key, label} (renamed to
+        # `headers` above) and each row a dict keyed by those column keys
+        # instead of a list of cells. Every cell is already a localized
+        # object and in the right column — only the order has to be
+        # recovered, and the headers carry it. Unrepaired, each row reads
+        # as an empty row and the whole table is dropped: live on
+        # 2026-09-20 this silently emptied the Key Metrics Snapshot of
+        # twelve rows on RadixArk and the same table plus Deal Snapshot on
+        # Databricks, which is why `company_team` was the short section on
+        # every Gemini run.
+        _adopt_column_keyed_rows(block, repairs, where)
+        # A key-value table delivered under `items` instead of `rows`: every
+        # pair is a two-cell row, which is the layout this component renders
+        # anyway. Live on 2026-09-20 the deal_terms table arrived this way
+        # with ten pairs in it — and on the run before, the same table was
+        # dropped as "empty" while its content sat in `items` unread.
+        if not block.get("rows") and isinstance(block.get("items"), list):
+            pairs = [
+                item
+                for item in block["items"]
+                if isinstance(item, dict) and set(item.keys()) == {"key", "value"}
+            ]
+            if pairs and len(pairs) == len(block["items"]):
+                block["rows"] = [
+                    {"cells": [pair["key"], pair["value"]]} for pair in pairs
+                ]
+                block.pop("items")
+                block.setdefault("headers", [])
+                repairs.append(
+                    f"{where}: turned {len(pairs)} key/value items into "
+                    "two-cell rows"
+                )
+        # A table with no rows is a table with nothing in it, even when it
+        # announced its columns: the reader gets a heading and one bare
+        # header row. Live on 2026-09-20 the Key Metrics Snapshot shipped
+        # that way on RadixArk. Dropping it lets the component gate say
+        # what is actually true — the memo is missing that component —
+        # instead of passing on the declared slug of an empty block.
+        if not block.get("rows"):
             repairs.append(f"{where}: dropped empty table")
             return []
         for key in _TABLE_PROSE_BEFORE:
@@ -505,6 +755,57 @@ def _repair_source_class_and_treatment(
         )
 
 
+# A localized value the model nested one level deeper than the contract, under
+# a name for the column plus a key for the machine:
+#     {"key": "metric", "label": {"en": "Metric", "zh": "指标"}}
+# where the renderer wants the localized object itself. Both halves are there
+# and already translated, so lifting the payload out loses nothing; the `key`
+# is the model's own bookkeeping and no reader ever sees it. Live on
+# 2026-09-19 and 2026-09-20 this one shape was 31 of 54 validation errors on
+# a package and blocked three runs between them.
+_LOCALIZED_PAYLOAD_KEYS = ("label", "header", "title", "text")
+
+
+def _unwrapped_localized(item: Any) -> tuple[dict, str] | None:
+    """The localized object nested inside ``item``, and the key it sat under."""
+    if not isinstance(item, dict) or "en" in item or "zh" in item:
+        return None
+    found = [key for key in _LOCALIZED_PAYLOAD_KEYS if key in item]
+    if len(found) != 1:
+        return None
+    key = found[0]
+    payload = item[key]
+    if isinstance(payload, dict) and ("en" in payload or "zh" in payload):
+        return payload, key
+    if (
+        isinstance(payload, str)
+        and payload.strip()
+        and not _is_language_neutral_text(payload)
+    ):
+        return {"en": payload, "zh": ""}, key
+    return None
+
+
+def _joined_localized(item: Any, keys: tuple[str, str]) -> dict | None:
+    """Two localized halves of one value, joined into the one the contract
+    wants. ``None`` when the item is not that shape."""
+    if not isinstance(item, dict) or "en" in item or "zh" in item:
+        return None
+    if set(item.keys()) != set(keys):
+        return None
+    first, second = (item.get(keys[0]), item.get(keys[1]))
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return None
+    joined = {}
+    for half in ("en", "zh"):
+        parts = [
+            str(first.get(half) or "").strip(),
+            str(second.get(half) or "").strip(),
+        ]
+        joined[half] = " ".join(part for part in parts if part)
+    return joined if joined.get("en") else None
+
+
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
     if not isinstance(items, list):
         return items
@@ -517,8 +818,29 @@ def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
         ):
             out.append({"en": item, "zh": ""})
             repairs.append(f"{where}[{index}]: wrapped plain string as bilingual en value")
-        else:
-            out.append(item)
+            continue
+        nested = _unwrapped_localized(item)
+        if nested is not None:
+            payload, key = nested
+            out.append(payload)
+            repairs.append(
+                f"{where}[{index}]: lifted the localized value out of "
+                f"{key!r}"
+            )
+            continue
+        # A bullet delivered as a lead line plus a body. The contract wants
+        # one localized string, and the renderer already bolds a bullet's
+        # lead by splitting at its first ". " — so joining the halves is
+        # both lossless and exactly the look the split was reaching for.
+        joined = _joined_localized(item, ("title", "text"))
+        if joined is not None:
+            out.append(joined)
+            repairs.append(
+                f"{where}[{index}]: joined the 'title' and 'text' halves "
+                "into one bullet"
+            )
+            continue
+        out.append(item)
     return out
 
 
@@ -754,6 +1076,13 @@ def _section_en_word_count(section: dict) -> int:
 
     walk(section.get("blocks") or [])
     return words
+
+
+def section_en_word_count(section: dict) -> int:
+    """Public name for the count the compact-budget gate enforces, so other
+    modules measure a section the way the renderer does rather than growing
+    a second counter that drifts from this one."""
+    return _section_en_word_count(section)
 
 
 # How far over its target a section may run before the gate fires, when the

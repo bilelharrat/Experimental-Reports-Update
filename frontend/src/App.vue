@@ -8,6 +8,7 @@ import {
   Link as LinkIcon,
   PanelLeft,
   PanelRightClose,
+  FileUp,
   Plus,
   ScrollText,
   Search,
@@ -26,6 +27,7 @@ import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import ReportCustomizerModal from "./components/ReportCustomizerModal.vue";
+import PitchDeckIntakeModal from "./components/research/PitchDeckIntakeModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
 import WelcomeTour from "./components/WelcomeTour.vue";
@@ -229,6 +231,36 @@ function openReportCustomizer(companyId = null) {
 }
 
 provide("openReportCustomizer", openReportCustomizer);
+
+// The pitch-deck drop lived under the research desk's directory column. The
+// column is part of the sidebar now, and the sidebar is mounted beside every
+// view, so the modal it opens belongs at app level rather than inside one
+// desk — same reasoning as the report customizer above.
+const deckIntakeOpen = ref(false);
+const deckIntakeFile = ref(null);
+
+function openDeckIntake(file = null) {
+  deckIntakeFile.value = file || null;
+  deckIntakeOpen.value = true;
+}
+
+// The intake sheet seeds from a file and has no picker of its own, so the
+// menu entry asks for one first. Dragging a deck onto the sidebar is the
+// other way in.
+const deckPickInput = ref(null);
+
+function pickDeck() {
+  if (!deckPickInput.value) return;
+  deckPickInput.value.value = "";
+  deckPickInput.value.click();
+}
+
+function onDeckPicked(event) {
+  const file = event.target.files?.[0];
+  if (file) openDeckIntake(file);
+}
+
+provide("openDeckIntake", openDeckIntake);
 
 const jumpHits = computed(() => {
   const q = jumpQuery.value.trim().toLowerCase();
@@ -864,6 +896,16 @@ provide("copilotNavigate", onCopilotNavigate);
                     <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
                     {{ t("documents.add_file") }}
                   </button>
+                  <button
+                    type="button"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    data-testid="menu-file-deck"
+                    @click="pickDeck(); closeChromeMenus()"
+                  >
+                    <FileUp class="h-4 w-4 shrink-0 text-ink-muted" />
+                    {{ t("sidebar.file_deck") }}
+                  </button>
                 </template>
                 <template v-else>
                   <button
@@ -911,6 +953,13 @@ provide("copilotNavigate", onCopilotNavigate);
                 :accept="FILE_ACCEPT"
                 class="hidden"
                 @change="onCompanyAddFiles"
+              />
+              <input
+                ref="deckPickInput"
+                type="file"
+                accept=".pdf,.pptx,.ppt"
+                class="hidden"
+                @change="onDeckPicked"
               />
             </div>
             <button
@@ -1062,6 +1111,14 @@ provide("copilotNavigate", onCopilotNavigate);
       :initial-company-id="reportCustomizerCompanyId"
       @close="reportCustomizerOpen = false"
       @created="refreshAll"
+    />
+    <PitchDeckIntakeModal
+      :is-open="deckIntakeOpen"
+      :initial-file="deckIntakeFile"
+      :company-id="currentCompanyId || ''"
+      :companies="companies"
+      @close="deckIntakeOpen = false"
+      @intake-complete="refreshAll"
     />
     <WelcomeTour :open="welcomeTourOpen" @close="closeWelcomeTour" />
   </div>

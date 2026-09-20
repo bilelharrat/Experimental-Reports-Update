@@ -3,14 +3,15 @@ import { computed, h, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import {
   ArrowUpDown,
-  Building2,
   Check,
   ChevronsUpDown,
+  Upload,
+  Sparkle,
+  Sparkles,
   FileText,
   Gauge,
   Home,
   LogOut,
-  Newspaper,
   PanelLeft,
   PanelLeftClose,
   Search,
@@ -26,10 +27,15 @@ import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
 import Monogram from "./Monogram.vue";
-import PulseECGIcon from "./PulseECGIcon.vue";
 
 import {
+  ALL_SECTORS,
   companySort,
+  deskDiffsOnly,
+  deskSector,
+  isCompanyModified,
+  setDeskSector,
+  toggleDeskDiffsOnly,
   companyViews,
   setCompanySort,
   sidebarCollapsed,
@@ -40,6 +46,34 @@ import {
 const t = useT();
 
 const openReportCustomizer = inject("openReportCustomizer", () => {});
+// The deck drop moved here with the rest of the directory column; the modal
+// it opens is mounted once, at app level.
+const openDeckIntake = inject("openDeckIntake", () => {});
+const deckDragOver = ref(false);
+
+const DECK_SUFFIXES = [".pdf", ".pptx", ".ppt"];
+
+function isDeck(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return DECK_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+function onDeckDragOver(event) {
+  // only light up for a file drag, not for text or a dragged link
+  if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
+  deckDragOver.value = true;
+}
+
+function onDeckDragLeave() {
+  deckDragOver.value = false;
+}
+
+function onDeckDrop(event) {
+  deckDragOver.value = false;
+  const file = event.dataTransfer?.files?.[0];
+  if (file && isDeck(file)) openDeckIntake(file);
+}
+
 
 function onGenerateReport() {
   openReportCustomizer();
@@ -92,10 +126,10 @@ const trackedCount = computed(
 
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
-  { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
-  { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
-  { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
-  { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
+  // Market, Pulse and News are three tabs of one desk now, so they are one
+  // row. The tab travels in the query, which keeps this row highlighted
+  // whichever of the three is open.
+  { id: "markets", to: { name: "markets" }, label: t("sidebar.markets"), icon: MarketIcon },
   { id: "reports", to: { name: "reports" }, label: t("sidebar.reports"), icon: FileText },
   {
     id: "tracking",
@@ -149,14 +183,37 @@ const listedCompanies = computed(() =>
 // A filter field earns its place once the list outgrows a glance.
 const showFilter = computed(() => (props.companies || []).length > 8);
 
+// Sectors the loaded companies actually have. "All" first, the rest sorted;
+// the row is hidden entirely when every company shares one sector, because a
+// dropdown with a single real choice is furniture.
+const sectors = computed(() => {
+  const set = new Set();
+  for (const company of props.companies || []) {
+    const sector = String(company?.sector || "").trim();
+    if (sector) set.add(sector);
+  }
+  return [ALL_SECTORS, ...Array.from(set).sort()];
+});
+
+const showSectorFilter = computed(() => sectors.value.length > 2);
+
 const visibleCompanies = computed(() => {
   const q = filterQuery.value.trim().toLowerCase();
-  if (!q || !showFilter.value) return listedCompanies.value;
-  return listedCompanies.value.filter((company) =>
-    `${company.name || ""} ${company.ticker || ""} ${companyCategory(company)}`
+  const sector = deskSector.value;
+  return listedCompanies.value.filter((company) => {
+    if (deskDiffsOnly.value && !isCompanyModified(company)) return false;
+    if (
+      showSectorFilter.value &&
+      sector !== ALL_SECTORS &&
+      company.sector !== sector
+    ) {
+      return false;
+    }
+    if (!q || !showFilter.value) return true;
+    return `${company.name || ""} ${company.ticker || ""} ${companyCategory(company)}`
       .toLowerCase()
-      .includes(q),
-  );
+      .includes(q);
+  });
 });
 
 const collapseLabel = computed(() =>
@@ -390,7 +447,13 @@ onBeforeUnmount(() => {
       <div class="mx-4 my-2.5 h-px shrink-0 bg-ink-primary/[0.07]" aria-hidden="true" />
 
       <!-- Companies -->
-      <section class="flex min-h-0 flex-1 flex-col">
+      <section
+        class="flex min-h-0 flex-1 flex-col"
+        data-tour="companies"
+        @dragover.prevent="onDeckDragOver"
+        @dragleave="onDeckDragLeave"
+        @drop.prevent="onDeckDrop"
+      >
         <div
           v-if="!collapsed"
           class="mb-1 flex shrink-0 items-center justify-between gap-2 pl-[1.125rem] pr-2.5"
@@ -451,6 +514,50 @@ onBeforeUnmount(() => {
               @keydown.escape.stop="filterQuery = ''"
             />
           </div>
+        </div>
+
+        <!-- Sector and Diffs: the two filters the desk's directory column
+             carried, now that the column is this list. -->
+        <div
+          v-if="!collapsed && (showSectorFilter || listedCompanies.length)"
+          class="flex shrink-0 items-center gap-1.5 px-2.5 pb-1.5"
+        >
+          <div v-if="showSectorFilter" class="mac-popup min-w-0 flex-1">
+            <select
+              :value="deskSector"
+              :aria-label="t('sidebar.sector')"
+              @change="setDeskSector($event.target.value)"
+            >
+              <option v-for="sector in sectors" :key="sector" :value="sector">
+                {{ sector === ALL_SECTORS ? t("sidebar.all_sectors") : sector }}
+              </option>
+            </select>
+            <ChevronsUpDown class="mac-popup-chevron h-2.5 w-2.5" />
+          </div>
+          <button
+            type="button"
+            class="mac-btn mac-btn--mini shrink-0"
+            :class="deskDiffsOnly ? 'mac-btn--tint' : ''"
+            :title="t('sidebar.diffs_help')"
+            :aria-pressed="deskDiffsOnly"
+            data-testid="sidebar-diffs-toggle"
+            @click="toggleDeskDiffsOnly()"
+          >
+            <component :is="deskDiffsOnly ? Sparkle : Sparkles" class="h-3 w-3" />
+            <span>{{ t("sidebar.diffs") }}</span>
+          </button>
+        </div>
+
+        <!-- Only while a deck is actually over the list: a permanent
+             drop box cost three lines of the rail to say something the
+             reader already knows how to do. -->
+        <div
+          v-if="deckDragOver && !collapsed"
+          class="sidebar-deck-overlay"
+          data-testid="sidebar-deck-overlay"
+        >
+          <Upload class="h-4 w-4 shrink-0" />
+          <span>{{ t("sidebar.drop_deck_release") }}</span>
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-1">
@@ -518,7 +625,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-      </section>
+</section>
 
       <!-- Account -->
       <div ref="accountAnchor" class="relative shrink-0 px-2 pb-2">

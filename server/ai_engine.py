@@ -29,6 +29,28 @@ DEFAULT_POLICY = "gemini"
 
 
 def policy() -> str:
+    """The engine policy in force, most specific source first.
+
+    1. The desk-wide setting, chosen in Settings. This wins because a
+       person changing it in the UI has to see it take effect; an env pin
+       that silently overrode them would be indistinguishable from a bug.
+    2. ``BSH_AI_ENGINE``, which is how a deployment sets the starting
+       position and how this worked before the setting existed.
+    3. ``gemini``.
+
+    Imported lazily: product_store pulls in claude_runner and the storage
+    layer, and this module is imported from call sites that have no
+    business paying for that at import time.
+    """
+    from . import product_store
+
+    try:
+        stored = product_store.research_engine()
+    except Exception:  # noqa: BLE001 — a settings read must never break a call
+        logger.warning("ai_engine: could not read the stored policy", exc_info=True)
+        stored = None
+    if stored in POLICIES:
+        return stored
     raw = str(os.environ.get("BSH_AI_ENGINE") or "").strip().lower()
     return raw if raw in POLICIES else DEFAULT_POLICY
 
