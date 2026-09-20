@@ -272,6 +272,8 @@ _BLOCK_KEY_SYNONYMS = {
     # A table's header row.
     "columns": "headers",
     "column_headers": "headers",
+    # A chart's reading note under the analysis passes' word for it.
+    "reading_note": "reading",
 }
 
 # A bullets or callout list under a key that echoes the block's own type.
@@ -424,7 +426,74 @@ def _expand_block(block: dict, repairs: list[str], where: str) -> list[dict]:
                 repairs.append(f"{where}: dropped empty chart")
                 return []
             block["series"] = kept
+    # A single-series chart whose points arrived as a flat `data` list —
+    # {"label": {en, zh}, "value": n} per point — where the contract wants
+    # `series` of {label, points:[{x, y}]}. The points map one to one; only
+    # the legend label has to come from somewhere, and the block's own title
+    # is where it comes from, as a callout's missing title already comes from
+    # its body. Live on 2026-09-20 this cost a valuation chart its block.
+    if kind == "chart" and not block.get("series"):
+        data = block.get("data")
+        points = [
+            {"x": _content_text(point.get("label")), "y": point.get("value")}
+            for point in data
+            if isinstance(point, dict)
+        ] if isinstance(data, list) else []
+        usable = [
+            point
+            for point in points
+            if str(point["x"]).strip()
+            and not isinstance(point["y"], bool)
+            and isinstance(point["y"], (int, float))
+        ]
+        if usable and len(usable) == len(points):
+            block["series"] = [
+                {
+                    "label": _content_text(block.get("title")) or "Series 1",
+                    "points": usable,
+                }
+            ]
+            block.pop("data", None)
+            repairs.append(
+                f"{where}: turned a flat 'data' list of {len(usable)} points "
+                "into one series"
+            )
+
+    # A bullets block with no items, carrying its content as `text`: that is
+    # a paragraph, and typing it as one is what the block already is. Live on
+    # 2026-09-20 six of these failed a run's validation as "items must be a
+    # non-empty list" while their prose sat unread in `text`.
+    if kind == "bullets" and not block.get("items"):
+        if _content_text(block.get("text") or block.get("body")):
+            block.pop("items", None)
+            block["type"] = "paragraph"
+            kind = "paragraph"
+            repairs.append(
+                f"{where}: retyped an itemless bullets block as the "
+                "paragraph it already was"
+            )
     if kind == "table":
+        # A key-value table delivered under `items` instead of `rows`: every
+        # pair is a two-cell row, which is the layout this component renders
+        # anyway. Live on 2026-09-20 the deal_terms table arrived this way
+        # with ten pairs in it — and on the run before, the same table was
+        # dropped as "empty" while its content sat in `items` unread.
+        if not block.get("rows") and isinstance(block.get("items"), list):
+            pairs = [
+                item
+                for item in block["items"]
+                if isinstance(item, dict) and set(item.keys()) == {"key", "value"}
+            ]
+            if pairs and len(pairs) == len(block["items"]):
+                block["rows"] = [
+                    {"cells": [pair["key"], pair["value"]]} for pair in pairs
+                ]
+                block.pop("items")
+                block.setdefault("headers", [])
+                repairs.append(
+                    f"{where}: turned {len(pairs)} key/value items into "
+                    "two-cell rows"
+                )
         if not (block.get("headers") or block.get("rows")):
             repairs.append(f"{where}: dropped empty table")
             return []
@@ -561,6 +630,26 @@ def _unwrapped_localized(item: Any) -> tuple[dict, str] | None:
     return None
 
 
+def _joined_localized(item: Any, keys: tuple[str, str]) -> dict | None:
+    """Two localized halves of one value, joined into the one the contract
+    wants. ``None`` when the item is not that shape."""
+    if not isinstance(item, dict) or "en" in item or "zh" in item:
+        return None
+    if set(item.keys()) != set(keys):
+        return None
+    first, second = (item.get(keys[0]), item.get(keys[1]))
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return None
+    joined = {}
+    for half in ("en", "zh"):
+        parts = [
+            str(first.get(half) or "").strip(),
+            str(second.get(half) or "").strip(),
+        ]
+        joined[half] = " ".join(part for part in parts if part)
+    return joined if joined.get("en") else None
+
+
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
     if not isinstance(items, list):
         return items
@@ -581,6 +670,18 @@ def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
             repairs.append(
                 f"{where}[{index}]: lifted the localized value out of "
                 f"{key!r}"
+            )
+            continue
+        # A bullet delivered as a lead line plus a body. The contract wants
+        # one localized string, and the renderer already bolds a bullet's
+        # lead by splitting at its first ". " — so joining the halves is
+        # both lossless and exactly the look the split was reaching for.
+        joined = _joined_localized(item, ("title", "text"))
+        if joined is not None:
+            out.append(joined)
+            repairs.append(
+                f"{where}[{index}]: joined the 'title' and 'text' halves "
+                "into one bullet"
             )
             continue
         out.append(item)

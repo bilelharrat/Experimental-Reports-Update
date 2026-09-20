@@ -1610,6 +1610,123 @@ def test_repair_leaves_an_ambiguous_wrapper_alone():
     assert memo_docx_renderer._unwrapped_localized("plain") is None
 
 
+def test_repair_joins_a_bullet_delivered_as_lead_and_body():
+    """A bullet given as a lead line plus a body. The contract wants one
+    localized string, and the renderer already bolds a bullet's lead by
+    splitting at its first ". ", so joining is both lossless and the look
+    the split was reaching for."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": [
+                {
+                    "title": {"en": "What this opens:", "zh": "这打开了："},
+                    "text": {"en": "A $16B market by 2026.", "zh": "到 2026 年 160 亿美元市场。"},
+                }
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][-1]["items"][0] == {
+        "en": "What this opens: A $16B market by 2026.",
+        "zh": "这打开了： 到 2026 年 160 亿美元市场。",
+    }
+    assert any("joined the 'title' and 'text'" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_turns_key_value_items_into_rows():
+    """A key-value table delivered under `items` instead of `rows`. On the
+    run before, the same table was dropped as empty while its content sat
+    in `items` unread."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "component": "deal_terms",
+            "items": [
+                {"key": {"en": "Round", "zh": "轮次"}, "value": {"en": "Seed", "zh": "种子"}},
+                {"key": {"en": "Size", "zh": "规模"}, "value": {"en": "$100M", "zh": "1 亿美元"}},
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    table = repaired["sections"][0]["blocks"][-1]
+    assert table["rows"] == [
+        {"cells": [{"en": "Round", "zh": "轮次"}, {"en": "Seed", "zh": "种子"}]},
+        {"cells": [{"en": "Size", "zh": "规模"}, {"en": "$100M", "zh": "1 亿美元"}]},
+    ]
+    assert "items" not in table
+    assert any("two-cell rows" in r for r in repairs)
+
+
+def test_repair_retypes_an_itemless_bullets_block():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": None,
+            "text": {"en": "Prose that never was a list.", "zh": "从来不是列表的散文。"},
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    block = repaired["sections"][0]["blocks"][-1]
+    assert block["type"] == "paragraph" and "items" not in block
+    assert any("retyped an itemless" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_maps_a_flat_chart_data_list_onto_series():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Gross MOIC by scenario", "zh": "各情景总回报倍数"},
+            "reading_note": {"en": "Base case returns 0.9x.", "zh": "基准情形 0.9 倍。"},
+            "data": [
+                {"label": {"en": "Bear", "zh": "悲观"}, "value": 0.3},
+                {"label": {"en": "Base", "zh": "基准"}, "value": 0.9},
+                {"label": {"en": "Bull", "zh": "乐观"}, "value": 3.15},
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    chart = repaired["sections"][0]["blocks"][-1]
+    assert chart["series"] == [
+        {
+            "label": "Gross MOIC by scenario",
+            "points": [{"x": "Bear", "y": 0.3}, {"x": "Base", "y": 0.9}, {"x": "Bull", "y": 3.15}],
+        }
+    ]
+    assert "data" not in chart
+    # The reading note arrives under the analysis passes' word for it.
+    assert chart["reading"]["en"] == "Base case returns 0.9x."
+    assert any("into one series" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_leaves_a_half_usable_chart_data_list_alone():
+    """Mapping only happens when EVERY point maps; a partial list is a
+    judgment call and goes to the validation feedback loop."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": {"en": "Mixed", "zh": "混合"},
+            "data": [
+                {"label": {"en": "Bear", "zh": "悲观"}, "value": 0.3},
+                {"label": {"en": "Base", "zh": "基准"}, "value": None},
+            ],
+        }
+    )
+    repaired, _repairs = memo_docx_renderer.repair_package_structure(package)
+    blocks = repaired["sections"][0]["blocks"]
+    assert all("series" not in b for b in blocks if b.get("type") == "chart")
+
+
 def test_repair_normalizes_block_type_synonyms():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append(
