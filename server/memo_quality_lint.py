@@ -298,8 +298,24 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bdiligence thresholds?\b", re.IGNORECASE),
     re.compile(r"\bNext Diligence Actions\b", re.IGNORECASE),
     re.compile(r"\bsupport thresholds?\b", re.IGNORECASE),
-    re.compile(r"\bnamed institutional lead\b", re.IGNORECASE),
-    re.compile(r"\bnamed lead\b", re.IGNORECASE),
+    # A named lead is a checklist item when the memo DEMANDS one, and
+    # evidence when it names what would change the call — which is what
+    # a pass or watch verdict is required to state, and what a risk
+    # card's "What we watch" row is FOR. Live on 2026-09-20 the Surge AI
+    # memo lost two P0s to "a closed priced round with a named
+    # institutional lead", the plainest available wording for the signal
+    # it was asked to name. Fires as a demand or as a line-initial
+    # label, not inside prose.
+    re.compile(
+        r"(?:^\s*"
+        r"|\b(?:conditions?|requirements?|gates?|thresholds?)\s*:\s*"
+        r"(?:\w+\s+){0,3}"
+        r"|\b(?:requires?|required|requiring|needs?|needed|confirm|"
+        r"conditional(?:\s+on)?|contingent\s+on|subject\s+to|pending|"
+        r"before)\s+(?:\w+\s+){0,3})"
+        r"named\s+(?:institutional\s+)?lead\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bdown-?round protection\b", re.IGNORECASE),
     re.compile(r"\bMFN\b"),
     re.compile(r"\brequire data room\b", re.IGNORECASE),

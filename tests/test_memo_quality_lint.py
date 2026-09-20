@@ -745,6 +745,36 @@ def test_a_document_store_is_not_the_memo_talking_about_itself():
         assert fires(banned), banned
 
 
+def test_a_named_lead_is_evidence_unless_the_memo_demands_one():
+    """The ban belongs to the diligence-checklist cluster — "confirm
+    before funding", "we still need", "require data room". A pass or
+    watch verdict is REQUIRED to state what would change the call, and a
+    risk card's "What we watch" row is required to name the signal; a
+    named lead is the plainest wording for both. Live on 2026-09-20 the
+    Surge AI memo lost two P0s to exactly that sentence.
+    """
+    for allowed in (
+        # Verbatim from that run's executive summary and risks table.
+        "What would change the call is specific: a closed priced round "
+        "with a named institutional lead, a disclosed gross margin and "
+        "customer mix, or an entry near the $11B low end of the range.",
+        "A closed round with a named lead and a disclosed price, which "
+        "would replace the reference mark with a cleared one.",
+        "The June round had no named lead, which is the fact that "
+        "matters here.",
+    ):
+        assert not memo_quality_lint.banned_body_voice_phrase(allowed), allowed
+    # The checklist the ban exists for still fires.
+    for banned in (
+        "Named institutional lead",
+        "Conditions: named lead, audited margin, signed contracts.",
+        "Requirements: a named institutional lead.",
+        "BSH requires a named institutional lead before funding.",
+        "Contingent on a named lead being disclosed.",
+    ):
+        assert memo_quality_lint.banned_body_voice_phrase(banned), banned
+
+
 def test_meta_language_suggestion_shows_the_rewrite(tmp_path):
     """The 2026-09-17 compact run shipped with three meta_process_language
     findings the surgical repair had already tried and failed to fix. The
