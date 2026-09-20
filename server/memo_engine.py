@@ -633,6 +633,22 @@ def en_word_count(section: dict | None) -> int:
     return words
 
 
+def split_target(target: WordTarget, parts: int) -> WordTarget:
+    """One subsection's share of a section's length band.
+
+    A section drafted one subsection per call must not hand each call the
+    whole section's target, or every piece writes a whole section. The band
+    arithmetic stays here so it cannot drift from the band it divides.
+    """
+    if parts <= 1:
+        return target
+    return WordTarget(
+        target=max(1, int(round(target.target / parts))),
+        low=max(1, int(round(target.low / parts))),
+        high=max(1, int(round(target.high / parts))),
+    )
+
+
 def renderable_en_word_count(section: dict | None) -> int:
     """English words the RENDERER will accept from this section.
 

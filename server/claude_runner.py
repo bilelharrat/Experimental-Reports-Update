@@ -8130,23 +8130,34 @@ def _section_piece_error(
             path.write_text(text, encoding="utf-8")
         except OSError:
             logger.warning("could not rewrite closed piece %s", path)
+    return _section_piece_payload_error(
+        data, number, f"`{path.name}`", heading_en
+    )
+
+
+def _section_piece_payload_error(
+    data: Any, number: int, where: str, heading_en: str
+) -> str | None:
+    """Why this subsection payload cannot be used, or None when it is good.
+
+    Shared by both deliveries — the file a Claude worker writes and the
+    response a Gemini call returns — so a piece means the same thing
+    whichever way it arrived.
+    """
     if not isinstance(data, dict):
-        return f"piece {number} (`{path.name}`) is not a JSON object"
+        return f"piece {number} ({where}) is not a JSON object"
     blocks = data.get("blocks")
     if not isinstance(blocks, list) or not blocks:
-        return (
-            f"piece {number} (`{path.name}`) has no non-empty `blocks` list"
-        )
+        return f"piece {number} ({where}) has no non-empty `blocks` list"
     for index, block in enumerate(blocks):
         if not isinstance(block, dict):
             return (
-                f"piece {number} (`{path.name}`) block {index} is not a "
-                "JSON object"
+                f"piece {number} ({where}) block {index} is not a JSON object"
             )
     first = blocks[0]
     if first.get("type") != "heading":
         return (
-            f"piece {number} (`{path.name}`) must open with its heading "
+            f"piece {number} ({where}) must open with its heading "
             f'block ("{heading_en}"), not a {first.get("type") or "typeless"} '
             "block"
         )
@@ -8154,7 +8165,7 @@ def _section_piece_error(
     found = text.get("en") if isinstance(text, dict) else text
     if _normalized_heading(found or "") != _normalized_heading(heading_en):
         return (
-            f"piece {number} (`{path.name}`) opens with the heading "
+            f"piece {number} ({where}) opens with the heading "
             f'"{found}" where the scaffold fixes "{heading_en}"'
         )
     return None
@@ -8261,6 +8272,225 @@ def _accumulate_call_cost(totals: dict, result: dict | None) -> None:
         totals["duration_ms"] = (totals.get("duration_ms") or 0) + int(duration)
     if totals.get("usage") is None:
         totals["usage"] = result.get("claude_usage")
+
+
+_MEMO_ENGLISH_SECTION_PIECE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "piece": {"type": "integer"},
+        "blocks": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+    },
+    "required": ["piece", "blocks"],
+}
+
+
+def _section_split_calls_enabled(
+    section_id: str, section_def, run_dir: Path | None = None
+) -> bool:
+    """Whether this section is drafted one call per subsection.
+
+    The Gemini counterpart of ``_section_handoff_enabled``. Claude splits a
+    section into files because one response cannot carry it; Gemini has the
+    same problem and no filesystem, so it splits into CALLS instead. Same
+    reason, same plan, different transport.
+    """
+    if run_dir is None or memo_engine.run_engine(run_dir) != "gemini":
+        return False
+    if os.environ.get("BSH_MEMO_GEMINI_SECTION_SPLIT", "1") != "1":
+        return False
+    return bool(section_def is not None and len(section_def.subsections) > 1)
+
+
+def _section_call_piece_prompt(
+    *,
+    body: str,
+    section_id: str,
+    number: int,
+    heading_en: str,
+    heading_zh: str,
+    plan: list[tuple[int, str, str, Path]],
+    written: list[dict],
+    reason: str | None = None,
+) -> str:
+    """Ask for ONE subsection, in the response, with the ones already
+    written alongside it so the section stays one argument."""
+    siblings = "\n".join(
+        f'- subsection {other} ("{other_en}")'
+        + (" — already written, below" if other < number else " — comes later")
+        for other, other_en, _zh, _path in plan
+        if other != number
+    )
+    done_block = ""
+    if written:
+        done_block = (
+            "\n## The subsections you have already written\n"
+            "These are final and are being used as they stand. Do not repeat "
+            "their points, contradict their numbers, or re-introduce what "
+            "they already defined — continue the same argument.\n\n"
+            + json.dumps(written, ensure_ascii=False, indent=2)
+            + "\n"
+        )
+    retry_block = ""
+    if reason:
+        retry_block = (
+            f"\n## Your last attempt at this subsection was unusable\n"
+            f"{reason}\n"
+            "Write it again, correctly, and change nothing else.\n"
+        )
+    return f"""{body}
+## Write ONE subsection
+This section is delivered one subsection per reply, because a whole section
+in a single response is all-or-nothing: a live run ran past the output
+ceiling mid-section and every word of it was lost. You are still writing
+ONE section — the split is a delivery detail.
+
+Write subsection {number} ("{heading_en}" / "{heading_zh}") and nothing
+else. Its siblings:
+{siblings}
+{done_block}{retry_block}
+Return only:
+{{"piece": {number}, "blocks": [ ... ]}}
+matching the attached schema. `blocks` opens with that subsection's heading
+block — {{"type": "heading", "level": 2, "text": {{"en": "{heading_en}",
+"zh": "{heading_zh}"}}}} — and then carries every block belonging to it.
+Same block shapes and same bilingual {{en, zh}} objects you would use
+inline: every reader-facing string is an object with BOTH halves filled,
+never a bare string and never an English sentence left in the `zh` half.
+"""
+
+
+def _run_english_section_via_calls(
+    *,
+    run_dir: Path,
+    section_id: str,
+    section_def,
+    make_body,
+    depth_target,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Draft one section as one call per subsection, then assemble it here.
+
+    The Gemini twin of ``_run_english_section_via_pieces``: same plan, same
+    per-piece validation, same assembly, and the piece travels back in the
+    response because the engine has no filesystem to write to.
+
+    It buys what the file handoff buys on Claude — a failure costs one
+    subsection instead of the whole section. Live on 2026-09-19 a Gemini
+    `valuation_returns` ran past the 64k output ceiling and lost every word,
+    and a `thesis_market` came back with 2,128 of its words in shapes the
+    renderer drops; both cost a full section respin, and one of them cost
+    the whole wave.
+
+    The calls run in order, each carrying the subsections already written,
+    because on Claude one agent writes them all in a single session and can
+    see what it has said. Sections are still drafted in parallel with each
+    other, so the wave's width is unchanged.
+    """
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+    piece_target = (
+        memo_engine.split_target(depth_target, len(plan))
+        if depth_target is not None
+        else None
+    )
+    piece_body = make_body(
+        "\n" + memo_engine.length_contract(piece_target)
+        if piece_target is not None
+        else ""
+    )
+    totals: dict[str, Any] = {}
+    written: list[dict] = []
+    blocks: list[dict] = []
+
+    for number, heading_en, heading_zh, _path in plan:
+        reason: str | None = None
+        for attempt in range(1, MEMO_SECTION_PIECE_MAX_RETRIES + 1):
+            halt_error = _memo_run_halt_error(run_dir)
+            if halt_error:
+                return None, halt_error
+            if reason is not None and progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_section_piece_retry",
+                    message=(
+                        f"{section_id}: {reason}; asking for that subsection "
+                        f"again (attempt {attempt} of "
+                        f"{MEMO_SECTION_PIECE_MAX_RETRIES})"
+                    ),
+                    section_id=section_id,
+                    piece=number,
+                )
+            result, error = _run_memo_local_json_artifact(
+                prompt=_section_call_piece_prompt(
+                    body=piece_body,
+                    section_id=section_id,
+                    number=number,
+                    heading_en=heading_en,
+                    heading_zh=heading_zh,
+                    plan=plan,
+                    written=written,
+                    reason=reason,
+                ),
+                schema=_MEMO_ENGLISH_SECTION_PIECE_SCHEMA,
+                run_dir=run_dir,
+                progress=progress,
+                progress_message=(
+                    f"Drafting {section_id} subsection {number}"
+                ),
+                timeout_label=(
+                    f"memo English section ({section_id} piece {number})"
+                ),
+                timeout_sec=timeout_sec,
+                silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+                add_dirs=add_dirs,
+                model=_memo_role_model("SECTION", run_dir),
+                effort=_memo_role_effort("SECTION", run_dir),
+                append_system_prompt=common_context,
+            )
+            _accumulate_call_cost(totals, result)
+            if error:
+                reason = f"the call failed: {str(error)[:200]}"
+                continue
+            reason = _section_piece_payload_error(
+                result, number, "the reply", heading_en
+            )
+            if reason is None:
+                break
+        if reason is not None:
+            return None, (
+                f"section {section_id}: subsection {number} is still "
+                f"unusable after {MEMO_SECTION_PIECE_MAX_RETRIES} attempts "
+                f"({reason})"
+            )
+        piece_blocks = list(result["blocks"])
+        blocks.extend(piece_blocks)
+        written.append({"piece": number, "blocks": piece_blocks})
+
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_assembled",
+            message=(
+                f"{section_id}: assembled {len(plan)} subsection replies into "
+                f"{len(blocks)} blocks"
+            ),
+            section_id=section_id,
+        )
+    return (
+        {
+            "section": {"id": section_id, "blocks": blocks},
+            "claude_cost_usd": totals.get("cost"),
+            "claude_duration_ms": totals.get("duration_ms"),
+            "claude_usage": totals.get("usage"),
+        },
+        None,
+    )
 
 
 def _run_english_section_via_pieces(
@@ -8665,7 +8895,12 @@ defects:
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
-    body = f"""\
+    #
+    # The length block is the one part a per-subsection split must replace —
+    # handing every piece the whole section's target would have each of them
+    # write a whole section — so the body is built around it.
+    def _make_body(length_block: str) -> str:
+        return f"""\
 You are drafting ONE SECTION of the English source package. Sibling workers
 draft the other sections in parallel; the shared fact sheet below pins
 everything the sections must agree on. Repeat the pinned recommendation,
@@ -8680,8 +8915,26 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{depth_block}
+{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}{length_block}
 """
+
+    body = _make_body(depth_block)
+    # A depth revision hands the worker a whole draft to bring to length;
+    # that is a section-shaped job, so it stays a single call.
+    if depth_revision is None and _section_split_calls_enabled(
+        section_id, section_def, run_dir
+    ):
+        return _run_english_section_via_calls(
+            run_dir=run_dir,
+            section_id=section_id,
+            section_def=section_def,
+            make_body=_make_body,
+            depth_target=depth_target,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
     if _section_handoff_enabled(section_id, section_def, run_dir):
         return _run_english_section_via_pieces(
             run_dir=run_dir,
