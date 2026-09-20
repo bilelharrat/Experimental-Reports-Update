@@ -352,6 +352,77 @@ def _candidate_text(payload: dict) -> str:
     return "".join(chunks).strip()
 
 
+# What a call actually consumed. The API reports this on every response and
+# the memo pipeline threw it away, so every Gemini run reported $0.00 while
+# a Claude one reported real dollars — the two engines could not be compared
+# on cost at all.
+def _usage_from_payload(payload: dict) -> dict | None:
+    """Token counts for one call, in the Claude CLI's vocabulary.
+
+    Named to match what the memo pipeline already carries
+    (``input_tokens`` / ``output_tokens``) so a Gemini call's usage lands in
+    the same fields a Claude call's does and every reader downstream works
+    unchanged.
+    """
+    raw = payload.get("usageMetadata")
+    if not isinstance(raw, dict):
+        return None
+
+    def _count(key: str) -> int:
+        value = raw.get(key)
+        return int(value) if isinstance(value, (int, float)) else 0
+
+    thoughts = _count("thoughtsTokenCount")
+    usage = {
+        "input_tokens": _count("promptTokenCount"),
+        # Thinking tokens are billed as output and are most of a reasoning
+        # call, so they belong in the output count, not beside it.
+        "output_tokens": _count("candidatesTokenCount") + thoughts,
+        "thinking_tokens": thoughts,
+        "cached_input_tokens": _count("cachedContentTokenCount"),
+        "total_tokens": _count("totalTokenCount"),
+    }
+    return usage if usage["total_tokens"] or usage["input_tokens"] else None
+
+
+def _price_per_mtok(model: str, direction: str) -> float | None:
+    """USD per million tokens for this model, or None when unpriced.
+
+    Deliberately not hard-coded: published Gemini prices change and a stale
+    table would report confident, wrong dollars — worse than reporting none.
+    Set `BSH_GEMINI_USD_PER_MTOK_IN` / `_OUT` (or the per-model
+    `BSH_GEMINI_USD_PER_MTOK_IN_<MODEL>`, non-alphanumerics as underscores,
+    upper-cased) and the cost appears everywhere a Claude cost does.
+    """
+    suffix = re.sub(r"[^0-9A-Za-z]+", "_", model).upper()
+    for name in (
+        f"BSH_GEMINI_USD_PER_MTOK_{direction}_{suffix}",
+        f"BSH_GEMINI_USD_PER_MTOK_{direction}",
+    ):
+        raw = str(os.environ.get(name) or "").strip()
+        if not raw:
+            continue
+        try:
+            return float(raw)
+        except ValueError:
+            logger.warning("%s=%r is not a number; ignoring", name, raw)
+    return None
+
+
+def usd_cost(usage: dict | None, model: str) -> float | None:
+    """What one call cost, or None when this model has no configured price."""
+    if not isinstance(usage, dict):
+        return None
+    price_in = _price_per_mtok(model, "IN")
+    price_out = _price_per_mtok(model, "OUT")
+    if price_in is None and price_out is None:
+        return None
+    cost = (usage.get("input_tokens", 0) / 1_000_000) * (price_in or 0.0) + (
+        usage.get("output_tokens", 0) / 1_000_000
+    ) * (price_out or 0.0)
+    return round(cost, 6)
+
+
 def _grounding_meta(payload: dict) -> dict:
     """Source URIs and executed searches from ``groundingMetadata``.
 
@@ -713,6 +784,8 @@ def _single_call(
     meta = _grounding_meta(payload)
     meta["model"] = chosen_model
     meta["engine"] = "gemini"
+    meta["usage"] = _usage_from_payload(payload)
+    meta["cost_usd"] = usd_cost(meta["usage"], chosen_model)
     # A grounded request whose response reports no searches was answered from
     # model memory. It is not research, and callers must not present it as
     # though it were.
@@ -799,11 +872,66 @@ def run_structured_prompt(
     """Text-in / structured-JSON-out, mirroring ``claude_runner`` s contract.
 
     Returns ``(data, error)`` — exactly one of the two is non-None. ``name``
-    is a debug label that ends up in error messages.
+    is a debug label that ends up in error messages. Callers that need what
+    the call consumed use ``run_structured_prompt_with_meta``.
+    """
+    data, _meta, error = run_structured_prompt_with_meta(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=schema,
+        name=name,
+        timeout_sec=timeout_sec,
+        model=model,
+        thinking_level=thinking_level,
+        grounded=grounded,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+    )
+    return data, error
+
+
+def run_structured_prompt_with_meta(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str = "structured_output",
+    timeout_sec: int = 180,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    grounded: bool = False,
+    temperature: float | None = None,
+    max_output_tokens: int | None = None,
+) -> tuple[dict | None, dict, str | None]:
+    """``run_structured_prompt`` plus the call's meta (model, usage, cost).
+
+    Usage accumulates across the parse retries, because a retried call was
+    still billed for the reply that did not parse.
     """
     prompt = user_prompt
+    totals: dict = {}
+
+    def _keep(meta: dict) -> dict:
+        usage = meta.get("usage") if isinstance(meta, dict) else None
+        if isinstance(usage, dict):
+            kept = totals.setdefault(
+                "usage",
+                {k: 0 for k in usage},
+            )
+            for key, value in usage.items():
+                if isinstance(value, (int, float)):
+                    kept[key] = kept.get(key, 0) + value
+        cost = meta.get("cost_usd") if isinstance(meta, dict) else None
+        if isinstance(cost, (int, float)):
+            totals["cost_usd"] = round(
+                (totals.get("cost_usd") or 0.0) + float(cost), 6
+            )
+        merged = dict(meta or {})
+        merged.update({k: v for k, v in totals.items() if v is not None})
+        return merged
+
     for attempt in range(PARSE_RETRIES + 1):
-        data, _meta, error = _run(
+        data, meta, error = _run(
             system_prompt=system_prompt,
             user_prompt=prompt,
             schema=schema,
@@ -815,8 +943,9 @@ def run_structured_prompt(
             temperature=temperature,
             max_output_tokens=max_output_tokens,
         )
+        meta = _keep(meta)
         if data is not None or not error:
-            return data, error
+            return data, meta, error
         if UNPARSEABLE_MARKER in error:
             nudge = _REPARSE_NUDGE.format(reason=error[:300])
             why = "did not parse"
@@ -825,9 +954,9 @@ def run_structured_prompt(
             why = "ran past the output limit"
         else:
             # empty, blocked, no key: the second try answers the same
-            return data, error
+            return data, meta, error
         if attempt >= PARSE_RETRIES:
-            return data, error
+            return data, meta, error
         logger.warning(
             "gemini: %s %s; asking again (%d of %d)",
             name,
@@ -836,7 +965,7 @@ def run_structured_prompt(
             PARSE_RETRIES,
         )
         prompt = user_prompt + nudge
-    return None, error
+    return None, _keep({}), error
 
 
 RESEARCH_INSTRUCTION = (

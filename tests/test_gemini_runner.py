@@ -6,6 +6,7 @@ never needs a real key.
 from __future__ import annotations
 
 import json
+import os
 
 import httpx
 from pathlib import Path
@@ -923,3 +924,59 @@ def test_it_still_gives_up_after_one_over_length_retry(monkeypatch):
     assert data is None
     assert gemini_runner.OUTPUT_LIMIT_MARKER in error
     assert len(seen) == 2
+
+
+# A real Gemini response envelope: the memo pipeline read everything in it
+# except this block, so every Gemini run reported $0.00 next to a Claude run's
+# real dollars and the two could not be compared on cost.
+_USAGE_PAYLOAD = {
+    "candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}],
+    "usageMetadata": {
+        "promptTokenCount": 120000,
+        "candidatesTokenCount": 8000,
+        "thoughtsTokenCount": 2000,
+        "cachedContentTokenCount": 100000,
+        "totalTokenCount": 130000,
+    },
+}
+
+
+def test_usage_is_read_off_the_response():
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert usage["input_tokens"] == 120000
+    # Thinking is billed as output and is most of a reasoning call, so it
+    # belongs in the output count rather than beside it.
+    assert usage["output_tokens"] == 10000
+    assert usage["thinking_tokens"] == 2000
+    assert usage["cached_input_tokens"] == 100000
+    assert gemini_runner._usage_from_payload({}) is None
+
+
+def test_an_unpriced_model_reports_no_cost_rather_than_zero(monkeypatch):
+    """Published prices move. A stale table would report confident, wrong
+    dollars, which is worse than reporting none — so an unpriced model
+    records its tokens and leaves the cost unknown."""
+    for name in list(os.environ):
+        if name.startswith("BSH_GEMINI_USD_PER_MTOK"):
+            monkeypatch.delenv(name, raising=False)
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") is None
+
+
+def test_a_configured_price_produces_a_cost(monkeypatch):
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN", "0.30")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT", "2.50")
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    # 0.12M in * 0.30 + 0.01M out * 2.50
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") == 0.061
+
+
+def test_a_per_model_price_wins_over_the_general_one(monkeypatch):
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN", "0.30")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT", "2.50")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_IN_GEMINI_3_8_FLASH", "0.10")
+    monkeypatch.setenv("BSH_GEMINI_USD_PER_MTOK_OUT_GEMINI_3_8_FLASH", "1.00")
+    usage = gemini_runner._usage_from_payload(_USAGE_PAYLOAD)
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") == 0.022
+    # A different model still falls back to the general price.
+    assert gemini_runner.usd_cost(usage, "gemini-3.8-pro") == 0.061

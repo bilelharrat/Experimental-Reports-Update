@@ -109,10 +109,12 @@ def test_the_prompt_and_schema_reach_gemini_unchanged(tmp_path, monkeypatch):
 
     def fake(**kwargs):
         seen.update(kwargs)
-        return {"answer": "ok"}, None
+        return {"answer": "ok"}, {}, None
 
     monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
-    monkeypatch.setattr(memo_engine.gemini_runner, "run_structured_prompt", fake)
+    monkeypatch.setattr(
+        memo_engine.gemini_runner, "run_structured_prompt_with_meta", fake
+    )
 
     data, error = memo_engine.run_artifact(
         prompt="THE MEMO PROMPT",
@@ -261,12 +263,12 @@ def test_a_file_the_prompt_names_by_path_is_inlined_even_under_logs(tmp_path):
 
     def fake(**kw):
         seen.update(kw)
-        return {"ok": True}, None
+        return {"ok": True}, {}, None
 
     import pytest as _pytest
     mp = _pytest.MonkeyPatch()
     mp.setattr(monkeypatch_target, "is_available", lambda: True)
-    mp.setattr(monkeypatch_target, "run_structured_prompt", fake)
+    mp.setattr(monkeypatch_target, "run_structured_prompt_with_meta", fake)
     try:
         memo_engine.run_artifact(
             prompt=prompt, schema=SCHEMA, add_dirs=[run],
@@ -360,8 +362,8 @@ def test_the_claude_tier_model_never_reaches_gemini(tmp_path, monkeypatch):
     seen: dict = {}
     monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
     monkeypatch.setattr(
-        memo_engine.gemini_runner, "run_structured_prompt",
-        lambda **kw: (seen.update(kw) or ({"ok": True}, None)),
+        memo_engine.gemini_runner, "run_structured_prompt_with_meta",
+        lambda **kw: (seen.update(kw) or ({"ok": True}, {}, None)),
     )
     run_dir = tmp_path / "r"; run_dir.mkdir()
     memo_engine.register_run_engine(run_dir, "gemini")

@@ -403,7 +403,7 @@ def run_artifact(
         + (f"{referenced}\n\n" if referenced else "")
         + f"{research}\n"
     )
-    return gemini_runner.run_structured_prompt(
+    data, meta, error = gemini_runner.run_structured_prompt_with_meta(
         system_prompt="",
         user_prompt=combined,
         schema=schema,
@@ -413,6 +413,19 @@ def run_artifact(
         thinking_level=memo_thinking_level(),
         max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
     )
+    if isinstance(data, dict):
+        # The pipeline carries per-call spend in these two keys, set from
+        # the Claude CLI's result event. A Gemini call reports the same
+        # thing in `usageMetadata`, so it rides the same fields and every
+        # phase timing, run total and UI reader works unchanged — the name
+        # is the pipeline's, not a claim about which engine ran.
+        # Only what the call actually reported: a null here would put the
+        # key on every payload and say nothing.
+        if meta.get("usage") is not None and "claude_usage" not in data:
+            data["claude_usage"] = meta["usage"]
+        if meta.get("cost_usd") is not None and "claude_cost_usd" not in data:
+            data["claude_cost_usd"] = meta["cost_usd"]
+    return data, error
 
 
 def memo_gemini_model() -> str:
