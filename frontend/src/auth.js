@@ -15,6 +15,7 @@
 import { computed, ref } from "vue";
 import { api, withBase } from "./api.js";
 import { accountInitials, displayNameFromEmail } from "./formatters.js";
+import { appBasePath, ensureProfileFor } from "./profileStorage.js";
 
 const SESSION_KEY = "bsh.research.session";
 
@@ -146,12 +147,27 @@ export async function signIn(email, password) {
   _writeStoredSession(res);
   session.value = res;
   sessionName.value = displayNameFromEmail(res.email) || null;
+  if (ensureProfileFor(res.email)) {
+    // A different account than this browser last held: its state is
+    // stashed, this one's restored, and the page must start over so
+    // every module reads the right store. The login route's guard sends
+    // the reloaded page on to its destination.
+    res.profileSwitched = true;
+    _reload();
+    return res;
+  }
   try {
     _applyIdentity(await api.me());
   } catch {
     // Login succeeded; identity enrichment is best-effort.
   }
   return res;
+}
+
+function _reload(path) {
+  if (typeof window === "undefined" || !window.location) return;
+  if (path) window.location.replace(appBasePath().replace(/\/$/, "") + path);
+  else window.location.reload();
 }
 
 /** Take up a session the server minted outside the login form — today the
@@ -161,6 +177,13 @@ export async function adoptSession(res) {
   _writeStoredSession(res);
   session.value = res;
   sessionName.value = displayNameFromEmail(res.email) || null;
+  if (ensureProfileFor(res.email)) {
+    // Reached from the reset page, whose URL no longer carries a usable
+    // token, so start over at the front door rather than in place.
+    res.profileSwitched = true;
+    _reload("/");
+    return res;
+  }
   try {
     _applyIdentity(await api.me());
   } catch {
@@ -199,6 +222,9 @@ export async function validateSession() {
   try {
     const me = await api.me();
     _applyIdentity(me);
+    if (session.value && me?.email && ensureProfileFor(me.email)) {
+      _reload();
+    }
     return Boolean(session.value);
   } catch (e) {
     if (e && e.status === 401) {
