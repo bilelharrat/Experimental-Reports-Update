@@ -6,6 +6,7 @@ Only the model differs, and the mechanism by which research reaches it.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -1040,3 +1041,107 @@ def test_claude_never_takes_the_per_call_split(tmp_path, monkeypatch):
     # A single-call section still states its own whole budget.
     section_words = structure.section("thesis_market").budget_words
     assert f"Target: {section_words} words of English for this whole" in prompts[0]
+
+
+def _headed(headings, words_each=3):
+    """An assembled section: one heading block per subsection, each followed
+    by a paragraph."""
+    blocks = []
+    for index, heading in enumerate(headings):
+        blocks.append(
+            {"type": "heading", "level": 2, "text": {"en": heading, "zh": "标题"}}
+        )
+        blocks.append(
+            {
+                "type": "paragraph",
+                "text": {"en": " ".join(["w"] * words_each), "zh": "正文"},
+            }
+        )
+    return {"id": "thesis_market", "blocks": blocks}
+
+
+def test_a_length_revision_is_split_too(tmp_path, monkeypatch):
+    """A lengthening revision is the biggest call in a Gemini run — it
+    restates the whole section and then some. Left whole it was the one call
+    with no partial credit, and on 2026-09-19 a company_team revision died on
+    one bad token at 38,544 characters and lost the round."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    section_def = structure.section("thesis_market")
+    headings = [f"{n}. {s.en}" for n, s in enumerate(section_def.subsections, 1)]
+
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        number = int(re.search(r"Write subsection (\d+)", kw["prompt"]).group(1))
+        return (
+            {
+                "piece": number,
+                "blocks": [
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "text": {"en": headings[number - 1], "zh": "标题"},
+                    }
+                ],
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    gem = tmp_path / "g3"
+    memo_engine.register_run_engine(gem, "gemini")
+    (gem / "logs").mkdir(parents=True, exist_ok=True)
+    draft_path = gem / "logs" / "thesis_market.length-1.json"
+    draft_path.write_text(
+        json.dumps(_headed(headings)), encoding="utf-8"
+    )
+
+    _result, error = _split_draft(
+        gem, "thesis_market", structure, depth_revision=(draft_path, 9)
+    )
+    assert error is None
+    # Still one call per subsection, not one call carrying the whole draft.
+    assert len(prompts) == len(headings)
+    # Each call revises its OWN slice, written beside the draft.
+    for index in range(len(headings)):
+        slice_path = draft_path.with_name(
+            f"{draft_path.stem}.piece-{index + 1:02d}.json"
+        )
+        assert slice_path.exists()
+        assert str(slice_path) in prompts[index]
+        assert "## Length extension" in prompts[index]
+    # And no call is handed the whole draft.
+    assert all(str(draft_path) not in prompt for prompt in prompts)
+
+
+def test_an_uncuttable_draft_is_revised_whole(tmp_path, monkeypatch):
+    """A draft whose headings do not line up with the plan is revised as one
+    call rather than sliced wrongly."""
+    structure = memo_structure.load_structure("late_compact", 1)
+    prompts: list[str] = []
+
+    def fake_artifact(**kw):
+        prompts.append(kw["prompt"])
+        return {"section": {"id": "thesis_market", "blocks": []}}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    gem = tmp_path / "g4"
+    memo_engine.register_run_engine(gem, "gemini")
+    (gem / "logs").mkdir(parents=True, exist_ok=True)
+    draft_path = gem / "logs" / "thesis_market.length-1.json"
+    draft_path.write_text(
+        json.dumps(_headed(["Something Else Entirely"])), encoding="utf-8"
+    )
+
+    _result, error = _split_draft(
+        gem, "thesis_market", structure, depth_revision=(draft_path, 9)
+    )
+    assert error is None
+    assert len(prompts) == 1
+    assert "Write ONE subsection" not in prompts[0]
+    assert str(draft_path) in prompts[0]

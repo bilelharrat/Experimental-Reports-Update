@@ -8307,6 +8307,80 @@ _MEMO_ENGLISH_SECTION_PIECE_SCHEMA: dict[str, Any] = {
 }
 
 
+def _split_section_draft(
+    draft: dict, plan: list[tuple[int, str, str, Path]]
+) -> dict[int, list[dict]] | None:
+    """Cut an assembled section back into its subsections, or None.
+
+    The blocks carry their subsection headings, so a draft can be handed
+    back one piece at a time. Returns None when the headings do not line up
+    with the plan — a draft that cannot be cut cleanly is revised whole
+    rather than sliced wrongly.
+    """
+    blocks = draft.get("blocks") if isinstance(draft, dict) else None
+    if not isinstance(blocks, list) or not blocks:
+        return None
+    wanted = [_normalized_heading(heading_en) for _n, heading_en, _z, _p in plan]
+    groups: dict[int, list[dict]] = {}
+    current: int | None = None
+    for block in blocks:
+        if not isinstance(block, dict):
+            return None
+        if block.get("type") == "heading":
+            text = block.get("text")
+            found = text.get("en") if isinstance(text, dict) else text
+            normalized = _normalized_heading(found or "")
+            if normalized in wanted:
+                current = wanted.index(normalized) + 1
+                if current in groups:
+                    return None  # the same heading twice: not a clean cut
+                groups[current] = []
+        if current is None:
+            return None  # content before the first heading
+        groups[current].append(block)
+    if len(groups) != len(plan):
+        return None
+    return groups
+
+
+def _section_draft_slices(
+    run_dir: Path, section_id: str, section_def, draft_path: Path
+) -> dict[int, tuple[Path, int]] | None:
+    """Write each subsection's slice of a draft beside it, for revision.
+
+    Gemini has no filesystem, but ``memo_engine.run_artifact`` inlines every
+    file a prompt names by path, so a slice reaches the worker the same way
+    the whole draft did. Returns None when the draft cannot be cut cleanly.
+    """
+    try:
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+    groups = _split_section_draft(draft, plan)
+    if groups is None:
+        return None
+    slices: dict[int, tuple[Path, int]] = {}
+    for number, _heading_en, _heading_zh, _path in plan:
+        blocks = groups[number]
+        slice_path = draft_path.with_name(
+            f"{draft_path.stem}.piece-{number:02d}.json"
+        )
+        payload = {"id": section_id, "blocks": blocks}
+        try:
+            slice_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return None
+        slices[number] = (
+            slice_path,
+            memo_engine.renderable_en_word_count(payload),
+        )
+    return slices
+
+
 def _section_split_calls_enabled(
     section_id: str, section_def, run_dir: Path | None = None
 ) -> bool:
@@ -8393,6 +8467,7 @@ def _run_english_section_via_calls(
     add_dirs: list[Path],
     progress,
     timeout_sec: int,
+    piece_drafts: dict[int, tuple[Path, int]] | None = None,
 ) -> tuple[dict | None, str | None]:
     """Draft one section as one call per subsection, then assemble it here.
 
@@ -8418,17 +8493,29 @@ def _run_english_section_via_calls(
         if depth_target is not None
         else None
     )
-    piece_body = make_body(
-        "\n" + memo_engine.length_contract(piece_target)
-        if piece_target is not None
-        else "",
-        len(plan),
-    )
+
+    def _length_block(number: int) -> str:
+        """This piece's length instruction — a fresh contract, or the
+        revision brief for its own slice of the previous draft."""
+        if piece_target is None:
+            return ""
+        slice_draft = (piece_drafts or {}).get(number)
+        if slice_draft is None:
+            return "\n" + memo_engine.length_contract(piece_target)
+        slice_path, slice_words = slice_draft
+        revise = (
+            memo_engine.length_extension
+            if slice_words < piece_target.low
+            else memo_engine.length_condense
+        )
+        return "\n" + revise(piece_target, slice_path, slice_words)
+
     totals: dict[str, Any] = {}
     written: list[dict] = []
     blocks: list[dict] = []
 
     for number, heading_en, heading_zh, _path in plan:
+        piece_body = make_body(_length_block(number), len(plan))
         reason: str | None = None
         for attempt in range(1, MEMO_SECTION_PIECE_MAX_RETRIES + 1):
             halt_error = _memo_run_halt_error(run_dir)
@@ -8963,22 +9050,33 @@ language in prose; do not add, drop, or renumber sources.
 """
 
     body = _make_body(depth_block)
-    # A depth revision hands the worker a whole draft to bring to length;
-    # that is a section-shaped job, so it stays a single call.
-    if depth_revision is None and _section_split_calls_enabled(
-        section_id, section_def, run_dir
-    ):
-        return _run_english_section_via_calls(
-            run_dir=run_dir,
-            section_id=section_id,
-            section_def=section_def,
-            make_body=_make_body,
-            depth_target=depth_target,
-            common_context=common_context,
-            add_dirs=add_dirs,
-            progress=progress,
-            timeout_sec=timeout_sec,
-        )
+    if _section_split_calls_enabled(section_id, section_def, run_dir):
+        # A lengthening revision is the BIGGEST call in a Gemini run — it
+        # restates the whole section and then some. Left whole it was the
+        # one call with no partial credit, and on 2026-09-19 a company_team
+        # revision died on one bad token at 38,544 characters, losing the
+        # round. The draft carries its subsection headings, so it can be
+        # cut and each piece revised against its own slice.
+        piece_drafts: dict[int, tuple[Path, int]] | None = None
+        if depth_revision is not None:
+            piece_drafts = _section_draft_slices(
+                run_dir, section_id, section_def, depth_revision[0]
+            )
+        # A draft that will not cut cleanly is revised whole rather than
+        # sliced wrongly.
+        if depth_revision is None or piece_drafts is not None:
+            return _run_english_section_via_calls(
+                run_dir=run_dir,
+                section_id=section_id,
+                section_def=section_def,
+                make_body=_make_body,
+                depth_target=depth_target,
+                common_context=common_context,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+                piece_drafts=piece_drafts,
+            )
     if _section_handoff_enabled(section_id, section_def, run_dir):
         return _run_english_section_via_pieces(
             run_dir=run_dir,
