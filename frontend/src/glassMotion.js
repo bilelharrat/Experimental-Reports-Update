@@ -81,9 +81,21 @@ export function useGlider(containerRef, selector, { enabled = ref(true) } = {}) 
     visible.value = true;
   }
 
-  onMounted(() => {
-    const root = containerRef.value;
-    if (!root) return;
+  // The container can appear after this composable mounts — the company list
+  // renders behind a `v-else` that stays empty until companies have loaded —
+  // and it can be swapped out again when a filter empties the list. Attaching
+  // only once at mount left the pill with no observer, so it froze wherever
+  // the last click put it instead of following the selected row.
+  function attach(root) {
+    mutationObserver?.disconnect();
+    resizeObserver?.disconnect();
+    mutationObserver = null;
+    resizeObserver = null;
+    if (!root) {
+      visible.value = false;
+      instant.value = true;
+      return;
+    }
     if (typeof MutationObserver !== "undefined") {
       mutationObserver = new MutationObserver(schedule);
       mutationObserver.observe(root, {
@@ -98,8 +110,11 @@ export function useGlider(containerRef, selector, { enabled = ref(true) } = {}) 
       resizeObserver.observe(root);
     }
     schedule();
-  });
+  }
 
+  onMounted(() => attach(containerRef.value));
+
+  watch(containerRef, (root) => attach(root));
   watch(enabled, schedule);
 
   onBeforeUnmount(() => {
