@@ -807,6 +807,35 @@ def _joined_localized(item: Any, keys: tuple[str, str]) -> dict | None:
     return joined if joined.get("en") else None
 
 
+def _text_of_block_list(item: Any) -> dict | None:
+    """A bullet delivered as a list of paragraph blocks, joined into the one
+    localized string a bullet is. ``None`` unless every entry is a block
+    carrying a localized ``text``.
+
+    Live on 2026-09-21 (RadixArk 2026-09-21__195426, attempt 2) twelve
+    bullets across three thesis_market lists arrived as
+    ``[[{"type": "paragraph", "text": {en, zh}}], ...]`` — every word
+    present in both languages, one level too deep — and failed the attempt
+    as "must be bilingual with en and zh"."""
+    if not isinstance(item, list) or not item:
+        return None
+    texts: list[dict] = []
+    for entry in item:
+        text = entry.get("text") if isinstance(entry, dict) else None
+        if not isinstance(text, dict) or not isinstance(text.get("en"), str):
+            return None
+        texts.append(text)
+    joined = {
+        half: " ".join(
+            str(text.get(half) or "").strip()
+            for text in texts
+            if str(text.get(half) or "").strip()
+        )
+        for half in ("en", "zh")
+    }
+    return joined if joined["en"] else None
+
+
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
     if not isinstance(items, list):
         return items
@@ -819,6 +848,14 @@ def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
         ):
             out.append({"en": item, "zh": ""})
             repairs.append(f"{where}[{index}]: wrapped plain string as bilingual en value")
+            continue
+        flattened = _text_of_block_list(item)
+        if flattened is not None:
+            out.append(flattened)
+            repairs.append(
+                f"{where}[{index}]: joined the {len(item)} paragraph block(s) "
+                "it carried into one bullet"
+            )
             continue
         nested = _unwrapped_localized(item)
         if nested is not None:
