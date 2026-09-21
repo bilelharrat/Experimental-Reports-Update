@@ -8,6 +8,7 @@ import SettingsView from "../src/views/SettingsView.vue";
 import SourceLibraryView from "../src/views/SourceLibraryView.vue";
 import CompetitorDetailView from "../src/views/CompetitorDetailView.vue";
 import { api } from "../src/api.js";
+import { session } from "../src/auth.js";
 
 vi.mock("../src/api.js", () => ({
   withApiToken: (path) => path,
@@ -200,6 +201,7 @@ async function mountRouteWithRouter(path) {
       // Settings links to these; the table must know them or the links throw.
       { path: "/account/password", name: "change-password", component: { template: "<div />" } },
       { path: "/accounts", name: "accounts", component: { template: "<div />" } },
+      { path: "/login", name: "login", component: { template: "<div />" } },
       { path: "/source-library", name: "source-library", component: SourceLibraryView },
       { path: "/companies/:companyId/competitors/:competitorId", name: "competitor-detail", component: CompetitorDetailView, props: true },
       { path: "/innovation-lab/hormuz", name: "hormuz-library", component: { template: "<div />" } },
@@ -898,6 +900,45 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Generalist vs NextNav");
     expect(wrapper.text()).toContain("Head-to-head");
     wrapper.unmount();
+  });
+
+  it("offers Sign in on Settings until someone signs in, then the account's controls", async () => {
+    // Nobody signed in (the local anon-dev bypass): the server fills the
+    // email with a placeholder and there is no account to act on.
+    let wrapper = await mountRoute("/settings");
+    expect(wrapper.text()).toContain("Local development");
+    expect(wrapper.text()).not.toContain("shared-token session");
+    expect(wrapper.get('[data-testid="sign-in"]').attributes("href")).toBe("/login?next=/settings");
+    expect(wrapper.find('[data-testid="sign-out-elsewhere"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Change password");
+    wrapper.unmount();
+
+    session.value = {
+      token: "test-token",
+      email: "elina.sun@bshfoundation.org",
+      expires_at: "2999-01-01T00:00:00Z",
+    };
+    api.userCenter.mockResolvedValueOnce({
+      account: {
+        name: "Elina Sun",
+        email: "elina.sun@bshfoundation.org",
+        role: "analyst",
+        permissions: ["desk:write"],
+      },
+      team: {},
+      usage: {},
+      status: {},
+    });
+    try {
+      wrapper = await mountRoute("/settings");
+      expect(wrapper.text()).toContain("elina.sun@bshfoundation.org");
+      expect(wrapper.text()).toContain("Change password");
+      expect(wrapper.find('[data-testid="sign-out-elsewhere"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="sign-in"]').exists()).toBe(false);
+      wrapper.unmount();
+    } finally {
+      session.value = null;
+    }
   });
 
   it("shows partial memo analysis artifacts for failed reports", async () => {

@@ -2538,7 +2538,7 @@ const messages = {
     "auth.clear_email": "Clear email",
     "auth.show_password": "Show password",
     "auth.hide_password": "Hide password",
-    "auth.sign_in": "Sign In",
+    "auth.sign_in": "Sign in",
     "auth.sign_in_terminal": "Sign In to Terminal",
     "auth.signing_in": "Signing in…",
     "auth.authenticating": "Authenticating…",

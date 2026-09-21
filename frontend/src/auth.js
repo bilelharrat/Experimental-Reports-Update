@@ -117,6 +117,11 @@ export const isAuthenticated = computed(
   () => session.value !== null || isAnonDev(),
 );
 export const sessionEmail = computed(() => session.value?.email ?? null);
+// Signed in to a personal account, as opposed to working through the local
+// anon-dev bypass, which `isAuthenticated` also lets in. Sign out, and the
+// account's own controls, only make sense here; otherwise the app offers
+// Sign in, as the Mac does for an anon-dev session.
+export const isSignedIn = computed(() => session.value !== null);
 // True while the server holds this session to a password change and
 // nothing else. Set by the login response, kept fresh by /auth/me on every
 // boot, and cleared by the fresh session a successful change returns.
@@ -223,12 +228,29 @@ export async function signOut() {
   }
 }
 
+/** Where Sign in goes, `next` being the path to return to afterwards. On an
+ *  anon-dev server the sign-in page sends people straight on into the app,
+ *  so the route carries the flag that asks for the form anyway. */
+export function signInRoute(next) {
+  const query = {};
+  if (isAnonDev()) query.switch = "1";
+  if (next) query.next = next;
+  return { name: "login", query };
+}
+
 // Called by router on boot: confirm a stored token still works, and always
 // hydrate display name/initials (including anon-dev operator identity).
 export async function validateSession() {
   if (!session.value && !isAnonDev()) return false;
   try {
     const me = await api.me();
+    if (session.value && me?.auth === "anon_dev") {
+      // An anon-dev server answers a token it no longer accepts as the
+      // local operator rather than with a 401. The session is over either
+      // way; kept, it would show a dead account as signed in.
+      _clearStoredSession();
+      session.value = null;
+    }
     _applyIdentity(me);
     if (session.value && me?.email && ensureProfileFor(me.email)) {
       _reload();
