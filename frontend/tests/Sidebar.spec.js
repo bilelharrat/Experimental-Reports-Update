@@ -87,16 +87,14 @@ describe("Sidebar", () => {
     expect(text).toContain("NVIDIA");
     expect(text).toContain("Zeta Labs");
     expect(text).toContain("Home");
-    // Market, Pulse and News became three tabs of one desk, so the nav
-    // carries a single Markets row rather than three rows for one idea.
-    expect(text).toContain("Markets");
-    expect(text).not.toContain("Pulse");
-    expect(text).not.toContain("News");
-    expect(text).toContain("Reports");
-    expect(text).toContain("Tracking");
-    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Markets"));
-    expect(text.indexOf("Markets")).toBeLessThan(text.indexOf("Reports"));
-    expect(text.indexOf("Reports")).toBeLessThan(text.indexOf("Tracking"));
+    // Every desk has its own row: Research Desk, and Market, Pulse and News
+    // each as a row of their own rather than one combined Markets row.
+    const desks = ["Home", "Research Desk", "Market", "Pulse", "News", "Reports", "Tracking"];
+    for (const desk of desks) expect(text).toContain(desk);
+    for (let i = 1; i < desks.length; i += 1) {
+      expect(text.indexOf(desks[i - 1])).toBeLessThan(text.indexOf(desks[i]));
+    }
+    expect(text).not.toContain("Markets");
     expect(text).not.toContain("Portfolio");
     expect(text).not.toContain("Top Players");
     expect(text).not.toContain("More markets");
@@ -163,7 +161,7 @@ describe("Sidebar", () => {
 
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("false");
     expect(wrapper.text()).toContain("Acme Inc.");
-    expect(wrapper.text()).toContain("Markets");
+    expect(wrapper.text()).toContain("Pulse");
   });
 
   it("shows the account in the footer with Settings and Sign out behind it", async () => {

@@ -135,11 +135,11 @@ describe("WelcomeTour", () => {
 
   it("walks the app to each feature it explains and spotlights its control", async () => {
     plantTarget('[data-tour="home-search"]', { top: 180, left: 300, width: 520, height: 46 });
-    // the company list is the research desk now, and Market/Pulse/News
-    // are one nav row
+    // the company list is where research starts; the markets step points at
+    // the Market row
     plantTarget('[data-tour="companies"]');
     plantTarget('[data-tour="nav-reports"]');
-    plantTarget('[data-tour="nav-markets"]');
+    plantTarget('[data-tour="nav-market"]');
     plantTarget('[data-tour="nav-tracking"]');
     plantTarget('[data-tour="warren"]', { top: 10, left: 900, width: 110, height: 30 });
 
@@ -163,7 +163,7 @@ describe("WelcomeTour", () => {
 
     await next();
     expect(title()).toBe("Markets, Pulse and News");
-    expect(push).toHaveBeenLastCalledWith({ name: "markets" });
+    expect(push).toHaveBeenLastCalledWith({ name: "market-radar" });
 
     await next();
     expect(title()).toBe("Tracking");

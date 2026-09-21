@@ -44,16 +44,28 @@ const VIEWS = {
   news: NewsDeskView,
 };
 
+// Each tab is its own page (and its own sidebar row), so switching tab moves
+// to that page and the sidebar highlight follows.
+const TAB_ROUTES = {
+  market: "market-radar",
+  pulse: "weekly-summary",
+  news: "news-desk",
+};
+
 const activeTab = computed({
   get() {
+    // The page decides; `?tab=` still answers for bare /markets links.
+    const fromPage = String(route.meta?.tab || "").trim().toLowerCase();
+    if (MARKETS_TABS.includes(fromPage)) return fromPage;
     const raw = String(route.query.tab || "").trim().toLowerCase();
     return MARKETS_TABS.includes(raw) ? raw : "market";
   },
   set(value) {
     if (!MARKETS_TABS.includes(value) || value === activeTab.value) return;
+    const { tab: _tab, ...rest } = route.query;
     // replace, not push: flipping between tabs of one desk should not fill
     // the back button with steps the reader has to walk out of.
-    router.replace({ name: "markets", query: { ...route.query, tab: value } });
+    router.replace({ name: TAB_ROUTES[value], query: rest });
   },
 });
 

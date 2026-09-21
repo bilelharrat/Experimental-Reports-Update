@@ -95,22 +95,28 @@ export const router = createRouter({
     // paths stay as redirects: they are in bookmarks, in the Mac app's deep
     // links, and in every link already sent to somebody.
     { path: "/markets", name: "markets", component: MarketsView },
+    // Market, Pulse and News each have their own sidebar row, so each keeps
+    // its own path: the sidebar highlight follows `router-link-exact-active`,
+    // which ignores the query. They share MarketsView; `meta.tab` picks the tab.
     {
       path: "/news-desk",
       name: "news-desk",
-      redirect: () => ({ name: "markets", query: { tab: "news" } }),
+      component: MarketsView,
+      meta: { tab: "news" },
     },
     { path: "/reports", name: "reports", component: ReportsView },
     { path: "/tracking", name: "tracking", component: TrackingView },
     {
       path: "/market-radar",
       name: "market-radar",
-      redirect: () => ({ name: "markets", query: { tab: "market" } }),
+      component: MarketsView,
+      meta: { tab: "market" },
     },
     {
       path: "/weekly-summary",
       name: "weekly-summary",
-      redirect: () => ({ name: "markets", query: { tab: "pulse" } }),
+      component: MarketsView,
+      meta: { tab: "pulse" },
     },
     {
       path: "/trader-stats",

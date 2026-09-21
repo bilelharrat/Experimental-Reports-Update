@@ -47,8 +47,8 @@ export const WELCOME_TOUR_STEPS = [
   },
   {
     id: "markets",
-    route: { name: "markets" },
-    target: '[data-tour="nav-markets"]',
+    route: { name: "market-radar" },
+    target: '[data-tour="nav-market"]',
     placement: "right",
   },
   {

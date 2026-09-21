@@ -13,12 +13,13 @@ vi.mock("../src/views/NewsDeskView.vue", () => pane("NewsDeskView"));
 
 import MarketsView from "../src/views/MarketsView.vue";
 
-// Market, Pulse and News used to be three sidebar rows and three routes for
-// one idea. They are tabs now. Two things matter here: the tab lives in the
-// QUERY — the sidebar's glider keys off `router-link-exact-active`, so a path
-// segment would drop the Markets highlight the moment you changed tab — and
-// only the selected tab is mounted, because MarketRadarView alone is ~3,600
-// lines and each view installs its own large-title scroll observer.
+// Market, Pulse and News share one component with a tab bar, and each also
+// has its own sidebar row and its own page. Two things matter here: each tab
+// lives at its own PATH — the sidebar's glider keys off
+// `router-link-exact-active`, which ignores the query, so switching tab has to
+// move to that tab's page for its row to light up — and only the selected tab
+// is mounted, because MarketRadarView alone is ~3,600 lines and each view
+// installs its own large-title scroll observer.
 
 const MacTabBarStub = {
   props: ["items", "modelValue"],
@@ -29,12 +30,17 @@ const MacTabBarStub = {
     " @click=\"$emit('update:modelValue', i.id)\">{{ i.label }}</button></div>",
 };
 
-async function mountMarkets(query = {}) {
+async function mountMarkets(query = {}, name = null) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: "/markets", name: "markets", component: MarketsView }],
+    routes: [
+      { path: "/markets", name: "markets", component: MarketsView },
+      { path: "/market-radar", name: "market-radar", component: MarketsView, meta: { tab: "market" } },
+      { path: "/weekly-summary", name: "weekly-summary", component: MarketsView, meta: { tab: "pulse" } },
+      { path: "/news-desk", name: "news-desk", component: MarketsView, meta: { tab: "news" } },
+    ],
   });
-  router.push({ name: "markets", query });
+  router.push(name ? { name, query } : { name: "markets", query });
   await router.isReady();
   const wrapper = mount(MarketsView, {
     global: {
@@ -80,12 +86,18 @@ describe("MarketsView", () => {
     expect(activeTab(wrapper)).toBe("market");
   });
 
-  it("keeps the tab in the query, so the Markets nav row stays active", async () => {
-    const { wrapper, router } = await mountMarkets({ tab: "market" });
+  it("reads the active tab from the page it is mounted at", async () => {
+    const { wrapper } = await mountMarkets({}, "weekly-summary");
+    expect(activeTab(wrapper)).toBe("pulse");
+  });
+
+  it("moves to the tab's own page, so its sidebar row lights up", async () => {
+    const { wrapper, router } = await mountMarkets({ panel: "wei" }, "market-radar");
     await wrapper.find('[data-tab="pulse"]').trigger("click");
     await flushPromises();
-    expect(router.currentRoute.value.name).toBe("markets");
-    expect(router.currentRoute.value.path).toBe("/markets");
-    expect(router.currentRoute.value.query.tab).toBe("pulse");
+    expect(router.currentRoute.value.name).toBe("weekly-summary");
+    expect(router.currentRoute.value.path).toBe("/weekly-summary");
+    // The page carries the tab now; everything else in the query survives.
+    expect(router.currentRoute.value.query).toEqual({ panel: "wei" });
   });
 });
