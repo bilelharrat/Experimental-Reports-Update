@@ -33,7 +33,7 @@ import random
 import re
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -890,6 +890,22 @@ def run_structured_prompt(
     return data, error
 
 
+def _add_usage(meta: dict, more: dict | None) -> None:
+    """Fold a second call's usage and cost into ``meta`` in place."""
+    if not isinstance(more, dict):
+        return
+    extra = more.get("usage")
+    if isinstance(extra, dict):
+        usage = meta.get("usage") if isinstance(meta.get("usage"), dict) else {}
+        for key, value in extra.items():
+            if isinstance(value, (int, float)):
+                usage[key] = (usage.get(key) or 0) + value
+        meta["usage"] = usage
+    cost = more.get("cost_usd")
+    if isinstance(cost, (int, float)):
+        meta["cost_usd"] = round((meta.get("cost_usd") or 0.0) + float(cost), 6)
+
+
 def run_structured_prompt_with_meta(
     *,
     system_prompt: str,
@@ -993,9 +1009,10 @@ def _structure_research(
     model: str,
     key: str,
     max_output_tokens: int | None,
-) -> tuple[dict | None, str | None]:
-    """Second step of a grounded call: research prose in, schema JSON out."""
-    data, _meta, error = _single_call(
+) -> tuple[dict | None, dict, str | None]:
+    """Second step of a grounded call: research prose in, schema JSON out.
+    Returns the step's meta too — it was billed, so its usage counts."""
+    data, meta, error = _single_call(
         system_prompt=STRUCTURE_SYSTEM_PROMPT,
         user_prompt=(
             f"Original task, for context:\n{system_prompt.strip()}\n\n"
@@ -1011,7 +1028,7 @@ def _structure_research(
         temperature=None,
         max_output_tokens=max_output_tokens,
     )
-    return data, error
+    return data, meta, error
 
 
 def run_grounded_json(
@@ -1025,8 +1042,18 @@ def run_grounded_json(
     thinking_level: str | None = None,
     temperature: float | None = None,
     max_output_tokens: int | None = None,
+    task_context: str | None = None,
+    notes_addendum: Callable[[dict], str] | None = None,
 ) -> tuple[dict | None, dict, str | None]:
     """Grounded research call: Google Search on, structured JSON out.
+
+    ``task_context`` is what the structuring step is told the task was
+    (default: ``system_prompt``) — a caller that sends everything in the
+    user prompt would otherwise leave that step converting notes for a task
+    it was never shown. ``notes_addendum(meta)`` may return text appended to
+    the research notes before they are structured: the memo engine uses it
+    to hand over the pages the search returned, resolved to their real
+    addresses, so the structured sources can carry them.
 
     Returns ``(data, meta, error)`` where ``meta`` carries ``sources``
     (``[{"title", "url"}]``), ``queries`` (the searches the model ran),
@@ -1080,10 +1107,20 @@ def run_grounded_json(
             name,
         )
 
+    notes = research_text
+    if notes_addendum is not None:
+        try:
+            addendum = str(notes_addendum(meta) or "").strip()
+        except Exception:  # noqa: BLE001
+            logger.warning("gemini_runner: notes addendum failed (%s)", name, exc_info=True)
+            addendum = ""
+        if addendum:
+            notes = f"{research_text}\n\n{addendum}"
+
     # Step 2 — structure. No tools and no search: nothing new can enter here.
-    data, structure_error = _structure_research(
-        research_text=research_text,
-        system_prompt=system_prompt,
+    data, structure_meta, structure_error = _structure_research(
+        research_text=notes,
+        system_prompt=task_context if task_context is not None else system_prompt,
         schema=schema,
         name=name,
         timeout_sec=timeout_sec,
@@ -1091,6 +1128,7 @@ def run_grounded_json(
         key=key,
         max_output_tokens=max_output_tokens,
     )
+    _add_usage(meta, structure_meta)
     if structure_error is not None:
         return None, meta, structure_error
     return data, meta, None

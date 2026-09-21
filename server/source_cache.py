@@ -315,12 +315,15 @@ def record_run_source(
     """Store one retrieval made during a memo run, and freeze it in the
     run's own manifest.
 
-    ``tool`` is the Claude tool name (``WebFetch`` / ``WebSearch``). The
-    company-level record is what later runs and the fact check read; the
-    run-level copy under ``<run_dir>/sources/`` is what this run saw,
-    kept even after the company record is refreshed by a later fetch.
+    ``tool`` is the Claude tool name (``WebFetch`` / ``WebSearch``), or
+    ``GroundedFetch`` for a page a Gemini run's search returned and the
+    server then fetched itself — a real page, so it is stored exactly like
+    a ``WebFetch``. The company-level record is what later runs and the
+    fact check read; the run-level copy under ``<run_dir>/sources/`` is
+    what this run saw, kept even after the company record is refreshed by
+    a later fetch.
     """
-    kind = "web_fetch" if tool == "WebFetch" else "web_search"
+    kind = "web_fetch" if tool in ("WebFetch", "GroundedFetch") else "web_search"
     origin = f"memo_run:{run_id or Path(run_dir).name}:{tool}"
     record = record_source(
         company_id,
@@ -484,6 +487,20 @@ def match_title(company_id: str, title: Any, *, min_score: float = 0.6) -> dict 
     return dict(best[1]) if best else None
 
 
+# Gemini's grounding metadata reports pages as links through Google's own
+# redirector, not as the pages' addresses. Such a link is not a citation —
+# it names no page a reader would recognise, and it expires.
+GROUNDING_REDIRECT_HOSTS = ("vertexaisearch.cloud.google.com",)
+
+
+def is_grounding_redirect(url: Any) -> bool:
+    try:
+        host = (urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(host == h or host.endswith("." + h) for h in GROUNDING_REDIRECT_HOSTS)
+
+
 def known_pages(company_id: str, *, limit: int = 60) -> list[dict]:
     """Citable pages, deduped on canonical URL: every fetched page first
     (newest first — these have text on file to reopen), then the links a
@@ -493,6 +510,8 @@ def known_pages(company_id: str, *, limit: int = 60) -> list[dict]:
     rows = list_sources(company_id)
 
     def _take(candidate: dict) -> bool:
+        if is_grounding_redirect(candidate.get("url")):
+            return False
         canon = canonical_url(candidate.get("url"))
         if not canon or canon in seen:
             return False
@@ -582,10 +601,18 @@ def write_known_sources_file(company_id: str, research_dir: Path | str, filename
 
 def corpus_texts(company_id: str, *, max_total_chars: int = 8_000_000) -> list[tuple[str, str]]:
     """``(label, text)`` pairs of every cached retrieval, newest first, for
-    the fact check. Stops adding once ``max_total_chars`` is reached."""
+    the fact check. Stops adding once ``max_total_chars`` is reached.
+
+    A ``grounding`` record is skipped. Its text is Gemini's own research
+    prose — model output — and the fact check's rule is that model output
+    never vouches for a number; counting it would let a Gemini memo verify
+    its figures against the notes it wrote them from. The pages grounding
+    reported are fetched and stored as ``web_fetch`` records, which count."""
     out: list[tuple[str, str]] = []
     used = 0
     for row in list_sources(company_id):
+        if row.get("kind") == "grounding":
+            continue
         text = source_text(company_id, row)
         if not text:
             continue

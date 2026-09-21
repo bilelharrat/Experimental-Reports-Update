@@ -200,14 +200,26 @@ expect it to open those files itself.
 
 `server/memo_engine.py` adds a per-run toggle at that one funnel, so a
 Gemini memo runs the same stage graph, prompts, schemas, retries, repair
-passes, validation and DOCX renderer as a Claude one. Only two things
-differ, and both are consequences of Gemini having no filesystem:
+passes, validation and DOCX renderer as a Claude one. Three things
+differ. The first two are consequences of Gemini having no filesystem:
 
 - Research is extracted to text and inlined into the prompt, ordered
   digests-first, with every truncation and omission named in the text so a
   shortened source is never read as a complete one.
 - A scanned PDF with no text layer contributes nothing, where a Claude
   agent could still have described the pages it read.
+
+The third is that a Gemini call does not search unless it is grounded, and
+a Claude pass searches as it works. Until 2026-09-21 no Gemini memo call was
+grounded, so every Gemini memo's research — and every URL in it — came from
+the model's memory. The eight Phase 2 passes now run grounded
+(`memo_engine.run_artifact(web_research=True)` → `gemini_runner.
+run_grounded_json`: a search step, then a separate structuring call), and
+`memo_engine.fetch_grounded_pages` follows each page past Google's
+redirector, fetches it, and stores it in the source cache as a
+`GroundedFetch` — the same record a Claude `WebFetch` makes. The writing
+stages stay ungrounded: they write from the research.
+`BSH_MEMO_GEMINI_WEB_RESEARCH=0` turns it off.
 
 One thing is added, for the mirror-image reason: Gemini writes shorter
 than Claude on identical prompts (the ZaiNar wave came back at 7,695
