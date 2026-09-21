@@ -109,6 +109,101 @@ describe("ResearchDeskView", () => {
     });
   });
 
+  it("renders directory list and selects initial company", async () => {
+    const wrapper = mount(ResearchDeskView, {
+      props: {
+        companies: mockCompanies,
+        companyId: "acme-corp",
+      },
+      global: {
+        plugins: [router],
+        stubs: {
+          Monogram: true,
+          CompanyFollowButton: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    // Check directory items
+    const directory = wrapper.find("aside");
+    expect(directory.text()).toContain("Acme Corp");
+    expect(directory.text()).toContain("Globex Corporation");
+    expect(directory.text()).toContain("Initech");
+
+    // Dossier view for selected company should be present
+    expect(wrapper.findComponent(CompanyDossierView).exists()).toBe(true);
+    expect(wrapper.text()).toContain("Acme Corp");
+  });
+
+  it("filters companies by search query and sector", async () => {
+    const wrapper = mount(ResearchDeskView, {
+      props: {
+        companies: mockCompanies,
+        companyId: "acme-corp",
+      },
+      global: {
+        plugins: [router],
+        stubs: {
+          Monogram: true,
+          CompanyFollowButton: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const directory = wrapper.find("aside");
+
+    // Search for 'Globex'
+    const searchInput = wrapper.find('input[type="text"]');
+    await searchInput.setValue("Globex");
+    await flushPromises();
+
+    expect(directory.text()).toContain("Globex Corporation");
+    expect(directory.text()).not.toContain("Initech");
+
+    // Clear search and filter by Sector
+    await searchInput.setValue("");
+    const sectorSelect = wrapper.find("select");
+    await sectorSelect.setValue("Fintech");
+    await flushPromises();
+
+    expect(directory.text()).toContain("Globex Corporation");
+    expect(directory.text()).not.toContain("Acme Corp");
+  });
+
+  it("filters companies when Diffs toggle is active", async () => {
+    const wrapper = mount(ResearchDeskView, {
+      props: {
+        companies: mockCompanies,
+        companyId: "acme-corp",
+      },
+      global: {
+        plugins: [router],
+        stubs: {
+          Monogram: true,
+          CompanyFollowButton: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const directory = wrapper.find("aside");
+
+    // Click 'Diffs' button
+    const diffsBtn = wrapper.findAll("button").find((b) => b.text().includes("Diffs") || b.text().includes("更新"));
+    expect(diffsBtn).toBeDefined();
+    await diffsBtn.trigger("click");
+    await flushPromises();
+
+    // Only Acme Corp has is_modified: true
+    expect(directory.text()).toContain("Acme Corp");
+    expect(directory.text()).not.toContain("Globex Corporation");
+  });
+
   it("switches dossier tabs cleanly", async () => {
     const wrapper = mount(CompanyDossierView, {
       props: {
