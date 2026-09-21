@@ -142,6 +142,28 @@ describe("Sidebar", () => {
     expect(trackedCompanyIds.value.has("nvda")).toBe(false);
   });
 
+  it("puts Market, Pulse and News on one line, each its own button", async () => {
+    // Each desk stays one click away from anywhere (the reason they came
+    // back as rows), without spending three rows on one desk.
+    const wrapper = mountSidebar();
+    const row = wrapper.get(".desk-segments");
+    const buttons = row.findAll(".desk-segment");
+    expect(buttons.map((b) => b.text())).toEqual(["Market", "Pulse", "News"]);
+    expect(buttons.map((b) => b.attributes("data-tour"))).toEqual([
+      "nav-market",
+      "nav-pulse",
+      "nav-news",
+    ]);
+    expect(row.attributes("role")).toBe("group");
+
+    // The rail has no room for three across: they stack as ordinary rows.
+    await wrapper.get('button[aria-label="Collapse sidebar"]').trigger("click");
+    expect(wrapper.find(".desk-segments").exists()).toBe(false);
+    for (const id of ["market", "pulse", "news"]) {
+      expect(wrapper.get(`[data-tour="nav-${id}"]`).classes()).toContain("source-row");
+    }
+  });
+
   it("collapses to an icon rail and expands again", async () => {
     const wrapper = mountSidebar();
     const toggle = wrapper.get('button[aria-label="Collapse sidebar"]');
