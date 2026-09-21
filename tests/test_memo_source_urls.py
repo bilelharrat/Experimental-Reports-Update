@@ -167,3 +167,19 @@ def test_the_stamp_reaches_the_package_validator(tmp_path, monkeypatch):
     assert package["run"]["private_material_on_file"] is False
     errors = r.english_package_validation_errors(package)
     assert any("holds nothing private" in e for e in errors)
+
+
+def test_the_error_does_not_offer_reclassifying_when_nothing_private_is_on_file(monkeypatch):
+    """Offering "say so in its class" to a company with nothing private is
+    offering the loophole; the next check would catch it a round later."""
+    monkeypatch.delenv("BSH_MEMO_SOURCE_URL_REQUIRED", raising=False)
+    errors: list[str] = []
+    r._validate_source(
+        _source("syndicated market research", title="Worldwide AI Spending Guide"),
+        "sources[0]",
+        errors,
+        private_material=False,
+    )
+    assert len(errors) == 1
+    assert "say so in its class" not in errors[0]
+    assert "cannot be an internal document" in errors[0]

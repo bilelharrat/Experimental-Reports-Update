@@ -2124,11 +2124,23 @@ def _validate_source(
         )
     elif _memo_source_url_required_enabled() and not claims_private:
         source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
+        # Only offer reclassifying when it could be true. With nothing
+        # private on file it is the loophole, and it would cost a round to
+        # be caught by the branch above (RadixArk 2026-09-21__195426).
+        way_out = (
+            "; the firm holds nothing private on this company, so it cannot "
+            "be an internal document. For a paid report (IDC, Gartner and the "
+            "like) cite the publisher's own press release or summary page for "
+            "the figure; only if no page carries it, drop the source and the "
+            "claims that rest on it"
+            if private_material is False
+            else "; if it is really a private file, interview or internal "
+            "document, say so in its class instead"
+        )
         errors.append(
             f"{location}.url is required: a source of class {source_class!r} is "
             "web-retrieved, so carry the page URL the analysis artifacts or the "
-            "known-sources list recorded; if it is really a private file, "
-            "interview or internal document, say so in its class instead"
+            "known-sources list recorded" + way_out
         )
     _validate_localized_value(
         source.get("class"),
