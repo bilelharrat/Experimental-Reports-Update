@@ -365,6 +365,16 @@ function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
 }
 
+// A ticker on the tape opens that stock on the Market desk, as on Home and
+// News; a row without a ticker opens the company.
+function openTapeItem(item) {
+  if (item?.ticker) {
+    router.push({ name: "market-radar", query: { ticker: item.ticker } });
+    return;
+  }
+  if (item?.id) openCompany(item);
+}
+
 function inspectAttention(item) {
   emit("open-copilot", {
     companyId: item.company_id,
@@ -582,7 +592,7 @@ function signedMoneyUsd(value) {
     </div>
 
     <template v-else>
-      <LiveTickerTape class="mb-6" :items="tickerTape" @select="openCompany" />
+      <LiveTickerTape class="mb-6" :items="tickerTape" @select="openTapeItem" />
       <TrackingAttentionStrip class="mb-6" :items="work" @inspect="inspectAttention" />
 
       <p v-if="rollupError" class="mb-4 text-footnote text-danger">

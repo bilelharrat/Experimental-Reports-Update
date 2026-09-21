@@ -242,6 +242,18 @@ describe("TrackingView", () => {
     });
   });
 
+  it("a ticker on the tape opens that stock on the Market desk", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const nvda = wrapper
+      .find(".ticker-tape")
+      .findAll("button")
+      .find((el) => el.text().startsWith("NVDA"));
+    await nvda.trigger("click");
+    expect(push).toHaveBeenCalledWith({ name: "market-radar", query: { ticker: "NVDA" } });
+  });
+
   it("can narrow the book to followed companies", async () => {
     trackedCompanyIds.value = new Set(["nvda"]);
     const wrapper = mountView();

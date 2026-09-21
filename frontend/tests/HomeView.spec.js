@@ -293,6 +293,37 @@ describe("HomeView tracking mesh", () => {
     expect(api.trackingRollup).not.toHaveBeenCalled();
   });
 
+  it("a workspace company's ticker on the tape opens that stock on the Market desk", async () => {
+    const wrapper = mount(HomeView, {
+      global: {
+        provide: {
+          workspaceCompanies: [
+            {
+              id: "nvda",
+              name: "NVIDIA",
+              ticker: "NVDA",
+              company_type: "public",
+              status: "public",
+            },
+          ],
+          workspaceLoading: false,
+        },
+        stubs: {
+          RouterLink: { props: ["to"], template: "<a><slot /></a>" },
+        },
+      },
+    });
+    await flushPromises();
+
+    const nvda = wrapper
+      .find(".ticker-tape")
+      .findAll("button")
+      .find((el) => el.text().startsWith("NVDA"));
+    await nvda.trigger("click");
+    expect(push).toHaveBeenCalledWith({ name: "market-radar", query: { ticker: "NVDA" } });
+    expect(push).not.toHaveBeenCalledWith(expect.objectContaining({ name: "research" }));
+  });
+
   it("keeps a live tape of benchmarks when the book has no public names", async () => {
     window.localStorage.removeItem("bsh.marketPinnedTickers");
     const wrapper = mount(HomeView, {

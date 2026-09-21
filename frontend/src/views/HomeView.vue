@@ -168,14 +168,15 @@ function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
 }
 
-// Tape rows for workspace companies open the company; watchlist and
-// benchmark rows open the quote on the Market desk.
+// A ticker on the tape opens that stock on the Market desk, a workspace
+// company's own row included (the sidebar's company launcher is the way to
+// its desk). A row without a ticker opens the company.
 function openTapeItem(item) {
-  if (item?.id) {
-    openCompany(item);
+  if (item?.ticker) {
+    router.push({ name: "market-radar", query: { ticker: item.ticker } });
     return;
   }
-  if (item?.ticker) router.push({ name: "market-radar", query: { ticker: item.ticker } });
+  if (item?.id) openCompany(item);
 }
 
 // Live progress feed during a Claude Code / OpenAI search
