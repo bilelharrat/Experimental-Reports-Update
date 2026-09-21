@@ -4269,6 +4269,28 @@ def _run_fast_synthesis(
                         ),
                         validation_error=quality_error[:4000],
                     )
+                # The deterministic checks run inside the attempt loop, on
+                # a candidate that passed validation. A package rescued here
+                # never passed an attempt, so without this it shipped with no
+                # pin check and no fact check at all — silently: RadixArk
+                # 2026-09-21__195426 had the best evidence of any run (40
+                # fetched pages, 79% of figures traceable) and its report
+                # showed no fact check. Report only: the attempts are spent,
+                # so the findings go on the record rather than to a repair.
+                _run_memo_pin_check(
+                    run_dir=run_dir,
+                    candidate=repaired_package,
+                    progress=phase3_progress,
+                    attempt=None,
+                )
+                _run_memo_fact_check(
+                    run_dir=run_dir,
+                    candidate=repaired_package,
+                    company_id=company_slug,
+                    research_dir=research_dir,
+                    progress=phase3_progress,
+                    attempt=None,
+                )
                 english_result = dict(last_attempt_result or {})
                 english_result["memo_package"] = repaired_package
                 english_error = None
