@@ -684,6 +684,27 @@ def _only_word_budget_errors(validation_errors: list[str]) -> bool:
     )
 
 
+def _only_envelope_or_budget_errors(
+    validation_errors: list[str], package: dict | None
+) -> bool:
+    """Every error is either a word-budget overrun or lives in the package
+    envelope (sources, company, run) — defects the per-section repair fixes
+    without writing a section, and a regeneration would not.
+
+    Live on 2026-09-21 (RadixArk 2026-09-21__195426) two sources cited
+    without a URL — IDC's and Gartner's spending guides — sent the run into
+    a full regeneration: a new spine and all seven sections rewritten, for
+    two missing strings in the source list. The envelope repair that fixes
+    exactly that already existed, one step further on."""
+    if not validation_errors or not isinstance(package, dict):
+        return False
+    return all(
+        _WORD_BUDGET_ERROR_MARKER in str(err)
+        or claude_runner._is_envelope_repair_finding(package, str(err))
+        for err in validation_errors
+    )
+
+
 def _memo_package_render_validation_error(
     package_path: Path,
     *,
@@ -4090,6 +4111,20 @@ def _run_fast_synthesis(
                         "Only word-budget errors remain; going straight to "
                         "the trim repair instead of regenerating sections "
                         "that would come back the same length"
+                    ),
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    validation_errors=validation_errors[:10],
+                )
+                break
+            if _only_envelope_or_budget_errors(validation_errors, candidate):
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_envelope_repair_shortcut",
+                    message=(
+                        "Only source-list and word-budget errors remain; "
+                        "repairing those directly instead of regenerating "
+                        "every section"
                     ),
                     attempt=attempt,
                     max_attempts=max_attempts,
