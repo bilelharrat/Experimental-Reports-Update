@@ -47,6 +47,11 @@ BRIEFS_ROOT = Path(__file__).resolve().parent.parent / "data" / "market_briefs"
 # is a research call plus a structuring call over a long output.
 LONG_NOTE_TIMEOUT_SEC = 420
 
+# Gemini writes the brief — the configured Gemini model, 3.8 Flash — whatever
+# engine the research desk is set to, and it is never handed to Claude. A
+# failed Gemini run is left for the morning schedule to try again.
+NOTE_ENGINE_POLICY = "gemini-only"
+
 INDEX_TICKERS = ["SPY", "QQQ", "DIA", "IWM", "GLD", "USO", "TLT", "VIXY", "UUP"]
 MAX_WATCHLIST = 24
 MOVER_LIMIT = 6
@@ -175,15 +180,60 @@ def list_briefs() -> list[str]:
 
 # --- Written note (model-assisted) -------------------------------------------
 
+# The headline is the brief's front page: what the desk reads when it reads
+# nothing else. Left to itself the model wrote Title Case summaries of
+# everything at once ("Tech Rallies on US-China AI Talks as Crude Unwinds
+# Geopolitical Risk"). These ask for one driver and one number, in the
+# sentence case financial front pages use, and give the second driver a line
+# of its own — the dek — instead of a second clause.
+HEADLINE_FIELDS: dict = {
+    "headline_en": {
+        "type": "string",
+        "description": (
+            "Front-page headline, 50-80 chars, sentence case, present tense, "
+            "active verb. One driver and one number from the frozen tape, e.g. "
+            "'Nasdaq jumps 2.5% as US-China chip talks revive the AI trade'. "
+            "No colon, no trailing period, no Title Case."
+        ),
+    },
+    "headline_zh": {
+        "type": "string",
+        "description": "Chinese headline, <= 28 characters, same driver and number.",
+    },
+    "dek_en": {
+        "type": "string",
+        "description": (
+            "The standfirst under the headline: one sentence, 100-180 chars, "
+            "carrying what the headline leaves out — the second driver, or what "
+            "it means for positioning. Never repeats the headline's number."
+        ),
+    },
+    "dek_zh": {
+        "type": "string",
+        "description": "Chinese standfirst, one sentence, <= 70 characters.",
+    },
+}
+HEADLINE_REQUIRED = ["headline_en", "headline_zh", "dek_en", "dek_zh"]
+
+HEADLINE_RULES = (
+    "\nThe headline and dek:\n"
+    "- The headline is what the desk reads if it reads nothing else: one "
+    "driver, one number from the frozen tape, sentence case, present tense, "
+    "an active verb, 50-80 characters.\n"
+    "- Say what happened, not that something happened: 'Treasuries slide as "
+    "hot CPI pushes rate-cut bets into 2027', not 'Markets react to "
+    "inflation data'.\n"
+    "- The dek is one sentence carrying the second driver or the so-what for "
+    "positioning. It never restates the headline.\n"
+    "- No colons, no questions, no Title Case, and none of 'amid', 'mixed "
+    "signals', 'navigates' or 'in focus'."
+)
+
 NOTE_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "headline_en": {
-            "type": "string",
-            "description": "One-line desk read of the tape, <= 90 chars.",
-        },
-        "headline_zh": {"type": "string"},
+        **HEADLINE_FIELDS,
         "bullets_en": {
             "type": "array",
             "minItems": 3,
@@ -202,18 +252,14 @@ NOTE_SCHEMA: dict = {
             "items": {"type": "string"},
         },
     },
-    "required": ["headline_en", "headline_zh", "bullets_en", "bullets_zh"],
+    "required": [*HEADLINE_REQUIRED, "bullets_en", "bullets_zh"],
 }
 
 LONG_NOTE_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "headline_en": {
-            "type": "string",
-            "description": "One-line desk read of the tape, <= 90 chars.",
-        },
-        "headline_zh": {"type": "string"},
+        **HEADLINE_FIELDS,
         "sections_en": {
             "type": "array",
             "minItems": 6,
@@ -255,7 +301,7 @@ LONG_NOTE_SCHEMA: dict = {
             },
         },
     },
-    "required": ["headline_en", "headline_zh", "sections_en", "sections_zh"],
+    "required": [*HEADLINE_REQUIRED, "sections_en", "sections_zh"],
 }
 
 NOTE_SYSTEM_PROMPT = (
@@ -271,7 +317,7 @@ NOTE_SYSTEM_PROMPT = (
     "- Terse desk voice. No greetings, no disclaimers.\n"
     "- Chinese fields are a natural rewrite for a bilingual desk, not a "
     "word-for-word translation."
-)
+) + HEADLINE_RULES
 
 LONG_NOTE_SYSTEM_PROMPT = (
     "You are the morning-report writer on a small equity research desk. You "
@@ -319,7 +365,7 @@ LONG_NOTE_SYSTEM_PROMPT = (
     "greetings, no disclaimers, no markdown headers inside a body.\n"
     "- Chinese sections are a natural rewrite for a bilingual desk, not a "
     "word-for-word translation, and carry the same facts and judgments."
-)
+) + HEADLINE_RULES
 
 
 def _fmt_move(row: dict) -> str:
@@ -369,13 +415,30 @@ def _clean_sections(rows: list | None) -> list[dict]:
     return sections
 
 
+_WRAPPING_QUOTES = {('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"), ("「", "」"), ("《", "》")}
+
+
+def _clean_line(value: object, *, headline: bool = False) -> str:
+    """One display line: whitespace collapsed and wrapping quotes dropped.
+
+    A headline also loses its trailing full stop — front pages don't print
+    one, and the model adds it about as often as it leaves it off.
+    """
+    text = " ".join(str(value or "").split())
+    if len(text) > 1 and (text[0], text[-1]) in _WRAPPING_QUOTES:
+        text = text[1:-1].strip()
+    if headline:
+        text = text.rstrip(".。").rstrip()
+    return text
+
+
 def write_note(date: str | None = None, length: str = "short") -> dict:
     """Generate the written note for an archived brief and persist it.
 
     ``length`` picks the format: ``short`` is the 30-second bullet read,
     ``long`` is a full 600-1000 word sectioned report. Raises
     ``ValueError`` when there is no archived brief to annotate and
-    ``RuntimeError`` when the Claude call fails — the caller decides how
+    ``RuntimeError`` when the Gemini call fails — the caller decides how
     to surface each. The frozen numbers are never touched.
     """
     length = str(length or "short").strip().lower()
@@ -396,7 +459,7 @@ def write_note(date: str | None = None, length: str = "short") -> dict:
             schema=LONG_NOTE_SCHEMA,
             name="morning_brief_note_long",
             gemini_timeout_sec=LONG_NOTE_TIMEOUT_SEC,
-            claude_timeout_sec=LONG_NOTE_TIMEOUT_SEC,
+            policy_override=NOTE_ENGINE_POLICY,
         )
     else:
         data, meta, err = ai_engine.structured(
@@ -406,6 +469,7 @@ def write_note(date: str | None = None, length: str = "short") -> dict:
             name="morning_brief_note",
             timeout_sec=180,
             thinking_level="low",
+            policy_override=NOTE_ENGINE_POLICY,
         )
     if err is not None or not isinstance(data, dict):
         raise RuntimeError(err or "Empty note response")
@@ -420,8 +484,10 @@ def write_note(date: str | None = None, length: str = "short") -> dict:
         # sources and the geopolitics in it is unverified.
         "sources": meta.get("sources") or [],
         "researched": bool(meta.get("grounded")),
-        "headline_en": str(data.get("headline_en") or "").strip(),
-        "headline_zh": str(data.get("headline_zh") or "").strip(),
+        "headline_en": _clean_line(data.get("headline_en"), headline=True),
+        "headline_zh": _clean_line(data.get("headline_zh"), headline=True),
+        "dek_en": _clean_line(data.get("dek_en")),
+        "dek_zh": _clean_line(data.get("dek_zh")),
     }
     if is_long:
         note["sections_en"] = _clean_sections(data.get("sections_en"))
@@ -467,6 +533,12 @@ MORNING_STATE_FILE = "_morning_state.json"
 MORNING_CHECK_SECONDS = 300
 DEFAULT_MORNING_HOUR = 7
 DEFAULT_MORNING_LENGTH = "long"
+# A failed morning is tried again an hour later, three runs a day at most.
+# One failure used to cost the whole day: a server that started before its
+# Gemini key was added, with Claude past its weekly limit, never wrote the
+# brief even after the key arrived.
+MORNING_RETRY_SECONDS = 3600
+MORNING_MAX_ATTEMPTS = 3
 
 _MORNING_LOCK = threading.Lock()
 _MORNING_LOOP_STARTED = False
@@ -532,8 +604,9 @@ def morning_due(now: datetime | None = None) -> bool:
     off the recorded run date alone meant the schedule saw its own completed
     run and refused to write another.
 
-    A run that FAILED today still holds the loop off, so a broken model or
-    market feed is not retried every five minutes.
+    A run that FAILED today holds the loop off for an hour, so a broken
+    model or market feed is not retried every five minutes, and after
+    ``MORNING_MAX_ATTEMPTS`` failed runs the day is left alone.
     """
     if not morning_enabled():
         return False
@@ -546,8 +619,30 @@ def morning_due(now: datetime | None = None) -> bool:
         return False
     state = _read_morning_state()
     if str(state.get("last_run_date") or "") == today and not state.get("ok"):
-        return False
+        retry_at = _next_retry_at(state, today)
+        return retry_at is not None and current.astimezone() >= retry_at
     return True
+
+
+def _attempts(state: dict) -> int:
+    try:
+        return max(1, int(state.get("attempts") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _next_retry_at(state: dict, today: str) -> datetime | None:
+    """When a morning that failed ``today`` is tried again; None when it isn't."""
+    if str(state.get("last_run_date") or "") != today or state.get("ok"):
+        return None
+    if _attempts(state) >= MORNING_MAX_ATTEMPTS:
+        return None
+    try:
+        attempted_at = datetime.fromisoformat(str(state.get("attempted_at") or ""))
+    except ValueError:
+        # Recorded before retries existed: no time to space a retry from.
+        return None
+    return attempted_at.astimezone() + timedelta(seconds=MORNING_RETRY_SECONDS)
 
 
 def run_morning_brief(now: datetime | None = None) -> dict | None:
@@ -560,28 +655,53 @@ def run_morning_brief(now: datetime | None = None) -> dict | None:
     current = now or datetime.now().astimezone()
     today = current.strftime("%Y-%m-%d")
     length = morning_length()
+    previous = _read_morning_state()
+    attempt = 1
+    if str(previous.get("last_run_date") or "") == today and not previous.get("ok"):
+        attempt = _attempts(previous) + 1
     _MORNING_RUNNING.set()
     try:
         build_brief()
         brief = write_note(length=length)
         _write_morning_state(
-            {"last_run_date": today, "length": length, "ok": True, "error": None}
+            {
+                "last_run_date": today,
+                "length": length,
+                "ok": True,
+                "error": None,
+                "attempts": attempt,
+            }
         )
         logger.info("Morning brief written for %s (%s).", today, length)
         return brief
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Morning brief failed for %s: %s", today, exc)
+        logger.warning(
+            "Morning brief failed for %s (run %d of %d): %s",
+            today,
+            attempt,
+            MORNING_MAX_ATTEMPTS,
+            exc,
+        )
         _write_morning_state(
-            {"last_run_date": today, "length": length, "ok": False, "error": str(exc)[:300]}
+            {
+                "last_run_date": today,
+                "length": length,
+                "ok": False,
+                "error": str(exc)[:300],
+                "attempts": attempt,
+                "attempted_at": current.isoformat(),
+            }
         )
         return None
     finally:
         _MORNING_RUNNING.clear()
 
 
-def morning_status() -> dict:
+def morning_status(now: datetime | None = None) -> dict:
     """What the schedule is doing, for the Pulse page and diagnostics."""
+    current = now or datetime.now().astimezone()
     state = _read_morning_state()
+    retry_at = _next_retry_at(state, current.strftime("%Y-%m-%d"))
     return {
         "enabled": morning_enabled(),
         "hour": morning_hour(),
@@ -590,7 +710,9 @@ def morning_status() -> dict:
         "last_run_date": state.get("last_run_date"),
         "last_run_ok": state.get("ok"),
         "last_error": state.get("error"),
-        "due_now": morning_due(),
+        "attempts": state.get("attempts"),
+        "next_retry_at": retry_at.isoformat() if retry_at else None,
+        "due_now": morning_due(current),
     }
 
 
@@ -607,10 +729,11 @@ def _morning_loop() -> None:
 def start_morning_loop() -> bool:
     """Start the morning schedule (FastAPI startup hook). Idempotent.
 
-    Off when ``BSH_MORNING_BRIEF=0`` or no engine can run.
+    Off when ``BSH_MORNING_BRIEF=0`` or Gemini cannot run: the brief is
+    Gemini's to write, so a Claude CLI alone does not start it.
     """
     global _MORNING_LOOP_STARTED
-    if not morning_enabled() or not ai_engine.available():
+    if not morning_enabled() or not ai_engine.available(NOTE_ENGINE_POLICY):
         return False
     with _MORNING_LOCK:
         if _MORNING_LOOP_STARTED:

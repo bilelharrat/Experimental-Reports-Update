@@ -89,21 +89,31 @@ export function styleFactorRows(quotes = {}) {
   return indexQuoteCards(quotes, PULSE_INDEX_TICKERS);
 }
 
+// The Nasdaq screener (/api/quotes/screeners) sends `change_pct`; quote rows
+// send `change_pct_1d`. Reading only the latter counted every screener row as
+// missing, so Pulse showed 0 advancers and 0 decliners on a normal day.
+function dayChange(row) {
+  const value = row?.change_pct_1d ?? row?.change_pct;
+  return value == null || value === "" ? NaN : Number(value);
+}
+
 export function marketBreadthFromUniverse(universe = []) {
-  const rows = (universe || []).filter((row) => Number.isFinite(Number(row?.change_pct_1d)));
+  const rows = (universe || []).filter((row) => Number.isFinite(dayChange(row)));
   let up = 0;
   let down = 0;
   let flat = 0;
   let nearHigh = 0;
+  let withHigh = 0;
   for (const row of rows) {
-    const change = Number(row.change_pct_1d);
+    const change = dayChange(row);
     if (change > 0.05) up += 1;
     else if (change < -0.05) down += 1;
     else flat += 1;
     const last = Number(row.last_price ?? row.last);
     const high = Number(row.high_52w ?? row.year_high);
-    if (Number.isFinite(last) && Number.isFinite(high) && high > 0 && last / high >= 0.95) {
-      nearHigh += 1;
+    if (Number.isFinite(last) && Number.isFinite(high) && high > 0) {
+      withHigh += 1;
+      if (last / high >= 0.95) nearHigh += 1;
     }
   }
   const total = rows.length;
@@ -115,7 +125,9 @@ export function marketBreadthFromUniverse(universe = []) {
     nearHigh,
     advanceDecline: down > 0 ? up / down : up > 0 ? up : null,
     pctUp: total ? (up / total) * 100 : null,
-    pctNearHigh: total ? (nearHigh / total) * 100 : null,
+    // Only over rows that carry a 52-week high: the screener has none, and
+    // "0% near highs" would be a claim, not an absence of data.
+    pctNearHigh: withHigh ? (nearHigh / withHigh) * 100 : null,
   };
 }
 
@@ -209,4 +221,19 @@ export function ledgerHitStats(entries = []) {
     hitRate: scored.length ? (hits.length / scored.length) * 100 : null,
     avgScore,
   };
+}
+
+/**
+ * Reading time for a brief, in whole minutes (at least one). English reads
+ * at ~230 words a minute; Chinese has no spaces to count, so it is measured
+ * in characters at ~400 a minute.
+ */
+export function briefReadMinutes(parts = [], lang = "en") {
+  const text = (parts || []).filter(Boolean).join(" ");
+  if (!text.trim()) return 0;
+  const units =
+    lang === "zh"
+      ? (text.match(/[㐀-鿿]/g) || []).length
+      : text.split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(units / (lang === "zh" ? 400 : 230)));
 }

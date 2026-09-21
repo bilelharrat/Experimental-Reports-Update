@@ -2,7 +2,7 @@
 // Web twin of MacDealPipelineView.swift: card header with warmth pill and
 // deal lead, the equal-width stage stepper (16pt circles: accent current,
 // green past with checkmark), and the intro/touchpoint/next-step tile row.
-import { ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { useT } from "../../i18n.js";
 import {
   Waypoints,
@@ -77,6 +77,62 @@ function stageIndex(stage) {
 
 function currentStage() {
   return pipeline.value?.stage || "Sourced";
+}
+
+// ---- Intro path · last touchpoint · next step, edited in place ----------
+// All three were "Not recorded" on every company because the card only ever
+// displayed them; the API has accepted edits all along.
+const editingField = ref("");
+const draft = ref("");
+const draftDue = ref("");
+const fieldSaving = ref(false);
+const editorRef = ref(null);
+
+async function startEdit(field) {
+  if (!pipeline.value || fieldSaving.value) return;
+  editingField.value = field;
+  draft.value = pipeline.value[field] || "";
+  draftDue.value = field === "next_step" ? pipeline.value.next_step_due || "" : "";
+  saveError.value = null;
+  await nextTick();
+  const el = Array.isArray(editorRef.value) ? editorRef.value[0] : editorRef.value;
+  el?.focus();
+}
+
+function cancelEdit() {
+  editingField.value = "";
+}
+
+async function saveEdit() {
+  const field = editingField.value;
+  if (!field || fieldSaving.value) return;
+  const payload = { [field]: draft.value.trim() || null };
+  if (field === "next_step") payload.next_step_due = draftDue.value || null;
+  fieldSaving.value = true;
+  saveError.value = null;
+  try {
+    const res = await api.updateDealPipeline(props.companyId, payload);
+    if (res) {
+      pipeline.value = { ...res, stages: res.stages?.length ? res.stages : defaultStages };
+    }
+    editingField.value = "";
+  } catch (err) {
+    saveError.value = t("research_desk.pipeline_field_save_failed", {
+      reason: err?.message || String(err),
+    });
+  } finally {
+    fieldSaving.value = false;
+  }
+}
+
+function onEditorKeydown(event) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelEdit();
+  } else if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    saveEdit();
+  }
 }
 
 async function changeStage(newStage) {
@@ -205,38 +261,89 @@ async function changeStage(newStage) {
       </template>
     </div>
 
-    <!-- Intro path · Last touchpoint · Next step -->
+    <!-- Intro path · Last touchpoint · Next step — click any to edit -->
     <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-      <div class="mac-tile flex flex-col gap-1 p-2.5" style="border-radius: 10px">
-        <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
-          <Link2 class="h-3 w-3" />
-          {{ t("research_desk.warm_intro_path") }}
-        </span>
-        <span class="mac-t-caption10 line-clamp-2 font-semibold">
-          {{ pipeline?.intro_path || t("research_desk.not_recorded") }}
-        </span>
-      </div>
-
-      <div class="mac-tile flex flex-col gap-1 p-2.5" style="border-radius: 10px">
-        <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
-          <MessageSquare class="h-3 w-3" />
-          {{ t("research_desk.last_touchpoint") }}
-        </span>
-        <span class="mac-t-caption10 mac-c-secondary line-clamp-2">
-          {{ pipeline?.last_touchpoint || t("research_desk.not_recorded") }}
-        </span>
-      </div>
-
       <div
-        class="mac-tile-tint flex flex-col gap-1 p-2.5"
-        style="border-radius: 10px; --tint: var(--mac-accent)"
+        v-for="tile in [
+          { field: 'intro_path', icon: Link2, label: t('research_desk.warm_intro_path'), empty: t('research_desk.not_recorded') },
+          { field: 'last_touchpoint', icon: MessageSquare, label: t('research_desk.last_touchpoint'), empty: t('research_desk.not_recorded') },
+          { field: 'next_step', icon: CalendarClock, label: t('research_desk.next_step'), empty: t('research_desk.not_set') },
+        ]"
+        :key="tile.field"
+        class="flex flex-col gap-1 p-2.5"
+        :class="tile.field === 'next_step' ? 'mac-tile-tint' : 'mac-tile'"
+        :style="
+          tile.field === 'next_step'
+            ? { borderRadius: '10px', '--tint': pipeline?.next_step_overdue ? 'var(--mac-red)' : 'var(--mac-accent)' }
+            : { borderRadius: '10px' }
+        "
+        :data-testid="`pipeline-${tile.field}`"
       >
-        <span class="mac-t-label mac-c-accent flex items-center gap-1.5">
-          <CalendarClock class="h-3 w-3" />
-          {{ t("research_desk.next_step") }}
+        <span
+          class="mac-t-label flex items-center gap-1.5"
+          :class="tile.field === 'next_step' ? '' : 'mac-c-secondary'"
+          :style="tile.field === 'next_step' ? { color: 'var(--tint)' } : {}"
+        >
+          <component :is="tile.icon" class="h-3 w-3" />
+          {{ tile.label }}
         </span>
-        <span class="mac-t-caption10 mac-c-accent line-clamp-2" style="font-weight: 500">
-          {{ pipeline?.next_step || t("research_desk.not_set") }}
+
+        <template v-if="editingField === tile.field">
+          <textarea
+            ref="editorRef"
+            v-model="draft"
+            rows="2"
+            class="mac-field mac-t-caption10 w-full resize-none"
+            :aria-label="tile.label"
+            :disabled="fieldSaving"
+            @keydown="onEditorKeydown"
+          />
+          <label v-if="tile.field === 'next_step'" class="mac-t-caption10 mac-c-secondary flex items-center gap-1.5">
+            {{ t("research_desk.next_step_due") }}
+            <input
+              v-model="draftDue"
+              type="date"
+              class="mac-field mac-t-caption10"
+              :disabled="fieldSaving"
+              data-testid="pipeline-next-step-due"
+              @keydown="onEditorKeydown"
+            />
+          </label>
+          <span class="flex items-center gap-1.5">
+            <button type="button" class="mac-btn mac-btn--mini mac-btn--prominent" :disabled="fieldSaving" @click="saveEdit">
+              {{ t("research_desk.save") }}
+            </button>
+            <button type="button" class="mac-btn mac-btn--mini" :disabled="fieldSaving" @click="cancelEdit">
+              {{ t("research_desk.cancel") }}
+            </button>
+            <span v-if="fieldSaving" class="mac-spinner" />
+          </span>
+        </template>
+
+        <button
+          v-else
+          type="button"
+          class="mac-t-caption10 line-clamp-2 text-left"
+          :class="pipeline?.[tile.field] ? '' : 'mac-c-secondary'"
+          :style="tile.field === 'next_step' ? { color: 'var(--tint)', fontWeight: 500 } : { fontWeight: tile.field === 'intro_path' ? 600 : 400 }"
+          :title="t('research_desk.click_to_edit')"
+          :disabled="!pipeline"
+          @click="startEdit(tile.field)"
+        >
+          {{ pipeline?.[tile.field] || tile.empty }}
+        </button>
+
+        <span
+          v-if="tile.field === 'next_step' && pipeline?.next_step && pipeline?.next_step_due && editingField !== 'next_step'"
+          class="mac-t-caption10 mac-mono"
+          :style="{ color: 'var(--tint)', fontWeight: pipeline.next_step_overdue ? 700 : 400 }"
+          data-testid="pipeline-due"
+        >
+          {{
+            pipeline.next_step_overdue
+              ? t("research_desk.next_step_overdue", { date: pipeline.next_step_due })
+              : t("research_desk.next_step_due_on", { date: pipeline.next_step_due })
+          }}
         </span>
       </div>
     </div>

@@ -31,6 +31,19 @@ const isInsufficient = computed(() => {
   return scoreData.value?.is_insufficient ?? (score.value == null);
 });
 
+const componentCounts = computed(() => {
+  const rows = scoreData.value?.components || [];
+  return { covered: rows.filter((c) => c.available).length, total: rows.length };
+});
+
+// A score built from fewer than half its components is a partial read. The
+// caption said so in small print while the number sat in a full-strength
+// ring; now the pill says it beside the title and the ring is dimmed.
+const thinCoverage = computed(() => {
+  const { covered, total } = componentCounts.value;
+  return score.value != null && total > 0 && covered * 2 < total;
+});
+
 // score >= 70 → green, >= 40 → orange, else red; secondary while unknown.
 const strokeColor = computed(() => {
   if (score.value == null) return "var(--mac-secondary)";
@@ -110,6 +123,8 @@ watch(
             stroke-linecap="round"
             :stroke-dasharray="circumference"
             :stroke-dashoffset="strokeDashoffset"
+            :opacity="thinCoverage ? 0.4 : 1"
+            data-testid="signal-ring"
             style="transition: stroke-dashoffset 0.7s ease-out, stroke 0.3s ease"
           />
         </svg>
@@ -123,9 +138,19 @@ watch(
 
       <!-- Signal score · coverage · formula -->
       <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <h3 :class="compact ? 'mac-t-subhead' : 'mac-t-headline'">
-          {{ t("research_desk.signal_score") }}
-        </h3>
+        <div class="flex min-w-0 items-center gap-1.5">
+          <h3 :class="compact ? 'mac-t-subhead' : 'mac-t-headline'">
+            {{ t("research_desk.signal_score") }}
+          </h3>
+          <span
+            v-if="thinCoverage"
+            class="mac-status-pill"
+            style="--tint: var(--mac-orange)"
+            data-testid="signal-partial"
+          >
+            {{ t("research_desk.signal_partial", componentCounts) }}
+          </span>
+        </div>
         <p class="mac-t-caption mac-c-secondary line-clamp-2">
           {{ coverageSubtitle }}
         </p>

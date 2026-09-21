@@ -10,12 +10,45 @@ struct MacCompanyProfile: Decodable {
         let marketCap: Double?
         let name: String?
         let asOf: String?
+        // What a listed company's profile shows in place of ARR and runway.
+        let peRatio: Double?
+        let eps: Double?
+        let fiftyTwoWeekHigh: Double?
+        let fiftyTwoWeekLow: Double?
+        /// A fraction (0.0031 = 0.31%), as the quote feed stores it.
+        let dividendYield: Double?
         enum CodingKeys: String, CodingKey {
-            case ticker, name
+            case ticker, name, eps
             case lastPrice = "last_price"
             case changePct1d = "change_pct_1d"
             case marketCap = "market_cap"
             case asOf = "as_of"
+            case peRatio = "pe_ratio"
+            case fiftyTwoWeekHigh = "fifty_two_week_high"
+            case fiftyTwoWeekLow = "fifty_two_week_low"
+            case dividendYield = "dividend_yield"
+        }
+    }
+    /// A figure the company record carries — the rows the memo's metric
+    /// snapshot quotes — with when and where it is from.
+    struct Reported: Decodable {
+        let label: String
+        let value: String
+        let asOf: String?
+        let sourceClass: String?
+        enum CodingKeys: String, CodingKey {
+            case label, value
+            case asOf = "as_of"
+            case sourceClass = "source_class"
+        }
+        /// "2026-06-13" → "2026-06"; a bare year or free text stays as is.
+        var asOfShort: String? {
+            guard let raw = asOf?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+            let isoDay = raw.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+            return isoDay ? String(raw.prefix(7)) : raw
+        }
+        var help: String {
+            [label, asOf.map { "as of \($0)" }, sourceClass].compactMap { $0 }.joined(separator: " · ")
         }
     }
     struct PrivateSide: Decodable {
@@ -72,9 +105,11 @@ struct MacCompanyProfile: Decodable {
     let latestDecision: Decision?
     let ic: IC?
     let counts: Counts?
+    /// Keyed arr, revenue, growth, valuation, runway, tam.
+    let reported: [String: Reported]
 
     enum CodingKeys: String, CodingKey {
-        case name, description, sector, hq, ticker, pipeline, ic, counts
+        case name, description, sector, hq, ticker, pipeline, ic, counts, reported
         case companyId = "company_id"
         case isPublic = "is_public"
         case publicSide = "public"
@@ -99,6 +134,76 @@ struct MacCompanyProfile: Decodable {
         latestDecision = try? c.decodeIfPresent(Decision.self, forKey: .latestDecision)
         ic = try? c.decodeIfPresent(IC.self, forKey: .ic)
         counts = try? c.decodeIfPresent(Counts.self, forKey: .counts)
+        reported = (try? c.decodeIfPresent([String: Reported].self, forKey: .reported)) ?? [:]
+    }
+}
+
+// MARK: - One listed company's earnings and filings (dossier Overview)
+
+/// `GET /api/companies/:id/earnings-filings` — the public-company counterpart
+/// of the deal pipeline: next report, recent quarters against the estimate,
+/// and SEC filings from the last 90 days.
+struct MacCompanyEarningsFilings: Decodable {
+    struct Quarter: Identifiable, Decodable {
+        var id: String { (period ?? "") + (reported ?? "") }
+        let period: String?
+        let reported: String?
+        let eps: Double?
+        let estimate: Double?
+        let surprisePct: Double?
+        enum CodingKeys: String, CodingKey {
+            case period, reported, eps, estimate
+            case surprisePct = "surprise_pct"
+        }
+    }
+    struct Earnings: Decodable {
+        let nextDate: String?
+        let nextEstimated: Bool
+        let daysToNext: Int?
+        let history: [Quarter]
+        enum CodingKeys: String, CodingKey {
+            case history
+            case nextDate = "next_date"
+            case nextEstimated = "next_estimated"
+            case daysToNext = "days_to_next"
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            nextDate = try? c.decodeIfPresent(String.self, forKey: .nextDate)
+            nextEstimated = (try? c.decodeIfPresent(Bool.self, forKey: .nextEstimated)) ?? false
+            daysToNext = try? c.decodeIfPresent(Int.self, forKey: .daysToNext)
+            history = (try? c.decodeIfPresent([Quarter].self, forKey: .history)) ?? []
+        }
+    }
+    let ticker: String?
+    let earnings: Earnings?
+    let filings: [MacFiling]
+    let error: String?
+    enum CodingKeys: String, CodingKey { case ticker, earnings, filings, error }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ticker = try? c.decodeIfPresent(String.self, forKey: .ticker)
+        earnings = try? c.decodeIfPresent(Earnings.self, forKey: .earnings)
+        filings = (try? c.decodeIfPresent([MacFiling].self, forKey: .filings)) ?? []
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+extension MacFiling {
+    /// EDGAR's own description is often just the form again ("FORM 4").
+    var plainLabel: String {
+        let desc = (description ?? "").trimmingCharacters(in: .whitespaces)
+        let bare = desc.replacingOccurrences(of: "^form\\s+", with: "", options: [.regularExpression, .caseInsensitive]).uppercased()
+        if !desc.isEmpty && bare != form.uppercased() { return desc }
+        let labels: [String: String] = [
+            "4": "Insider transaction", "8-K": "Current report", "10-Q": "Quarterly report",
+            "10-K": "Annual report", "DEF 14A": "Proxy statement", "S-1": "Registration statement",
+            "S-1/A": "Registration amendment", "424B4": "Prospectus",
+            "SC 13D": "Ownership stake · active", "SC 13D/A": "Ownership stake · active, amended",
+            "SC 13G": "Ownership stake · passive", "SC 13G/A": "Ownership stake · passive, amended",
+            "6-K": "Foreign issuer report", "20-F": "Foreign annual report",
+        ]
+        return labels[form] ?? (desc.isEmpty ? form : desc)
     }
 }
 

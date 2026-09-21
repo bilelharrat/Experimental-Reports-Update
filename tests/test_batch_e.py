@@ -69,6 +69,86 @@ def test_filings_watch_with_stubbed_sources():
     assert out["material_filings"][0]["ticker"] == "SNOW"
 
 
+def test_filings_for_one_ticker_keeps_recent_quarters(monkeypatch):
+    """A listed company's dossier reads its own earnings and filings: one
+    ticker fetched, the last four quarters kept as actual EPS against the
+    estimate, not the whole desk rebuilt."""
+    _seed()
+    today = date(2026, 9, 13)
+    calls: list[str] = []
+
+    def fetch(url, headers=None):
+        calls.append(url)
+        if "company_tickers.json" in url:
+            return {"0": {"cik_str": 1640147, "ticker": "SNOW", "title": "Snowflake Inc."}}
+        if "submissions/CIK0001640147" in url:
+            return {"filings": {"recent": {
+                "form": ["8-K", "10-Q"],
+                "filingDate": ["2026-09-01", "2026-08-28"],
+                "accessionNumber": ["0001-26-1", "0001-26-2"],
+                "primaryDocument": ["a.htm", "b.htm"],
+                "primaryDocDescription": ["Results", "Quarterly report"],
+            }}}
+        if "earnings-surprise" in url:
+            rows = [
+                {"fiscalQtrEnd": q, "dateReported": d, "eps": e, "consensusForecast": c, "percentageSurprise": p}
+                for q, d, e, c, p in [
+                    ("Jul 2026", "08/27/2026", "0.3", "0.25", "20"),
+                    ("Apr 2026", "05/28/2026", "0.2", "0.22", "-9.1"),
+                    ("Jan 2026", "02/26/2026", "0.2", "0.2", "0"),
+                    ("Oct 2025", "11/20/2025", "0.1", "0.1", "0"),
+                    ("Jul 2025", "08/21/2025", "0.1", "0.1", "0"),
+                ]
+            ]
+            return {"data": {"earningsSurpriseTable": {"rows": rows}}}
+        return {}
+
+    monkeypatch.setattr(filings_watch, "_ticker_map_file", lambda: storage.DATA_DIR / "cache" / "sec_tickers_test.json")
+    out = filings_watch.for_ticker("snow", fetch=fetch, today=today)
+    assert out["ticker"] == "SNOW"
+    assert out["material_count"] == 2
+    assert [q["period"] for q in out["earnings"]["history"]] == ["Jul 2026", "Apr 2026", "Jan 2026", "Oct 2025"]
+    assert out["earnings"]["history"][1] == {
+        "period": "Apr 2026", "reported": "2026-05-28", "eps": 0.2, "estimate": 0.22, "surprise_pct": -9.1,
+    }
+    assert out["earnings"]["next_date"] == "2026-11-26"
+    assert out["earnings"]["days_to_next"] == 74
+    # one ticker's worth of calls, not the whole desk
+    assert not any("CIK" in c and "1640147" not in c for c in calls)
+
+
+def test_insider_trades_do_not_push_out_a_quarterly_report():
+    """Apple files a Form 4 every few days; a plain newest-first cut showed
+    five insider trades and dropped its 10-Q."""
+    today = date(2026, 9, 21)
+    forms = ["4"] * 14 + ["10-Q"]
+    dates = [f"2026-09-{20 - i:02d}" for i in range(14)] + ["2026-08-01"]
+
+    def fetch(url, headers=None):
+        return {"filings": {"recent": {
+            "form": forms,
+            "filingDate": dates,
+            "accessionNumber": [f"0001-26-{i}" for i in range(15)],
+            "primaryDocument": ["x.htm"] * 15,
+            "primaryDocDescription": ["FORM 4"] * 14 + ["Quarterly report"],
+        }}}
+
+    kept = filings_watch._recent_filings(320193, fetch, today=today)
+    assert len(kept) == 12
+    assert "10-Q" in [f["form"] for f in kept]
+    assert [f["filed"] for f in kept] == sorted((f["filed"] for f in kept), reverse=True)
+    top = filings_watch._keep_material(kept, 8)
+    assert len(top) == 8 and top[-1]["form"] == "10-Q"
+
+
+def test_company_earnings_filings_endpoint_without_a_ticker():
+    _seed()
+    res = client.get("/api/companies/acme-ai/earnings-filings")
+    assert res.status_code == 200
+    assert res.json()["ticker"] is None
+    assert client.get("/api/companies/nope/earnings-filings").status_code == 404
+
+
 def test_signal_watch_snapshots_and_flags_moves():
     _seed()
     from server import ic_room

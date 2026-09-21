@@ -16,7 +16,7 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +36,15 @@ STAGES = [
 
 TEXT_FIELDS = {"deal_lead": 200, "intro_path": 1000, "last_touchpoint": 1000, "next_step": 1000}
 
-ALLOWED_UPDATE_KEYS = {"stage", "deal_lead", "warmth_score", "intro_path", "last_touchpoint", "next_step"}
+ALLOWED_UPDATE_KEYS = {
+    "stage",
+    "deal_lead",
+    "warmth_score",
+    "intro_path",
+    "last_touchpoint",
+    "next_step",
+    "next_step_due",
+}
 
 
 def _now() -> str:
@@ -70,6 +78,8 @@ def _default(company_id: str) -> dict:
         "days_in_stage": 0,
         "last_touchpoint": None,
         "next_step": None,
+        # A calendar date (YYYY-MM-DD) the next step is due by, or None.
+        "next_step_due": None,
         "stage_changed_at": now,
         "updated_at": now,
     }
@@ -122,6 +132,16 @@ def _text(key: str, value: Any) -> str | None:
     return value.strip()[: TEXT_FIELDS[key]] or None
 
 
+def _due(value: Any) -> str | None:
+    """A next-step due date: ``YYYY-MM-DD`` or null."""
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10]).isoformat()
+    except ValueError:
+        raise ValueError("next_step_due must be a date (YYYY-MM-DD) or null") from None
+
+
 def _validate(updates: dict) -> dict:
     clean: dict[str, Any] = {}
     for key, value in (updates or {}).items():
@@ -133,6 +153,8 @@ def _validate(updates: dict) -> dict:
             clean[key] = value
         elif key == "warmth_score":
             clean[key] = _warmth(value)
+        elif key == "next_step_due":
+            clean[key] = _due(value)
         else:
             clean[key] = _text(key, value)
     return clean
@@ -153,6 +175,10 @@ def _sanitize(record: dict, company_id: str) -> dict:
     for key in TEXT_FIELDS:
         value = record.get(key)
         out[key] = (value.strip()[: TEXT_FIELDS[key]] or None) if isinstance(value, str) else None
+    try:
+        out["next_step_due"] = _due(record.get("next_step_due"))
+    except ValueError:
+        out["next_step_due"] = None
     updated = _parse_ts(record.get("updated_at"))
     out["updated_at"] = updated.isoformat() if updated else base["updated_at"]
     changed = _parse_ts(record.get("stage_changed_at")) or updated
@@ -161,9 +187,15 @@ def _sanitize(record: dict, company_id: str) -> dict:
 
 
 def _with_days_in_stage(record: dict) -> dict:
+    now = datetime.now(timezone.utc)
     changed = _parse_ts(record.get("stage_changed_at"))
-    days = (datetime.now(timezone.utc) - changed).days if changed else 0
+    days = (now - changed).days if changed else 0
     record["days_in_stage"] = max(0, days)
+    # A next step past its due date is the pipeline's one actionable alarm.
+    due = record.get("next_step_due")
+    record["next_step_overdue"] = bool(
+        record.get("next_step") and due and date.fromisoformat(due) < now.date()
+    )
     return record
 
 
@@ -204,6 +236,9 @@ def update_deal_pipeline(company_id: str, updates: dict) -> dict:
         if "stage" in clean and clean["stage"] != current["stage"]:
             current["stage_changed_at"] = now
         current.update(clean)
+        # A due date belongs to a next step; clearing the step clears it.
+        if "next_step" in clean and clean["next_step"] is None:
+            current["next_step_due"] = None
         current["updated_at"] = now
         _write_atomic(path, current)
     return _with_days_in_stage(current)

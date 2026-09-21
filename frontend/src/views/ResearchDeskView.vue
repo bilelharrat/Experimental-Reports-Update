@@ -9,6 +9,8 @@ import { useT } from "../i18n.js";
 import { Building2 } from "lucide-vue-next";
 import CompanyDossierView from "../components/research/CompanyDossierView.vue";
 import { api } from "../api.js";
+import { sortCompanies } from "../companyLists.js";
+import { companySort, companyViews, lastCompanyId, trackedCompanyIds } from "../state.js";
 
 const props = defineProps({
   companies: {
@@ -70,9 +72,26 @@ function syncSelectionFromRoute() {
     }
   }
 
-  if (!selectedCompanyId.value && allCompanies.value.length > 0 && window.innerWidth >= 768) {
-    selectedCompanyId.value = allCompanies.value[0].id;
+  if (!selectedCompanyId.value && allCompanies.value.length > 0) {
+    selectedCompanyId.value = defaultCompanyId(window.innerWidth >= 768);
   }
+}
+
+// Which company the bare Research Desk opens: the one you were last working
+// on, on any screen. Failing that — first visit, or that company is gone —
+// the top of the sidebar's list as you have it sorted, so the desk opens on
+// the company you can see first rather than whatever the API returned first.
+// On a phone there is no list beside the desk, so it waits for a pick.
+function defaultCompanyId(wideScreen) {
+  const last = lastCompanyId.value;
+  if (last && allCompanies.value.some((c) => c.id === last)) return last;
+  if (!wideScreen) return "";
+  const [first] = sortCompanies(allCompanies.value, {
+    sort: companySort.value,
+    views: companyViews.value,
+    favorites: trackedCompanyIds.value,
+  });
+  return first?.id || "";
 }
 
 watch(

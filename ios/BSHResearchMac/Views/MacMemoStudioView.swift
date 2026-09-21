@@ -80,7 +80,9 @@ struct MacMemoStudioView: View {
         .appleGlassCard(cornerRadius: MacDS.cardRadius)
         .task {
             await store.loadMemoEditor(company.id)
-            await store.loadMemoAnalysis(company.id)
+            // Read-only: opening a company must not start a Memo Studio session
+            // for it. The Refresh button above still does.
+            await store.loadMemoAnalysis(company.id, create: false)
             await store.loadEvidence(company.id)
         }
         .sheet(isPresented: $showAddCardSheet) {
@@ -134,6 +136,41 @@ struct MacMemoStudioView: View {
 
     @ViewBuilder
     private var studioActionBar: some View {
+        // Nothing investigated yet: the thesis and risk cards are the company-
+        // record template. Say so, and offer the run that replaces them. The
+        // customizer opens on Studio review and still asks before spending.
+        if let state = editorState, state.agentRun == nil, awaitingStudioReport == nil {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.orange)
+                    .font(.system(size: 14))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Not investigated yet")
+                        .font(.dsSubhead.weight(.semibold))
+                    Text("The thesis and risk cards below are a starting template built from the company record, not research. Run Deep Investigate to replace them with source-backed cards.")
+                        .font(.dsCaption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Button {
+                    store.requestNewReport(for: company)
+                } label: {
+                    Label("Run Deep Investigate", systemImage: "sparkles")
+                        .font(.dsSubhead.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!store.canRunTasks)
+                .help(store.canRunTasks ? "Opens the report customizer on Studio review" : "Sign in with an analyst or partner role to run investigations")
+            }
+            .padding(12)
+            .background(Color.orange.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
+                    .stroke(Color.orange.opacity(0.25), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
+        }
         if let awaiting = awaitingStudioReport {
             HStack(spacing: 12) {
                 Circle()
@@ -328,6 +365,17 @@ struct MacMemoStudioView: View {
                 }
                 .buttonStyle(.plain)
 
+                if card.placeholder {
+                    Text("TEMPLATE")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundStyle(Color.orange)
+                        .clipShape(Capsule())
+                        .help("Built from the company record, not researched. Edit it, or run Deep Investigate to replace it.")
+                }
+
                 // Category pill
                 if let cat = card.category, !cat.isEmpty {
                     Text(cat.uppercased())
@@ -491,6 +539,17 @@ struct MacMemoStudioView: View {
                         .foregroundStyle(card.isCardIncluded ? Color.accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
+
+                if card.placeholder {
+                    Text("TEMPLATE")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundStyle(Color.orange)
+                        .clipShape(Capsule())
+                        .help("Built from the company record, not researched. Edit it, or run Deep Investigate to replace it.")
+                }
 
                 // Severity Badge
                 severityBadge(card.severity ?? "medium")

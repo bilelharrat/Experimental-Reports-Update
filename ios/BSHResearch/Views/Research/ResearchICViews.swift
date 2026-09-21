@@ -46,7 +46,8 @@ public struct MacICPrepView: View {
         .appleGlassCard(cornerRadius: 14)
         .task(id: company.id) {
             if store.analysisByCompany[company.id] == nil {
-                await store.fetchAnalysis(for: company.id)
+                // Read-only: opening a company must not start a session for it.
+                await store.fetchAnalysis(for: company.id, create: false)
             }
         }
     }

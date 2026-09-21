@@ -469,11 +469,17 @@ struct MacSignalScoreView: View {
                         .trim(from: 0, to: CGFloat((score?.score ?? 0)) / 100)
                         .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
+                        .opacity(thinCoverage ? 0.4 : 1)
                     Text(score?.score.map { "\($0)" } ?? "—").font(.system(size: compact ? 12 : 15, weight: .bold, design: .rounded)).monospacedDigit()
                 }
                 .frame(width: compact ? 40 : 52, height: compact ? 40 : 52)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Signal score").font(compact ? .dsSubhead : .dsHeadline)
+                    HStack(spacing: 6) {
+                        Text("Signal score").font(compact ? .dsSubhead : .dsHeadline)
+                        if thinCoverage, let s = score {
+                            MacStatusPill(text: "Partial · \(s.components.filter(\.available).count) of \(s.components.count)", color: .orange)
+                        }
+                    }
                     Text(score.map { $0.isInsufficient ? "Insufficient data · \($0.components.filter(\.available).count) of \($0.components.count)" : $0.coverage.replacingOccurrences(of: " have data", with: " with data") } ?? "Loading…")
                         .font(.dsCaption).foregroundStyle(.secondary).lineLimit(2)
                     if let s = score, !compact { Text(s.formula).font(.dsCaption).foregroundStyle(.tertiary) }
@@ -512,6 +518,14 @@ struct MacSignalScoreView: View {
     private var color: Color {
         guard let s = score?.score else { return .secondary }
         return s >= 70 ? .green : (s >= 40 ? .orange : .red)
+    }
+
+    /// A score built from fewer than half its components is a partial read.
+    /// The caption said so in small print while the number sat in a
+    /// full-strength ring; the pill says it beside the title and the ring dims.
+    private var thinCoverage: Bool {
+        guard let s = score, s.score != nil, !s.components.isEmpty else { return false }
+        return s.components.filter(\.available).count * 2 < s.components.count
     }
 }
 

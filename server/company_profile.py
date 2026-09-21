@@ -26,9 +26,59 @@ def _quote(ticker: str | None) -> dict | None:
         "last_price": live_quotes._as_float(raw.get("last_price")),
         "change_pct_1d": live_quotes._as_float(raw.get("change_pct_1d")),
         "market_cap": live_quotes._as_float(raw.get("market_cap")),
+        # What a listed company's profile shows in place of ARR and runway.
+        "pe_ratio": live_quotes._as_float(raw.get("pe_ratio")),
+        "eps": live_quotes._as_float(raw.get("eps")),
+        "fifty_two_week_high": live_quotes._as_float(raw.get("fifty_two_week_high")),
+        "fifty_two_week_low": live_quotes._as_float(raw.get("fifty_two_week_low")),
+        "dividend_yield": live_quotes._as_float(raw.get("dividend_yield")),
         "name": raw.get("name"),
         "as_of": raw.get("as_of"),
     }
+
+
+# Which labelled rows in ``company.metrics`` answer which profile field.
+_REPORTED_LABELS: dict[str, tuple[str, ...]] = {
+    "arr": ("arr", "annual recurring revenue"),
+    "revenue": ("revenue", "ttm revenue"),
+    "growth": ("yoy growth", "growth", "revenue growth"),
+    "valuation": ("valuation", "post-money valuation", "last valuation"),
+    "runway": ("runway", "cash runway"),
+    "tam": ("tam", "total addressable market"),
+}
+
+
+def _reported_metrics(company: dict) -> dict[str, dict]:
+    """The figures the company record carries, each with when and where from.
+
+    ``company.metrics`` is a list of labelled rows — ``{"label": "ARR",
+    "value": "~$24M", "as_of": ..., "source_class": ...}`` — and it is what
+    the memo's metric snapshot reads. The profile card looked for an
+    ``arr`` key on it instead, found none, and showed "—" while the memo
+    panel on the same page quoted $24M. Reading the same rows here means
+    the two cannot disagree. Values stay as recorded; nothing is computed.
+    """
+    out: dict[str, dict] = {}
+    for row in company.get("metrics") or []:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("name") or "").strip()
+        value = row.get("value")
+        if not label or value in (None, ""):
+            continue
+        key = next(
+            (k for k, names in _REPORTED_LABELS.items() if label.lower() in names),
+            None,
+        )
+        if key is None or key in out:
+            continue
+        out[key] = {
+            "label": label,
+            "value": str(value),
+            "as_of": row.get("as_of"),
+            "source_class": row.get("source_class"),
+        }
+    return out
 
 
 def build_profile(company_id: str, *, include_quote: bool = True) -> dict:
@@ -36,7 +86,10 @@ def build_profile(company_id: str, *, include_quote: bool = True) -> dict:
     if company is None:
         return {"company_id": company_id, "found": False}
     ticker = (company.get("ticker") or "").strip() or None
-    is_public = bool(ticker) or str(company.get("status") or "").lower() == "public"
+    # Listed: a ticker or a public status — unless the record says private,
+    # which wins over a stray ticker. CompanyDossierView uses the same rule.
+    status = str(company.get("status") or "").lower()
+    is_public = status != "private" and (bool(ticker) or status == "public")
     record = portfolio.get_portfolio(company_id) if portfolio.has_record(company_id) else None
     decisions = decisions_store.list_decisions(company_id).get("items") or []
     meetings = ic_room.list_meetings(company_id).get("items") or []
@@ -67,6 +120,7 @@ def build_profile(company_id: str, *, include_quote: bool = True) -> dict:
             "moic": (record or {}).get("moic"),
             "alerts": (record or {}).get("alerts") or [],
         } if record else None,
+        "reported": _reported_metrics(company),
         "thesis_fit": {"score": fit.get("score"), "fit": fit.get("fit"), "reasons": fit.get("reasons") or []},
         "pipeline": {"stage": pipeline.get("stage"), "owner": pipeline.get("owner"), "next_step": pipeline.get("next_step")} if pipeline else None,
         "latest_decision": {"verdict": decisions[0].get("verdict"), "decided_at": decisions[0].get("decided_at"), "explanation": decisions[0].get("explanation")} if decisions else None,

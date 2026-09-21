@@ -146,3 +146,30 @@ def test_deal_pipeline_rejects_unknown_stage():
     _seed()
     res = client.put("/api/companies/zainar-inc/deal-pipeline", json={"stage": "Moon"})
     assert res.status_code == 400
+
+
+def test_deal_pipeline_flags_a_next_step_past_its_due_date():
+    _seed()
+    url = "/api/companies/zainar-inc/deal-pipeline"
+
+    past = client.put(url, json={"next_step": "Send the term sheet", "next_step_due": "2020-01-31"})
+    assert past.status_code == 200
+    assert past.json()["next_step_due"] == "2020-01-31"
+    assert past.json()["next_step_overdue"] is True
+    # and it survives a re-read
+    assert client.get(url).json()["next_step_overdue"] is True
+
+    future = client.put(url, json={"next_step_due": "2999-12-31"})
+    assert future.json()["next_step_overdue"] is False
+
+    # the due date belongs to the step: clearing the step clears it
+    cleared = client.put(url, json={"next_step": None})
+    assert cleared.json()["next_step_due"] is None
+    assert cleared.json()["next_step_overdue"] is False
+
+
+def test_deal_pipeline_rejects_a_due_date_that_is_not_a_date():
+    _seed()
+    res = client.put("/api/companies/zainar-inc/deal-pipeline", json={"next_step_due": "next week"})
+    assert res.status_code == 400
+    assert "YYYY-MM-DD" in res.json()["detail"]

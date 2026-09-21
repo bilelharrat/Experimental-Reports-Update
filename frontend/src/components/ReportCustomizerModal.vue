@@ -21,6 +21,9 @@ import Monogram from "./Monogram.vue";
 const props = defineProps({
   open: { type: Boolean, default: false },
   initialCompanyId: { type: String, default: null },
+  // "studio_review" opens on Memo Studio review, on its own tab, with a
+  // report type that supports it. Empty keeps whatever was last chosen.
+  initialGenerationMode: { type: String, default: "" },
 });
 
 const emit = defineEmits(["close", "created"]);
@@ -64,6 +67,11 @@ watch(
     if (isOpen) {
       error.value = null;
       generating.value = false;
+    }
+    if (isOpen && props.initialGenerationMode === "studio_review") {
+      if (!activeArchetypeObj.value?.studio) selectedArchetype.value = "auto";
+      selectedGenerationMode.value = "studio_review";
+      activeTab.value = "engine";
     }
   },
 );

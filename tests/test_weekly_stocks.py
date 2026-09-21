@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 import threading
 import time
 
@@ -25,6 +26,11 @@ def tmp_weekly(monkeypatch, tmp_path):
         "DRAFT_PATH",
         tmp_path / "weekly_summary.draft.json",
     )
+    # No network in tests: with no market data the no-AI path falls through
+    # to the static watchlist, as it does when the data sources are down.
+    # Tests of the market-data scan install their own universe and closes.
+    monkeypatch.setattr(weekly_stocks, "_screener_universe", lambda: [])
+    monkeypatch.setattr(weekly_stocks, "_daily_closes", lambda tickers: {})
     yield tmp_path
     for t in threading.enumerate():
         if t.name == "weekly-stocks" and t.is_alive():
@@ -604,3 +610,166 @@ def test_the_dashboard_never_shows_one_ticker_twice(tmp_weekly, monkeypatch):
     assert err is None
     tickers = [s.get("ticker") for s in summary["stocks"]]
     assert tickers == ["GNRC"], f"one row per ticker, got {tickers}"
+
+
+# ---- AI unavailable: this week's movers from market data --------------------
+
+LIMIT_ERROR = (
+    "claude exited 1: You've hit your weekly limit · resets Sep 22 at 5pm "
+    "(America/Los_Angeles)"
+)
+
+
+def _universe_and_history():
+    """140 liquid large caps with known five-session moves, plus names the
+    scan must skip, and SPY for the benchmark line."""
+    universe, history = [], {}
+    day = 86400
+    start = 1_758_000_000  # a Monday, UTC
+    stamps = [start + i * day for i in range(6)]
+    for i in range(140):
+        ticker = f"T{i:03d}"
+        move = (i - 70) / 4  # -17.5% .. +17.25%
+        universe.append({
+            "ticker": ticker,
+            "name": f"Company {i} Common Stock",
+            "last": 50.0,
+            "market_cap": 20e9,
+            "sector": ["Technology", "Health Care", "Energy", "Finance"][i % 4],
+        })
+        history[ticker] = {"timestamps": stamps, "closes": [100.0, 101, 99, 102, 100, 100 * (1 + move / 100)]}
+    # would be the biggest movers, but are not liquid large-cap common stock
+    universe += [
+        {"ticker": "TINY", "name": "Tiny Co", "last": 50.0, "market_cap": 1e9, "sector": "Energy"},
+        {"ticker": "PENY", "name": "Penny Co", "last": 2.0, "market_cap": 20e9, "sector": "Energy"},
+        {"ticker": "PRFA", "name": "Big Bank 5% Preferred Stock", "last": 25.0, "market_cap": 50e9, "sector": "Finance"},
+    ]
+    for t in ("TINY", "PENY", "PRFA"):
+        history[t] = {"timestamps": stamps, "closes": [100.0, 100, 100, 100, 100, 200]}
+    history["SPY"] = {"timestamps": stamps, "closes": [600.0, 601, 602, 603, 604, 612]}
+    return universe, history
+
+
+def test_provider_limit_is_recognised():
+    assert weekly_stocks._provider_limit_hit(LIMIT_ERROR)
+    assert not weekly_stocks._provider_limit_hit("socket timeout")
+    assert not weekly_stocks._provider_limit_hit(None)
+
+
+def test_market_data_scan_ranks_real_moves(monkeypatch):
+    universe, history = _universe_and_history()
+    monkeypatch.setattr(weekly_stocks, "_screener_universe", lambda: universe)
+    monkeypatch.setattr(weekly_stocks, "_daily_closes", lambda tickers: history)
+
+    scan = weekly_stocks._market_data_scan(LIMIT_ERROR)
+
+    assert scan["is_fallback"] is True and scan["scan_mode"] == "market_data"
+    tickers = [c["ticker"] for c in scan["candidates"]]
+    assert len(tickers) == 8
+    # small caps, penny stocks and preferreds never appear, however far they moved
+    assert not {"TINY", "PENY", "PRFA"} & set(tickers)
+    # biggest absolute moves first, both directions, at most 3 per sector
+    moves = [abs(c["weekly_change_pct"]) for c in scan["candidates"]]
+    assert moves == sorted(moves, reverse=True)
+    assert max(Counter(c["sector"] for c in scan["candidates"]).values()) <= 3
+    top = scan["candidates"][0]
+    assert top["weekly_change_pct"] == -17.5 and top["name"] == "Company 0"
+    assert top["move_percentile"] == 100 and top["score_hint"] == 100
+    # relative strength is the move against SPY (+2.0%), not the percentile
+    assert top["relative_strength_pct"] == -19.5
+    assert "Not researched" in top["catalyst"]
+    assert "SPY" in scan["benchmark_context"] and "+2.0%" in scan["benchmark_context"]
+    assert "real" in scan["market_pulse"] and "failed" not in scan["market_pulse"]
+
+
+def test_market_data_scan_gives_way_when_the_data_is_thin(monkeypatch):
+    universe, history = _universe_and_history()
+    monkeypatch.setattr(weekly_stocks, "_screener_universe", lambda: universe)
+    # most names failed to price: a ranking of thirty is not "the market"
+    few = {t: v for i, (t, v) in enumerate(history.items()) if i < 30}
+    monkeypatch.setattr(weekly_stocks, "_daily_closes", lambda tickers: few)
+    assert weekly_stocks._market_data_scan("x") is None
+    assert weekly_stocks._scan_without_ai("x")["candidates"][0]["ticker"] == "SNOW"  # static list
+
+
+def test_market_data_card_charts_real_closes():
+    universe, history = _universe_and_history()
+    candidate = {
+        "rank": 1, "ticker": "T139", "name": "Company 139", "data_source": "market_data",
+        "weekly_change_pct": 17.25, "move_percentile": 99, "price_history": history["T139"],
+        "catalyst": "Not researched: AI research was unavailable for this run.",
+        "reason": "Gained 17.3% over the last 5 sessions.",
+    }
+    card = weekly_stocks._fallback_stock_from_candidate(candidate, LIMIT_ERROR)
+
+    assert card["sparkline_synthetic"] is False
+    assert card["score"] == 99
+    values = [p["value"] for p in card["sparkline"]]
+    assert len(values) == 6 and values[-1] == 100.0  # the real last close is the high
+    assert [p["label"] for p in card["sparkline"]][0] in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+    assert "unverified" not in card["why_awesome"].lower()
+    catalyst = next(d for d in card["drivers"] if d["label"] == "Catalyst")
+    assert catalyst["value"] == "Not researched"
+
+
+def test_weekly_limit_publishes_real_movers_without_asking_again(tmp_weekly, monkeypatch):
+    universe, history = _universe_and_history()
+    monkeypatch.setattr(weekly_stocks, "_screener_universe", lambda: universe)
+    monkeypatch.setattr(weekly_stocks, "_daily_closes", lambda tickers: history)
+    calls = []
+
+    def limited(**kwargs):
+        calls.append(kwargs["name"])
+        return None, {"engine": "claude", "grounded": False}, LIMIT_ERROR
+
+    monkeypatch.setattr(weekly_stocks.ai_engine, "grounded", limited)
+    summary, err = weekly_stocks.generate_summary()
+
+    assert err is None
+    # the scan asked once; eight candidates did not each ask again
+    assert calls == ["weekly_scan"]
+    assert summary["scan_fallback"] is True and summary["scan_mode"] == "market_data"
+    assert len(summary["stocks"]) == 8
+    assert all(s["data_source"] == "market_data" and s["sparkline_synthetic"] is False for s in summary["stocks"])
+    assert "real" in summary["market_pulse"]
+
+
+
+def test_daily_closes_fetches_every_ticker_in_batches_of_twenty(monkeypatch):
+    """The scan asks for ~900 names. Reusing the quote helper's 40-ticker cap
+    priced 40 of them and the scan gave up — every name must be requested."""
+    from server import live_quotes
+
+    requested: list[list[str]] = []
+
+    def fake_get(url, extra_headers=None):
+        from urllib.parse import parse_qs, urlparse
+
+        symbols = parse_qs(urlparse(url).query)["symbols"][0].split(",")
+        requested.append(symbols)
+        return {"spark": {"result": [
+            {"symbol": s, "response": [{"timestamp": [1, 2, 3], "indicators": {"quote": [{"close": [1.0, 2.0, 3.0]}]}}]}
+            for s in symbols
+        ]}}
+
+    monkeypatch.setattr(live_quotes, "_http_get_json", fake_get)
+    tickers = [f"T{i:03d}" for i in range(95)] + ["T001", "bad ticker!"]
+    out = live_quotes.fetch_daily_closes(tickers)
+
+    assert len(out) == 95
+    assert [len(b) for b in requested] == [20, 20, 20, 20, 15]
+    assert out["T094"] == {"timestamps": [1, 2, 3], "closes": [1.0, 2.0, 3.0]}
+
+
+def test_daily_closes_survives_a_bad_batch_and_stops_when_the_source_is_down(monkeypatch):
+    from server import live_quotes
+
+    calls = {"n": 0}
+
+    def flaky(url, extra_headers=None):
+        calls["n"] += 1
+        raise RuntimeError("429")
+
+    monkeypatch.setattr(live_quotes, "_http_get_json", flaky)
+    assert live_quotes.fetch_daily_closes([f"T{i:03d}" for i in range(200)]) == {}
+    assert calls["n"] == 3  # gave up after three failures in a row, not ten

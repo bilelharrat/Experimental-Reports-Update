@@ -370,7 +370,95 @@ def _card(
         "source_refs": source_refs,
         "source_class": normalize_source_class(source_class),
         "confidence": _clean_text(confidence, limit=40) or "pending",
+        # True only for the company-record template (see _as_placeholders).
+        "placeholder": False,
     }
+
+
+def _as_placeholders(cards: list[dict]) -> list[dict]:
+    """Mark template cards as such.
+
+    With no analysis to seed from, the thesis and risk sections are built
+    from the company record — "Apple Inc. claims a differentiated technology
+    position", "Differentiation claims are not yet documented". That is a
+    starting template, not research, and the editor has to be able to say
+    so. Editing a card's content, adding to it, or an investigation that
+    replaces it clears the mark.
+    """
+    for card in cards:
+        card["placeholder"] = True
+    return cards
+
+
+def _card_words(card: dict) -> tuple:
+    """A card's visible content, for telling an untouched template card
+    from one someone has written into."""
+
+    def bullet_words(bullets: Any) -> tuple:
+        return tuple(
+            (str(b.get("text") or ""), bullet_words(b.get("children")))
+            for b in _list(bullets)
+            if isinstance(b, dict)
+        )
+
+    return (str(card.get("title") or ""), bullet_words(card.get("bullets")))
+
+
+_CARD_CONTENT_KEYS = frozenset(
+    {"title", "category", "severity", "confidence", "source_class", "source_refs"}
+)
+
+
+def _cards_written_into(state: dict) -> set[str]:
+    """Card ids the audit trail shows someone adding or writing into."""
+    written: set[str] = set()
+    for row in _list(state.get("audit_records")):
+        if not isinstance(row, dict):
+            continue
+        detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+        card_id = str(detail.get("card_id") or "")
+        event = row.get("event")
+        if event in {"bullet_edited", "card_added", "bullet_dive_deeper_added"}:
+            written.add(card_id)
+        elif event == "card_updated":
+            patch = detail.get("patch") if isinstance(detail.get("patch"), dict) else {}
+            if _CARD_CONTENT_KEYS & patch.keys():
+                written.add(card_id)
+    return written
+
+
+def _infer_placeholders(state: dict) -> None:
+    """Fill in the placeholder mark on cards saved before it existed.
+
+    A stored card is template text when it carries a template card's id —
+    which is derived from the title, so the title is unchanged — and either
+    still has the template's words or was never written into. The second
+    test matters: the template is rebuilt from today's company record, so a
+    card built before the company gained a description reads differently
+    from today's template without anyone having touched it.
+    """
+    sections = state.get("sections") if isinstance(state.get("sections"), dict) else {}
+    unmarked = [
+        card
+        for section_id in CARD_SECTIONS
+        if isinstance(sections.get(section_id), dict)
+        for card in _list(sections[section_id].get("cards"))
+        if isinstance(card, dict) and "placeholder" not in card
+    ]
+    if not unmarked:
+        return
+    company = storage.get_company(str(state.get("company_id") or ""))
+    template: dict[str, dict] = {}
+    if company is not None:
+        for card in _fallback_thesis_cards(company) + _fallback_risk_cards(company):
+            template[card["id"]] = card
+    written = _cards_written_into(state)
+    for card in unmarked:
+        card_id = str(card.get("id") or "")
+        match = template.get(card_id)
+        card["placeholder"] = match is not None and (
+            _card_words(match) == _card_words(card) or card_id not in written
+        )
 
 
 def _analysis_cards(rows: Any, *, prefix: str, fallback_class: str) -> list[dict]:
@@ -788,12 +876,12 @@ def _initial_state(company_id: str) -> dict:
         thesis.get("investment_highlights"),
         prefix="thesis",
         fallback_class="BSH primary diligence",
-    ) or _fallback_thesis_cards(company)
+    ) or _as_placeholders(_fallback_thesis_cards(company))
     risks = _analysis_cards(
         thesis.get("investment_risks"),
         prefix="risk",
         fallback_class="BSH primary diligence",
-    ) or _fallback_risk_cards(company)
+    ) or _as_placeholders(_fallback_risk_cards(company))
     metrics = [m for m in _list(company.get("metrics")) if isinstance(m, dict)]
     metric_lines = [_metric_line(metric) for metric in metrics if _metric_line(metric)]
     metric_refs: list[dict] = []
@@ -970,7 +1058,9 @@ def get_state(company_id: str, *, create: bool = True) -> dict | None:
     with _LOCK:
         data = _read_yaml(path, None)
         if isinstance(data, dict):
-            return copy.deepcopy(_normalize_state(data))
+            state = copy.deepcopy(_normalize_state(data))
+            _infer_placeholders(state)
+            return state
         if not create:
             return None
         state = _initial_state(company_id)
@@ -1114,6 +1204,10 @@ def patch_card(company_id: str, section_id: str, card_id: str, patch: dict) -> d
                 fallback_title=f"{card.get('title') or 'Card'} source",
             )
             changed["source_refs"] = card["source_refs"]
+        # Writing into a card makes it the analyst's, not the template's.
+        # Including, expanding or rating it does not.
+        if _CARD_CONTENT_KEYS & changed.keys():
+            card["placeholder"] = False
         _audit(state, "card_updated", section_id=section_id, card_id=card_id, patch=changed)
         return _save_state(company_id, state)
 
@@ -1535,6 +1629,7 @@ def patch_bullet(
         if patch.get("text") is not None:
             previous = bullet.get("text")
             bullet["text"] = _clean_text(patch.get("text"), limit=1200)
+            card["placeholder"] = False
             _audit(
                 state,
                 "bullet_edited",
@@ -1586,6 +1681,10 @@ def add_dive_deeper(
             )
         )
         bullet["children"] = children
+        # Only words someone typed make the card theirs; the default prompt
+        # above is itself boilerplate.
+        if _clean_text(text):
+            card["placeholder"] = False
         _audit(
             state,
             "bullet_dive_deeper_added",

@@ -2,6 +2,8 @@ import SwiftUI
 
 public struct MacMemoStudioView: View {
     public let company: MacCompany
+    /// Opens the report sheet (Studio review by default) for a Deep Investigate.
+    public var onInvestigate: (() -> Void)?
     @EnvironmentObject private var store: ResearchDeskStore
 
     public enum StudioSection: String, CaseIterable, Identifiable {
@@ -27,13 +29,51 @@ public struct MacMemoStudioView: View {
         store.analysisByCompany[company.id]
     }
 
-    public init(company: MacCompany) {
+    public init(company: MacCompany, onInvestigate: (() -> Void)? = nil) {
         self.company = company
+        self.onInvestigate = onInvestigate
+    }
+
+    private var summary: MacMemoEditorSummary? {
+        store.memoEditorSummaryByCompany[company.id]
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             MacCardHeader("Memo studio", subtitle: "Thesis spine, strategic risk matrix & readiness gates.", systemImage: "slider.horizontal.3")
+
+            // Nothing investigated yet: the memo's thesis and risk cards are the
+            // company-record template. Say so, and offer the run that replaces
+            // them. The report sheet opens on Studio review and still asks
+            // before anything is spent.
+            if let summary, !summary.investigated {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Not investigated yet").font(.subheadline.weight(.semibold))
+                            Text(summary.templateCardCount > 0
+                                 ? "The memo's \(summary.templateCardCount) thesis and risk cards are a starting template built from the company record, not research. Run Deep Investigate to replace them with source-backed cards."
+                                 : "Nothing has been investigated for this company yet. Run Deep Investigate for source-backed thesis and risk cards.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let onInvestigate {
+                        Button {
+                            onInvestigate()
+                        } label: {
+                            Label("Run Deep Investigate", systemImage: "sparkles")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
 
             // Tab bar
             ScrollView(.horizontal, showsIndicators: false) {
@@ -70,6 +110,9 @@ public struct MacMemoStudioView: View {
         }
         .padding(14)
         .appleGlassCard(cornerRadius: 14)
+        .task(id: company.id) {
+            await store.loadMemoEditorSummary(for: company.id)
+        }
     }
 
     // MARK: - Thesis Spine Tab

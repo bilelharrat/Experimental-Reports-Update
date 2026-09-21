@@ -1,9 +1,10 @@
 """Engine selection for the web-grounded research surfaces.
 
-Three surfaces — the founder/team dossier, the daily desk note, and the
-company news sweep — run on Claude unless someone switches the workspace to
-Gemini in Settings (or a deployment pins ``BSH_AI_ENGINE``). This module owns
-that policy so the call sites stay about their own domain.
+The founder/team dossier and the company news sweep run on Claude unless
+someone switches the workspace to Gemini in Settings (or a deployment pins
+``BSH_AI_ENGINE``). The Pulse morning brief pins ``gemini-only`` through
+``policy_override``: Gemini writes it whatever the workspace is set to. This
+module owns that policy so the call sites stay about their own domain.
 
 The fallback is deliberately **not** silent: every call returns a ``meta``
 dict recording which engine actually produced the answer and, when Gemini
@@ -58,15 +59,25 @@ def policy() -> str:
     return raw if raw in POLICIES else DEFAULT_POLICY
 
 
-def available() -> bool:
+def _chosen(policy_override: str | None) -> str:
+    """The policy a call runs under: the caller's pin, else the workspace's.
+
+    A surface pins its own engine when it is built around one model — the
+    Pulse morning brief is Gemini's to write, whatever the desk is set to.
+    """
+    return policy_override if policy_override in POLICIES else policy()
+
+
+def available(policy_override: str | None = None) -> bool:
     """Whether the configured policy has an engine that can actually run.
 
     Callers that gate a background loop on "is a model installed" must ask
     this rather than `claude_runner.is_available()`: with a Gemini key and
     no Claude CLI the answer is yes, and the pre-Gemini check would have
-    silently kept the loop switched off.
+    silently kept the loop switched off. A loop for a surface that pins its
+    engine passes the same ``policy_override`` its calls do.
     """
-    chosen = policy()
+    chosen = _chosen(policy_override)
     if chosen == "claude":
         return claude_runner.is_available()
     if chosen == "gemini-only":
@@ -107,13 +118,14 @@ def structured(
     max_output_tokens: int | None = None,
     claude_model: str | None = None,
     claude_effort: str | None = None,
+    policy_override: str | None = None,
 ) -> tuple[dict | None, dict, str | None]:
     """Text-in / JSON-out with no web access. Returns ``(data, meta, error)``.
 
     ``max_output_tokens`` raises Gemini's output ceiling for long-form work;
     the Claude path has no equivalent knob and ignores it.
     """
-    chosen = policy()
+    chosen = _chosen(policy_override)
     gemini_error: str | None = None
 
     if chosen != "claude":
@@ -165,6 +177,7 @@ def grounded(
     claude_timeout_sec: int = 900,
     gemini_model: str | None = None,
     thinking_level: str | None = None,
+    policy_override: str | None = None,
 ) -> tuple[dict | None, dict, str | None]:
     """Web-grounded research. Returns ``(data, meta, error)``.
 
@@ -173,7 +186,7 @@ def grounded(
     is far slower and reports no machine-readable sources — ``meta["sources"]``
     is empty in that case, and callers should not present it as audited.
     """
-    chosen = policy()
+    chosen = _chosen(policy_override)
     gemini_error: str | None = None
 
     if chosen != "claude":

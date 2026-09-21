@@ -495,6 +495,12 @@ export const api = {
     request(`/api/companies/${id}/industry-view`),
   getCompanyProfile: (companyId, { quote = true } = {}) =>
     request(`/api/companies/${companyId}/profile?quote=${quote ? "true" : "false"}`),
+  // A listed company's next earnings date, recent quarters against
+  // estimates, and SEC filings (server/filings_watch.for_ticker).
+  getCompanyEarningsFilings: (companyId, { refresh = false } = {}) =>
+    request(
+      `/api/companies/${companyId}/earnings-filings${refresh ? "?refresh=true" : ""}`,
+    ),
   getDealPipeline: (companyId) =>
     request(`/api/companies/${companyId}/deal-pipeline`),
   updateDealPipeline: (companyId, payload) =>
@@ -815,8 +821,11 @@ export const api = {
   },
 
   memoAnalysis: {
-    get: (companyId) =>
-      request(`/api/companies/${companyId}/memo-analysis`),
+    // `create: false` reads without starting a session when there is none.
+    get: (companyId, { create = true } = {}) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis${create ? "" : "?create=false"}`,
+      ),
     getCatalog: (companyId) =>
       request(`/api/companies/${companyId}/memo-analysis/catalog`),
     runLedger: (companyId) =>

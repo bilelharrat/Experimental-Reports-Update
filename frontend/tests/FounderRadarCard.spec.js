@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import FounderRadarCard from "../src/components/research/FounderRadarCard.vue";
 import { api } from "../src/api.js";
+import { researchingCompanies } from "../src/founderResearch.js";
 
 vi.mock("../src/api.js", () => {
   const mock = {
@@ -57,6 +58,7 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     // The deep search spends tokens, so it asks first; say yes by default.
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.clearAllMocks();
+    researchingCompanies.clear();
   });
 
   it("reads the founder dossier for the company it is given", async () => {
@@ -124,15 +126,15 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     expect(wrapper.text()).toContain("No people");
   });
 
-  it("re-reads the record through deep-search when refreshed", async () => {
+  it("researches the team through deep-search when asked", async () => {
     api.getFounderDossier.mockResolvedValue({ ...dossier, founders: [] });
     api.deepSearchFounder.mockResolvedValue(dossier);
     const wrapper = mountCard();
     await flushPromises();
     expect(wrapper.text()).not.toContain("Daniel Jacker");
 
-    const refresh = wrapper.findAll("button").find((b) => /refresh/i.test(b.text()));
-    expect(refresh).toBeTruthy();
+    const refresh = wrapper.find('[data-testid="founder-research"]');
+    expect(refresh.exists()).toBe(true);
     await refresh.trigger("click");
     await flushPromises();
 
@@ -165,7 +167,7 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     await flushPromises();
     expect(wrapper.find('[data-testid="founder-research-error"]').exists()).toBe(false);
 
-    const refresh = wrapper.findAll("button").find((b) => /refresh/i.test(b.text()));
+    const refresh = wrapper.find('[data-testid="founder-research"]');
     await refresh.trigger("click");
     await flushPromises();
 
@@ -183,7 +185,7 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
       props: { companyId: "zainar-inc", company: {} },
     });
     await flushPromises();
-    const refresh = wrapper.findAll("button").find((b) => /refresh/i.test(b.text()));
+    const refresh = wrapper.find('[data-testid="founder-research"]');
     await refresh.trigger("click");
     await flushPromises();
     expect(api.deepSearchFounder).not.toHaveBeenCalled();
@@ -226,5 +228,62 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     expect(wrapper.find('[data-testid="founder-provenance"]').text()).toContain(
       "no sources reported",
     );
+  });
+
+  it("names the button for what it does: paid web research", async () => {
+    api.getFounderDossier.mockResolvedValue(dossier);
+    const wrapper = mountCard();
+    await flushPromises();
+    const button = wrapper.find('[data-testid="founder-research"]');
+    expect(button.text()).toBe("Research team");
+    expect(button.attributes("title")).toMatch(/Gemini/);
+  });
+
+  it("does not draw a late result over the company the desk moved to", async () => {
+    // The research takes about a minute; the reader switches company meanwhile.
+    let finish;
+    api.deepSearchFounder.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    api.getFounderDossier.mockImplementation(async (id) =>
+      id === "globex"
+        ? { ...dossier, company_id: "globex", founders: [{ name: "Hank Scorpio", role: "CEO" }] }
+        : { ...dossier, founders: [] },
+    );
+    const wrapper = mountCard();
+    await flushPromises();
+    await wrapper.find('[data-testid="founder-research"]').trigger("click");
+    await wrapper.setProps({ companyId: "globex" });
+    await flushPromises();
+
+    // Globex is not the one being researched: its button is free.
+    const button = wrapper.find('[data-testid="founder-research"]');
+    expect(button.text()).toBe("Research team");
+    expect(button.attributes("disabled")).toBeUndefined();
+
+    finish(dossier); // ZaiNar's result lands
+    await flushPromises();
+    expect(wrapper.text()).toContain("Hank Scorpio");
+    expect(wrapper.text()).not.toContain("Daniel Jacker");
+  });
+
+  it("shows the research still running when the reader comes back, then the result", async () => {
+    let finish;
+    api.deepSearchFounder.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    api.getFounderDossier.mockResolvedValue({ ...dossier, founders: [] });
+    const wrapper = mountCard();
+    await flushPromises();
+    await wrapper.find('[data-testid="founder-research"]').trigger("click");
+
+    // The card is re-rendered for this company (a tab switch and back).
+    wrapper.unmount();
+    const again = mountCard();
+    await flushPromises();
+    expect(again.find('[data-testid="founder-research"]').text()).toMatch(/Researching/);
+
+    // The server cached the pass; the new card reads it when it finishes.
+    api.getFounderDossier.mockResolvedValue(dossier);
+    finish(dossier);
+    await flushPromises();
+    expect(again.text()).toContain("Daniel Jacker");
+    expect(again.find('[data-testid="founder-research"]').text()).toBe("Research team");
   });
 });

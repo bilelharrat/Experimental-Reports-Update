@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import ai_engine, claude_runner, storage
+from . import ai_engine, claude_runner, live_quotes, quote_workspace, storage
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
@@ -701,7 +701,7 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
                 error=err,
             )
         draft["errors"] = [{"phase": "scan", "error": err}]
-        scan = _fallback_scan(err)
+        scan = _scan_without_ai(err)
     if not isinstance(scan, dict):
         err = "weekly stock scan returned no JSON object"
         if progress:
@@ -712,7 +712,7 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
                 error=err,
             )
         draft["errors"] = [{"phase": "scan", "error": err}]
-        scan = _fallback_scan(err)
+        scan = _scan_without_ai(err)
 
     candidates = _normalize_candidates(scan.get("candidates") or [])
     if len(candidates) < 5:
@@ -725,7 +725,7 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
                 error=err,
             )
         draft["errors"] = [{"phase": "scan", "error": err}]
-        scan = _fallback_scan(err)
+        scan = _scan_without_ai(err)
         candidates = _normalize_candidates(scan.get("candidates") or [])
 
     draft.update(
@@ -745,6 +745,10 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
 
     stocks: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    # A provider past its quota refuses every call until the window resets
+    # (the weekly scan hit "You've hit your weekly limit"): don't spend each
+    # candidate's time asking again — build their cards from the scan data.
+    limit_error = err if _provider_limit_hit(err) else None
     for index, candidate in enumerate(candidates, start=1):
         ticker = _clean_ticker(candidate.get("ticker"))
         if not ticker:
@@ -767,10 +771,10 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
             )
 
         detail = None
-        detail_err: str | None = None
+        detail_err: str | None = limit_error
         # One retry on transient failures (socket blips, CLI crashes) before
         # falling back to an unverified scan-only card.
-        for attempt in range(2):
+        for attempt in range(0 if limit_error else 2):
             detail, detail_meta, detail_err = ai_engine.grounded(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=build_stock_detail_prompt(scan, candidate),
@@ -784,6 +788,9 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
                     f"{ticker} verification answered without searching, so "
                     "it verifies nothing"
                 )
+            if _provider_limit_hit(detail_err):
+                limit_error = detail_err
+                break
             if not detail_err or attempt == 1:
                 break
             if not claude_runner.is_transient_claude_error(detail_err):
@@ -1030,6 +1037,266 @@ def _fallback_scan(error: str | None = None, now: datetime | None = None) -> dic
     return context
 
 
+# ---- When AI research is unavailable: this week's movers from market data --
+#
+# "This week's movers" is a market-data question. The AI scan answers it with
+# catalysts attached, but when no model can run — the Claude subscription's
+# weekly limit, no Gemini key — the dashboard used to fall back to a fixed
+# six-name list and call its rankings unverified. The moves themselves never
+# needed a model: this ranks the largest five-session moves among liquid US
+# large caps from the Nasdaq screener and Yahoo daily closes. The numbers are
+# real; only the "why it moved" is missing, and the cards say so.
+
+MARKET_SCAN_MIN_CAP_USD = 10e9
+MARKET_SCAN_MIN_PRICE = 5.0
+MARKET_SCAN_SESSIONS = 5
+MARKET_SCAN_PICKS = 8
+MARKET_SCAN_MAX_PER_SECTOR = 3
+# Enough of the universe must price for a ranking to mean anything.
+MARKET_SCAN_MIN_PRICED = 100
+_NOT_COMMON_STOCK = re.compile(
+    r"\b(preferred|notes?|warrants?|units?|rights|debentures?|depositary shares? representing)\b",
+    re.IGNORECASE,
+)
+_NAME_SUFFIX = re.compile(
+    r"\s+(common stock|ordinary shares|class [a-z] common stock|american depositary shares?|sponsored adr).*$",
+    re.IGNORECASE,
+)
+
+_PROVIDER_LIMIT_HINTS = ("hit your weekly limit", "usage limit", "hit your limit", "rate limit reached")
+
+
+def _provider_limit_hit(error: str | None) -> bool:
+    """The model provider has refused for the rest of a quota window."""
+    text = str(error or "").lower()
+    return any(hint in text for hint in _PROVIDER_LIMIT_HINTS)
+
+
+def _screener_universe() -> list[dict[str, Any]]:
+    return quote_workspace.fetch_screeners().get("universe") or []
+
+
+def _daily_closes(tickers: list[str]) -> dict[str, dict]:
+    return live_quotes.fetch_daily_closes(tickers, range_="1mo")
+
+
+def _session_move(series: dict[str, Any] | None, sessions: int) -> float | None:
+    closes = (series or {}).get("closes") or []
+    if len(closes) <= sessions or not closes[-sessions - 1]:
+        return None
+    return (closes[-1] / closes[-sessions - 1] - 1) * 100
+
+
+def _sparkline_from_closes(series: dict[str, Any], sessions: int) -> list[dict[str, Any]]:
+    """The last ``sessions`` + 1 real closes, scaled 0-100 for the card chart
+    and labelled with their actual weekdays."""
+    closes = (series.get("closes") or [])[-sessions - 1 :]
+    stamps = (series.get("timestamps") or [])[-sessions - 1 :]
+    low, high = min(closes), max(closes)
+    span = (high - low) or 1.0
+    days_en = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    days_zh = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    out = []
+    for stamp, close in zip(stamps, closes):
+        day = datetime.fromtimestamp(stamp, tz=timezone.utc).weekday()
+        out.append(
+            {
+                "label": days_en[day],
+                "label_en": days_en[day],
+                "label_zh": days_zh[day],
+                "value": round((close - low) / span * 100, 1),
+                "close": close,
+            }
+        )
+    return out
+
+
+def _clean_company_name(name: Any, ticker: str) -> str:
+    text = _NAME_SUFFIX.sub("", str(name or "").strip())
+    return text or ticker
+
+
+def _market_data_scan(
+    error: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """This week's biggest movers from market data, or None if the data is
+    unreachable too (the static watchlist is then the last resort)."""
+    current = now or datetime.now(timezone.utc)
+    date_label = current.strftime("%Y-%m-%d")
+    try:
+        universe = _screener_universe()
+    except Exception as exc:  # noqa: BLE001 — a dead source means the static list
+        logger.warning("weekly market-data scan: screener unavailable: %s", exc)
+        return None
+    eligible = {
+        str(row["ticker"]): row
+        for row in universe
+        if row.get("ticker")
+        and (row.get("market_cap") or 0) >= MARKET_SCAN_MIN_CAP_USD
+        and (row.get("last") or 0) >= MARKET_SCAN_MIN_PRICE
+        and not _NOT_COMMON_STOCK.search(str(row.get("name") or ""))
+    }
+    if not eligible:
+        return None
+    try:
+        history = _daily_closes(sorted(eligible) + ["SPY"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("weekly market-data scan: price history unavailable: %s", exc)
+        return None
+    moves = {
+        ticker: move
+        for ticker in eligible
+        if (move := _session_move(history.get(ticker), MARKET_SCAN_SESSIONS)) is not None
+    }
+    if len(moves) < MARKET_SCAN_MIN_PRICED:
+        logger.warning("weekly market-data scan: only %d of %d names priced", len(moves), len(eligible))
+        return None
+
+    magnitudes = sorted(abs(m) for m in moves.values())
+    ranked = sorted(moves, key=lambda t: abs(moves[t]), reverse=True)
+    picks: list[str] = []
+    per_sector: Counter[str] = Counter()
+    for ticker in ranked:
+        sector = str(eligible[ticker].get("sector") or "Other")
+        if per_sector[sector] >= MARKET_SCAN_MAX_PER_SECTOR:
+            continue
+        per_sector[sector] += 1
+        picks.append(ticker)
+        if len(picks) >= MARKET_SCAN_PICKS:
+            break
+
+    spy = _session_move(history.get("SPY"), MARKET_SCAN_SESSIONS)
+    last_stamp = max(
+        (history[t]["timestamps"][-1] for t in picks if history.get(t, {}).get("timestamps")),
+        default=None,
+    )
+    as_of = (
+        datetime.fromtimestamp(last_stamp, tz=timezone.utc).strftime("%Y-%m-%d")
+        if last_stamp
+        else date_label
+    )
+    universe_note = (
+        f"{len(moves)} US-listed stocks over ${MARKET_SCAN_MIN_CAP_USD / 1e9:.0f}B market cap"
+    )
+    candidates = []
+    for rank, ticker in enumerate(picks, start=1):
+        row = eligible[ticker]
+        move = round(moves[ticker], 2)
+        # Share of the universe this name out-moved: a real, explainable score
+        # in place of the invented 70 a fallback card used to carry.
+        percentile = round(100 * sum(1 for m in magnitudes if m <= abs(moves[ticker])) / len(magnitudes))
+        direction = "gained" if move >= 0 else "fell"
+        name = _clean_company_name(row.get("name"), ticker)
+        candidates.append(
+            {
+                "ticker": ticker,
+                "name": name,
+                "sector": row.get("sector") or "",
+                "rank": rank,
+                "data_source": "market_data",
+                "score_hint": percentile,
+                "move_percentile": percentile,
+                "weekly_change_pct": move,
+                # Relative strength: the move against the S&P 500 over the same
+                # sessions, which is what the dashboard's RS column shows.
+                "relative_strength_pct": round(moves[ticker] - spy, 1) if spy is not None else None,
+                "market_cap_usd": row.get("market_cap"),
+                "price_history": history[ticker],
+                "catalyst": "Not researched: AI research was unavailable for this run.",
+                "catalyst_zh": "未调研：本次运行无法使用 AI 调研。",
+                "reason": (
+                    f"{direction.capitalize()} {abs(move):.1f}% over the last "
+                    f"{MARKET_SCAN_SESSIONS} sessions, a larger move than {percentile}% "
+                    f"of {universe_note}."
+                ),
+                "reason_zh": (
+                    f"近 {MARKET_SCAN_SESSIONS} 个交易日{'上涨' if move >= 0 else '下跌'} "
+                    f"{abs(move):.1f}%，波动幅度超过 {percentile}% 的市值逾 "
+                    f"{MARKET_SCAN_MIN_CAP_USD / 1e8:.0f} 亿美元美股。"
+                ),
+                "sources": [
+                    {
+                        "label": "Nasdaq stock screener (market cap, sector)",
+                        "url": "https://www.nasdaq.com/market-activity/stocks/screener",
+                        "date": date_label,
+                    },
+                    {
+                        "label": f"Yahoo Finance daily closes, {ticker}",
+                        "url": f"https://finance.yahoo.com/quote/{ticker}/history",
+                        "date": as_of,
+                    },
+                ],
+            }
+        )
+
+    week_start = current - timedelta(days=current.weekday())
+    week_label = (
+        f"Week of {week_start.strftime('%B')} {week_start.day}-"
+        f"{current.day}, {current.year}"
+    )
+    gainers = sum(1 for m in moves.values() if m > 0)
+    context: dict[str, Any] = {
+        "is_fallback": True,
+        "scan_mode": "market_data",
+        "week_label": week_label,
+        "as_of": as_of,
+        "market_pulse": (
+            "AI research was unavailable for this run, so these are this week's "
+            f"biggest movers ranked from market data: the largest {MARKET_SCAN_SESSIONS}-session "
+            f"moves among {universe_note}. The price moves are real; the catalysts "
+            "behind them have not been researched."
+        ),
+        "market_pulse_zh": (
+            f"本次运行无法使用 AI 调研，以下为按市场数据排序的本周异动股：市值逾 "
+            f"{MARKET_SCAN_MIN_CAP_USD / 1e8:.0f} 亿美元美股中近 {MARKET_SCAN_SESSIONS} "
+            "个交易日波动最大的个股。价格变动为真实数据，背后的催化剂尚未调研。"
+        ),
+        "benchmark_context": (
+            (f"S&P 500 (SPY) {spy:+.1f}% over the same {MARKET_SCAN_SESSIONS} sessions; " if spy is not None else "")
+            + f"{gainers} of {len(moves)} large caps rose."
+        ),
+        "benchmark_context_zh": (
+            (f"同期标普 500（SPY）{spy:+.1f}%；" if spy is not None else "")
+            + f"{len(moves)} 只大盘股中 {gainers} 只上涨。"
+        ),
+        "methodology": (
+            f"Ranked by absolute {MARKET_SCAN_SESSIONS}-session price change among "
+            f"{universe_note} (price ≥ ${MARKET_SCAN_MIN_PRICE:.0f}, common stock and "
+            f"ADRs only), at most {MARKET_SCAN_MAX_PER_SECTOR} per sector. Sources: "
+            "Nasdaq screener and Yahoo Finance daily closes. No AI was used."
+        ),
+        "methodology_zh": (
+            f"按近 {MARKET_SCAN_SESSIONS} 个交易日价格变动的绝对值排序，范围为市值逾 "
+            f"{MARKET_SCAN_MIN_CAP_USD / 1e8:.0f} 亿美元、股价不低于 "
+            f"{MARKET_SCAN_MIN_PRICE:.0f} 美元的美股普通股与 ADR，每个板块最多 "
+            f"{MARKET_SCAN_MAX_PER_SECTOR} 只。数据来源：Nasdaq 筛选器与 Yahoo Finance "
+            "日收盘价。未使用 AI。"
+        ),
+        "candidates": candidates,
+        # The next movers down the list, for the watchlist strip.
+        "watchlist": [
+            {
+                "ticker": ticker,
+                "name": _clean_company_name(eligible[ticker].get("name"), ticker),
+                "reason": f"{moves[ticker]:+.1f}% over {MARKET_SCAN_SESSIONS} sessions.",
+                "reason_en": f"{moves[ticker]:+.1f}% over {MARKET_SCAN_SESSIONS} sessions.",
+                "reason_zh": f"近 {MARKET_SCAN_SESSIONS} 个交易日 {moves[ticker]:+.1f}%。",
+            }
+            for ticker in [t for t in ranked if t not in picks][:4]
+        ],
+    }
+    if error:
+        context["scan_error"] = error
+    return context
+
+
+def _scan_without_ai(error: str | None) -> dict[str, Any]:
+    """The scan to publish when no model could answer: real movers from market
+    data, and only if that is unreachable too, the static watchlist."""
+    return _market_data_scan(error) or _fallback_scan(error)
+
+
 def _scan_context(scan: dict[str, Any]) -> dict[str, Any]:
     keys = [
         "week_label",
@@ -1133,6 +1400,8 @@ def _fallback_stock_from_candidate(
     reason_en = str(row.get("reason_en") or reason)
     reason_zh = str(row.get("reason_zh") or reason_en)
     move_value = _format_pct(move)
+    if row.get("data_source") == "market_data" and row.get("price_history"):
+        return _market_data_stock_card(row, error)
     sparkline = _fallback_sparkline(move)
     sources = _normalize_sources(row.get("sources") or [])
     source_note = "Detailed verification timed out; this card uses the scan result."
@@ -1202,6 +1471,92 @@ def _fallback_stock_from_candidate(
         ],
         "sparkline": sparkline,
         "sources": sources,
+    }
+
+
+def _market_data_stock_card(row: dict[str, Any], error: str | None) -> dict[str, Any]:
+    """A card from market data alone: the move, its rank, a chart of the real
+    closes. Nothing narrative is filled in — the catalyst says it was not
+    researched instead of guessing."""
+    ticker = row["ticker"]
+    move = _nullable_number(row.get("weekly_change_pct"))
+    percentile = int(_number(row.get("move_percentile"), 0))
+    reason_en = str(row.get("reason_en") or row.get("reason") or "")
+    reason_zh = str(row.get("reason_zh") or reason_en)
+    catalyst_en = str(row.get("catalyst_en") or row.get("catalyst") or "")
+    catalyst_zh = str(row.get("catalyst_zh") or catalyst_en)
+    note = "Price data only; AI research was unavailable, so no catalyst was looked up."
+    if error:
+        note = f"{note} Reason: {str(error).splitlines()[-1][:140]}"
+    return {
+        "rank": int(_number(row.get("rank"), 0)),
+        "ticker": ticker,
+        "name": str(row.get("name") or ticker),
+        "exchange": row.get("exchange"),
+        "sector": row.get("sector"),
+        "sector_en": row.get("sector_en"),
+        "sector_zh": row.get("sector_zh"),
+        "is_fallback": True,
+        "data_source": "market_data",
+        "sparkline_synthetic": False,
+        "score": percentile,
+        "weekly_change_pct": move,
+        "relative_volume": None,
+        "relative_strength_pct": _nullable_number(row.get("relative_strength_pct")),
+        "market_cap_usd": row.get("market_cap_usd"),
+        "why_awesome": reason_en,
+        "why_awesome_en": reason_en,
+        "why_awesome_zh": reason_zh,
+        "setup": "Price action only — the catalyst has not been researched.",
+        "setup_en": "Price action only — the catalyst has not been researched.",
+        "setup_zh": "仅有价格走势——催化剂尚未调研。",
+        "catalyst": catalyst_en,
+        "catalyst_en": catalyst_en,
+        "catalyst_zh": catalyst_zh,
+        "risk": "Without a researched catalyst, the move may not persist.",
+        "risk_en": "Without a researched catalyst, the move may not persist.",
+        "risk_zh": "缺乏已调研的催化剂，该走势未必持续。",
+        "tags": ["weekly mover", "market data"],
+        "tags_en": ["weekly mover", "market data"],
+        "tags_zh": ["本周异动", "市场数据"],
+        "drivers": [
+            {
+                "label": "Weekly move",
+                "label_en": "Weekly move",
+                "label_zh": "周涨跌幅",
+                "value": _format_pct(move),
+                "score": percentile,
+                "note": reason_en,
+                "note_en": reason_en,
+                "note_zh": reason_zh,
+            },
+            {
+                "label": "Catalyst",
+                "label_en": "Catalyst",
+                "label_zh": "催化剂",
+                "value": "Not researched",
+                "value_en": "Not researched",
+                "value_zh": "未调研",
+                "score": 0,
+                "note": catalyst_en,
+                "note_en": catalyst_en,
+                "note_zh": catalyst_zh,
+            },
+            {
+                "label": "Source",
+                "label_en": "Source",
+                "label_zh": "数据来源",
+                "value": "Market data",
+                "value_en": "Market data",
+                "value_zh": "市场数据",
+                "score": 100,
+                "note": note,
+                "note_en": note,
+                "note_zh": "仅为价格数据；本次无法使用 AI 调研，未查找催化剂。",
+            },
+        ],
+        "sparkline": _sparkline_from_closes(row["price_history"], MARKET_SCAN_SESSIONS),
+        "sources": _normalize_sources(row.get("sources") or []),
     }
 
 
@@ -1275,6 +1630,9 @@ def _assemble_summary(
         # `is_fallback` means that card skipped detail verification. The
         # frontend must render these as degraded/unverified content.
         "scan_fallback": bool(scan.get("is_fallback")),
+        # "market_data": AI was unavailable, movers ranked from real prices;
+        # "static": even market data failed, the fixed watchlist was used.
+        "scan_mode": scan.get("scan_mode") or ("static" if scan.get("is_fallback") else "live"),
         "fallback_stock_count": fallback_stock_count,
         "week_label": scan.get("week_label") or _week_label_fallback(),
         "week_label_en": scan.get("week_label_en") or scan.get("week_label") or _week_label_fallback(),

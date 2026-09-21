@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  briefReadMinutes,
   calendarWeekBuckets,
   ledgerHitStats,
   marketBreadthFromUniverse,
@@ -42,6 +43,23 @@ describe("marketPulseDesk", () => {
     expect(breadth.flat).toBe(1);
     expect(breadth.nearHigh).toBe(1);
     expect(breadth.pctUp).toBeCloseTo(33.333, 1);
+  });
+
+  it("reads the Nasdaq screener's own row shape", () => {
+    // /api/quotes/screeners rows: `change_pct` and `last`, no 52-week high.
+    // Reading only `change_pct_1d` made Pulse show 0 advancers and 0 decliners.
+    const breadth = marketBreadthFromUniverse([
+      { ticker: "A", change_pct: 3.3, last: 161.7 },
+      { ticker: "B", change_pct: -1.1, last: 20 },
+      { ticker: "C", change_pct: 0.4, last: 5 },
+      { ticker: "D", change_pct: null, last: 9 },
+    ]);
+    expect(breadth.total).toBe(3);
+    expect(breadth.up).toBe(2);
+    expect(breadth.down).toBe(1);
+    expect(breadth.pctUp).toBeCloseTo(66.667, 1);
+    // no row carries a 52-week high: that is n/a, not "0% near highs"
+    expect(breadth.pctNearHigh).toBeNull();
   });
 
   it("maps posture from breadth and SPY", () => {
@@ -88,5 +106,14 @@ describe("marketPulseDesk", () => {
     expect(stats.hits).toBe(2);
     expect(stats.hitRate).toBeCloseTo((2 / 3) * 100);
     expect(stats.avgScore).toBeCloseTo(1);
+  });
+});
+
+describe("morning brief reading time", () => {
+  it("estimates reading time by words, or by characters in Chinese", () => {
+    expect(briefReadMinutes([])).toBe(0);
+    expect(briefReadMinutes(["a few words"])).toBe(1);
+    expect(briefReadMinutes([Array(1380).fill("word").join(" ")])).toBe(6);
+    expect(briefReadMinutes(["市".repeat(2000)], "zh")).toBe(5);
   });
 });

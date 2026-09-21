@@ -6,6 +6,11 @@ public struct MacFounderRadarView: View {
 
     @State private var loading = false
     @State private var loadFailed = false
+    @State private var confirmResearch = false
+
+    private var researching: Bool {
+        store.founderResearchInFlight.contains(company.id)
+    }
 
     private var radar: MacFounderRadar? {
         store.founderRadarByCompany[company.id]
@@ -17,25 +22,41 @@ public struct MacFounderRadarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            MacCardHeader("Founders & team", subtitle: "Leadership, prior exits, and engineering velocity.", systemImage: "person.3") {
+            MacCardHeader("Founders & team", subtitle: "The company record plus Gemini web research: leadership, board, prior exits and headcount.", systemImage: "person.3") {
                 Button {
-                    Task { await refreshFromRecord() }
+                    confirmResearch = true
                 } label: {
-                    if loading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
+                    HStack(spacing: 4) {
+                        if researching {
+                            ProgressView().controlSize(.small)
+                            Text("Researching…")
+                        } else {
+                            Image(systemName: "sparkle.magnifyingglass")
+                            Text("Research")
+                        }
                     }
                 }
-                .font(.caption)
-                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(researching)
             }
 
             if let dossier = radar {
                 if dossier.founders.isEmpty && (dossier.advisorsAndBoard ?? []).isEmpty && dossier.teamHeadcount == nil {
-                    Text("No people recorded on company profile.")
+                    Text("No people on the company record yet. Research finds the founders, board and headcount on the web.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if let researchError = dossier.researchError, !researchError.isEmpty {
+                    Label("The research pass could not run — \(researchError)", systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if let engine = dossier.engine {
+                    Text("Researched by \(engine)\(dossier.model.map { " (\($0))" } ?? "") · \(dossier.sourceCount > 0 ? "read \(dossier.sourceCount) sources" : "no sources reported")")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
 
                 // Leadership
@@ -130,18 +151,24 @@ public struct MacFounderRadarView: View {
         .task(id: company.id) {
             if radar == nil { await reload() }
         }
+        .confirmationDialog(
+            "This action will cost tokens.",
+            isPresented: $confirmResearch,
+            titleVisibility: .visible
+        ) {
+            Button("Research with Gemini") {
+                let companyId = company.id
+                Task { await store.deepSearchFounderRadar(for: companyId) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Researches this team on the web with Gemini 3.8 Flash (about a minute).")
+        }
     }
 
     private func reload() async {
         loading = true
         await store.fetchFounderRadar(for: company.id)
-        loading = false
-        loadFailed = radar == nil
-    }
-
-    private func refreshFromRecord() async {
-        loading = true
-        await store.deepSearchFounderRadar(for: company.id)
         loading = false
         loadFailed = radar == nil
     }

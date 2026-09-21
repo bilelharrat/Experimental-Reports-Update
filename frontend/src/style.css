@@ -905,36 +905,96 @@ select.field-sm {
     Palatino, Georgia, serif;
 }
 
-/* A step up from title2, and in the serif: the brief opens like a front
-   page, not like another card heading. */
+/* The masthead reads in a front page's order: an accent kicker with the
+   dateline, the headline, a dek in the serif's lighter voice, then the
+   facts in SF. The kicker and facts are interface, so they stay in SF; the
+   headline and dek are the paper. */
+.morning-brief-kicker-row {
+  @apply flex items-center justify-between gap-3;
+}
+
+.morning-brief-kicker {
+  @apply min-w-0 truncate text-caption1 font-semibold uppercase;
+  color: rgb(var(--color-accent-ink));
+  letter-spacing: 0.08em;
+}
+
+/* The headline is written to be short now — one driver, one number, 50-80
+   characters — so it can take a true front-page size. Serif at display
+   sizes wants tight tracking and leading; `balance` keeps a two-line
+   headline from leaving one word stranded on the second line. */
 .morning-brief-headline {
-  @apply text-ink-primary;
+  @apply mt-2.5 text-ink-primary;
   font-family: var(--brief-serif);
-  /* A phone has no room for the front-page size: at 27px a two-clause
-     headline runs six lines and pushes the brief itself off the screen. */
-  font-size: 1.375rem;
-  letter-spacing: -0.012em;
+  /* A phone keeps a smaller size: at 27px a long headline ran six lines
+     and pushed the brief itself off the screen. */
+  font-size: 1.4375rem;
+  line-height: 1.22;
+  letter-spacing: -0.014em;
   font-weight: 600;
-  /* A headline is not body copy. It takes its own, wider measure — the
-     prose's 62ch capped it at 625px inside a 1012px card and broke a
-     94-character headline over three lines — and more leading, because a
-     serif at this size stacks its ascenders and descenders close enough
-     to crowd the line above. */
-  max-width: 52rem;
-  line-height: 1.3;
-  text-wrap: balance;
+  /* The headline spans the card, like a banner across a front page.
+     `balance` would split it into two short, equal lines that stop halfway
+     across; `pretty` fills each line and only keeps a lone word off the
+     last one. */
+  text-wrap: pretty;
 }
 
 @media (min-width: 640px) {
   .morning-brief-headline {
-    font-size: 1.6875rem;
-    letter-spacing: -0.014em;
-    line-height: 1.32;
+    font-size: 1.875rem;
+    line-height: 1.18;
+    letter-spacing: -0.018em;
   }
 }
 
-/* The measure applies to the parts that span the card: the headline, the
-   short note's bullets, the source footer. Section prose gets its measure
+@media (min-width: 1024px) {
+  .morning-brief-headline {
+    font-size: 2.25rem;
+    line-height: 1.14;
+    letter-spacing: -0.022em;
+  }
+}
+
+/* The dek: the second driver or the so-what, one sentence under the
+   headline, in the same serif a size down and a shade lighter. */
+.morning-brief-dek {
+  @apply mt-2 text-ink-secondary;
+  font-family: var(--brief-serif);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  letter-spacing: -0.004em;
+  text-wrap: pretty;
+}
+
+@media (min-width: 640px) {
+  .morning-brief-dek {
+    font-size: 1.1875rem;
+  }
+}
+
+/* Each fact carries its separator in its own left padding, and the row is
+   shifted left by that padding and clipped back: when the row wraps on a
+   phone, the dot in front of a line's first fact falls in the clipped strip
+   instead of starting the line. */
+.morning-brief-meta {
+  @apply mt-3 flex flex-wrap items-center gap-y-0.5 text-caption1 text-ink-muted;
+  margin-left: -0.875rem;
+  clip-path: inset(0 0 0 0.875rem);
+}
+
+.morning-brief-meta > span {
+  @apply relative;
+  padding-left: 0.875rem;
+}
+
+.morning-brief-meta > span::before {
+  content: "·";
+  @apply absolute;
+  left: 0.3rem;
+}
+
+/* The measure applies to the parts that span the card: the short note's
+   bullets and the source footer. Section prose gets its measure
    from the column it sits in instead. */
 .morning-brief-measure {
   max-width: 62ch;

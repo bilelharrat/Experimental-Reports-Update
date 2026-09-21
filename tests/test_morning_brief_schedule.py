@@ -20,8 +20,8 @@ def _enabled(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def _at(hour: int, day: int = 17) -> datetime:
-    return datetime(2026, 9, day, hour, 0).astimezone()
+def _at(hour: int, day: int = 17, minute: int = 0) -> datetime:
+    return datetime(2026, 9, day, hour, minute).astimezone()
 
 
 def test_not_due_before_the_hour():
@@ -127,13 +127,89 @@ def test_a_failed_morning_never_takes_the_loop_down(monkeypatch):
     monkeypatch.setattr(market_brief, "write_note", boom)
     assert market_brief.run_morning_brief(_at(8)) is None
 
-    status = market_brief.morning_status()
+    status = market_brief.morning_status(_at(8, minute=5))
     assert status["last_run_ok"] is False
     assert "engine down" in status["last_error"]
     # Recorded, so a failing morning is not retried every five minutes.
-    assert market_brief.morning_due(_at(9)) is False
+    assert market_brief.morning_due(_at(8, minute=5)) is False
+
+
+def _failing_morning(monkeypatch) -> dict:
+    """A note writer that fails until told otherwise; counts its calls."""
+    written: dict = {}
+    calls = {"n": 0, "fail": True}
+    monkeypatch.setattr(market_brief, "load_brief", lambda date=None: dict(written) or None)
+    monkeypatch.setattr(market_brief, "build_brief", lambda: None)
+
+    def write_note(length="long"):
+        calls["n"] += 1
+        if calls["fail"]:
+            raise RuntimeError("You've hit your weekly limit")
+        written.update({**BRIEF, "note": {"length": length}})
+        return dict(written)
+
+    monkeypatch.setattr(market_brief, "write_note", write_note)
+    return calls
+
+
+def test_a_failed_morning_is_tried_again_an_hour_later(monkeypatch):
+    """One failure used to cost the whole day: a server started before its
+    Gemini key was added never wrote the brief, even once the key was in."""
+    calls = _failing_morning(monkeypatch)
+    market_brief.run_morning_brief(_at(8))
+
+    assert market_brief.morning_due(_at(8, minute=59)) is False
+    status = market_brief.morning_status(_at(8, minute=30))
+    assert status["attempts"] == 1
+    assert status["next_retry_at"] == _at(9).isoformat()
+
+    assert market_brief.morning_due(_at(9)) is True
+    calls["fail"] = False
+    assert market_brief.run_morning_brief(_at(9)) is not None
+    assert market_brief.morning_due(_at(10)) is False
+    status = market_brief.morning_status(_at(10))
+    assert status["last_run_ok"] is True
+    assert status["next_retry_at"] is None
+
+
+def test_a_morning_that_keeps_failing_waits_for_tomorrow(monkeypatch):
+    calls = _failing_morning(monkeypatch)
+    for hour in (8, 9, 10):
+        assert market_brief.morning_due(_at(hour)) is True
+        market_brief.run_morning_brief(_at(hour))
+
+    assert calls["n"] == market_brief.MORNING_MAX_ATTEMPTS
+    assert market_brief.morning_due(_at(15)) is False
+    status = market_brief.morning_status(_at(15))
+    assert status["attempts"] == market_brief.MORNING_MAX_ATTEMPTS
+    assert status["next_retry_at"] is None
+    # The count is per day: tomorrow starts over.
+    assert market_brief.morning_due(_at(7, day=18)) is True
+
+
+def test_a_failure_recorded_before_retries_existed_is_not_retried(monkeypatch):
+    """Without the time of the failure there is no hour to wait out."""
+    monkeypatch.setattr(market_brief, "load_brief", lambda date=None: None)
+    market_brief._write_morning_state(
+        {"last_run_date": "2026-09-17", "length": "long", "ok": False, "error": "x"}
+    )
+    assert market_brief.morning_due(_at(15)) is False
+    assert market_brief.morning_status(_at(15))["next_retry_at"] is None
+    assert market_brief.morning_due(_at(7, day=18)) is True
 
 
 def test_the_loop_does_not_start_without_an_engine(monkeypatch):
-    monkeypatch.setattr(market_brief.ai_engine, "available", lambda: False)
+    monkeypatch.setattr(market_brief.ai_engine, "available", lambda *_a, **_k: False)
+    assert market_brief.start_morning_loop() is False
+
+
+def test_a_claude_cli_alone_does_not_start_the_loop(monkeypatch):
+    """The brief is Gemini's to write, so a desk on Claude with no Gemini key
+    has nothing that can write it."""
+    # Were the gate wrong, the thread it starts must not reach the network.
+    monkeypatch.setattr(market_brief, "_morning_loop", lambda: None)
+    monkeypatch.setattr(market_brief, "_MORNING_LOOP_STARTED", False)
+    monkeypatch.setattr(market_brief.ai_engine, "policy", lambda: "claude")
+    monkeypatch.setattr(market_brief.ai_engine.claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(market_brief.ai_engine.gemini_runner, "is_available", lambda: False)
     assert market_brief.start_morning_loop() is False

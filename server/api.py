@@ -3407,6 +3407,21 @@ def get_company_profile(company_id: str, quote: bool = True) -> dict:
     return profile
 
 
+@router.get("/companies/{company_id}/earnings-filings")
+def get_company_earnings_filings(company_id: str, refresh: bool = False) -> dict:
+    """Next earnings date, recent quarters against estimates, and SEC filings
+    for a listed company — the public-company counterpart of the deal
+    pipeline on its dossier. A company without a ticker gets an empty answer."""
+    from . import filings_watch
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    ticker = str(company.get("ticker") or "").strip()
+    if not ticker:
+        return {"ticker": None, "earnings": None, "filings": [], "material_count": 0, "error": None}
+    return filings_watch.for_ticker(ticker, refresh=refresh)
+
+
 @router.get("/filings-watch")
 def get_filings_watch(refresh: bool = False) -> dict:
     from . import filings_watch
@@ -5585,11 +5600,14 @@ def get_company_reports(company_id: str) -> list[ReportSummary]:
 
 
 @router.get("/companies/{company_id}/memo-analysis")
-def get_memo_analysis(company_id: str) -> dict:
+def get_memo_analysis(company_id: str, create: bool = True) -> dict:
+    """The company's Memo Studio session. ``create=false`` only reads: the
+    Research Desk loads readiness gates on sight, and opening a dossier must
+    not leave a new session file behind for every company glanced at."""
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
-        session = serena_analysis.get_current_session(company_id, create=True)
+        session = serena_analysis.get_current_session(company_id, create=create)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if session is None:

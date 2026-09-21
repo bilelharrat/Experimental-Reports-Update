@@ -62,9 +62,27 @@ const publicSide = computed(() => {
   };
 });
 
+// "2026-06-13" → "2026-06"; a bare year ("2030") or free text stays as is.
+function asOfLabel(asOf) {
+  const raw = String(asOf || "").trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 7) : raw;
+}
+
+function reportedTitle(fact) {
+  if (!fact) return "";
+  return [fact.label, fact.as_of && `as of ${fact.as_of}`, fact.source_class]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 const privateSide = computed(() => {
   const pr = profile.value?.private || profile.value?.private_facts;
-  if (!pr && !props.company?.funding_round && !props.company?.metrics) return null;
+  // The company record's own figures (the rows the memo snapshot quotes),
+  // used when there is no portfolio KPI for them.
+  const reported = profile.value?.reported || {};
+  if (!pr && !props.company?.funding_round && !props.company?.metrics && !Object.keys(reported).length) {
+    return null;
+  }
 
   const pos = pr?.position || {};
   const kpi = pr?.latest_kpi || props.company?.metrics || {};
@@ -77,10 +95,16 @@ const privateSide = computed(() => {
   const ownStr = pos.ownership_pct != null ? `${Number(pos.ownership_pct).toFixed(1)}%` : "—";
 
   const arrVal = kpi.arr_usd ?? kpi.arr ?? kpi.annual_recurring_revenue;
-  const arrStr = arrVal != null ? (typeof arrVal === "number" ? `$${formatCompactNumber(arrVal)}` : arrVal) : "—";
+  const arrFact = arrVal == null ? reported.arr : null;
+  const arrStr =
+    arrVal != null
+      ? (typeof arrVal === "number" ? `$${formatCompactNumber(arrVal)}` : arrVal)
+      : arrFact?.value || "—";
 
   const runwayMonths = kpi.runway_months ?? kpi.runway;
-  const runwayStr = runwayMonths != null ? `${Math.round(Number(runwayMonths))} mo` : "—";
+  const runwayFact = runwayMonths == null ? reported.runway : null;
+  const runwayStr =
+    runwayMonths != null ? `${Math.round(Number(runwayMonths))} mo` : runwayFact?.value || "—";
   const isRunwayTight = runwayMonths != null && Number(runwayMonths) < 9;
 
   const markVal = mark?.value_usd ?? pr?.mark ?? props.company?.valuation;
@@ -92,7 +116,11 @@ const privateSide = computed(() => {
     position: positionStr,
     ownership: ownStr,
     arr: arrStr,
+    arrAsOf: asOfLabel(arrFact?.as_of),
+    arrTitle: reportedTitle(arrFact),
     runway: runwayStr,
+    runwayAsOf: asOfLabel(runwayFact?.as_of),
+    runwayTitle: reportedTitle(runwayFact),
     isRunwayTight,
     markMoic: markMoicStr,
   };
@@ -102,6 +130,30 @@ function capitalize(v) {
   const s = String(v || "");
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
+
+// A listed company is not a startup deal. Unless the firm holds a position
+// in it, the middle column shows how the market values it — P/E, EPS, the
+// 52-week range, yield — instead of Position / ARR / Runway / Mark, which
+// read "—" for every public name. The quote already carries these fields.
+const holdsPosition = computed(() => Boolean(profile.value?.private));
+const showMarketColumn = computed(() => isPublic.value && !holdsPosition.value);
+
+function fmtNumber(value, digits = 2) {
+  return value == null || !Number.isFinite(Number(value)) ? null : Number(value).toFixed(digits);
+}
+
+const marketSide = computed(() => {
+  const q = profile.value?.public || {};
+  const low = fmtNumber(q.fifty_two_week_low);
+  const high = fmtNumber(q.fifty_two_week_high);
+  const yieldPct = q.dividend_yield != null ? fmtNumber(Number(q.dividend_yield) * 100) : null;
+  return {
+    pe: fmtNumber(q.pe_ratio, 1) ?? "—",
+    eps: q.eps != null ? `$${fmtNumber(q.eps)}` : "—",
+    range: low && high ? `$${low} – $${high}` : "—",
+    dividendYield: yieldPct != null ? `${yieldPct}%` : "—",
+  };
+});
 
 const processSide = computed(() => {
   const p = profile.value || {};
@@ -208,8 +260,29 @@ const processSide = computed(() => {
           </span>
         </div>
 
+        <!-- Market (listed company, no position held) -->
+        <div v-if="showMarketColumn" class="flex min-w-0 flex-col gap-1" data-testid="profile-market">
+          <span class="mac-t-label mac-c-secondary">{{ t("research_desk.market_data") }}</span>
+          <div class="flex items-center gap-1.5">
+            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">P/E</span>
+            <span class="mac-t-caption10 mac-mono truncate">{{ marketSide.pe }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">EPS</span>
+            <span class="mac-t-caption10 mac-mono truncate">{{ marketSide.eps }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.range_52w") }}</span>
+            <span class="mac-t-caption10 mac-mono truncate">{{ marketSide.range }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.dividend_yield") }}</span>
+            <span class="mac-t-caption10 mac-mono truncate">{{ marketSide.dividendYield }}</span>
+          </div>
+        </div>
+
         <!-- Private -->
-        <div class="flex min-w-0 flex-col gap-1">
+        <div v-else class="flex min-w-0 flex-col gap-1">
           <span class="mac-t-label mac-c-secondary">{{ t("research_desk.private_data") }}</span>
           <template v-if="privateSide">
             <div class="flex items-center gap-1.5">
@@ -222,7 +295,8 @@ const processSide = computed(() => {
             </div>
             <div class="flex items-center gap-1.5">
               <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">ARR</span>
-              <span class="mac-t-caption10 mac-mono truncate">{{ privateSide.arr }}</span>
+              <span class="mac-t-caption10 mac-mono truncate" :title="privateSide.arrTitle || null" data-testid="profile-arr">{{ privateSide.arr }}</span>
+              <span v-if="privateSide.arrAsOf" class="mac-t-caption10 mac-c-tertiary shrink-0">{{ privateSide.arrAsOf }}</span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.runway") }}</span>
@@ -232,6 +306,7 @@ const processSide = computed(() => {
               >
                 {{ privateSide.runway }}
               </span>
+              <span v-if="privateSide.runwayAsOf" class="mac-t-caption10 mac-c-tertiary shrink-0" :title="privateSide.runwayTitle || null">{{ privateSide.runwayAsOf }}</span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.mark_moic") }}</span>
@@ -244,14 +319,17 @@ const processSide = computed(() => {
         <!-- Process -->
         <div class="flex min-w-0 flex-col gap-1">
           <span class="mac-t-label mac-c-secondary">{{ t("research_desk.process_status") }}</span>
-          <div class="flex items-center gap-1.5">
-            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.stage") }}</span>
-            <span class="mac-t-caption10 mac-mono truncate">{{ processSide.stage }}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.thesis_fit") }}</span>
-            <span class="mac-t-caption10 mac-mono truncate">{{ processSide.thesisFit }}</span>
-          </div>
+          <!-- Deal stage and VC thesis fit mean nothing for a listed name. -->
+          <template v-if="!isPublic">
+            <div class="flex items-center gap-1.5">
+              <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.stage") }}</span>
+              <span class="mac-t-caption10 mac-mono truncate">{{ processSide.stage }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.thesis_fit") }}</span>
+              <span class="mac-t-caption10 mac-mono truncate">{{ processSide.thesisFit }}</span>
+            </div>
+          </template>
           <div class="flex items-center gap-1.5">
             <span class="mac-t-caption10 mac-c-secondary w-[74px] shrink-0">{{ t("research_desk.decision") }}</span>
             <span class="mac-t-caption10 mac-mono truncate" :style="{ color: processSide.verdictTone }">

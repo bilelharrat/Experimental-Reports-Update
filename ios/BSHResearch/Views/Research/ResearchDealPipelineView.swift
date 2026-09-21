@@ -6,6 +6,29 @@ public struct MacDealPipelineView: View {
     @State private var saving = false
     @State private var saveError: String?
     @State private var loadAttempted = false
+    @State private var editing: PipelineField?
+
+    public enum PipelineField: String, CaseIterable, Identifiable {
+        case introPath = "intro_path"
+        case lastTouchpoint = "last_touchpoint"
+        case nextStep = "next_step"
+        public var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .introPath: return "Intro path"
+            case .lastTouchpoint: return "Last touchpoint"
+            case .nextStep: return "Next step"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .introPath: return "link"
+            case .lastTouchpoint: return "message"
+            case .nextStep: return "calendar.badge.clock"
+            }
+        }
+        var empty: String { self == .nextStep ? "Not set" : "Not recorded" }
+    }
 
     private var pipeline: MacDealPipeline? {
         store.dealPipelines[company.id]
@@ -110,51 +133,16 @@ public struct MacDealPipelineView: View {
                 }
             }
 
-            // Relationship Pathway & CRM Interactions
-            HStack(spacing: 10) {
-                // Intro Path Card
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Intro path", systemImage: "link")
-                        .font(.dsLabel)
-                        .foregroundStyle(.secondary)
-
-                    Text(pipeline?.introPath ?? "Not recorded")
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(2)
+            // Intro path · Last touchpoint · Next step — tap any to edit. They
+            // read "Not recorded" on every company while the card only showed
+            // them; the server has accepted edits all along.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(PipelineField.allCases) { tile($0) }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .appleGlassTile(cornerRadius: 10)
-
-                // Last Touchpoint
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Last touchpoint", systemImage: "message")
-                        .font(.dsLabel)
-                        .foregroundStyle(.secondary)
-
-                    Text(pipeline?.lastTouchpoint ?? "Not recorded")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(PipelineField.allCases) { tile($0) }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .appleGlassTile(cornerRadius: 10)
-
-                // Next Step
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Next step", systemImage: "calendar.badge.clock")
-                        .font(.dsLabel)
-                        .foregroundStyle(Color.accentColor)
-
-                    Text(pipeline?.nextStep ?? "Not set")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .appleGlassTile(cornerRadius: 10, tint: Color.accentColor)
             }
         }
         .padding(14)
@@ -163,6 +151,18 @@ public struct MacDealPipelineView: View {
             saveError = nil
             loadAttempted = false
             await load()
+        }
+        .sheet(item: $editing) { field in
+            PipelineFieldEditor(
+                field: field,
+                initialText: value(field) ?? "",
+                initialDue: field == .nextStep ? pipeline?.nextStepDue : nil
+            ) { text, due in
+                var fields: [String: String?] = [field.rawValue: text.isEmpty ? nil : text]
+                if field == .nextStep { fields["next_step_due"] = due }
+                return await store.updateDealFields(companyId: company.id, fields: fields)
+            }
+            .presentationDetents([.medium])
         }
     }
 
@@ -191,5 +191,122 @@ public struct MacDealPipelineView: View {
 
     private func stageIndex(_ stage: String) -> Int {
         currentStages.firstIndex(of: stage) ?? 0
+    }
+
+    private func value(_ field: PipelineField) -> String? {
+        switch field {
+        case .introPath: return pipeline?.introPath
+        case .lastTouchpoint: return pipeline?.lastTouchpoint
+        case .nextStep: return pipeline?.nextStep
+        }
+    }
+
+    private func tile(_ field: PipelineField) -> some View {
+        let isNext = field == .nextStep
+        let overdue = isNext && pipeline?.nextStepOverdue == true
+        let tint: Color? = isNext ? (overdue ? Color.dsNegative : Color.accentColor) : nil
+        return Button {
+            if pipeline != nil { editing = field }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(field.title, systemImage: field.icon)
+                    .font(.dsLabel)
+                    .foregroundStyle(tint ?? Color.secondary)
+                Text(value(field) ?? field.empty)
+                    .font(field == .introPath ? .caption.weight(.semibold) : (isNext ? .caption.weight(.medium) : .caption))
+                    .foregroundStyle(tint ?? (value(field) == nil ? Color.secondary : Color.primary))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if isNext, pipeline?.nextStep != nil, let due = pipeline?.nextStepDue {
+                    Text(overdue ? "Overdue · was due \(due)" : "Due \(due)")
+                        .font(.caption2.monospacedDigit().weight(overdue ? .bold : .regular))
+                        .foregroundStyle(tint ?? .secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .appleGlassTile(cornerRadius: 10, tint: tint)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Edits \(field.title.lowercased())")
+    }
+}
+
+/// Edits one pipeline field; the next step also takes an optional due date.
+private struct PipelineFieldEditor: View {
+    let field: MacDealPipelineView.PipelineField
+    let initialText: String
+    let initialDue: String?
+    /// Saves; returns an error message, or nil once saved.
+    let save: (String, String?) async -> String?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var hasDue = false
+    @State private var due = Date()
+    @State private var saving = false
+    @State private var error: String?
+
+    /// Calendar days in the device's own time zone, as the server stores them.
+    private static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField(field.title, text: $text, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+                if field == .nextStep {
+                    Section {
+                        Toggle("Due date", isOn: $hasDue)
+                        if hasDue {
+                            DatePicker("Due", selection: $due, displayedComponents: .date)
+                        }
+                    }
+                }
+                if let error {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Color.dsNegative)
+                    }
+                }
+            }
+            .navigationTitle(field.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            saving = true
+                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let dueText = hasDue ? Self.dayFormat.string(from: due) : nil
+                            error = await save(trimmed, dueText)
+                            saving = false
+                            if error == nil { dismiss() }
+                        }
+                    }
+                    .disabled(saving)
+                }
+            }
+        }
+        .onAppear {
+            text = initialText
+            if let initialDue, let date = Self.dayFormat.date(from: initialDue) {
+                hasDue = true
+                due = date
+            }
+        }
     }
 }

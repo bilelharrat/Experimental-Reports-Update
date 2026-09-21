@@ -224,9 +224,14 @@ const currentCompany = computed(() =>
 const reportCustomizerOpen = ref(false);
 const reportCustomizerCompanyId = ref(null);
 
-function openReportCustomizer(companyId = null) {
+const reportCustomizerMode = ref("");
+
+// `mode: "studio_review"` opens it on Memo Studio review, which is how the
+// desk's "Run Deep Investigate" gets there; anything else keeps the default.
+function openReportCustomizer(companyId = null, { mode = "" } = {}) {
   const resolved = typeof companyId === "string" ? companyId : companyId?.companyId || null;
   reportCustomizerCompanyId.value = resolved || currentCompany.value?.id || null;
+  reportCustomizerMode.value = mode;
   reportCustomizerOpen.value = true;
 }
 
@@ -1109,6 +1114,7 @@ provide("copilotNavigate", onCopilotNavigate);
     <ReportCustomizerModal
       :open="reportCustomizerOpen"
       :initial-company-id="reportCustomizerCompanyId"
+      :initial-generation-mode="reportCustomizerMode"
       @close="reportCustomizerOpen = false"
       @created="refreshAll"
     />

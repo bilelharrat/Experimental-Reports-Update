@@ -227,3 +227,75 @@ def test_memo_editor_api_mutates_state_and_projects_export(memo_editor_env):
     assert history.status_code == 200, history.text
     assert history.json()["versions"]
     assert any(row["event"] == "memo_task_updated" for row in history.json()["audit_records"])
+
+
+# ---- template cards --------------------------------------------------------
+# With nothing investigated, the thesis and risk cards are built from the
+# company record. They are a starting template, and the editor marks them so
+# the desk can stop presenting them as research.
+
+
+def _card_sections(state):
+    return [
+        card
+        for section_id in memo_editor_store.CARD_SECTIONS
+        for card in state["sections"][section_id]["cards"]
+    ]
+
+
+def test_template_cards_are_marked_until_someone_writes_into_them(memo_editor_env):
+    state = memo_editor_store.get_state("zainar-test")
+    cards = _card_sections(state)
+    assert cards and all(card["placeholder"] is True for card in cards)
+
+    thesis = state["sections"]["investment_thesis"]["cards"][0]
+    # including or rating a card is not writing into it
+    state = memo_editor_store.patch_card(
+        "zainar-test", "investment_thesis", thesis["id"], {"included": False}
+    )
+    assert state["sections"]["investment_thesis"]["cards"][0]["placeholder"] is True
+
+    state = memo_editor_store.patch_card(
+        "zainar-test", "investment_thesis", thesis["id"], {"title": "Our own thesis."}
+    )
+    edited = next(
+        c for c in state["sections"]["investment_thesis"]["cards"] if c["id"] == thesis["id"]
+    )
+    assert edited["placeholder"] is False
+
+
+def test_editing_a_bullet_makes_the_card_the_analysts(memo_editor_env):
+    state = memo_editor_store.get_state("zainar-test")
+    card = state["sections"]["risks_mitigations"]["cards"][0]
+    bullet = card["bullets"][0]
+    state = memo_editor_store.patch_bullet(
+        "zainar-test", "risks_mitigations", card["id"], bullet["id"], {"text": "Checked with the CFO."}
+    )
+    after = next(c for c in state["sections"]["risks_mitigations"]["cards"] if c["id"] == card["id"])
+    assert after["placeholder"] is False
+
+
+def test_cards_saved_before_the_mark_are_inferred(memo_editor_env):
+    state = memo_editor_store.get_state("zainar-test")
+    thesis_id = state["sections"]["investment_thesis"]["cards"][0]["id"]
+    path = memo_editor_store.state_path("zainar-test")
+    raw = yaml.safe_load(path.read_text())
+    for section_id in memo_editor_store.CARD_SECTIONS:
+        for card in raw["sections"][section_id]["cards"]:
+            card.pop("placeholder", None)
+    # the company record gained words since: today's template reads
+    # differently, but nobody wrote into the stored card
+    raw["sections"]["investment_thesis"]["cards"][0]["bullets"][0]["text"] = "Older wording."
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    state = memo_editor_store.get_state("zainar-test")
+    assert all(card["placeholder"] is True for card in _card_sections(state))
+
+    # an audited edit is what makes it the analyst's
+    raw["audit_records"] = [
+        {"event": "bullet_edited", "detail": {"card_id": thesis_id}, "created_at": "2026-09-01T00:00:00Z"}
+    ]
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    state = memo_editor_store.get_state("zainar-test")
+    first = next(c for c in state["sections"]["investment_thesis"]["cards"] if c["id"] == thesis_id)
+    assert first["placeholder"] is False
