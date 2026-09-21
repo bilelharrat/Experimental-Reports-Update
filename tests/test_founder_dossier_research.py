@@ -167,15 +167,15 @@ def test_a_grounded_run_records_its_sources_and_engine(monkeypatch, company):
 
 
 def test_a_sourceless_run_is_not_an_audit(monkeypatch, company):
-    """The Claude fallback reports no machine-readable sources, so it may not
-    claim the audited badge."""
+    """Gemini can answer from memory without searching; a run that read no
+    sources may not claim the audited badge."""
     _stub_grounded(
         monkeypatch,
         {"people": [{"name": "Ira Okonkwo", "role": "CTO"}]},
-        {"engine": "claude", "model": None, "sources": [], "fallback_reason": "gemini down"},
+        {"engine": "gemini", "model": "gemini-3.8-flash", "sources": [], "fallback_reason": None},
     )
     dossier = founder_dossier.deep_search_founder_dossier("acme")
-    assert dossier["engine"] == "claude"
+    assert dossier["engine"] == "gemini"
     assert dossier["is_deep_audited"] is False
     assert [p["name"] for p in dossier["founders"]] == ["Dana Reeve", "Ira Okonkwo"]
 
@@ -247,3 +247,59 @@ def test_the_prompt_seeds_the_people_already_on_file(monkeypatch, company):
     assert "Dana Reeve — Co-founder & CEO" in prompt
     assert "Kit Alvarez — Board Director" in prompt
     assert "https://acme.example" in prompt
+
+
+# ---- engine: Gemini only --------------------------------------------------
+
+
+@pytest.fixture(params=["claude", "gemini"])
+def claude_calls(request, monkeypatch):
+    """The desk is on Claude, or on Gemini-then-Claude; Team research must
+    reach Claude under neither. Returns the Claude calls made."""
+    engine = founder_dossier.ai_engine
+    monkeypatch.setattr(engine, "policy", lambda: request.param)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        engine.claude_runner,
+        "run_web_research_json",
+        lambda **kw: calls.append(kw["name"]) or ({"people": []}, None),
+    )
+    return calls
+
+
+def test_team_research_runs_on_gemini_whatever_the_desk_engine_is(
+    monkeypatch, company, claude_calls
+):
+    gemini = founder_dossier.ai_engine.gemini_runner
+    monkeypatch.setattr(gemini, "is_available", lambda: True)
+    monkeypatch.setattr(
+        gemini,
+        "run_grounded_json",
+        lambda **kw: (
+            {"people": [{"name": "Ira Okonkwo", "role": "CTO"}]},
+            {"model": "gemini-3.8-flash", "grounded": True, "sources": GEMINI_META["sources"]},
+            None,
+        ),
+    )
+    dossier = founder_dossier.deep_search_founder_dossier("acme")
+    assert (dossier["engine"], dossier["model"]) == ("gemini", "gemini-3.8-flash")
+    assert dossier["research_error"] is None
+    assert claude_calls == []
+
+
+def test_a_gemini_failure_is_shown_not_handed_to_claude(monkeypatch, company, claude_calls):
+    gemini = founder_dossier.ai_engine.gemini_runner
+    monkeypatch.setattr(gemini, "is_available", lambda: True)
+    monkeypatch.setattr(
+        gemini, "run_grounded_json", lambda **kw: (None, {}, "gemini HTTP 503 — unavailable")
+    )
+    dossier = founder_dossier.deep_search_founder_dossier("acme")
+    assert "503" in dossier["research_error"]
+    assert claude_calls == []
+
+
+def test_without_a_gemini_key_the_refresh_says_so(monkeypatch, company, claude_calls):
+    monkeypatch.setattr(founder_dossier.ai_engine.gemini_runner, "is_available", lambda: False)
+    dossier = founder_dossier.deep_search_founder_dossier("acme")
+    assert dossier["research_error"] == "no Gemini API key configured"
+    assert claude_calls == []

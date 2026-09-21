@@ -214,6 +214,9 @@ final class MacAppStore: ObservableObject {
 
     // MARK: - Unified profile, filings, signal watch, lint, workspaces
     @Published private(set) var profileByCompany: [String: MacCompanyProfile] = [:]
+    /// One listed company's next report, recent quarters and SEC filings.
+    @Published private(set) var earningsFilingsByCompany: [String: MacCompanyEarningsFilings] = [:]
+    @Published private(set) var earningsFilingsFailed: Set<String> = []
     @Published private(set) var filingsWatch: MacFilingsWatch?
     @Published private(set) var filingsLoading = false
     @Published private(set) var signalMoves: MacSignalMoves?
@@ -473,6 +476,8 @@ final class MacAppStore: ObservableObject {
         transcriptCompanyId = nil
         signalScoreByCompany = [:]
         profileByCompany = [:]
+        earningsFilingsByCompany = [:]
+        earningsFilingsFailed = []
         filingsWatch = nil
         signalMoves = nil
         numberLintByCompany = [:]
@@ -522,10 +527,23 @@ final class MacAppStore: ObservableObject {
         return s
     }
 
+    /// The company the Research Desk opens on when nothing is selected: the one
+    /// visited most recently — the web desk reopens `bsh.lastCompanyId` the same
+    /// way — else the top of the directory list. It used to always take the
+    /// first company, so every launch landed on the same one.
+    func defaultCompany(in list: [MacCompany]) -> MacCompany? {
+        let known = Set(list.map(\.id))
+        let recent = visitedCompanyTimestamps
+            .filter { known.contains($0.key) }
+            .max { $0.value < $1.value }?
+            .key
+        if let recent, let company = list.first(where: { $0.id == recent }) { return company }
+        return list.first
+    }
+
     func hydrateFromCache() {
         if let cos = MacDataCache.shared.loadCompanies(), !cos.isEmpty {
             self.companies = cos
-            self.selectedCompany = cos.first
         }
         if let reps = MacDataCache.shared.loadReports(), !reps.isEmpty {
             self.reports = reps
@@ -549,6 +567,8 @@ final class MacAppStore: ObservableObject {
         }
         self.visitedCompanyTimestamps = MacDataCache.shared.loadBaselines()
         self.lastSyncDate = MacDataCache.shared.lastSyncDate()
+        // After the visit baselines, so the last company visited can win.
+        if !companies.isEmpty { self.selectedCompany = defaultCompany(in: companies) }
     }
 
     // MARK: - Computed Properties
@@ -653,7 +673,7 @@ final class MacAppStore: ObservableObject {
         async let prefs: Void = refreshDeskPrefs()
         await refreshHome()
         await prefs
-        if selectedCompany == nil, let first = companies.first {
+        if selectedCompany == nil, let first = defaultCompany(in: companies) {
             selectedCompany = first
             if let t = first.ticker, !t.isEmpty {
                 selectTicker(t)
@@ -776,7 +796,7 @@ final class MacAppStore: ObservableObject {
             if let current = selectedCompany {
                 selectedCompany = companies.first { $0.id == current.id }
             }
-            if selectedCompany == nil, let first = companies.first {
+            if selectedCompany == nil, let first = defaultCompany(in: companies) {
                 selectedCompany = first
             }
             if let current = selectedReport {
@@ -1770,12 +1790,20 @@ final class MacAppStore: ObservableObject {
 
     // MARK: - IC prep (memo analysis session) & evidence
 
-    func loadMemoAnalysis(_ companyId: String) async {
+    /// `create: false` is the read the dossier does on sight: a company with no
+    /// Memo Studio session stays without one (the server answers 404, which is
+    /// "nothing logged yet", not an error). Refresh and the tools still create.
+    func loadMemoAnalysis(_ companyId: String, create: Bool = true) async {
         guard !analysisBusy.contains(companyId) else { return }
         analysisBusy.insert(companyId)
         defer { analysisBusy.remove(companyId) }
         do {
-            analysisByCompany[companyId] = try await MacAPIClient.shared.fetchMemoAnalysis(companyId: companyId)
+            analysisByCompany[companyId] = try await MacAPIClient.shared.fetchMemoAnalysis(
+                companyId: companyId,
+                create: create
+            )
+        } catch MacAPIError.http(let status, _) where status == 404 && !create {
+            // No session yet — nothing to show, and nothing went wrong.
         } catch {
             self.error = error.localizedDescription
         }
@@ -2551,6 +2579,19 @@ final class MacAppStore: ObservableObject {
         if let p = try? await MacAPIClient.shared.fetchProfile(companyId: companyId) { profileByCompany[companyId] = p }
     }
 
+    func loadEarningsFilings(_ companyId: String, refresh: Bool = false) async {
+        do {
+            earningsFilingsByCompany[companyId] = try await MacAPIClient.shared.fetchCompanyEarningsFilings(
+                companyId: companyId,
+                refresh: refresh
+            )
+            earningsFilingsFailed.remove(companyId)
+        } catch {
+            guard !Task.isCancelled else { return }
+            earningsFilingsFailed.insert(companyId)
+        }
+    }
+
     func loadFilingsWatch(refresh: Bool = false) async {
         filingsLoading = true
         defer { filingsLoading = false }
@@ -3228,7 +3269,8 @@ final class MacAppStore: ObservableObject {
         }
     }
 
-    /// Re-reads people, board and links from the company record (no external lookup yet).
+    /// Gemini web research on the team, merged over the record. Results are
+    /// keyed by company, so switching company mid-run is safe.
     func deepSearchFounder(for companyId: String) async {
         deepSearchingFounders.insert(companyId)
         defer { deepSearchingFounders.remove(companyId) }
@@ -3371,6 +3413,9 @@ struct MacPulseBrief: Codable {
     struct MacPulseNote: Codable {
         let headlineEn: String?
         let headlineZh: String?
+        /// The standfirst under the headline. Notes written before it existed have none.
+        let dekEn: String?
+        let dekZh: String?
         let bulletsEn: [String]?
         let bulletsZh: [String]?
         /// "short" notes carry bullets; "long" notes carry titled sections instead.
@@ -3381,10 +3426,17 @@ struct MacPulseBrief: Codable {
             case length
             case headlineEn = "headline_en"
             case headlineZh = "headline_zh"
+            case dekEn = "dek_en"
+            case dekZh = "dek_zh"
             case bulletsEn = "bullets_en"
             case bulletsZh = "bullets_zh"
             case sectionsEn = "sections_en"
             case sectionsZh = "sections_zh"
+        }
+
+        func dek(zh: Bool) -> String? {
+            let dek = zh ? (dekZh ?? dekEn) : (dekEn ?? dekZh)
+            return (dek?.isEmpty ?? true) ? nil : dek
         }
 
         /// Falls back to the other language when the requested list is missing or empty.

@@ -10,11 +10,14 @@ prewarming 16 briefings eight at a time on every tape change):
 1. Opening a story, or the tape changing, never calls Claude. A story
    without an AI briefing gets a *basic* briefing built without AI: the
    article's lead paragraphs and the sentences that carry figures.
-2. AI briefings are written by ONE worker, one headline at a time
-   (``_WRITE_LOCK``), through ``ai_engine.structured`` — Gemini Flash with
-   a Claude fallback, no tools either way, since the article text is fetched
-   here and the model only has to write from it. One call writes English AND
-   Chinese. The briefing records which engine wrote it.
+2. AI briefings are written a few at a time — ``BSH_NEWS_BRIEF_CONCURRENCY``,
+   default 3, never more than 6, and never the same headline twice at once —
+   through ``ai_engine.structured``: Gemini Flash with a Claude fallback, no
+   tools either way, since the article text is fetched here and the model
+   only has to write from it. One call writes English AND Chinese. The
+   briefing records which engine wrote it. The cap bounds the burst; the
+   2026-09-14 burn was eight at a time on every tape change, with no cap on
+   when it ran.
 3. A server loop writes AI briefings for the top of the tape that clients
    last showed, every ``BSH_NEWS_BRIEF_REFRESH_HOURS`` (default 6). A user
    can start that refresh now, or rewrite one story; the UI warns first.
@@ -33,6 +36,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -61,6 +65,11 @@ FETCH_TIMEOUT_SEC = 5.0
 ARTICLE_MAX_CHARS = 12_000
 DEFAULT_MODEL = "sonnet"
 DEFAULT_EFFORT = "medium"
+# Briefing calls in flight at once. A refresh of the top 16 headlines took
+# ~16 serial calls of a minute or more each; three at a time cuts that to a
+# third without the burst that burned tokens on 2026-09-14.
+DEFAULT_CONCURRENCY = 3
+MAX_CONCURRENCY = 6
 # Scheduled refresh: how often, and how many top-of-tape headlines.
 # The cadence itself lives in server.auto_update (the shared bar).
 AUTO_UPDATE_CHANNEL = "news_brief"
@@ -78,9 +87,15 @@ BASIC_MIN_PARAGRAPH_CHARS = 80
 BASIC_MAX_FIGURES = 5
 
 _LOCK = threading.Lock()
-# At most one AI briefing call at a time, process-wide: the scheduled
-# refresh, a user-started refresh and a single-story rewrite all queue here.
-_WRITE_LOCK = threading.Lock()
+# At most ``brief_concurrency()`` AI briefing calls at once, process-wide:
+# the scheduled refresh, a user-started refresh and a single-story rewrite
+# all draw from the same slots.
+_WRITE_SLOTS = threading.Condition()
+_WRITING = 0
+# One lock per headline, so a rewrite and a refresh never write the same
+# story at the same time; the second waits and then writes it again.
+_KEY_LOCKS: dict[str, threading.Lock] = {}
+_KEY_LOCKS_GUARD = threading.Lock()
 _INFLIGHT: set[str] = set()
 _INFLIGHT_LOCK = threading.Lock()
 _REFRESH_LOCK = threading.Lock()
@@ -220,6 +235,52 @@ def brief_model() -> str:
 def brief_effort() -> str:
     """Effort for AI briefings (``BSH_NEWS_BRIEF_EFFORT``, default medium)."""
     return str(os.environ.get("BSH_NEWS_BRIEF_EFFORT") or "").strip() or DEFAULT_EFFORT
+
+
+def brief_concurrency() -> int:
+    """Briefing calls allowed at once (``BSH_NEWS_BRIEF_CONCURRENCY``, 1-6)."""
+    raw = str(os.environ.get("BSH_NEWS_BRIEF_CONCURRENCY") or "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_CONCURRENCY
+    return max(1, min(MAX_CONCURRENCY, value))
+
+
+def writing_engine() -> tuple[str, str]:
+    """``(engine, model)`` that writes briefings under the current policy.
+
+    The Claude model is only the fallback when the desk is on Gemini, so
+    reporting it as "the model" named something that wasn't writing.
+    """
+    chosen = ai_engine.policy()
+    gemini = ai_engine.gemini_runner
+    if chosen == "gemini-only" or (chosen == "gemini" and gemini.is_available()):
+        return "gemini", gemini.default_model()
+    return "claude", brief_model()
+
+
+def _key_lock(key: str) -> threading.Lock:
+    with _KEY_LOCKS_GUARD:
+        return _KEY_LOCKS.setdefault(key, threading.Lock())
+
+
+class _WriteSlot:
+    """Waits for one of the ``brief_concurrency()`` briefing slots."""
+
+    def __enter__(self) -> None:
+        global _WRITING
+        with _WRITE_SLOTS:
+            # Re-read each wait, so lowering the cap takes effect at once.
+            while _WRITING >= brief_concurrency():
+                _WRITE_SLOTS.wait()
+            _WRITING += 1
+
+    def __exit__(self, *_exc) -> None:
+        global _WRITING
+        with _WRITE_SLOTS:
+            _WRITING -= 1
+            _WRITE_SLOTS.notify_all()
 
 
 def write_on_open() -> bool:
@@ -651,10 +712,11 @@ def write_brief(
 ) -> dict[str, dict]:
     """Write the AI briefing for one headline in BOTH languages.
 
-    One Claude call (Sonnet, medium effort, no tools) writes English and
-    Chinese; each language is cached. Calls are serialized process-wide,
-    so at most one briefing call runs at a time. Returns ``{lang: payload}``
-    and raises ``RuntimeError`` when the call fails or returns no body.
+    One model call (no tools) writes English and Chinese; each language is
+    cached. At most ``brief_concurrency()`` calls run at once process-wide,
+    and one headline is never written by two calls at once. Returns
+    ``{lang: payload}`` and raises ``RuntimeError`` when the call fails or
+    returns no body.
     """
     row = _brief_row(
         {
@@ -670,7 +732,7 @@ def write_brief(
     if row is None:
         raise ValueError("title is required")
     key = _row_key(row)
-    with _WRITE_LOCK:
+    with _key_lock(key), _WriteSlot():
         with _INFLIGHT_LOCK:
             _INFLIGHT.add(key)
         try:
@@ -767,8 +829,8 @@ def expand(
     "No AI briefing yet" more or less permanently. A batch on a six-hour
     clock cannot cover a feed that turns over in minutes.
 
-    The guards that made the old policy necessary all stay: one worker at a
-    time (``_WRITE_LOCK``), results cached per headline so a second reader
+    The guards that made the old policy necessary all stay: a cap on calls
+    in flight (``brief_concurrency``), results cached per headline so a second reader
     pays nothing, and a failure falls back to the basic briefing rather than
     erroring. Raises ``ValueError`` for an empty headline; a model failure
     on open degrades instead of raising.
@@ -921,6 +983,7 @@ def refresh_status() -> dict:
         state = dict(_REFRESH_STATE)
     last = last_refresh_at()
     due = next_refresh_at()
+    engine, model = writing_engine()
     return {
         **state,
         "last_refresh_at": _iso(last) if last else None,
@@ -929,7 +992,12 @@ def refresh_status() -> dict:
         "cadence": refresh_cadence(),
         "cadence_choices": list(auto_update.CADENCES),
         "limit": refresh_limit(),
-        "model": brief_model(),
+        # What actually writes briefings now, then the Claude fallback's
+        # settings (which only apply when Claude is the one writing).
+        "engine": engine,
+        "model": model,
+        "concurrency": brief_concurrency(),
+        "claude_model": brief_model(),
         "effort": brief_effort(),
         "tape_count": len(load_tape()),
         "pending": len(plan_refresh()),
@@ -945,8 +1013,8 @@ def start_refresh(
 ) -> dict:
     """Write AI briefings for top-of-tape headlines that lack one.
 
-    One worker, one headline at a time. ``items`` (what the user is looking
-    at) replaces the recorded tape first. A refresh already running is left
+    Up to ``brief_concurrency()`` headlines at a time. ``items`` (what the
+    user is looking at) replaces the recorded tape first. A refresh already running is left
     alone. Starting a refresh restarts the schedule clock.
     """
     if items:
@@ -988,24 +1056,35 @@ def start_refresh(
 
 def _run_refresh(plan: list[dict]) -> None:
     written = 0
-    try:
-        for row in plan:
-            key = _row_key(row)
-            try:
-                # A single-story rewrite may have landed since planning.
-                if _missing_languages(key):
-                    write_brief(**row)
+
+    def _one(row: dict) -> None:
+        nonlocal written
+        key = _row_key(row)
+        try:
+            # A single-story rewrite may have landed since planning.
+            if _missing_languages(key):
+                write_brief(**row)
+                with _REFRESH_LOCK:
                     written += 1
-                with _REFRESH_LOCK:
-                    _REFRESH_STATE["done"] += 1
-            except Exception as exc:  # noqa: BLE001 — one story never stops the batch
-                logger.warning("news brief refresh item failed: %s", exc)
-                with _REFRESH_LOCK:
-                    _REFRESH_STATE["failed"] += 1
-                    _REFRESH_STATE["last_error"] = str(exc)[:300]
-            finally:
-                with _REFRESH_LOCK:
-                    _PLANNED_KEYS.discard(key)
+            with _REFRESH_LOCK:
+                _REFRESH_STATE["done"] += 1
+        except Exception as exc:  # noqa: BLE001 — one story never stops the batch
+            logger.warning("news brief refresh item failed: %s", exc)
+            with _REFRESH_LOCK:
+                _REFRESH_STATE["failed"] += 1
+                _REFRESH_STATE["last_error"] = str(exc)[:300]
+        finally:
+            with _REFRESH_LOCK:
+                _PLANNED_KEYS.discard(key)
+
+    try:
+        # Submitted top of the tape first, so the stories a reader sees
+        # first are the first to finish. The write slots cap the calls in
+        # flight; the pool only saves spawning a thread per headline.
+        with ThreadPoolExecutor(
+            max_workers=brief_concurrency(), thread_name_prefix="news-brief"
+        ) as pool:
+            list(pool.map(_one, plan))
     finally:
         with _REFRESH_LOCK:
             _REFRESH_STATE["running"] = False

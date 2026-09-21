@@ -38,21 +38,50 @@ struct MacUnifiedProfileView: View {
                             Text("No public listing").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
-                    column("Private") {
-                        if let pr = p.privateSide {
-                            fact("Position", [pr.position.round, pr.position.investedUsd.map(MacMoney.short)].compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
-                            fact("Own", pr.position.ownershipPct.map { String(format: "%.1f%%", $0) } ?? "—")
-                            fact("ARR", MacMoney.short(pr.latestKpi?.arrUsd))
-                            fact("Runway", pr.latestKpi?.runwayMonths.map { String(format: "%.0f mo", $0) } ?? "—",
-                                 color: (pr.latestKpi?.runwayMonths ?? 99) < 9 ? .red : .primary)
-                            fact("Mark · MOIC", [pr.latestMark.map { MacMoney.short($0.valueUsd) }, pr.moic.map { String(format: "%.2fx", $0) }].compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
-                        } else {
-                            Text("No position on file").font(.caption2).foregroundStyle(.secondary)
+                    // A listed company is not a startup deal: unless the firm holds
+                    // it, show how the market values it instead of Position / ARR /
+                    // Runway / Mark, which read "—" for every public name.
+                    if p.isPublic && p.privateSide == nil {
+                        column("Market") {
+                            let q = p.publicSide
+                            fact("P/E", q?.peRatio.map { String(format: "%.1f", $0) } ?? "—")
+                            fact("EPS", q?.eps.map { String(format: "$%.2f", $0) } ?? "—")
+                            fact("52-wk range", {
+                                guard let low = q?.fiftyTwoWeekLow, let high = q?.fiftyTwoWeekHigh else { return "—" }
+                                return String(format: "$%.2f – $%.2f", low, high)
+                            }())
+                            fact("Div. yield", q?.dividendYield.map { String(format: "%.2f%%", $0 * 100) } ?? "—")
+                        }
+                    } else {
+                        column("Private") {
+                            if p.privateSide != nil || !p.reported.isEmpty {
+                                let pr = p.privateSide
+                                fact("Position", [pr?.position.round, pr?.position.investedUsd.map(MacMoney.short)].compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
+                                fact("Own", pr?.position.ownershipPct.map { String(format: "%.1f%%", $0) } ?? "—")
+                                // The portfolio KPI when there is one, else the company
+                                // record's own figure — the one the memo quotes — dated.
+                                if let arr = pr?.latestKpi?.arrUsd {
+                                    fact("ARR", MacMoney.short(arr))
+                                } else {
+                                    reportedFact("ARR", p.reported["arr"])
+                                }
+                                if let runway = pr?.latestKpi?.runwayMonths {
+                                    fact("Runway", String(format: "%.0f mo", runway), color: runway < 9 ? .red : .primary)
+                                } else {
+                                    reportedFact("Runway", p.reported["runway"])
+                                }
+                                fact("Mark · MOIC", [pr?.latestMark.map { MacMoney.short($0.valueUsd) }, pr?.moic.map { String(format: "%.2fx", $0) }].compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
+                            } else {
+                                Text("No position on file").font(.caption2).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     column("Process") {
-                        fact("Stage", store.dealPipelines[companyId]?.stage ?? p.pipeline?.stage ?? store.stage(for: companyId).rawValue)
-                        fact("Thesis fit", p.thesisFit?.score.map { "\($0)%" } ?? (p.thesisFit?.fit ?? "—").capitalized)
+                        // Deal stage and VC thesis fit mean nothing for a listed name.
+                        if !p.isPublic {
+                            fact("Stage", store.dealPipelines[companyId]?.stage ?? p.pipeline?.stage ?? store.stage(for: companyId).rawValue)
+                            fact("Thesis fit", p.thesisFit?.score.map { "\($0)%" } ?? (p.thesisFit?.fit ?? "—").capitalized)
+                        }
                         fact("Decision", p.latestDecision?.verdict?.capitalized ?? "—",
                              color: p.latestDecision?.verdict == "invest" ? .green : (p.latestDecision?.verdict == "pass" ? .red : .primary))
                         fact("IC", (p.ic?.openMeeting != nil ? "Meeting open" : "\(p.ic?.meetingCount ?? 0) meetings") + " · \(p.ic?.referenceCalls ?? 0) refs")
@@ -100,6 +129,181 @@ struct MacUnifiedProfileView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
             Text(value).font(.caption.monospacedDigit()).foregroundStyle(color).lineLimit(1)
         }
+    }
+
+    /// A figure from the company record, with its as-of month beside it and
+    /// the full date and source on hover.
+    private func reportedFact(_ label: String, _ fact: MacCompanyProfile.Reported?) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(.caption2).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+            Text(fact?.value ?? "—").font(.caption.monospacedDigit()).lineLimit(1)
+            if let asOf = fact?.asOfShort {
+                Text(asOf).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1)
+            }
+        }
+        .help(fact?.help ?? "")
+    }
+}
+
+// MARK: - Earnings & filings (a listed company's Overview)
+
+/// The public-company counterpart of the deal pipeline. A listed name is not
+/// moving through Sourced → Term Sheet; what matters is when it next reports,
+/// how its recent quarters landed against the estimate, and what it filed.
+/// Twin of EarningsFilingsCard.vue.
+struct MacEarningsFilingsView: View {
+    let company: MacCompany
+    @EnvironmentObject private var store: MacAppStore
+    @State private var refreshing = false
+
+    private var data: MacCompanyEarningsFilings? { store.earningsFilingsByCompany[company.id] }
+    private var failed: Bool { store.earningsFilingsFailed.contains(company.id) }
+
+    /// Five rows, material filings first in line for them, shown newest-first —
+    /// a month of Form 4s must not push the 10-Q out of view.
+    private var filings: [MacFiling] {
+        let rows = data?.filings ?? []
+        let material = rows.filter(\.material)
+        let rest = rows.filter { !$0.material }
+        return (Array(material.prefix(5)) + Array(rest.prefix(max(0, 5 - material.count))))
+            .sorted { $0.filed > $1.filed }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MacCardHeader(
+                "Earnings & filings",
+                subtitle: "Next report, recent quarters against estimates, and SEC filings from the last 90 days.",
+                systemImage: "chart.line.uptrend.xyaxis"
+            ) {
+                Button {
+                    Task {
+                        refreshing = true
+                        await store.loadEarningsFilings(company.id, refresh: true)
+                        refreshing = false
+                    }
+                } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.plain)
+                    .controlSize(.mini)
+                    .disabled(refreshing)
+                    .help("Refresh from SEC EDGAR and Nasdaq")
+            }
+
+            if data == nil && failed {
+                HStack(spacing: 8) {
+                    Text("Earnings and filings couldn't be loaded.").font(.dsCaption).foregroundStyle(.secondary)
+                    Button("Retry") { Task { await store.loadEarningsFilings(company.id) } }.controlSize(.small)
+                }
+            } else if let data {
+                HStack(alignment: .top, spacing: 14) {
+                    nextReportTile(data.earnings)
+                    quartersTile(data.earnings?.history ?? [])
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    MacSectionLabel("SEC filings · 90 days")
+                    if filings.isEmpty {
+                        Text(data.error ?? "No watched filings in the last 90 days.")
+                            .font(.dsCaption).foregroundStyle(.secondary)
+                    }
+                    ForEach(filings) { filing in
+                        filingRow(filing)
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading earnings and filings…").font(.dsCaption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .appleGlassCard(cornerRadius: 16)
+        .task(id: company.id) {
+            if data == nil { await store.loadEarningsFilings(company.id) }
+        }
+    }
+
+    private func nextReportTile(_ earnings: MacCompanyEarningsFilings.Earnings?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Next earnings", systemImage: "calendar.badge.clock")
+                .font(.dsLabel)
+                .foregroundStyle(Color.accentColor)
+            if let date = earnings?.nextDate {
+                Text(date).font(.headline.monospacedDigit())
+                Text([whenText(earnings?.daysToNext), earnings?.nextEstimated == true ? "estimated" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(.dsCaption).foregroundStyle(.secondary)
+            } else {
+                Text("Not set").font(.dsCaption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .appleGlassTile(cornerRadius: 10, tint: Color.accentColor)
+    }
+
+    private func quartersTile(_ quarters: [MacCompanyEarningsFilings.Quarter]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Quarters vs. estimates").font(.dsLabel).foregroundStyle(.secondary)
+            if quarters.isEmpty {
+                Text("No earnings history available for this ticker.").font(.dsCaption).foregroundStyle(.secondary)
+            }
+            ForEach(quarters) { q in
+                HStack(spacing: 8) {
+                    Text(q.period ?? q.reported ?? "").font(.caption2).foregroundStyle(.secondary)
+                        .frame(width: 64, alignment: .leading)
+                    Text("EPS \(money(q.eps)) vs \(money(q.estimate))").font(.caption.monospacedDigit()).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(surprise(q.surprisePct))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(surpriseColor(q.surprisePct))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .appleGlassTile(cornerRadius: 10)
+    }
+
+    private func filingRow(_ filing: MacFiling) -> some View {
+        Button {
+            if let url = URL(string: filing.url) { MacConfig.openInBrowser(url) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text").font(.caption2).foregroundStyle(.secondary)
+                Text(filing.form).font(.caption.monospacedDigit().weight(.semibold)).frame(width: 56, alignment: .leading)
+                Text(filing.plainLabel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 6)
+                if filing.material { MacStatusPill(text: "Material", color: .orange) }
+                Text(filing.filed).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.up.right.square").font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .appleGlassTile(cornerRadius: 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open on SEC EDGAR")
+    }
+
+    private func whenText(_ days: Int?) -> String? {
+        guard let days else { return nil }
+        if days == 0 { return "today" }
+        return days > 0 ? "in \(days) days" : "\(-days) days ago"
+    }
+
+    private func money(_ value: Double?) -> String {
+        value.map { String(format: "$%.2f", $0) } ?? "—"
+    }
+
+    private func surprise(_ pct: Double?) -> String {
+        guard let pct else { return "—" }
+        return String(format: "%+.1f%%", pct)
+    }
+
+    private func surpriseColor(_ pct: Double?) -> Color {
+        guard let pct, pct != 0 else { return .secondary }
+        return pct > 0 ? .green : .red
     }
 }
 

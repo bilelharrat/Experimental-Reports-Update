@@ -27,6 +27,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../../api.js";
 import { confirmTokenSpend } from "../../confirmTokens.js";
+import { researchTeam, researchingCompanies } from "../../founderResearch.js";
 
 const t = useT();
 
@@ -42,41 +43,53 @@ const props = defineProps({
 });
 
 const loading = ref(false);
-const searching = ref(false);
 const loadFailed = ref(false);
 const refreshError = ref(null);
 const founderData = ref(null);
+// Research in flight is per company (see founderResearch.js): this card's
+// spinner belongs to the company it is showing, not to the last click.
+const searching = computed(() => researchingCompanies.has(props.companyId));
+// The company whose research this card started, so the watcher below does
+// not re-read over the response it is about to receive itself.
+const ownRun = ref(null);
 
 async function loadFounders() {
-  if (!props.companyId) return;
+  const companyId = props.companyId;
+  if (!companyId) return;
   loading.value = true;
   loadFailed.value = false;
   try {
-    founderData.value = await api.getFounderDossier(props.companyId);
+    const data = await api.getFounderDossier(companyId);
+    if (props.companyId === companyId) founderData.value = data;
   } catch {
-    founderData.value = null;
-    loadFailed.value = true;
+    if (props.companyId === companyId) {
+      founderData.value = null;
+      loadFailed.value = true;
+    }
   } finally {
-    loading.value = false;
+    if (props.companyId === companyId) loading.value = false;
   }
 }
 
-async function refreshFromRecord() {
-  // This spends a model call: the pass runs web-grounded research and
-  // merges it over the record (server/founder_dossier.py), so it carries
-  // the token-spend confirmation every paid button carries. It degrades
-  // rather than throwing — a failed pass returns 200 with `research_error`
-  // set — so `refreshError` alone would show nothing when it fails.
-  if (!props.companyId || searching.value) return;
-  if (!confirmTokenSpend()) return;
-  searching.value = true;
+async function researchTeamNow() {
+  // This spends a Gemini call: web-grounded research merged over the record
+  // (server/founder_dossier.py), so it carries the token-spend confirmation
+  // every paid button carries. It degrades rather than throwing — a failed
+  // pass returns 200 with `research_error` set, shown below the grid.
+  const companyId = props.companyId;
+  if (!companyId || searching.value) return;
+  if (!confirmTokenSpend(t("research_desk.founders_research_cost"))) return;
   refreshError.value = null;
+  ownRun.value = companyId;
   try {
-    founderData.value = await api.deepSearchFounder(props.companyId);
+    const data = await researchTeam(companyId);
+    // By now the card may show another company. The server cached the
+    // result, so that company shows it the next time it is opened.
+    if (data && props.companyId === companyId) founderData.value = data;
   } catch (err) {
-    refreshError.value = err?.message || String(err);
+    if (props.companyId === companyId) refreshError.value = err?.message || String(err);
   } finally {
-    searching.value = false;
+    if (ownRun.value === companyId) ownRun.value = null;
   }
 }
 
@@ -88,6 +101,12 @@ watch(
   },
   { immediate: true },
 );
+
+// Research started from another card (before a company or tab switch)
+// finished for the company this card shows: read the cached result.
+watch(searching, (now, was) => {
+  if (was && !now && ownRun.value !== props.companyId) loadFounders();
+});
 
 const founders = computed(() => founderData.value?.founders || []);
 const board = computed(() => founderData.value?.advisors_and_board || []);
@@ -169,7 +188,8 @@ function repoLabel(url) {
         class="mac-btn mac-btn--sm"
         :disabled="searching"
         :title="t('research_desk.founders_refresh_help')"
-        @click="refreshFromRecord"
+        data-testid="founder-research"
+        @click="researchTeamNow"
       >
         <span v-if="searching" class="mac-spinner" style="width: 12px; height: 12px" />
         <RotateCw v-else class="h-3 w-3" />

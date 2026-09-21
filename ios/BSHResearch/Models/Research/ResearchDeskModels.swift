@@ -162,14 +162,26 @@ public struct MacFounderRadar: Decodable {
     public let advisorsAndBoard: [MacFounderProfile]?
     public let developerTraction: MacDeveloperTraction?
     public let teamHeadcount: MacTeamHeadcount?
+    /// Which engine researched the team ("gemini") and with what model; nil
+    /// when the dossier is only the company record.
+    public let engine: String?
+    public let model: String?
+    public let sourceCount: Int
+    /// Set when a research pass failed; the record-built people still show.
+    public let researchError: String?
 
     enum CodingKeys: String, CodingKey {
-        case founders
+        case founders, engine, model, sources
         case companyId = "company_id"
         case generatedAt = "generated_at"
         case advisorsAndBoard = "advisors_and_board"
         case developerTraction = "developer_traction"
         case teamHeadcount = "team_headcount"
+        case researchError = "research_error"
+    }
+
+    private struct SourceRef: Decodable {
+        let url: String?
     }
 
     public init(from decoder: Decoder) throws {
@@ -180,6 +192,10 @@ public struct MacFounderRadar: Decodable {
         advisorsAndBoard = try? c.decodeIfPresent([MacFounderProfile].self, forKey: .advisorsAndBoard)
         developerTraction = try? c.decodeIfPresent(MacDeveloperTraction.self, forKey: .developerTraction)
         teamHeadcount = try? c.decodeIfPresent(MacTeamHeadcount.self, forKey: .teamHeadcount)
+        engine = try? c.decodeIfPresent(String.self, forKey: .engine)
+        model = try? c.decodeIfPresent(String.self, forKey: .model)
+        sourceCount = ((try? c.decodeIfPresent([SourceRef].self, forKey: .sources)) ?? nil)?.count ?? 0
+        researchError = try? c.decodeIfPresent(String.self, forKey: .researchError)
     }
 }
 
@@ -195,6 +211,10 @@ public struct MacDealPipeline: Hashable, Codable {
     public var daysInStage: Int
     public var lastTouchpoint: String?
     public var nextStep: String?
+    /// YYYY-MM-DD the next step is due by.
+    public var nextStepDue: String? = nil
+    /// Server-computed: a next step past its due date.
+    public var nextStepOverdue: Bool? = nil
     public let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
@@ -206,6 +226,8 @@ public struct MacDealPipeline: Hashable, Codable {
         case daysInStage = "days_in_stage"
         case lastTouchpoint = "last_touchpoint"
         case nextStep = "next_step"
+        case nextStepDue = "next_step_due"
+        case nextStepOverdue = "next_step_overdue"
         case updatedAt = "updated_at"
     }
 
@@ -220,6 +242,8 @@ public struct MacDealPipeline: Hashable, Codable {
         daysInStage = (try? c.decodeIfPresent(Int.self, forKey: .daysInStage)) ?? 0
         lastTouchpoint = try? c.decodeIfPresent(String.self, forKey: .lastTouchpoint)
         nextStep = try? c.decodeIfPresent(String.self, forKey: .nextStep)
+        nextStepDue = try? c.decodeIfPresent(String.self, forKey: .nextStepDue)
+        nextStepOverdue = try? c.decodeIfPresent(Bool.self, forKey: .nextStepOverdue)
         updatedAt = try? c.decodeIfPresent(String.self, forKey: .updatedAt)
     }
 }
@@ -321,94 +345,350 @@ public struct MacReport: Identifiable, Hashable, Codable {
 
 // MARK: - Batch E: Company Profile & Signal Score
 
+/// `GET /api/companies/:id/profile`, in the server's own shape. This twin used
+/// to read a shape the server never sent — `market_cap_usd`, `private.position`
+/// as text, a `process` block — so market cap always showed "—", stage, fit,
+/// decision and IC fell back to defaults, and any company the firm holds
+/// failed to decode at all. Same shape as the Mac's MacCompanyProfile.
 public struct MacCompanyProfile: Decodable, Hashable {
     public struct PublicSide: Decodable, Hashable {
         public let ticker: String?
         public let lastPrice: Double?
         public let changePct1d: Double?
-        public let marketCapUsd: Double?
+        public let marketCap: Double?
+        // What a listed company's profile shows in place of ARR and runway.
+        public let peRatio: Double?
+        public let eps: Double?
+        public let fiftyTwoWeekHigh: Double?
+        public let fiftyTwoWeekLow: Double?
+        /// A fraction (0.0031 = 0.31%), as the quote feed stores it.
+        public let dividendYield: Double?
 
         enum CodingKeys: String, CodingKey {
-            case ticker
+            case ticker, eps
             case lastPrice = "last_price"
             case changePct1d = "change_pct_1d"
-            case marketCapUsd = "market_cap_usd"
+            case marketCap = "market_cap"
+            case peRatio = "pe_ratio"
+            case fiftyTwoWeekHigh = "fifty_two_week_high"
+            case fiftyTwoWeekLow = "fifty_two_week_low"
+            case dividendYield = "dividend_yield"
         }
     }
 
+    /// The firm's own position, when there is a portfolio record.
     public struct PrivateSide: Decodable, Hashable {
-        public let position: String?
+        public let round: String?
+        public let investedUsd: Double?
         public let ownershipPct: Double?
         public let arrUsd: Double?
         public let runwayMonths: Double?
-        public let currentMarkUsd: Double?
+        public let markUsd: Double?
         public let moic: Double?
 
         enum CodingKeys: String, CodingKey {
             case position, moic
+            case latestKpi = "latest_kpi"
+            case latestMark = "latest_mark"
+        }
+        private enum PositionKeys: String, CodingKey {
+            case round
+            case investedUsd = "invested_usd"
             case ownershipPct = "ownership_pct"
+        }
+        private enum KpiKeys: String, CodingKey {
             case arrUsd = "arr_usd"
             case runwayMonths = "runway_months"
-            case currentMarkUsd = "current_mark_usd"
+        }
+        private enum MarkKeys: String, CodingKey {
+            case valueUsd = "value_usd"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let position = try? c.nestedContainer(keyedBy: PositionKeys.self, forKey: .position)
+            round = try? position?.decodeIfPresent(String.self, forKey: .round)
+            investedUsd = try? position?.decodeIfPresent(Double.self, forKey: .investedUsd)
+            ownershipPct = try? position?.decodeIfPresent(Double.self, forKey: .ownershipPct)
+            let kpi = try? c.nestedContainer(keyedBy: KpiKeys.self, forKey: .latestKpi)
+            arrUsd = try? kpi?.decodeIfPresent(Double.self, forKey: .arrUsd)
+            runwayMonths = try? kpi?.decodeIfPresent(Double.self, forKey: .runwayMonths)
+            let mark = try? c.nestedContainer(keyedBy: MarkKeys.self, forKey: .latestMark)
+            markUsd = try? mark?.decodeIfPresent(Double.self, forKey: .valueUsd)
+            moic = try? c.decodeIfPresent(Double.self, forKey: .moic)
         }
     }
 
-    public struct ProcessSide: Decodable, Hashable {
-        public let stage: String?
-        public let thesisFit: String?
-        public let lastDecision: String?
-        public let icVotesCount: Int?
-        public let attachedFilesCount: Int?
+    /// A figure the company record carries — the rows the memo's metric
+    /// snapshot quotes — with when and where it is from.
+    public struct Reported: Decodable, Hashable {
+        public let label: String
+        public let value: String
+        public let asOf: String?
+        public let sourceClass: String?
 
         enum CodingKeys: String, CodingKey {
-            case stage
-            case thesisFit = "thesis_fit"
-            case lastDecision = "last_decision"
-            case icVotesCount = "ic_votes_count"
-            case attachedFilesCount = "attached_files_count"
+            case label, value
+            case asOf = "as_of"
+            case sourceClass = "source_class"
+        }
+
+        /// "2026-06-13" → "2026-06"; a bare year or free text stays as is.
+        public var asOfShort: String? {
+            guard let raw = asOf?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+            let isoDay = raw.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+            return isoDay ? String(raw.prefix(7)) : raw
         }
     }
 
     public let companyId: String?
     public let name: String?
-    public let kind: String?
+    public let description: String?
+    public let isPublic: Bool
+    public let ticker: String?
     public let publicSide: PublicSide?
     public let privateSide: PrivateSide?
-    public let process: ProcessSide?
+    public let thesisFitScore: Int?
+    public let thesisFitLabel: String?
+    public let pipelineStage: String?
+    public let latestVerdict: String?
+    public let icOpenMeeting: Bool
+    public let icMeetingCount: Int
+    public let icReferenceCalls: Int
+    public let filesCount: Int
+    public let transcriptsCount: Int
+    public let openCommentsCount: Int
+    /// Keyed arr, revenue, growth, valuation, runway, tam.
+    public let reported: [String: Reported]
 
     enum CodingKeys: String, CodingKey {
-        case name, kind, process
+        case name, description, ticker, pipeline, ic, counts, reported
         case companyId = "company_id"
+        case isPublic = "is_public"
         case publicSide = "public"
         case privateSide = "private"
+        case thesisFit = "thesis_fit"
+        case latestDecision = "latest_decision"
+    }
+    private enum FitKeys: String, CodingKey { case score, fit }
+    private enum PipelineKeys: String, CodingKey { case stage }
+    private enum DecisionKeys: String, CodingKey { case verdict }
+    private enum ICKeys: String, CodingKey {
+        case openMeeting = "open_meeting"
+        case meetingCount = "meeting_count"
+        case referenceCalls = "reference_calls"
+    }
+    private enum CountKeys: String, CodingKey {
+        case files, transcripts
+        case openComments = "open_comments"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        companyId = try? c.decodeIfPresent(String.self, forKey: .companyId)
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        description = try? c.decodeIfPresent(String.self, forKey: .description)
+        ticker = try? c.decodeIfPresent(String.self, forKey: .ticker)
+        isPublic = (try? c.decodeIfPresent(Bool.self, forKey: .isPublic)) ?? false
+        publicSide = try? c.decodeIfPresent(PublicSide.self, forKey: .publicSide)
+        privateSide = try? c.decodeIfPresent(PrivateSide.self, forKey: .privateSide)
+        let fit = try? c.nestedContainer(keyedBy: FitKeys.self, forKey: .thesisFit)
+        thesisFitScore = try? fit?.decodeIfPresent(Int.self, forKey: .score)
+        thesisFitLabel = try? fit?.decodeIfPresent(String.self, forKey: .fit)
+        let pipeline = try? c.nestedContainer(keyedBy: PipelineKeys.self, forKey: .pipeline)
+        pipelineStage = try? pipeline?.decodeIfPresent(String.self, forKey: .stage)
+        let decision = try? c.nestedContainer(keyedBy: DecisionKeys.self, forKey: .latestDecision)
+        latestVerdict = try? decision?.decodeIfPresent(String.self, forKey: .verdict)
+        let ic = try? c.nestedContainer(keyedBy: ICKeys.self, forKey: .ic)
+        icOpenMeeting = ((try? ic?.decodeIfPresent(String.self, forKey: .openMeeting)) ?? nil) != nil
+        icMeetingCount = ((try? ic?.decodeIfPresent(Int.self, forKey: .meetingCount)) ?? nil) ?? 0
+        icReferenceCalls = ((try? ic?.decodeIfPresent(Int.self, forKey: .referenceCalls)) ?? nil) ?? 0
+        let counts = try? c.nestedContainer(keyedBy: CountKeys.self, forKey: .counts)
+        filesCount = ((try? counts?.decodeIfPresent(Int.self, forKey: .files)) ?? nil) ?? 0
+        transcriptsCount = ((try? counts?.decodeIfPresent(Int.self, forKey: .transcripts)) ?? nil) ?? 0
+        openCommentsCount = ((try? counts?.decodeIfPresent(Int.self, forKey: .openComments)) ?? nil) ?? 0
+        reported = (try? c.decodeIfPresent([String: Reported].self, forKey: .reported)) ?? [:]
     }
 }
 
-public struct MacSignalBreakdown: Decodable, Hashable {
-    public let momentum: Double?
-    public let fundamentals: Double?
-    public let devTraction: Double?
-    public let sentiment: Double?
-    public let riskAdjusted: Double?
-
-    enum CodingKeys: String, CodingKey {
-        case momentum, fundamentals, sentiment
-        case devTraction = "dev_traction"
-        case riskAdjusted = "risk_adjusted"
-    }
-}
-
+/// `GET /api/companies/:id/signal-score`, in the server's shape: a score only
+/// when enough components have data, the components themselves, and the
+/// coverage line. Same shape as the Mac's MacSignalScore.
 public struct MacSignalScore: Decodable, Hashable {
-    public let companyId: String?
+    public struct Component: Decodable, Hashable, Identifiable {
+        public var id: String { name }
+        public let name: String
+        public let available: Bool
+        public let points: Double?
+        public let max: Int
+        public let formula: String?
+
+        enum CodingKeys: String, CodingKey { case name, available, points, max, formula }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            available = (try? c.decodeIfPresent(Bool.self, forKey: .available)) ?? false
+            points = try? c.decodeIfPresent(Double.self, forKey: .points)
+            max = (try? c.decodeIfPresent(Int.self, forKey: .max)) ?? 0
+            formula = try? c.decodeIfPresent(String.self, forKey: .formula)
+        }
+    }
+
     public let score: Int?
-    public let confidence: Double?
-    public let percentile: Int?
-    public let breakdown: MacSignalBreakdown?
-    public let headline: String?
+    public let provisionalScore: Int?
+    public let coverage: String?
+    public let formula: String?
+    public let components: [Component]
+
+    /// Scored, but from fewer than half its components: a partial read.
+    public var isPartial: Bool {
+        guard score != nil, !components.isEmpty else { return false }
+        return components.filter(\.available).count * 2 < components.count
+    }
+
+    public var availableCount: Int { components.filter(\.available).count }
 
     enum CodingKeys: String, CodingKey {
-        case score, confidence, percentile, breakdown, headline
-        case companyId = "company_id"
+        case score, coverage, formula, components
+        case provisionalScore = "provisional_score"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        score = try? c.decodeIfPresent(Int.self, forKey: .score)
+        provisionalScore = try? c.decodeIfPresent(Int.self, forKey: .provisionalScore)
+        coverage = try? c.decodeIfPresent(String.self, forKey: .coverage)
+        formula = try? c.decodeIfPresent(String.self, forKey: .formula)
+        components = (try? c.decodeIfPresent([Component].self, forKey: .components)) ?? []
+    }
+}
+
+// MARK: - A listed company's earnings and filings
+
+public struct MacFiling: Identifiable, Hashable, Decodable {
+    public var id: String { "\(form)-\(filed)-\(url)" }
+    public let form: String
+    public let filed: String
+    public let description: String?
+    public let url: String
+    public let material: Bool
+
+    enum CodingKeys: String, CodingKey { case form, filed, description, url, material }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        form = (try? c.decodeIfPresent(String.self, forKey: .form)) ?? ""
+        filed = (try? c.decodeIfPresent(String.self, forKey: .filed)) ?? ""
+        description = try? c.decodeIfPresent(String.self, forKey: .description)
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? ""
+        material = (try? c.decodeIfPresent(Bool.self, forKey: .material)) ?? false
+    }
+
+    /// EDGAR's own description is often just the form again ("FORM 4").
+    public var plainLabel: String {
+        let desc = (description ?? "").trimmingCharacters(in: .whitespaces)
+        let bare = desc.replacingOccurrences(of: "^form\\s+", with: "", options: [.regularExpression, .caseInsensitive]).uppercased()
+        if !desc.isEmpty && bare != form.uppercased() { return desc }
+        let labels: [String: String] = [
+            "4": "Insider transaction", "8-K": "Current report", "10-Q": "Quarterly report",
+            "10-K": "Annual report", "DEF 14A": "Proxy statement", "S-1": "Registration statement",
+            "S-1/A": "Registration amendment", "424B4": "Prospectus",
+            "SC 13D": "Ownership stake · active", "SC 13D/A": "Ownership stake · active, amended",
+            "SC 13G": "Ownership stake · passive", "SC 13G/A": "Ownership stake · passive, amended",
+            "6-K": "Foreign issuer report", "20-F": "Foreign annual report",
+        ]
+        return labels[form] ?? (desc.isEmpty ? form : desc)
+    }
+}
+
+/// `GET /api/companies/:id/earnings-filings` — the public-company counterpart
+/// of the deal pipeline. Same shape as the Mac's MacCompanyEarningsFilings.
+public struct MacCompanyEarningsFilings: Decodable, Hashable {
+    public struct Quarter: Identifiable, Decodable, Hashable {
+        public var id: String { (period ?? "") + (reported ?? "") }
+        public let period: String?
+        public let reported: String?
+        public let eps: Double?
+        public let estimate: Double?
+        public let surprisePct: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case period, reported, eps, estimate
+            case surprisePct = "surprise_pct"
+        }
+    }
+
+    public struct Earnings: Decodable, Hashable {
+        public let nextDate: String?
+        public let nextEstimated: Bool
+        public let daysToNext: Int?
+        public let history: [Quarter]
+
+        enum CodingKeys: String, CodingKey {
+            case history
+            case nextDate = "next_date"
+            case nextEstimated = "next_estimated"
+            case daysToNext = "days_to_next"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            nextDate = try? c.decodeIfPresent(String.self, forKey: .nextDate)
+            nextEstimated = (try? c.decodeIfPresent(Bool.self, forKey: .nextEstimated)) ?? false
+            daysToNext = try? c.decodeIfPresent(Int.self, forKey: .daysToNext)
+            history = (try? c.decodeIfPresent([Quarter].self, forKey: .history)) ?? []
+        }
+    }
+
+    public let ticker: String?
+    public let earnings: Earnings?
+    public let filings: [MacFiling]
+    public let error: String?
+
+    enum CodingKeys: String, CodingKey { case ticker, earnings, filings, error }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ticker = try? c.decodeIfPresent(String.self, forKey: .ticker)
+        earnings = try? c.decodeIfPresent(Earnings.self, forKey: .earnings)
+        filings = (try? c.decodeIfPresent([MacFiling].self, forKey: .filings)) ?? []
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+// MARK: - Memo Studio: has anything been investigated?
+
+/// The slice of `GET /api/companies/:id/memo-editor` this app needs: whether an
+/// investigation has seeded the cards, and how many cards are still the
+/// company-record template. The Mac and web show the cards themselves.
+public struct MacMemoEditorSummary: Decodable, Hashable {
+    public let investigated: Bool
+    public let templateCardCount: Int
+
+    private enum Keys: String, CodingKey {
+        case sections
+        case agentRun = "agent_run"
+    }
+    private enum SectionKeys: String, CodingKey {
+        case investmentThesis = "investment_thesis"
+        case risksMitigations = "risks_mitigations"
+    }
+    private enum CardListKeys: String, CodingKey { case cards }
+    private struct Card: Decodable { let placeholder: Bool? }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        investigated = c.contains(.agentRun) && !((try? c.decodeNil(forKey: .agentRun)) ?? true)
+        var templates = 0
+        if let sections = try? c.nestedContainer(keyedBy: SectionKeys.self, forKey: .sections) {
+            for key in [SectionKeys.investmentThesis, .risksMitigations] {
+                let list = try? sections.nestedContainer(keyedBy: CardListKeys.self, forKey: key)
+                let cards = (try? list?.decodeIfPresent([Card].self, forKey: .cards)) ?? nil
+                templates += (cards ?? []).filter { $0.placeholder == true }.count
+            }
+        }
+        templateCardCount = templates
     }
 }
 

@@ -402,6 +402,72 @@ def fetch_sparklines(tickers: list[str] | None) -> dict:
     return {"generated_at": _iso(), "sparks": sparks}
 
 
+DAILY_CLOSES_BATCH = 20  # Yahoo's spark endpoint 400s above twenty symbols
+
+
+def fetch_daily_closes(
+    tickers: list[str] | None,
+    *,
+    range_: str = "1mo",
+    max_failed_batches: int = 3,
+) -> dict[str, dict]:
+    """Daily closes for many tickers: ``{ticker: {"closes", "timestamps"}}``.
+
+    Batched twenty symbols per Yahoo spark call. A failed batch is skipped
+    rather than failing the whole fetch; after ``max_failed_batches`` failures
+    in a row the source is treated as down and whatever was fetched is
+    returned. Not cached — callers are weekly jobs, not list rows.
+    """
+    # Not normalize_tickers: that caps at MAX_TICKERS (40, sized for quote
+    # screens), and a market-wide scan needs every name it asks for.
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for value in tickers or []:
+        ticker = str(value or "").strip().upper()
+        if ticker and ticker not in seen and TICKER_RE.match(ticker):
+            seen.add(ticker)
+            wanted.append(ticker)
+    out: dict[str, dict] = {}
+    failures = 0
+    for start in range(0, len(wanted), DAILY_CLOSES_BATCH):
+        batch = wanted[start : start + DAILY_CLOSES_BATCH]
+        url = (
+            f"{YAHOO_SPARK_URL}?symbols={quote(','.join(batch), safe=',')}"
+            f"&range={quote(range_)}&interval=1d"
+        )
+        try:
+            # Same plain UA as fetch_sparklines: this endpoint 429s the
+            # browser-impersonating one.
+            payload = _http_get_json(url, extra_headers={"User-Agent": "Mozilla/5.0"})
+        except Exception as exc:  # noqa: BLE001 — one bad batch is not the source down
+            failures += 1
+            logger.warning("Yahoo daily closes batch failed (%s…): %s", batch[0], exc)
+            if failures >= max_failed_batches:
+                break
+            continue
+        failures = 0
+        for item in (payload.get("spark") or {}).get("result") or []:
+            if not isinstance(item, dict):
+                continue
+            ticker = str(item.get("symbol") or "").strip().upper()
+            responses = item.get("response") or []
+            first = responses[0] if responses and isinstance(responses[0], dict) else {}
+            quotes = (first.get("indicators") or {}).get("quote") or []
+            closes_raw = quotes[0].get("close") if quotes and isinstance(quotes[0], dict) else []
+            stamps_raw = first.get("timestamp") or []
+            pairs = [
+                (int(t), float(c))
+                for t, c in zip(stamps_raw, closes_raw or [])
+                if isinstance(t, (int, float)) and isinstance(c, (int, float))
+            ]
+            if ticker and len(pairs) >= 2:
+                out[ticker] = {
+                    "timestamps": [t for t, _ in pairs],
+                    "closes": [round(c, 4) for _, c in pairs],
+                }
+    return out
+
+
 def _parse_spark_series(payload: dict) -> dict[str, dict]:
     rows: dict[str, dict] = {}
     spark = payload.get("spark")

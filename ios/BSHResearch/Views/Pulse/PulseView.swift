@@ -217,9 +217,18 @@ struct PulseView: View {
     private func noteCard(_ brief: MarketBrief) -> some View {
         if let note = brief.note {
             VStack(alignment: .leading, spacing: 14) {
-                Text(note.headline(lang: language.language))
-                    .font(.system(.title2, design: .serif).weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
+                // Front-page order, as on the web: headline, then dek.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(note.headline(lang: language.language))
+                        .font(.system(.title2, design: .serif).weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let dek = note.dek(lang: language.language) {
+                        Text(dek)
+                            .font(.system(.body, design: .serif))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 let bullets = note.bullets(lang: language.language)
                 if !bullets.isEmpty {

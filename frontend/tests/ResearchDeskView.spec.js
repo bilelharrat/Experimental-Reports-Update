@@ -5,6 +5,7 @@ import ResearchDeskView from "../src/views/ResearchDeskView.vue";
 import CompanyDossierView from "../src/components/research/CompanyDossierView.vue";
 import UnifiedProfileCard from "../src/components/research/UnifiedProfileCard.vue";
 import DealPipelineCard from "../src/components/research/DealPipelineCard.vue";
+import EarningsFilingsCard from "../src/components/research/EarningsFilingsCard.vue";
 import CapTableCard from "../src/components/research/CapTableCard.vue";
 import VCRatiosCard from "../src/components/research/VCRatiosCard.vue";
 import RecordDecisionModal from "../src/components/research/RecordDecisionModal.vue";
@@ -15,6 +16,7 @@ vi.mock("../src/api.js", () => {
     listCompanies: vi.fn(),
     getCompanyProfile: vi.fn(),
     getDealPipeline: vi.fn(),
+    getCompanyEarningsFilings: vi.fn(),
     updateDealPipeline: vi.fn(),
     getCompanyComps: vi.fn(),
     getFounderDossier: vi.fn(),
@@ -94,6 +96,7 @@ describe("ResearchDeskView", () => {
     api.getMemoNumberLint.mockResolvedValue({ warnings: [] });
     api.getCompanyComps.mockResolvedValue({ peers: [] });
     api.getFounderDossier.mockResolvedValue({ founders: [] });
+    api.getCompanyEarningsFilings.mockResolvedValue({ ticker: "ACME", earnings: null, filings: [] });
 
     router = createRouter({
       history: createMemoryHistory(),
@@ -123,9 +126,11 @@ describe("ResearchDeskView", () => {
 
     await flushPromises();
 
-    // In Overview tab by default
+    // In Overview tab by default. Acme is listed, so its Overview leads
+    // with earnings and filings rather than a VC deal pipeline.
     expect(wrapper.findComponent(UnifiedProfileCard).exists()).toBe(true);
-    expect(wrapper.findComponent(DealPipelineCard).exists()).toBe(true);
+    expect(wrapper.findComponent(EarningsFilingsCard).exists()).toBe(true);
+    expect(wrapper.findComponent(DealPipelineCard).exists()).toBe(false);
 
     // Switch to Cap table tab
     const capTabBtn = wrapper.findAll("button").find((b) => b.text().toLowerCase().includes("cap table") || b.text().includes("股权结构"));
@@ -143,6 +148,31 @@ describe("ResearchDeskView", () => {
     await flushPromises();
 
     expect(wrapper.findComponent(VCRatiosCard).exists()).toBe(true);
+  });
+
+  it("keeps the deal pipeline on a private company's Overview", async () => {
+    const wrapper = mount(CompanyDossierView, {
+      props: { companyId: "globex", company: mockCompanies[1] },
+      global: { plugins: [router], stubs: { Monogram: true, CompanyFollowButton: true } },
+    });
+    await flushPromises();
+    expect(wrapper.findComponent(DealPipelineCard).exists()).toBe(true);
+    expect(wrapper.findComponent(EarningsFilingsCard).exists()).toBe(false);
+  });
+
+  it("still offers a listed company's pipeline on the Pipeline tab", async () => {
+    const wrapper = mount(CompanyDossierView, {
+      props: { companyId: "acme-corp", company: mockCompanies[0] },
+      global: { plugins: [router], stubs: { Monogram: true, CompanyFollowButton: true } },
+    });
+    await flushPromises();
+    const pipelineTab = wrapper
+      .findAll("button")
+      .find((b) => b.text().trim().toLowerCase() === "pipeline" || b.text().includes("管线"));
+    expect(pipelineTab).toBeDefined();
+    await pipelineTab.trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent(DealPipelineCard).exists()).toBe(true);
   });
 
   it("records a decision through the \u2318D sheet", async () => {

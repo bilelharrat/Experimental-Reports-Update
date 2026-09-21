@@ -1532,6 +1532,30 @@ def test_investment_memo_prompt_can_reference_research_and_analysis_dirs(
     assert "DO NOT read from `data/uploads/`" in prompt
 
 
+def test_memo_analysis_read_without_create_leaves_no_session(tmp_path, monkeypatch):
+    """The Research Desk reads readiness gates on sight with create=false;
+    opening a dossier must not mint a session file for every company."""
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {"id": "generalist", "name": "Generalist", "status": "private"},
+    )
+    client = TestClient(app)
+
+    peek = client.get("/api/companies/generalist/memo-analysis?create=false")
+    assert peek.status_code == 404
+    assert serena_analysis._session_files("generalist") == []
+
+    # the default still starts one, as Refresh and every other caller expect
+    created = client.get("/api/companies/generalist/memo-analysis")
+    assert created.status_code == 200
+    assert len(serena_analysis._session_files("generalist")) == 1
+
+    again = client.get("/api/companies/generalist/memo-analysis?create=false")
+    assert again.status_code == 200
+    assert again.json()["company_id"] == "generalist"
+
+
 def test_memo_analysis_api_runs_tool_and_approves(tmp_path, monkeypatch):
     _seed_company(
         tmp_path,

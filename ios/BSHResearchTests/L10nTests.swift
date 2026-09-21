@@ -6,6 +6,8 @@ final class L10nTests: XCTestCase {
     private let sampleKeys = [
         "tab.home", "tab.news", "tab.market", "tab.pulse", "tab.settings",
         "settings.language", "common.done", "login.title",
+        // Settings' account section, signed in or not (with login.title).
+        "settings.signed_in_as", "settings.not_signed_in", "settings.sign_out",
     ]
 
     func testEveryAppLanguageHasDistinctTabChromeFromEnglish() {

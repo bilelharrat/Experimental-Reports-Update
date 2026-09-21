@@ -207,6 +207,10 @@ final class AppearanceStore: ObservableObject {
 @MainActor
 final class SessionStore: ObservableObject {
     @Published private(set) var isAuthenticated: Bool
+    /// Signed in to a personal account, as opposed to the local bypass that
+    /// `isAuthenticated` also lets in. Settings offers Sign out only then and
+    /// Sign in otherwise, as the Mac and the web do.
+    @Published private(set) var isSignedIn: Bool
     @Published private(set) var email: String?
     @Published private(set) var name: String?
     @Published private(set) var role: String?
@@ -230,7 +234,9 @@ final class SessionStore: ObservableObject {
         // Local anon-dev: enter the app immediately. A stored token still
         // wins when present (real session); otherwise API calls go unauthed
         // and the server accepts them under BSH_ALLOW_ANON_DEV=1.
-        isAuthenticated = AppConfig.bypassLogin || TokenStore.read() != nil
+        let hasToken = TokenStore.read() != nil
+        isSignedIn = hasToken
+        isAuthenticated = AppConfig.bypassLogin || hasToken
         if isAuthenticated {
             Task { await refreshMe() }
         }
@@ -242,12 +248,27 @@ final class SessionStore: ObservableObject {
         Task { await refreshMe() }
     }
 
+    /// Bring up the sign-in screen from inside the app. With login bypassed
+    /// the app opens without one, so this is the way to reach it; the
+    /// screen's "Continue without signing in" leads back.
+    func showSignIn() {
+        lastError = nil
+        isAuthenticated = false
+    }
+
+    /// Forget a token the server no longer accepts.
+    private func dropToken() {
+        TokenStore.clear()
+        isSignedIn = false
+    }
+
     func signIn(email: String, password: String) async {
         lastError = nil
         do {
             let body = LoginBody(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
             let res: AuthTokenResponse = try await APIClient.shared.post("auth/token", body: body)
             TokenStore.write(res.token)
+            isSignedIn = true
             self.email = res.email ?? email
             self.name = res.name
             isAuthenticated = true
@@ -261,7 +282,7 @@ final class SessionStore: ObservableObject {
 
     func signOut() async {
         do { try await APIClient.shared.postEmpty("auth/logout") } catch { /* ignore */ }
-        TokenStore.clear()
+        dropToken()
         email = nil
         name = nil
         role = nil
@@ -276,6 +297,12 @@ final class SessionStore: ObservableObject {
     func refreshMe() async {
         do {
             let me: AuthMeResponse = try await APIClient.shared.get("auth/me")
+            if isSignedIn, me.auth == "anon_dev" {
+                // An anon-dev server answers a token it no longer accepts as
+                // the local operator rather than with a 401. Either way the
+                // session is over; kept, it would still read as signed in.
+                dropToken()
+            }
             email = me.email
             name = me.name ?? (AppConfig.bypassLogin && TokenStore.read() == nil ? "Local dev" : me.name)
             role = me.role
@@ -283,6 +310,7 @@ final class SessionStore: ObservableObject {
             isAuthenticated = true
         } catch {
             if case APIError.unauthorized = error {
+                if isSignedIn { dropToken() }
                 if AppConfig.bypassLogin {
                     name = "Local dev"
                     role = "analyst"

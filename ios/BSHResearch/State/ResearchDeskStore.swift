@@ -3,6 +3,26 @@ import Combine
 
 private struct DeskEmptyResponse: Decodable {}
 
+/// A JSON object that writes `null` for a nil value instead of leaving the key
+/// out — the pipeline API clears a field only when it is sent as null.
+private struct DealFieldsBody: Encodable {
+    let fields: [String: String?]
+
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        for (key, value) in fields {
+            if let value { try c.encode(value, forKey: Key(stringValue: key)) } else { try c.encodeNil(forKey: Key(stringValue: key)) }
+        }
+    }
+}
+
 @MainActor
 public final class ResearchDeskStore: ObservableObject {
     public static let shared = ResearchDeskStore()
@@ -22,12 +42,20 @@ public final class ResearchDeskStore: ObservableObject {
 
     // Company Caches
     @Published public var profileByCompany: [String: MacCompanyProfile] = [:]
+    /// One listed company's next report, recent quarters and SEC filings.
+    @Published public var earningsFilingsByCompany: [String: MacCompanyEarningsFilings] = [:]
+    @Published public var earningsFilingsFailed: Set<String> = []
+    /// Whether an investigation has seeded each company's Memo Studio cards.
+    @Published public var memoEditorSummaryByCompany: [String: MacMemoEditorSummary] = [:]
     @Published public var signalScoreByCompany: [String: MacSignalScore] = [:]
     @Published public var dealPipelines: [String: MacDealPipeline] = [:]
     @Published public var compsByCompany: [String: MacComps] = [:]
     @Published public var capModelByCompany: [String: MacCapModelPayload] = [:]
     @Published public var founderRadarByCompany: [String: MacFounderRadar] = [:]
     @Published public var founderRadarErrors: [String: String] = [:]
+    /// Companies whose team research is running. Per company, so switching
+    /// company mid-run leaves the next company's button free.
+    @Published public var founderResearchInFlight: Set<String> = []
     @Published public var vcRatiosByCompany: [String: MacVCRatios] = [:]
     @Published public var decisionsByCompany: [String: [MacDecision]] = [:]
     @Published public var analysisByCompany: [String: MacMemoAnalysis] = [:]
@@ -70,7 +98,7 @@ public final class ResearchDeskStore: ObservableObject {
         self.dealPipelines = BSHResearchSeedData.dealPipelines
 
         if selectedCompany == nil {
-            selectedCompany = companies.first
+            selectedCompany = defaultCompany(in: companies)
         }
     }
 
@@ -137,6 +165,20 @@ public final class ResearchDeskStore: ObservableObject {
         }
         visitedCompanyTimestamps[companyId] = Date()
         markVisited(companyId)
+        UserDefaults.standard.set(companyId, forKey: Self.lastCompanyKey)
+    }
+
+    private static let lastCompanyKey = "bsh.lastCompanyId"
+
+    /// The company the Research Desk opens on when nothing is selected: the one
+    /// you last opened — the web desk reopens `bsh.lastCompanyId` the same way —
+    /// else the top of the list. It used to always take the first company.
+    public func defaultCompany(in list: [MacCompany]) -> MacCompany? {
+        if let last = UserDefaults.standard.string(forKey: Self.lastCompanyKey),
+           let company = list.first(where: { $0.id == last }) {
+            return company
+        }
+        return list.first
     }
 
     private func visitBaseline(for companyId: String) -> Date? {
@@ -229,14 +271,14 @@ public final class ResearchDeskStore: ObservableObject {
                     APIResponseCache.shared.save(data: data, for: APIResponseCache.cacheKey(path: "companies"))
                 }
             }
-            if selectedCompany == nil, let first = self.companies.first {
+            if selectedCompany == nil, let first = defaultCompany(in: self.companies) {
                 selectedCompany = first
             }
         } catch {
             self.error = error.localizedDescription
             if self.companies.isEmpty {
                 self.companies = BSHResearchSeedData.companies
-                if selectedCompany == nil { selectedCompany = self.companies.first }
+                if selectedCompany == nil { selectedCompany = defaultCompany(in: self.companies) }
             }
         }
     }
@@ -272,6 +314,27 @@ public final class ResearchDeskStore: ObservableObject {
             if profileByCompany[companyId] == nil, let seed = BSHResearchSeedData.profiles[companyId] {
                 self.profileByCompany[companyId] = seed
             }
+        }
+    }
+
+    public func loadEarningsFilings(for companyId: String, refresh: Bool = false) async {
+        do {
+            let query = refresh ? [URLQueryItem(name: "refresh", value: "true")] : []
+            let data: MacCompanyEarningsFilings = try await APIClient.shared.get(
+                "companies/\(companyId)/earnings-filings",
+                query: query
+            )
+            earningsFilingsByCompany[companyId] = data
+            earningsFilingsFailed.remove(companyId)
+        } catch {
+            guard !Task.isCancelled else { return }
+            earningsFilingsFailed.insert(companyId)
+        }
+    }
+
+    public func loadMemoEditorSummary(for companyId: String) async {
+        if let summary: MacMemoEditorSummary = try? await APIClient.shared.get("companies/\(companyId)/memo-editor") {
+            memoEditorSummaryByCompany[companyId] = summary
         }
     }
 
@@ -334,6 +397,23 @@ public final class ResearchDeskStore: ObservableObject {
         let _: DeskEmptyResponse? = try? await APIClient.shared.put("companies/\(companyId)/deal-pipeline", body: body)
     }
 
+    /// Save intro path, last touchpoint, next step and its due date. A nil value
+    /// clears the field on the server, so each key is always sent — as null
+    /// when empty. Returns an error message, or nil on success.
+    @discardableResult
+    public func updateDealFields(companyId: String, fields: [String: String?]) async -> String? {
+        do {
+            let saved: MacDealPipeline = try await APIClient.shared.put(
+                "companies/\(companyId)/deal-pipeline",
+                body: DealFieldsBody(fields: fields)
+            )
+            dealPipelines[companyId] = saved
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     public func fetchComps(for companyId: String) async {
         do {
             let comps: MacComps = try await APIClient.shared.get("companies/\(companyId)/comps")
@@ -373,9 +453,16 @@ public final class ResearchDeskStore: ObservableObject {
         }
     }
 
+    /// Gemini web research on the team. It runs 50-120s (the server allows
+    /// Gemini 240s), past the 60s URLRequest default that cut it off.
     public func deepSearchFounderRadar(for companyId: String) async {
+        guard !founderResearchInFlight.contains(companyId) else { return }
+        founderResearchInFlight.insert(companyId)
+        defer { founderResearchInFlight.remove(companyId) }
         do {
-            let radar: MacFounderRadar = try await APIClient.shared.post("companies/\(companyId)/founder-dossier/deep-search")
+            let radar: MacFounderRadar = try await APIClient.shared.post(
+                "companies/\(companyId)/founder-dossier/deep-search", timeout: 300
+            )
             self.founderRadarByCompany[companyId] = radar
             self.founderRadarErrors[companyId] = nil
         } catch {
@@ -470,12 +557,19 @@ public final class ResearchDeskStore: ObservableObject {
         }
     }
 
-    public func fetchAnalysis(for companyId: String) async {
+    /// `create: false` is the read a view does on sight: a company with no Memo
+    /// Studio session stays without one (the server answers 404 — "nothing
+    /// logged yet"). Opening a company must not leave a session file behind.
+    public func fetchAnalysis(for companyId: String, create: Bool = true) async {
         do {
-            let analysis: MacMemoAnalysis = try await APIClient.shared.get("companies/\(companyId)/memo-analysis")
+            let query = create ? [] : [URLQueryItem(name: "create", value: "false")]
+            let analysis: MacMemoAnalysis = try await APIClient.shared.get(
+                "companies/\(companyId)/memo-analysis",
+                query: query
+            )
             self.analysisByCompany[companyId] = analysis
         } catch {
-            // Optional
+            // Optional; a 404 with create: false just means no session yet.
         }
     }
 

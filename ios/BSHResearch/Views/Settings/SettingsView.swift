@@ -26,7 +26,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(session.name ?? session.email ?? "—")
                                 .font(.headline)
-                            Text(language.t("settings.signed_in_as"))
+                            Text(language.t(session.isSignedIn ? "settings.signed_in_as" : "settings.not_signed_in"))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             Text("\(language.t("roles.label")): \(session.roleLabel)")
@@ -199,11 +199,23 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        Task { await session.signOut() }
-                    } label: {
-                        Text(language.t("settings.sign_out"))
-                            .frame(maxWidth: .infinity, alignment: .center)
+                    if session.isSignedIn {
+                        Button(role: .destructive) {
+                            Task { await session.signOut() }
+                        } label: {
+                            Text(language.t("settings.sign_out"))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    } else {
+                        // Open through the local bypass with nobody signed
+                        // in: there is nothing to sign out of.
+                        Button {
+                            dismiss()
+                            session.showSignIn()
+                        } label: {
+                            Text(language.t("login.title"))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
                     }
                 }
             }

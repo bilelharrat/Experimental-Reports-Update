@@ -2,8 +2,8 @@
 
 Opening a story serves the cached AI briefing, else writes one now
 (``BSH_NEWS_BRIEF_ON_OPEN=0`` restores the old basic-briefing behavior).
-Briefings come from ONE worker, one call per headline writing English and
-Chinese, plus a scheduled sweep and an explicit, warned rewrite.
+Briefings are written up to three at a time, one call per headline writing
+English and Chinese, plus a scheduled sweep and an explicit, warned rewrite.
 
 Note the ``_no_real_claude_cli`` fixture in conftest forces
 ``claude_runner.is_available()`` False for every test, and no Gemini key is
@@ -28,6 +28,7 @@ _ENV = (
     "BSH_NEWS_BRIEF_EFFORT",
     "BSH_NEWS_BRIEF_REFRESH_HOURS",
     "BSH_NEWS_BRIEF_REFRESH_LIMIT",
+    "BSH_NEWS_BRIEF_CONCURRENCY",
 )
 
 
@@ -174,35 +175,77 @@ def test_article_text_is_injected_into_prompt(stub_claude, monkeypatch):
     assert "Body of the article with numbers." in stub_claude[0]["user_prompt"]
 
 
-def test_writes_run_one_at_a_time(monkeypatch):
-    """Two callers at once (a refresh and a user rewrite) never overlap."""
-    active = 0
-    peak = 0
+def _overlap_probe(monkeypatch, delay: float = 0.1):
+    """Stub the engine with a slow call; returns a dict tracking the peak
+    number of calls in flight, overall and per headline."""
+    seen = {"active": 0, "peak": 0, "by_title": {}, "title_peak": 0}
     lock = threading.Lock()
 
-    def _slow(**kwargs):
-        nonlocal active, peak
+    def _slow(*, user_prompt, **kwargs):
+        title = user_prompt.splitlines()[0]
         with lock:
-            active += 1
-            peak = max(peak, active)
-        time.sleep(0.1)
+            seen["active"] += 1
+            seen["peak"] = max(seen["peak"], seen["active"])
+            seen["by_title"][title] = seen["by_title"].get(title, 0) + 1
+            seen["title_peak"] = max(seen["title_peak"], seen["by_title"][title])
+        time.sleep(delay)
         with lock:
-            active -= 1
+            seen["active"] -= 1
+            seen["by_title"][title] -= 1
         return _payload(), {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None}, None
 
     monkeypatch.setattr(news_brief.ai_engine, "structured", _slow)
     monkeypatch.setattr(
         news_brief, "fetch_article_text", lambda url, **kwargs: ("", None)
     )
+    return seen
+
+
+def _write_all(kwargs_list):
     threads = [
-        threading.Thread(target=news_brief.write_brief, kwargs={"title": f"Story {i}"})
-        for i in range(3)
+        threading.Thread(target=news_brief.write_brief, kwargs=kwargs)
+        for kwargs in kwargs_list
     ]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=5)
-    assert peak == 1
+        thread.join(timeout=10)
+
+
+def test_writes_run_at_most_three_at_a_time(monkeypatch):
+    """A refresh, a user refresh and a rewrite share the same three slots."""
+    seen = _overlap_probe(monkeypatch)
+    _write_all([{"title": f"Story {i}"} for i in range(7)])
+    assert seen["peak"] == news_brief.DEFAULT_CONCURRENCY == 3
+
+
+def test_the_cap_is_configurable_and_bounded(monkeypatch):
+    monkeypatch.setenv("BSH_NEWS_BRIEF_CONCURRENCY", "1")
+    seen = _overlap_probe(monkeypatch, delay=0.05)
+    _write_all([{"title": f"Story {i}"} for i in range(3)])
+    assert seen["peak"] == 1
+
+    monkeypatch.setenv("BSH_NEWS_BRIEF_CONCURRENCY", "50")
+    assert news_brief.brief_concurrency() == news_brief.MAX_CONCURRENCY
+    monkeypatch.setenv("BSH_NEWS_BRIEF_CONCURRENCY", "nonsense")
+    assert news_brief.brief_concurrency() == news_brief.DEFAULT_CONCURRENCY
+
+
+def test_one_headline_is_never_written_twice_at_once(monkeypatch):
+    """A rewrite landing while the refresh writes that same story waits."""
+    seen = _overlap_probe(monkeypatch)
+    _write_all([{"title": "Same story"}] * 3)
+    assert seen["title_peak"] == 1
+
+
+def test_a_refresh_writes_in_parallel(monkeypatch):
+    seen = _overlap_probe(monkeypatch)
+    news_brief.start_refresh(
+        items=[{"title": f"Story {i}"} for i in range(6)], background=False
+    )
+    assert seen["peak"] == 3
+    status = news_brief.refresh_status()
+    assert status["done"] == 6 and status["failed"] == 0 and status["running"] is False
 
 
 def test_model_failure_raises_runtime_error(monkeypatch):
@@ -396,7 +439,8 @@ def test_refresh_writes_only_missing_headlines_in_order(stub_claude):
     result = news_brief.start_refresh(items=items, background=False)
 
     assert result["started"] is True and result["planned"] == 2
-    assert [c["user_prompt"].splitlines()[0] for c in stub_claude] == [
+    # Written in parallel, so they may finish in either order.
+    assert sorted(c["user_prompt"].splitlines()[0] for c in stub_claude) == [
         "Headline: Fresh one",
         "Headline: Fresh two",
     ]
@@ -405,7 +449,24 @@ def test_refresh_writes_only_missing_headlines_in_order(stub_claude):
     assert status["done"] == 2 and status["failed"] == 0
     assert status["pending"] == 0
     assert status["last_refresh_at"] is not None
-    assert status["model"] == "sonnet" and status["effort"] == "medium"
+    # The desk is on Claude here, so Claude's model is the one writing.
+    assert (status["engine"], status["model"]) == ("claude", "sonnet")
+    assert status["effort"] == "medium" and status["concurrency"] == 3
+
+
+def test_status_names_the_gemini_model_when_gemini_writes(monkeypatch):
+    """It used to report the Claude fallback ("sonnet") as the model even
+    while Gemini wrote every briefing."""
+    monkeypatch.delenv("BSH_GEMINI_MODEL", raising=False)
+    monkeypatch.setattr(news_brief.ai_engine, "policy", lambda: "gemini")
+    monkeypatch.setattr(news_brief.ai_engine.gemini_runner, "is_available", lambda: True)
+    status = news_brief.refresh_status()
+    assert (status["engine"], status["model"]) == ("gemini", "gemini-3.8-flash")
+    assert status["claude_model"] == "sonnet"
+
+    # Gemini chosen but no key: Claude is the one actually writing.
+    monkeypatch.setattr(news_brief.ai_engine.gemini_runner, "is_available", lambda: False)
+    assert news_brief.writing_engine() == ("claude", "sonnet")
 
 
 def test_refresh_counts_a_failed_story_and_keeps_going(stub_claude, monkeypatch):

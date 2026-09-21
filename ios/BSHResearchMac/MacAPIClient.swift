@@ -900,8 +900,17 @@ actor MacAPIClient {
 
     // MARK: - Memo analysis (IC prep) & evidence
 
-    func fetchMemoAnalysis(companyId: String) async throws -> MacMemoAnalysis {
-        try await request("companies/\(companyId)/memo-analysis", method: "GET", timeout: 60)
+    /// `create: false` only reads: a company with no Memo Studio session answers
+    /// 404 instead of having one started for it. The dossier loads readiness
+    /// gates on sight, and opening a company must not leave a session file
+    /// behind for every company glanced at.
+    func fetchMemoAnalysis(companyId: String, create: Bool = true) async throws -> MacMemoAnalysis {
+        try await request(
+            "companies/\(companyId)/memo-analysis",
+            method: "GET",
+            query: create ? [] : [URLQueryItem(name: "create", value: "false")],
+            timeout: 60
+        )
     }
 
     func runMemoTool(companyId: String, tool: String) async throws -> MacMemoAnalysis {
@@ -964,8 +973,10 @@ actor MacAPIClient {
         try await request("companies/\(companyId)/founder-dossier", method: "GET")
     }
 
+    /// Gemini web research on the team. It runs 50-120s (the server allows
+    /// Gemini 240s), so the 30s default timed out every refresh.
     func refreshFounderDossier(companyId: String) async throws -> MacFounderDossier {
-        try await request("companies/\(companyId)/founder-dossier/deep-search", method: "POST")
+        try await request("companies/\(companyId)/founder-dossier/deep-search", method: "POST", timeout: 300)
     }
 
     // MARK: - Thesis, intake, comps, cap model
@@ -1247,6 +1258,17 @@ actor MacAPIClient {
 
     func fetchProfile(companyId: String) async throws -> MacCompanyProfile {
         try await request("companies/\(companyId)/profile", method: "GET", timeout: 60)
+    }
+
+    /// Next earnings date, recent quarters against estimates and SEC filings for
+    /// one listed company (server-cached six hours per ticker).
+    func fetchCompanyEarningsFilings(companyId: String, refresh: Bool = false) async throws -> MacCompanyEarningsFilings {
+        try await request(
+            "companies/\(companyId)/earnings-filings",
+            method: "GET",
+            query: refresh ? [URLQueryItem(name: "refresh", value: "true")] : [],
+            timeout: 60
+        )
     }
 
     func fetchFilingsWatch(refresh: Bool) async throws -> MacFilingsWatch {

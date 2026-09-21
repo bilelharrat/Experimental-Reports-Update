@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import { Activity, BarChart3, Bell, Database, Download, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon, Upload } from "lucide-vue-next";
 import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
+import { isSignedIn, signInRoute } from "../auth.js";
 import {
   applyDeskState,
   DESK_KEYS,
@@ -20,6 +21,7 @@ import { appLanguage, setAppLanguage } from "../state.js";
 import { openWelcomeTour } from "../welcomeTour.js";
 
 const t = useT();
+const route = useRoute();
 
 const signingOutElsewhere = ref(false);
 const sessionsNotice = ref("");
@@ -67,6 +69,11 @@ const researchEngine = computed(
   () => prefs.value.research_engine || "claude",
 );
 const account = computed(() => profile.value?.account || settings.value?.account || {});
+// With nobody signed in the server fills the email with a placeholder
+// ("shared-token session"); say what this browser is using instead.
+const accountEmail = computed(() =>
+  isSignedIn.value ? account.value.email : t("sidebar.local_dev"),
+);
 const team = computed(() => profile.value?.team || {});
 const usage = computed(() => profile.value?.usage || {});
 const status = computed(() => profile.value?.status || {});
@@ -265,7 +272,7 @@ async function importDeskState(event) {
               {{ t("settings.profile") }}
             </h2>
             <div class="mt-0.5 text-callout text-ink-primary">{{ account.name || account.email }}</div>
-            <div class="text-footnote text-ink-muted">{{ account.email }}</div>
+            <div class="text-footnote text-ink-muted">{{ accountEmail }}</div>
             <div class="mt-2 flex flex-wrap gap-2 text-caption1 text-ink-muted">
               <span v-if="account.workspace">{{ account.workspace }}</span>
               <span v-if="account.role">{{ account.role }}</span>
@@ -476,25 +483,37 @@ async function importDeskState(event) {
           </div>
           <div class="flex justify-between gap-3 rounded-row bg-fill-tertiary px-3 py-2">
             <span class="shrink-0 text-ink-secondary">{{ t("settings.account") }}</span>
-            <span class="min-w-0 truncate font-semibold text-ink-primary">{{ account.email }}</span>
+            <span class="min-w-0 truncate font-semibold text-ink-primary">{{ accountEmail }}</span>
           </div>
         </div>
         <!-- The account's own controls. Signing out elsewhere is what
              someone does about a session they do not recognise, and the
-             password change is the stronger form of the same act. -->
+             password change is the stronger form of the same act. With
+             nobody signed in (the local anon-dev bypass) there is no
+             account to act on, so the control is Sign in. -->
         <div v-if="account.email" class="mt-3 flex flex-wrap items-center gap-2">
-          <RouterLink :to="{ name: 'change-password' }" class="btn-bordered btn-sm">
-            {{ t("user.change_password") }}
-          </RouterLink>
-          <button
-            type="button"
+          <template v-if="isSignedIn">
+            <RouterLink :to="{ name: 'change-password' }" class="btn-bordered btn-sm">
+              {{ t("user.change_password") }}
+            </RouterLink>
+            <button
+              type="button"
+              class="btn-bordered btn-sm"
+              :disabled="signingOutElsewhere"
+              data-testid="sign-out-elsewhere"
+              @click="signOutElsewhere"
+            >
+              {{ t("accounts.sign_out_others") }}
+            </button>
+          </template>
+          <RouterLink
+            v-else
+            :to="signInRoute(route.fullPath)"
             class="btn-bordered btn-sm"
-            :disabled="signingOutElsewhere"
-            data-testid="sign-out-elsewhere"
-            @click="signOutElsewhere"
+            data-testid="sign-in"
           >
-            {{ t("accounts.sign_out_others") }}
-          </button>
+            {{ t("auth.sign_in") }}
+          </RouterLink>
           <RouterLink
             v-if="(account.permissions || []).includes('users:manage')"
             :to="{ name: 'accounts' }"

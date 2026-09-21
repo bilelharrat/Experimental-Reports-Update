@@ -9,10 +9,10 @@ a field:
   ``employee_band``, ``github_url``/``repo_url``). Nothing is inferred: a
   founder with no recorded education has ``education`` ``None``.
 - **The research layer** (``deep_search_founder_dossier``) is the Refresh
-  button. It runs a web-grounded Gemini Flash pass (Claude fallback via
-  ``ai_engine``) and fills in what the record left blank — backgrounds,
-  prior companies, board seats, headcount and hiring signals — with the
-  source URLs the model actually read.
+  button. It runs a web-grounded Gemini Flash pass — Gemini only, whatever
+  engine the desk is set to, with no Claude fallback — and fills in what the
+  record left blank: backgrounds, prior companies, board seats, headcount
+  and hiring signals, with the source URLs the model actually read.
 
 Curated record values always win over researched ones: research fills
 holes, it never overwrites what a human put on the record. Researched
@@ -194,11 +194,10 @@ def build_founder_dossier(company_id: str) -> dict:
 # ---- Research layer -------------------------------------------------------
 
 RESEARCH_TIMEOUT_SEC = 240
-# The Claude fallback is an agentic WebSearch run and `ai_engine` allows it 15
-# minutes by default. This one runs from the Team tab's Refresh button with a
-# spinner in front of the user, so it gets a UI-shaped cap instead: a failure
-# they can see beats a spinner that never resolves.
-FALLBACK_TIMEOUT_SEC = 300
+# Team research is Gemini's: grounded search returns the source URLs the Team
+# tab shows, where the Claude fallback returned none and took up to fifteen
+# minutes behind a spinner. A Gemini failure comes back as `research_error`.
+RESEARCH_ENGINE_POLICY = "gemini-only"
 
 PERSON_PROPERTIES: dict[str, Any] = {
     "name": {"type": "string", "description": "Full name as it appears in sources."},
@@ -506,7 +505,7 @@ def deep_search_founder_dossier(company_id: str) -> dict:
         schema=RESEARCH_SCHEMA,
         name="founder_dossier",
         gemini_timeout_sec=RESEARCH_TIMEOUT_SEC,
-        claude_timeout_sec=FALLBACK_TIMEOUT_SEC,
+        policy_override=RESEARCH_ENGINE_POLICY,
     )
     if error is not None or not isinstance(data, dict):
         logger.warning("founder_dossier: research failed for %s — %s", company_id, error)

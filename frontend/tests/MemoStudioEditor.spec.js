@@ -19,8 +19,10 @@ const m = vi.hoisted(() => ({
   updateTask: vi.fn(),
 }));
 
+const ma = vi.hoisted(() => ({ get: vi.fn(), getEvidenceMatrix: vi.fn() }));
+
 vi.mock("../src/api.js", () => ({
-  api: { memoEditor: m },
+  api: { memoEditor: m, memoAnalysis: ma },
 }));
 
 import MemoStudioEditor from "../src/components/MemoStudioEditor.vue";
@@ -458,5 +460,105 @@ describe("MemoStudioEditor", () => {
       "investment_thesis",
       ["thesis-2", "thesis-1"],
     );
+  });
+});
+
+describe("MemoStudioEditor readiness gates and history", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    m.get.mockResolvedValue(baseState());
+    ma.getEvidenceMatrix.mockResolvedValue({ claims: [] });
+  });
+
+  it("loads the gates with the editor, without starting a session", async () => {
+    ma.get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+    m.history.mockResolvedValue({ versions: [], audit_records: [] });
+
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+
+    expect(ma.get).toHaveBeenCalledWith("zainar-inc", { create: false });
+    // No session reads as "nothing logged yet", not as a Load prompt.
+    expect(wrapper.text()).toContain("No diligence readiness areas logged yet.");
+    expect(wrapper.text()).not.toContain("Loads readiness areas and evidence claims");
+  });
+
+  it("folds repeated history events into one row", async () => {
+    ma.get.mockResolvedValue({ additional_areas: [] });
+    const at = "2026-09-16T10:00:00Z";
+    m.history.mockResolvedValue({
+      versions: [
+        { revision_id: "rev-0016", event: "cards_reordered", created_at: at },
+        { revision_id: "rev-0015", event: "cards_reordered", created_at: at },
+        { revision_id: "rev-0014", event: "cards_reordered", created_at: at },
+        { revision_id: "rev-0013", event: "conclusion_selected", created_at: at },
+      ],
+      audit_records: [
+        { id: "a5", event: "conclusion_selected", created_at: at },
+        { id: "a4", event: "conclusion_selected", created_at: at },
+        { id: "a3", event: "conclusion_selected", created_at: at },
+        { id: "a2", event: "cards_reordered", created_at: at },
+      ],
+    });
+
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+
+    const versions = wrapper.findAll('[data-testid="version-row"]');
+    expect(versions).toHaveLength(2);
+    expect(versions[0].text()).toContain("rev-0014 – rev-0016");
+    expect(versions[0].text()).toContain("×3");
+    expect(versions[1].text()).not.toContain("×");
+
+    const audit = wrapper.findAll('[data-testid="audit-row"]');
+    expect(audit).toHaveLength(2);
+    expect(audit[0].text()).toContain("×3");
+  });
+});
+
+describe("MemoStudioEditor template cards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    m.history.mockResolvedValue({ versions: [], audit_records: [] });
+    ma.getEvidenceMatrix.mockResolvedValue({ claims: [] });
+  });
+
+  function withPlaceholders(flags) {
+    const state = baseState();
+    state.sections.investment_thesis.cards.forEach((card, i) => {
+      card.placeholder = flags[i] ?? false;
+    });
+    return state;
+  }
+
+  it("tags template cards and leaves written ones alone", async () => {
+    m.get.mockResolvedValue(withPlaceholders([true, false]));
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="template-tag"]')).toHaveLength(1);
+  });
+
+  it("says nothing was investigated and offers the run, through the customizer", async () => {
+    m.get.mockResolvedValue(withPlaceholders([true, true]));
+    const openReportCustomizer = vi.fn();
+    const wrapper = mount(MemoStudioEditor, {
+      props: { companyId: "zainar-inc" },
+      global: { provide: { openReportCustomizer } },
+    });
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="not-investigated"]').text()).toContain("not research");
+    await wrapper.get('[data-testid="run-deep-investigate"]').trigger("click");
+    expect(openReportCustomizer).toHaveBeenCalledWith("zainar-inc", { mode: "studio_review" });
+  });
+
+  it("drops the notice once an investigation has seeded the cards", async () => {
+    const seeded = withPlaceholders([false, false]);
+    seeded.agent_run = { mode: "studio", seeded_at: "2026-09-20T10:00:00Z" };
+    m.get.mockResolvedValue(seeded);
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="not-investigated"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="template-tag"]').exists()).toBe(false);
   });
 });

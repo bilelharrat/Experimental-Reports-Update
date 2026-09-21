@@ -342,6 +342,16 @@ struct CompanyDossierView: View {
         activeSection == .all || sections.contains(activeSection)
     }
 
+    /// Listed on an exchange — a ticker or a public status, unless the record
+    /// says private — the same rule as the server's profile and the web
+    /// dossier. A listed name's Overview leads with earnings and filings; its
+    /// deal pipeline stays one tab away for anyone tracking it as a deal.
+    private var isListed: Bool {
+        let status = (company.status ?? "").lowercased()
+        if status == "private" { return false }
+        return !(company.ticker ?? "").trimmingCharacters(in: .whitespaces).isEmpty || status == "public"
+    }
+
     private var companyReports: [MacReport] {
         store.reports(for: company.id)
     }
@@ -361,7 +371,7 @@ struct CompanyDossierView: View {
                             Text(company.name ?? company.id)
                                 .font(.dsTitle)
                                 .lineLimit(1)
-                            if let stage = store.dealPipelines[company.id]?.stage {
+                            if !isListed, let stage = store.dealPipelines[company.id]?.stage {
                                 MacStatusPill(text: stage, color: .accentColor)
                             }
                             if store.isFollowed(company.id) {
@@ -453,7 +463,11 @@ struct CompanyDossierView: View {
                     MacSignalScoreView(companyId: company.id)
                 }
 
-                if shows(.pipeline, .overview) {
+                if isListed && shows(.overview) {
+                    MacEarningsFilingsView(company: company).id(company.id)
+                }
+
+                if isListed ? shows(.pipeline) : shows(.pipeline, .overview) {
                     MacDealPipelineView(company: company)
                 }
 

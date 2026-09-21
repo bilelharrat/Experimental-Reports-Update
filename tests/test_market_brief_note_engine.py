@@ -1,4 +1,4 @@
-"""The daily desk note runs on the engine policy, and says which one wrote it."""
+"""The morning brief note is Gemini's to write, and says which model wrote it."""
 from __future__ import annotations
 
 import json
@@ -54,16 +54,76 @@ def test_the_note_records_the_engine_that_wrote_it(monkeypatch, archived_brief):
     assert note["bullets_en"] == ["SPY up 0.8%", "Breadth improving"]
 
 
-def test_a_fallback_is_visible_on_the_stored_note(monkeypatch, archived_brief):
-    _stub(
-        monkeypatch,
-        SHORT_NOTE,
-        {"engine": "claude", "model": None, "fallback_reason": "gemini HTTP 429 — quota"},
+LONG_NOTE = {
+    "headline_en": "A long read",
+    "headline_zh": "长篇",
+    "sections_en": [{"title": "Tape", "body": "..."}],
+    "sections_zh": [{"title": "行情", "body": "..."}],
+}
+
+
+@pytest.fixture(params=["claude", "gemini"])
+def claude_calls(request, monkeypatch):
+    """The research desk is set to Claude, or to Gemini-then-Claude; the brief
+    must reach Claude under neither. Returns the Claude calls made."""
+    monkeypatch.setattr(market_brief.ai_engine, "policy", lambda: request.param)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        market_brief.ai_engine.claude_runner,
+        "run_structured_prompt",
+        lambda **kw: calls.append(kw["name"]) or (SHORT_NOTE, None),
     )
-    market_brief.write_note("2026-09-16")
-    stored = market_brief.load_brief("2026-09-16")["note"]
-    assert stored["engine"] == "claude"
-    assert stored["engine_fallback_reason"] == "gemini HTTP 429 — quota"
+    monkeypatch.setattr(
+        market_brief.ai_engine.claude_runner,
+        "run_web_research_json",
+        lambda **kw: calls.append(kw["name"]) or (LONG_NOTE, None),
+    )
+    return calls
+
+
+def test_gemini_flash_writes_the_brief_whatever_the_desk_engine_is(
+    monkeypatch, archived_brief, claude_calls
+):
+    gemini = market_brief.ai_engine.gemini_runner
+    monkeypatch.delenv("BSH_GEMINI_MODEL", raising=False)
+    monkeypatch.setattr(gemini, "is_available", lambda: True)
+    monkeypatch.setattr(gemini, "run_structured_prompt", lambda **kw: (SHORT_NOTE, None))
+    monkeypatch.setattr(
+        gemini,
+        "run_grounded_json",
+        lambda **kw: (
+            LONG_NOTE,
+            {"model": gemini.default_model(), "grounded": True, "sources": []},
+            None,
+        ),
+    )
+
+    short = market_brief.write_note("2026-09-16")["note"]
+    long = market_brief.write_note("2026-09-16", length="long")["note"]
+    for note in (short, long):
+        assert (note["engine"], note["model"]) == ("gemini", "gemini-3.8-flash")
+    assert claude_calls == []
+
+
+def test_a_gemini_failure_is_not_handed_to_claude(monkeypatch, archived_brief, claude_calls):
+    """The morning schedule tries a failed brief again an hour later; a
+    Claude-written brief in the meantime is not the brief."""
+    gemini = market_brief.ai_engine.gemini_runner
+    monkeypatch.setattr(gemini, "is_available", lambda: True)
+    monkeypatch.setattr(
+        gemini, "run_structured_prompt", lambda **kw: (None, "gemini HTTP 503 — unavailable")
+    )
+    with pytest.raises(RuntimeError, match="503"):
+        market_brief.write_note("2026-09-16")
+    assert claude_calls == []
+    assert "note" not in market_brief.load_brief("2026-09-16")
+
+
+def test_without_a_gemini_key_the_brief_is_not_written(monkeypatch, archived_brief, claude_calls):
+    monkeypatch.setattr(market_brief.ai_engine.gemini_runner, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match="no Gemini API key"):
+        market_brief.write_note("2026-09-16", length="long")
+    assert claude_calls == []
 
 
 def test_the_long_note_researches_and_the_short_one_does_not(monkeypatch, archived_brief):
@@ -151,3 +211,41 @@ def test_a_missing_brief_is_a_value_error_not_a_model_call(monkeypatch):
     )
     with pytest.raises(ValueError):
         market_brief.write_note("2026-09-16")
+
+
+def test_the_headline_is_stored_as_a_front_page_line(monkeypatch, archived_brief):
+    """Wrapping quotes, doubled spaces and a trailing full stop are the
+    model's habits, not the headline's."""
+    _stub(
+        monkeypatch,
+        {
+            **SHORT_NOTE,
+            "headline_en": '  "Nasdaq jumps 2.5% as chip   talks revive the AI trade." ',
+            "headline_zh": "「纳指大涨2.5%，芯片谈判重燃AI交易。」",
+            "dek_en": " Crude gives back its war premium as Hormuz traffic resumes. ",
+            "dek_zh": "霍尔木兹航运恢复，原油回吐地缘溢价。",
+        },
+        {"engine": "gemini", "model": "gemini-3.8-flash", "fallback_reason": None},
+    )
+    note = market_brief.write_note("2026-09-16")["note"]
+    assert note["headline_en"] == "Nasdaq jumps 2.5% as chip talks revive the AI trade"
+    assert note["headline_zh"] == "纳指大涨2.5%，芯片谈判重燃AI交易"
+    # The dek is a sentence, so it keeps its full stop.
+    assert note["dek_en"] == "Crude gives back its war premium as Hormuz traffic resumes."
+    assert note["dek_zh"] == "霍尔木兹航运恢复，原油回吐地缘溢价。"
+
+
+def test_both_notes_ask_for_a_front_page_headline_and_a_dek():
+    for schema in (market_brief.NOTE_SCHEMA, market_brief.LONG_NOTE_SCHEMA):
+        assert {"headline_en", "headline_zh", "dek_en", "dek_zh"} <= set(schema["required"])
+        assert "sentence case" in schema["properties"]["headline_en"]["description"]
+    for prompt in (market_brief.NOTE_SYSTEM_PROMPT, market_brief.LONG_NOTE_SYSTEM_PROMPT):
+        assert "The headline and dek" in prompt
+
+
+def test_a_note_written_before_the_dek_existed_still_loads(archived_brief):
+    stored = {**BRIEF, "note": {"length": "long", "headline_en": "Old headline"}}
+    (market_brief.BRIEFS_ROOT / f"{BRIEF['date']}.json").write_text(
+        json.dumps(stored), encoding="utf-8"
+    )
+    assert "dek_en" not in market_brief.load_brief("2026-09-16")["note"]

@@ -204,6 +204,9 @@ struct BriefNote: Decodable {
     let length: String?
     let headlineEn: String?
     let headlineZh: String?
+    /// The standfirst under the headline. Notes written before it existed have none.
+    let dekEn: String?
+    let dekZh: String?
     let bulletsEn: [String]?
     let bulletsZh: [String]?
     let sectionsEn: [BriefSection]?
@@ -213,6 +216,8 @@ struct BriefNote: Decodable {
         case length
         case headlineEn = "headline_en"
         case headlineZh = "headline_zh"
+        case dekEn = "dek_en"
+        case dekZh = "dek_zh"
         case bulletsEn = "bullets_en"
         case bulletsZh = "bullets_zh"
         case sectionsEn = "sections_en"
@@ -221,6 +226,11 @@ struct BriefNote: Decodable {
 
     func headline(lang: AppLanguage) -> String {
         lang.prefersChineseContent ? (headlineZh ?? headlineEn ?? "") : (headlineEn ?? headlineZh ?? "")
+    }
+
+    func dek(lang: AppLanguage) -> String? {
+        let dek = lang.prefersChineseContent ? (dekZh ?? dekEn) : (dekEn ?? dekZh)
+        return (dek?.isEmpty ?? true) ? nil : dek
     }
 
     func bullets(lang: AppLanguage) -> [String] {

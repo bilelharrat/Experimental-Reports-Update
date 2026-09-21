@@ -2,9 +2,9 @@
 //  MacFounderRadarView.swift
 //  BSHResearchMac
 //
-//  Founder pedigree and developer traction, read from the company record.
-//  Displays leadership, board, headcount and open-source velocity when recorded;
-//  the refresh button re-reads the record (no external lookup).
+//  Founder pedigree and developer traction: the company record, plus Gemini
+//  web research when someone presses Research team (server/founder_dossier.py).
+//  Displays leadership, board, headcount and open-source velocity.
 //
 
 import SwiftUI
@@ -36,10 +36,11 @@ struct MacFounderRadarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            MacCardHeader("Founders & team", subtitle: "People from the company record, prior companies and exits, and open-source velocity when a repo is known.", systemImage: "person.3") {
+            MacCardHeader("Founders & team", subtitle: "People from the company record and Gemini web research: prior companies and exits, board seats, headcount, and open-source velocity when a repo is known.", systemImage: "person.3") {
                 Button {
-                    // No token confirmation: the deep search rebuilds the
-                    // dossier from the company record and calls no model.
+                    // A Gemini web-research call, so it asks first like
+                    // every paid button.
+                    guard MacTokenConfirm.ask(detail: "Researches this team on the web with Gemini 3.8 Flash (about a minute).") else { return }
                     Task {
                         await store.deepSearchFounder(for: company.id)
                     }
@@ -48,17 +49,17 @@ struct MacFounderRadarView: View {
                         if isSearching {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Refreshing…")
+                            Text("Researching… about a minute")
                         } else {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Refresh from record")
+                            Image(systemName: "sparkle.magnifyingglass")
+                            Text("Research team")
                         }
                     }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(isSearching)
-                .help("Re-read people, board and links from the company record")
+                .help("Search the web with Gemini for founders, board, headcount and hiring, and add what it finds to the record")
             }
 
             if let dossier = dossier {
@@ -66,7 +67,7 @@ struct MacFounderRadarView: View {
                     ContentUnavailableView(
                         "No people on the company record",
                         systemImage: "person.3",
-                        description: Text("Founders, board members and headcount appear here once they are recorded on the company.")
+                        description: Text("Nothing on the company record yet. Research team finds the founders, board and headcount on the web.")
                     )
                 }
 
@@ -258,15 +259,29 @@ struct MacFounderRadarView: View {
                 }
 
                 if let refreshError = store.founderDossierErrors[company.id] {
-                    Label("Refresh failed: \(refreshError)", systemImage: "exclamationmark.triangle")
+                    Label("Research failed: \(refreshError)", systemImage: "exclamationmark.triangle")
                         .font(.dsCaption)
                         .foregroundStyle(Color.dsNegative)
                         .lineLimit(2)
                 }
 
-                Text("Built from the company record")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                if let researchError = dossier.researchError, !researchError.isEmpty {
+                    // The server degrades instead of erroring: the people
+                    // above are what it had, and this is why nothing changed.
+                    Label("The research pass could not run — \(researchError)", systemImage: "exclamationmark.triangle")
+                        .font(.dsCaption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                } else if let engine = dossier.engine {
+                    let sourceCount = dossier.sources?.count ?? 0
+                    Text("Researched by \(engine)\(dossier.model.map { " (\($0))" } ?? "") · \(sourceCount > 0 ? "read \(sourceCount) sources" : "no sources reported")")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("Built from the company record")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
             } else if loadFailed && !loading {
                 ContentUnavailableView {
                     Label("Couldn't load people", systemImage: "exclamationmark.triangle")

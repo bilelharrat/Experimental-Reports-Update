@@ -389,6 +389,8 @@ enum MacMoney {
     static func short(_ usd: Double?) -> String {
         guard let usd else { return "—" }
         let a = abs(usd)
+        // Listed companies reach trillions: Apple read "$4943.00B".
+        if a >= 1e12 { return String(format: "$%.2fT", usd / 1e12) }
         if a >= 1e9 { return String(format: "$%.2fB", usd / 1e9) }
         if a >= 1e6 { return String(format: "$%.1fM", usd / 1e6) }
         if a >= 1e3 { return String(format: "$%.0fK", usd / 1e3) }

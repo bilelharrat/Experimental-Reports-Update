@@ -21,6 +21,7 @@ import MacTabBar from "./MacTabBar.vue";
 import UnifiedProfileCard from "./UnifiedProfileCard.vue";
 import SignalScoreCard from "./SignalScoreCard.vue";
 import DealPipelineCard from "./DealPipelineCard.vue";
+import EarningsFilingsCard from "./EarningsFilingsCard.vue";
 import FounderRadarCard from "./FounderRadarCard.vue";
 import CapTableCard from "./CapTableCard.vue";
 import CompsRailCard from "./CompsRailCard.vue";
@@ -95,6 +96,16 @@ const tabItems = computed(() => [
 function shows(...sections) {
   return activeSection.value === "all" || sections.includes(activeSection.value);
 }
+
+// Listed on an exchange — a ticker or a public status, unless the record
+// says private — the same rule as server/company_profile.py. A public name's
+// Overview leads with earnings and filings, not a VC deal pipeline; the
+// pipeline stays one tab away for anyone tracking it as a deal.
+const isPublic = computed(() => {
+  const status = String(props.company?.status || "").toLowerCase();
+  if (status === "private") return false;
+  return Boolean(String(props.company?.ticker || "").trim()) || status === "public";
+});
 
 // headerLine: ticker · sector-or-industry · status capitalized.
 const headerSubtitle = computed(() => {
@@ -332,8 +343,14 @@ onUnmounted(() => {
       <SignalScoreCard :company-id="companyId" />
     </template>
 
+    <EarningsFilingsCard
+      v-if="isPublic && shows('overview')"
+      :key="`earnings-${companyId}`"
+      :company-id="companyId"
+    />
+
     <DealPipelineCard
-      v-if="shows('pipeline', 'overview')"
+      v-if="isPublic ? shows('pipeline') : shows('pipeline', 'overview')"
       :company-id="companyId"
       :company="company"
       @stage-updated="emit('stage-updated', $event)"
@@ -397,6 +414,7 @@ onUnmounted(() => {
       />
       <MemoStudioEditor
         :company-id="companyId"
+        :is-public="isPublic"
         :generate-available="true"
         :reports="companyReports"
         @generate="handleCustomReport"

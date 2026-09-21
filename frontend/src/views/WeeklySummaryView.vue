@@ -18,6 +18,7 @@ import { lastPriceLabel, signedChange } from "../liveTicker.js";
 import PulseECGIcon from "../components/PulseECGIcon.vue";
 import {
   PULSE_INDEX_TICKERS,
+  briefReadMinutes,
   calendarWeekBuckets,
   changedSinceSlice,
   ledgerHitStats,
@@ -99,6 +100,35 @@ const noteSectionCount = computed(() => {
   const sections = pickArray(note, "sections");
   return Array.isArray(sections) ? sections.length : 0;
 });
+const noteDek = computed(() => pick(brief.value?.note, "dek"));
+const noteReadMinutes = computed(() => {
+  const note = brief.value?.note;
+  if (!note) return 0;
+  const parts = [
+    ...pickArray(note, "sections").map((section) => section?.body),
+    ...pickArray(note, "bullets"),
+  ];
+  return briefReadMinutes(parts, viewLang.value);
+});
+const noteSourceCount = computed(() => {
+  const note = brief.value?.note;
+  return note?.researched ? (note.sources || []).length : 0;
+});
+// "Monday, September 21" — the brief's own date, not today's: the archive
+// shows past mornings too. Built from the parts so it is not shifted a day
+// by the UTC reading of a bare YYYY-MM-DD.
+function briefDateLabel(style) {
+  const [y, m, d] = String(brief.value?.date || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return new Date(y, m - 1, d).toLocaleDateString(viewLang.value === "zh" ? "zh-CN" : "en-US", {
+    weekday: style,
+    month: style,
+    day: "numeric",
+  });
+}
+const briefDateline = computed(() => briefDateLabel("long"));
+// A phone's kicker is "Mon, Sep 21": the long form runs past the card.
+const briefDatelineShort = computed(() => briefDateLabel("short"));
 const ledger = ref([]);
 let activeStream = null;
 let streamIdleTimer = null;
@@ -146,6 +176,10 @@ const indexCards = computed(() => indexQuoteCards(quotes.value, PULSE_INDEX_TICK
 const sectorRows = computed(() => sectorRotationRows(quotes.value));
 const macroRows = computed(() => macroTapeRows(quotes.value));
 const breadth = computed(() => marketBreadthFromUniverse(screeners.value.universe || []));
+// A market-data run ranked real moves but researched none of them.
+const setupsLabel = computed(() =>
+  summary.value?.scan_mode === "market_data" ? t("pulse.market_movers_label") : t("pulse.setups_label"),
+);
 const movers = computed(() => screenerMoverLists(screeners.value, 10));
 const spyChange = computed(() => {
   const change = Number(quotes.value?.SPY?.change_pct_1d);
@@ -933,24 +967,29 @@ onBeforeUnmount(() => {
               class="morning-brief mt-2.5"
               data-testid="brief-note"
             >
-              <!-- The measure belongs to the prose, not the header: the
-                   label row spans the card and the headline takes its own
-                   wider one, so only the timestamp is held to it. -->
-              <header>
-                <div class="flex items-center justify-between gap-2">
-                  <span class="section-label">{{ t("pulse.note_label") }}</span>
-                  <span class="chip bg-accent/10 text-accent-ink">
-                    {{ t("pulse.note_ai_tag") }}
+              <!-- A front page's order: the dateline, the headline, the dek
+                   that carries what the headline leaves out, then the facts. -->
+              <header class="morning-brief-masthead">
+                <div class="morning-brief-kicker-row">
+                  <!-- The card is already titled Morning Brief; the kicker
+                       is the dateline, which a phone then has room for. -->
+                  <span v-if="briefDateline" class="morning-brief-kicker">
+                    <span class="hidden sm:inline">{{ briefDateline }}</span>
+                    <span class="sm:hidden">{{ briefDatelineShort }}</span>
                   </span>
+                  <span v-else class="morning-brief-kicker">{{ t("pulse.note_label") }}</span>
                 </div>
-                <h3 class="morning-brief-headline mt-2">
+                <h3 class="morning-brief-headline" data-testid="brief-note-headline">
                   {{ pick(brief.note, "headline") }}
                 </h3>
-                <p class="morning-brief-measure mt-1.5 text-footnote text-ink-muted">
-                  {{ t("pulse.brief_as_of", { when: (brief.note.generated_at && refreshedAtLabel(brief.note.generated_at)) || brief.date }) }}
-                  <template v-if="noteSectionCount">
-                    · {{ t("pulse.note_sections", { count: noteSectionCount }) }}
-                  </template>
+                <p v-if="noteDek" class="morning-brief-dek" data-testid="brief-note-dek">
+                  {{ noteDek }}
+                </p>
+                <p class="morning-brief-meta">
+                  <span>{{ t("pulse.brief_as_of", { when: (brief.note.generated_at && refreshedAtLabel(brief.note.generated_at)) || brief.date }) }}</span>
+                  <span v-if="noteSectionCount">{{ t("pulse.note_sections", { count: noteSectionCount }) }}</span>
+                  <span v-if="noteReadMinutes">{{ t("pulse.note_read_time", { n: noteReadMinutes }) }}</span>
+                  <span v-if="noteSourceCount">{{ t("pulse.note_source_count", { count: noteSourceCount }) }}</span>
                 </p>
               </header>
 
@@ -1246,12 +1285,18 @@ onBeforeUnmount(() => {
         </section>
 
         <template v-else-if="summary">
+          <!-- No AI this run. "market_data": the movers are real prices, only
+               the catalysts are missing. Otherwise even market data failed
+               and the fixed watchlist stood in. -->
           <div
             v-if="summary.scan_fallback"
             class="flex items-start gap-2 rounded-subbox border border-warning/40 bg-warning-soft px-3 py-2 text-callout text-warning-ink"
+            data-testid="pulse-scan-fallback"
           >
             <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{{ t("pulse.scan_fallback") }}</span>
+            <span>{{
+              summary.scan_mode === "market_data" ? t("pulse.scan_market_data") : t("pulse.scan_fallback")
+            }}</span>
           </div>
 
           <section class="news-grouped px-4 py-3" :aria-label="t('pulse.brief_label')">
@@ -1280,10 +1325,10 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section class="news-grouped overflow-hidden" :aria-label="t('pulse.setups_label')">
+          <section class="news-grouped overflow-hidden" :aria-label="setupsLabel">
             <div class="flex items-center justify-between gap-2 border-b border-subtle/70 px-4 py-2">
               <div class="text-footnote font-semibold text-ink-muted">
-                {{ t("pulse.setups_label") }}
+                {{ setupsLabel }}
               </div>
               <span class="text-caption1 text-ink-muted">
                 {{ t("pulse.setups_count", { n: stocks.length }) }}

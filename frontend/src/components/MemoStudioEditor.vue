@@ -6,7 +6,8 @@
 // double-click title rename, risk refine-framing, and the Readiness Gates
 // and Evidence Claims sections. Web-native features stay: drag reorder,
 // bullet tree with dive-deeper/discuss, tasks, export gating, history.
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, inject, onMounted, ref, watch } from "vue";
+import { collapseRuns } from "../collapseRuns.js";
 import {
   AlertTriangle,
   BookOpen,
@@ -45,6 +46,9 @@ const props = defineProps({
   // Bumped by the parent when an investigation seeds fresh cards, so an
   // already-mounted editor reloads instead of showing stale state.
   refreshKey: { type: String, default: "" },
+  // A listed company raises no private round, so its summary drops the
+  // Round tile rather than showing "Pending" forever.
+  isPublic: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["discuss", "generate", "synthesized"]);
@@ -96,6 +100,15 @@ const memoTasks = computed(() => {
 });
 const auditRecords = computed(() => history.value?.audit_records || editor.value?.audit_records || []);
 const versions = computed(() => history.value?.versions || []);
+// Repeats of the same event fold into one row ("Conclusion Selected ×5");
+// the counts above still count every revision and every event.
+const versionRuns = computed(() => collapseRuns(versions.value, (v) => v.event || ""));
+const auditRuns = computed(() =>
+  collapseRuns(
+    auditRecords.value,
+    (r) => `${r.event || ""}|${formatIsoDate(r.created_at) || ""}`,
+  ),
+);
 const completedSections = computed(() =>
   sectionIds.filter((id) => {
     const status = String(sections.value[id]?.status || "").toLowerCase();
@@ -166,6 +179,9 @@ function orderedCards(sectionId) {
 }
 
 const agentRun = computed(() => editor.value?.agent_run || null);
+// Opens the report customizer on Memo Studio review — the run that replaces
+// template cards with source-backed ones. It still asks before spending.
+const openReportCustomizer = inject("openReportCustomizer", () => {});
 const includedRiskCount = computed(
   () => riskCards.value.filter((card) => card.included).length,
 );
@@ -240,6 +256,8 @@ async function load() {
   try {
     editor.value = await api.memoEditor.get(props.companyId);
     await loadHistory();
+    // Never let the automatic gates read break the editor it sits in.
+    loadGatesAndEvidence({ create: false }).catch(() => {});
   } catch {
     error.value = "load";
   } finally {
@@ -376,18 +394,28 @@ const gatesBusy = ref(false);
 const readinessAreas = computed(() => analysisData.value?.additional_areas || []);
 const evidenceClaims = computed(() => evidenceData.value?.claims || []);
 
-async function loadGatesAndEvidence() {
-  if (gatesBusy.value) return;
+// Loaded with the editor now, not behind a Load button: whether a memo can
+// be exported is the thing this panel exists to say. That automatic read
+// passes `create: false` so it never starts a session; Refresh still does.
+let gatesRequest = 0;
+async function loadGatesAndEvidence({ create = true } = {}) {
+  // Newest request wins. A busy flag used to drop the call instead, so
+  // switching company mid-load left the new company without its gates.
+  const ticket = ++gatesRequest;
   gatesBusy.value = true;
+  const forCompany = props.companyId;
   try {
     const [analysisRes, evidenceRes] = await Promise.allSettled([
-      api.memoAnalysis.get(props.companyId),
-      api.memoAnalysis.getEvidenceMatrix(props.companyId),
+      api.memoAnalysis.get(forCompany, { create }),
+      api.memoAnalysis.getEvidenceMatrix(forCompany),
     ]);
+    if (ticket !== gatesRequest) return;
     if (analysisRes.status === "fulfilled") analysisData.value = analysisRes.value;
+    // No session yet reads as "nothing logged", not as "never loaded".
+    else if (analysisRes.reason?.status === 404) analysisData.value = {};
     if (evidenceRes.status === "fulfilled") evidenceData.value = evidenceRes.value;
   } finally {
-    gatesBusy.value = false;
+    if (ticket === gatesRequest) gatesBusy.value = false;
   }
 }
 
@@ -806,13 +834,24 @@ async function setTaskStatus(task, status) {
     </div>
     <div
       v-else-if="!loading && editor"
-      class="mac-t-caption rounded-md px-2.5 py-1.5"
-      :style="{
-        background: 'color-mix(in srgb, var(--mac-yellow) 10%, transparent)',
-        color: 'var(--mac-secondary)',
-      }"
+      class="flex flex-wrap items-center gap-2.5 rounded-lg p-3"
+      :style="{ background: 'color-mix(in srgb, var(--mac-orange) 9%, transparent)' }"
+      data-testid="not-investigated"
     >
-      {{ t("memo.no_agent_seed") }}
+      <AlertTriangle class="h-4 w-4 shrink-0" :style="{ color: 'var(--mac-orange)' }" />
+      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span class="mac-t-subhead font-semibold">{{ t("memo.not_investigated_title") }}</span>
+        <span class="mac-t-caption mac-c-secondary">{{ t("memo.no_agent_seed") }}</span>
+      </span>
+      <button
+        type="button"
+        class="mac-btn mac-btn--mini mac-btn--prominent"
+        data-testid="run-deep-investigate"
+        @click="openReportCustomizer(companyId, { mode: 'studio_review' })"
+      >
+        <Sparkles class="h-3 w-3" />
+        <span>{{ t("memo.run_deep_investigate") }}</span>
+      </button>
     </div>
 
     <div v-if="loading" class="mac-t-caption mac-c-secondary flex items-center gap-2 py-4">
@@ -927,12 +966,12 @@ async function setTaskStatus(task, status) {
           <p class="mac-t-body mac-c-secondary" style="line-height: 1.5">
             {{ sections.executive_summary?.body }}
           </p>
-          <div class="grid gap-2.5 md:grid-cols-3">
+          <div class="grid gap-2.5" :class="isPublic ? 'md:grid-cols-2' : 'md:grid-cols-3'">
             <div class="mac-tile flex flex-col gap-1 p-2.5">
               <span class="mac-t-label mac-c-secondary">{{ t("memo.recommendation") }}</span>
               <p class="mac-t-caption mac-c-secondary" style="line-height: 1.4">{{ sections.executive_summary?.recommendation }}</p>
             </div>
-            <div class="mac-tile flex flex-col gap-1 p-2.5">
+            <div v-if="!isPublic" class="mac-tile flex flex-col gap-1 p-2.5" data-testid="memo-round">
               <span class="mac-t-label mac-c-secondary">{{ t("memo.round") }}</span>
               <p class="mac-t-caption mac-c-secondary" style="line-height: 1.4">{{ sections.executive_summary?.round || t("memo.pending") }}</p>
             </div>
@@ -1023,8 +1062,17 @@ async function setTaskStatus(task, status) {
                   @dblclick.stop.prevent="startTitleEdit(card)"
                 >
                   <span class="min-w-0">
-                    <span class="mac-t-subhead block font-semibold">{{ card.title }}</span>
+                    <span class="mac-t-subhead block font-semibold" :class="card.placeholder ? 'mac-c-secondary' : ''">{{ card.title }}</span>
                     <span class="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        v-if="card.placeholder"
+                        class="mac-status-tag"
+                        :style="{ '--tint': 'var(--mac-orange)' }"
+                        :title="t('memo.template_card_hint')"
+                        data-testid="template-tag"
+                      >
+                        {{ t("memo.template_card") }}
+                      </span>
                       <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ card.category }}</span>
                       <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">{{ sourceLabel(card) }}</span>
                       <span class="mac-t-caption10 mac-c-secondary">{{ t("memo.source_count", { count: sourceCount(card) }) }}</span>
@@ -1160,8 +1208,17 @@ async function setTaskStatus(task, status) {
                   @dblclick.stop.prevent="startTitleEdit(card)"
                 >
                   <span class="min-w-0">
-                    <span class="mac-t-subhead block font-semibold">{{ card.title }}</span>
+                    <span class="mac-t-subhead block font-semibold" :class="card.placeholder ? 'mac-c-secondary' : ''">{{ card.title }}</span>
                     <span class="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        v-if="card.placeholder"
+                        class="mac-status-tag"
+                        :style="{ '--tint': 'var(--mac-orange)' }"
+                        :title="t('memo.template_card_hint')"
+                        data-testid="template-tag"
+                      >
+                        {{ t("memo.template_card") }}
+                      </span>
                       <span
                         class="rounded-full px-1.5 py-[2px] text-[9px] font-bold"
                         :style="{
@@ -1384,7 +1441,7 @@ async function setTaskStatus(task, status) {
         </div>
       </section>
 
-      <!-- 06 · Readiness Gates (Mac workbench tab, load on ask) -->
+      <!-- 06 · Readiness Gates (Mac workbench tab; loads with the editor) -->
       <section :id="`memo-sec-readiness_gates`" class="flex flex-col gap-2.5 scroll-mt-4">
         <div class="mac-hairline-b flex flex-wrap items-center gap-2 pb-2">
           <span class="mac-mono mac-t-caption10 font-bold" :style="{ color: 'var(--mac-accent)' }">06</span>
@@ -1550,27 +1607,33 @@ async function setTaskStatus(task, status) {
           </div>
           <div v-if="versions.length" class="mac-scroll mac-tile max-h-48 overflow-y-auto" style="border-radius: 8px">
             <div
-              v-for="(version, versionIndex) in versions.slice(0, 6)"
-              :key="version.revision_id"
+              v-for="(run, runIndex) in versionRuns.slice(0, 6)"
+              :key="run.first.revision_id"
               class="px-2.5 py-1.5"
-              :class="versionIndex > 0 ? 'mac-hairline-t' : ''"
+              :class="runIndex > 0 ? 'mac-hairline-t' : ''"
+              data-testid="version-row"
             >
               <div class="flex items-center justify-between gap-3">
-                <span class="mac-t-caption10 font-semibold">{{ version.revision_id }}</span>
-                <span class="mac-t-caption10 mac-c-secondary">{{ humanizeStatus(version.event, t("memo.pending"), appLanguage) }}</span>
+                <span class="mac-t-caption10 font-semibold">
+                  {{ run.count > 1 ? `${run.last.revision_id} – ${run.first.revision_id}` : run.first.revision_id }}
+                </span>
+                <span class="mac-t-caption10 mac-c-secondary">
+                  {{ humanizeStatus(run.first.event, t("memo.pending"), appLanguage) }}{{ run.count > 1 ? ` ×${run.count}` : "" }}
+                </span>
               </div>
-              <span class="mac-t-caption10 mac-mono mac-c-tertiary">{{ formatRelativeTime(version.created_at) || formatIsoDate(version.created_at) }}</span>
+              <span class="mac-t-caption10 mac-mono mac-c-tertiary">{{ formatRelativeTime(run.first.created_at) || formatIsoDate(run.first.created_at) }}</span>
             </div>
           </div>
           <div v-if="auditRecords.length" class="mac-scroll flex max-h-44 flex-col gap-1 overflow-y-auto">
             <div
-              v-for="record in auditRecords.slice(0, 8)"
-              :key="record.id"
+              v-for="run in auditRuns.slice(0, 8)"
+              :key="run.first.id"
               class="mac-tile px-2 py-1"
               style="border-radius: 6px"
+              data-testid="audit-row"
             >
-              <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ humanizeStatus(record.event, t("memo.pending"), appLanguage) }}</span>
-              <span class="mac-t-caption10 mac-mono mac-c-tertiary"> · {{ formatIsoDate(record.created_at) }}</span>
+              <span class="mac-t-caption10 mac-c-secondary font-semibold">{{ humanizeStatus(run.first.event, t("memo.pending"), appLanguage) }}{{ run.count > 1 ? ` ×${run.count}` : "" }}</span>
+              <span class="mac-t-caption10 mac-mono mac-c-tertiary"> · {{ formatIsoDate(run.first.created_at) }}</span>
             </div>
           </div>
         </div>

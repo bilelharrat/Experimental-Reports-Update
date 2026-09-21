@@ -220,43 +220,19 @@ const memoSession = {
   },
 };
 
-const evidenceMatrix = {
-  claim_count: 2,
-  claims: [
-    {
-      claim: "Deployment evidence is mixed.",
-      status: "mixed",
-      confidence: "medium",
-      source_coverage: { supporting_count: 1, contradicting_count: 1, missing_count: 0 },
-      supporting_evidence: [{ task_id: "task-1", task_title: "Deployment proof", locator: "p.2", excerpt: "Only pilots were confirmed." }],
-      contradicting_evidence: [],
-    },
-    {
-      claim: "ARR evidence is missing.",
-      status: "missing",
-      confidence: "low",
-      source_coverage: { supporting_count: 0, contradicting_count: 0, missing_count: 1 },
-      supporting_evidence: [],
-      contradicting_evidence: [],
-    },
-  ],
-};
-
-const memoRunLedger = [
+// The app shell loads this list on every page (sidebar, jump menu, Research
+// Desk), so it must be an array, and a company page only opens a company
+// that is in it.
+const companies = [
+  { id: "generalist", name: "Generalist", files: [], report_type: "Investment Memo (Late-Stage)" },
   {
-    ledger_id: "memo_tools:generalist:session-1:research_task:task-1",
-    workspace: "memo_tools",
-    job_kind: "research_task",
-    artifact_id: "research_task:task-1",
-    company_id: "generalist",
-    session_id: "session-1",
-    run_id: "session-1/task-1",
-    status: "done",
-    updated_at: "2026-06-14T12:00:00Z",
-    duration_ms: 1234,
-    source_count: 1,
-    evidence_coverage: 1,
-    estimated_cost_usd: 0,
+    id: "public-ticker",
+    name: "Public Ticker Co",
+    ticker: "PTCO",
+    company_type: "public",
+    status: "public",
+    files: [],
+    trader_snapshot: null,
   },
 ];
 
@@ -267,6 +243,8 @@ async function mockApi(page) {
       "bsh.research.session",
       JSON.stringify({ token: "browser-smoke", expires_at: "2099-01-01T00:00:00Z" }),
     );
+    // The first-run welcome tour opens over every page until it is seen.
+    window.localStorage.setItem("bsh.welcomeTourSeen", "999");
   });
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -280,39 +258,37 @@ async function mockApi(page) {
     });
 
     if (path === "/api/auth/me") return json({ email: "browser@example.com" });
+    if (path === "/api/companies") return json(companies);
     if (path === "/api/reports") return json([]);
     if (path === "/api/external/feed") return json([]);
-    if (path === "/api/external/hormuz") return json([]);
     if (path === "/api/jobs/active") return json([]);
     if (path === "/api/stock-research") return json(stockPayload);
     if (path.startsWith("/api/stock-research/")) return json(stockPayload);
-    if (path === "/api/companies/generalist") {
-      return json({ id: "generalist", name: "Generalist", files: [], report_type: "Investment Memo (Late-Stage)" });
-    }
-    if (path === "/api/companies/public-ticker") {
-      return json({
-        id: "public-ticker",
-        name: "Public Ticker Co",
-        ticker: "PTCO",
-        company_type: "public",
-        status: "public",
-        files: [],
-        trader_snapshot: null,
-      });
-    }
-    if (path === "/api/options") {
-      return json({ report_types: ["Investment Memo (Late-Stage)"], audiences: ["Internal"], languages: ["en"] });
-    }
-    if (path === "/api/companies/generalist/threads") return json([]);
-    if (path === "/api/companies/public-ticker/threads") return json([]);
+    const company = companies.find((item) => path === `/api/companies/${item.id}`);
+    if (company) return json(company);
     if (path === "/api/companies/generalist/memo-analysis") return json(memoSession);
-    if (path === "/api/companies/generalist/memo-analysis/run-ledger") return json(memoRunLedger);
-    if (path === "/api/companies/generalist/evidence-matrix") return json(evidenceMatrix);
-    if (path.startsWith("/api/companies/generalist/memo-analysis/")) return json(memoSession);
+    // Firm-layer lists come back as { items }; the Decisions tab's IC room
+    // and comments cards throw on a bare {}.
+    if (path.endsWith("/ic/meetings") || path.endsWith("/comments")) return json({ items: [] });
     return json({});
   });
   return calls;
 }
+
+// An uncaught exception here nearly always means a mock no longer matches
+// what a page reads. Fail on the exception by name: otherwise it surfaces as
+// a missing heading, which is how a {} company list kept this file red for
+// months.
+let pageErrors = [];
+
+test.beforeEach(({ page }) => {
+  pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+});
+
+test.afterEach(() => {
+  expect(pageErrors).toEqual([]);
+});
 
 test("stock research tabs render and source forms submit against mocked API", async ({ page }) => {
   const calls = await mockApi(page);
@@ -321,33 +297,33 @@ test("stock research tabs render and source forms submit against mocked API", as
   await expect(page.getByRole("heading", { name: "Stock Research" })).toBeVisible();
   await expect(page.getByText("Latest Weekly Aggregate")).toBeVisible();
 
-  await page.getByRole("button", { name: "Work" }).click();
-  await page.getByRole("button", { name: "Trackers" }).click();
+  await page.getByRole("tab", { name: "Work" }).click();
+  await page.getByRole("tab", { name: "Trackers" }).click();
   await expect(page.getByText("AI demand remains the core debate.")).toBeVisible();
-  await page.getByRole("button", { name: "Sources" }).click();
+  await page.getByRole("tab", { name: "Sources" }).click();
   await expect(page.getByText("Transcript")).toBeVisible();
-  await page.getByRole("button", { name: "Runs" }).click();
+  await page.getByRole("tab", { name: "Runs" }).click();
   await expect(page.getByText("NVIDIA tracker report")).toBeVisible();
   await expect(page.getByText("Run history")).toBeVisible();
-  await page.getByRole("button", { name: "Pulse" }).click();
-  await page.getByRole("button", { name: "Weekly Aggregate" }).click();
+  await page.getByRole("tab", { name: "Pulse" }).click();
+  await page.getByRole("tab", { name: "Weekly Aggregate" }).click();
   await expect(page.getByText("AI infrastructure demand remains the key signal.")).toBeVisible();
-  await page.getByRole("button", { name: "Strategy Map" }).click();
+  await page.getByRole("tab", { name: "Strategy Map" }).click();
   await expect(page.getByText("Demand conflicts with supply-chain checks.")).toBeVisible();
-  await page.getByRole("button", { name: "Work" }).click();
-  await page.getByRole("button", { name: "Deliverables" }).click();
+  await page.getByRole("tab", { name: "Work" }).click();
+  await page.getByRole("tab", { name: "Deliverables" }).click();
   await expect(page.getByText("NVIDIA tracker report")).toBeVisible();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Review Queue" }).click();
+  await page.getByRole("tab", { name: "Review", exact: true }).click();
+  await page.getByRole("tab", { name: "Review Queue" }).click();
   await expect(page.getByText("No official source attached")).toBeVisible();
-  await page.getByRole("button", { name: "Evaluation" }).click();
+  await page.getByRole("tab", { name: "Evaluation" }).click();
   await expect(page.getByText("42 ms")).toBeVisible();
-  await page.getByRole("button", { name: "Hypotheses" }).click();
+  await page.getByRole("tab", { name: "Hypotheses" }).click();
   await expect(page.getByText("AI demand remains resilient.")).toBeVisible();
   await expect(page.getByText("forward_live")).toBeVisible();
 
-  await page.getByRole("button", { name: "Work" }).click();
-  await page.getByRole("button", { name: "Sources" }).click();
+  await page.getByRole("tab", { name: "Work" }).click();
+  await page.getByRole("tab", { name: "Sources" }).click();
   await page.getByPlaceholder("Link title").fill("Company transcript");
   await page.getByPlaceholder("https://source.example").fill("https://example.com/transcript");
   await page.getByPlaceholder("Source notes").fill("Official transcript notes.");
@@ -358,7 +334,10 @@ test("stock research tabs render and source forms submit against mocked API", as
   await page.getByRole("button", { name: "Add Note" }).click();
 
   await page.getByPlaceholder("File title").fill("Uploaded transcript");
-  await page.locator("input[type='file']").setInputFiles({
+  // The app shell keeps hidden file inputs of its own (toolbar Add, pitch-deck
+  // intake), so target the one in this page's "Assign Source" panel.
+  const sourcePanel = page.locator("aside").filter({ has: page.getByRole("heading", { name: "Assign Source" }) });
+  await sourcePanel.locator("input[type='file']").setInputFiles({
     name: "transcript.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("source text"),
@@ -370,41 +349,44 @@ test("stock research tabs render and source forms submit against mocked API", as
   await expect.poll(() => calls.filter((call) => call.path === "/api/stock-research/sources/upload").length).toBe(1);
 });
 
-test("memo tools analysis route renders panels and submits a mocked task action", async ({ page }) => {
+test("company desk IC prep loads the memo session and runs an analysis tool", async ({ page }) => {
   const calls = await mockApi(page);
-  await page.goto("/research/research/generalist?tab=analysis");
+  await page.goto("/research/research/generalist?section=decisions");
 
-  await expect(page.getByRole("heading", { name: "Memo Studio" })).toBeVisible();
-  await expect(page.getByText("Core Memo Workflow")).toBeVisible();
-  await expect(page.getByText("Deployment depth remains unproven.").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Generalist" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Decisions", exact: true })).toHaveClass(/is-active/);
 
-  await page.getByText("Evidence, Ledger, And Source Boundaries").click();
-  await expect(page.getByText("Memo Run Ledger")).toBeVisible();
-  await expect(page.getByText("Deployment evidence is mixed.")).toBeVisible();
+  // IC prep stays collapsed until asked, because loading it opens a memo
+  // session on the server.
+  const icPrep = page.locator(".mac-card").filter({ has: page.getByText("IC prep", { exact: true }) });
+  await expect(icPrep.getByText("Readiness gates, risk cards and analysis tools")).toBeVisible();
+  expect(calls.some((call) => call.path === "/api/companies/generalist/memo-analysis")).toBe(false);
 
-  await page.getByText("Optional Memo Tools").click();
-  await expect(page.getByText("Chart Plan Builder")).toBeVisible();
+  await icPrep.getByRole("button", { name: "Load IC prep" }).click();
+  await expect(icPrep.getByText("6/7 gates")).toBeVisible();
+  await expect(icPrep.getByText("Thesis spine drafted")).toBeVisible();
+  await expect(icPrep.getByText("Risk cards (1, 1 open)")).toBeVisible();
+  await expect(icPrep.getByText("Customer proof")).toBeVisible();
+  await expect(icPrep.getByText("Strategic Risk Mapper")).toBeVisible();
 
-  await page.getByText("After Memo").click();
-  await expect(page.getByText("Require source traces.").first()).toBeVisible();
-
-  await page.getByText("Visual, Narrative, And Benchmark Tools").click();
-  await expect(page.getByText("Choose visual mode.").first()).toBeVisible();
-
-  await page.getByRole("button", { name: "Run selected" }).click();
+  // Chart Plan Builder is the only tool not run yet, so it holds the one "Run".
+  await icPrep.getByRole("button", { name: "Run", exact: true }).click();
   await expect.poll(() =>
-    calls.filter((call) => call.path === "/api/companies/generalist/memo-analysis/research-tasks/run-selected").length,
+    calls.filter((call) =>
+      call.method === "POST" && call.path === "/api/companies/generalist/memo-analysis/tools/chart_spec_builder/run",
+    ).length,
   ).toBe(1);
-  await expect(page).toHaveURL(/\/research\/research\/generalist\?tab=analysis/);
+  await expect(page).toHaveURL(/\/research\/research\/generalist\?section=decisions$/);
 });
 
-test("public ticker analysis deep link hides memo tools", async ({ page }) => {
-  const calls = await mockApi(page);
+test("analysis deep link opens a public ticker's dossier on the overview", async ({ page }) => {
+  await mockApi(page);
   await page.goto("/research/research/public-ticker?tab=analysis");
 
-  await expect(page.getByText("Public Ticker Co")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Memo Studio" })).toHaveCount(0);
-  await expect(page.getByText("Core Memo Workflow")).toHaveCount(0);
-  await expect(page).toHaveURL(/\/research\/research\/public-ticker$/);
-  expect(calls.some((call) => call.path.includes("/memo-analysis"))).toBe(false);
+  await expect(page.getByRole("heading", { level: 1, name: "Public Ticker Co" })).toBeVisible();
+  await expect(page.getByText("PTCO · Public")).toBeVisible();
+  // The desk has no analysis tab, so a ?tab=analysis link (the jobs rail
+  // still sends Memo Studio jobs there) opens Overview, which carries the
+  // Memo Studio cards.
+  await expect(page.getByRole("button", { name: "Overview", exact: true })).toHaveClass(/is-active/);
 });

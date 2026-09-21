@@ -89,7 +89,7 @@ public struct MacResearchDeskView: View {
             }
         }
         .onChange(of: store.companies) { _, newComps in
-            if store.selectedCompany == nil, let first = newComps.first {
+            if store.selectedCompany == nil, let first = store.defaultCompany(in: newComps) {
                 store.selectedCompany = first
             }
         }
@@ -263,6 +263,16 @@ public struct CompanyDossierView: View {
         activeSection == .all || sections.contains(activeSection)
     }
 
+    /// Listed on an exchange — a ticker or a public status, unless the record
+    /// says private — the same rule as the server, the web and the Mac. A
+    /// listed name's Overview leads with earnings and filings; its deal
+    /// pipeline stays one tab away for anyone tracking it as a deal.
+    private var isListed: Bool {
+        let status = (company.status ?? "").lowercased()
+        if status == "private" { return false }
+        return !(company.ticker ?? "").trimmingCharacters(in: .whitespaces).isEmpty || status == "public"
+    }
+
     private var companyReports: [MacReport] {
         store.reports(for: company.id)
     }
@@ -283,7 +293,7 @@ public struct CompanyDossierView: View {
                             Text(company.name ?? company.id)
                                 .font(.title3.weight(.bold))
                                 .lineLimit(1)
-                            if let stage = store.dealPipelines[company.id]?.stage {
+                            if !isListed, let stage = store.dealPipelines[company.id]?.stage {
                                 MacStatusPill(text: stage, color: .accentColor)
                             }
                         }
@@ -335,8 +345,13 @@ public struct CompanyDossierView: View {
                     MacSignalScoreView(companyId: company.id)
                 }
 
+                // A listed company's next report, quarters and SEC filings
+                if isListed && shows(.overview) {
+                    MacEarningsFilingsView(company: company).id(company.id)
+                }
+
                 // Deal Pipeline card
-                if shows(.pipeline, .overview) {
+                if isListed ? shows(.pipeline) : shows(.pipeline, .overview) {
                     MacDealPipelineView(company: company)
                 }
 
@@ -419,7 +434,7 @@ public struct CompanyDossierView: View {
                     .appleGlassCard(cornerRadius: 14)
 
                     // Embedded Memo Studio
-                    MacMemoStudioView(company: company)
+                    MacMemoStudioView(company: company, onInvestigate: onNewReport)
                 }
 
                 // Decisions Timeline

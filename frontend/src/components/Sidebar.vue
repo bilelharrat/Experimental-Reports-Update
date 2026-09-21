@@ -12,6 +12,7 @@ import {
   FileText,
   Gauge,
   Home,
+  LogIn,
   LogOut,
   Newspaper,
   PanelLeft,
@@ -22,7 +23,15 @@ import {
 } from "lucide-vue-next";
 import { companyStatusLine, sortCompanies } from "../companyLists.js";
 import { useT } from "../i18n.js";
-import { isAnonDev, sessionEmail, sessionInitials, sessionName, signOut } from "../auth.js";
+import {
+  isAnonDev,
+  isSignedIn,
+  sessionEmail,
+  sessionInitials,
+  sessionName,
+  signInRoute,
+  signOut,
+} from "../auth.js";
 import { useMediaQuery } from "../chrome.js";
 import { useGlider } from "../glassMotion.js";
 import AiMark from "./AiMark.vue";
@@ -322,7 +331,9 @@ async function onSignOut() {
   closeMenus();
   try {
     await signOut();
-    router?.push({ name: "login" });
+    // To the sign-in form even on an anon-dev server, whose login route
+    // would otherwise bounce straight back into the app.
+    router?.push(signInRoute());
   } finally {
     signingOut.value = false;
   }
@@ -729,6 +740,7 @@ onBeforeUnmount(() => {
             {{ t("app.settings") }}
           </RouterLink>
           <button
+            v-if="isSignedIn"
             type="button"
             class="toolbar-menu-item hairline-t"
             role="menuitem"
@@ -738,6 +750,18 @@ onBeforeUnmount(() => {
             <LogOut class="h-4 w-4 shrink-0 text-ink-muted" />
             {{ t("auth.sign_out") }}
           </button>
+          <!-- Nobody is signed in: the desk is open through the local
+               anon-dev bypass, so there is nothing to sign out of. -->
+          <RouterLink
+            v-else
+            :to="signInRoute(route?.fullPath)"
+            class="toolbar-menu-item hairline-t"
+            role="menuitem"
+            @click="onNavigate"
+          >
+            <LogIn class="h-4 w-4 shrink-0 text-ink-muted" />
+            {{ t("auth.sign_in") }}
+          </RouterLink>
         </div>
       </div>
     </div>

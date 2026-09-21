@@ -1,6 +1,6 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { nextTick } from "vue";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import Sidebar from "../src/components/Sidebar.vue";
 import { session } from "../src/auth.js";
@@ -206,6 +206,60 @@ describe("Sidebar", () => {
       expect(wrapper.text()).toContain("Sign out");
     } finally {
       session.value = null;
+    }
+  });
+
+  it("offers Sign in, not Sign out, when the desk is open with nobody signed in", async () => {
+    // A server running the local anon-dev bypass opens the desk without a
+    // sign-in, so there is nothing to sign out of.
+    document.head.innerHTML = '<meta name="bsh-research-anon-dev" content="1">';
+    try {
+      const wrapper = mountSidebar();
+      await wrapper.get('button[aria-label="Account"]').trigger("click");
+
+      expect(wrapper.text()).not.toContain("Sign out");
+      const signIn = wrapper
+        .findAllComponents(RouterLinkStub)
+        .find((link) => link.text() === "Sign in");
+      // The login route sends an anon-dev browser straight back into the
+      // app; the flag asks for the form.
+      expect(signIn.props("to")).toEqual({ name: "login", query: { switch: "1", next: "/" } });
+    } finally {
+      document.head.innerHTML = "";
+    }
+  });
+
+  it("signs out to the sign-in form, then offers Sign in", async () => {
+    document.head.innerHTML = '<meta name="bsh-research-anon-dev" content="1">';
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    session.value = {
+      token: "test-token",
+      email: "elina.sun@bshfoundation.org",
+      expires_at: "2999-01-01T00:00:00Z",
+    };
+    try {
+      const wrapper = mountSidebar();
+      const account = wrapper.get('button[aria-label="Account"]');
+      await account.trigger("click");
+      await wrapper
+        .findAll("button")
+        .find((button) => button.text() === "Sign out")
+        .trigger("click");
+      await flushPromises();
+
+      expect(session.value).toBeNull();
+      expect(wrapper.vm.$router.currentRoute.value).toMatchObject({
+        name: "login",
+        query: { switch: "1" },
+      });
+
+      await account.trigger("click");
+      expect(wrapper.text()).toContain("Sign in");
+      expect(wrapper.text()).not.toContain("Sign out");
+    } finally {
+      session.value = null;
+      vi.unstubAllGlobals();
+      document.head.innerHTML = "";
     }
   });
 

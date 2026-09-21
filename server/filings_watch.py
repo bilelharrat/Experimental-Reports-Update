@@ -7,6 +7,7 @@ Nasdaq earnings-surprise for the last report and an estimated next date. Cached 
 from __future__ import annotations
 
 import json
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -90,7 +91,25 @@ def _recent_filings(cik: int, fetch: Fetch, *, today: date) -> list[dict]:
             "material": form.startswith("8-K") or form in {"10-K", "10-Q", "S-1", "424B4"},
         })
     out.sort(key=lambda f: f["filed"], reverse=True)
-    return out[:12]
+    # Material filings first, then the rest, still newest-first within the
+    # cut: a large company files a Form 4 every few days, and a plain date
+    # cut let a month of insider trades push its 10-Q out of view.
+    material = [f for f in out if f["material"]]
+    rest = [f for f in out if not f["material"]]
+    kept = material + rest[: max(0, 12 - len(material))]
+    kept.sort(key=lambda f: f["filed"], reverse=True)
+    return kept
+
+
+def _filings_for(ticker: str, cik_map: dict, fetch: Fetch, *, today: date) -> tuple[dict, list[dict], str | None]:
+    """EDGAR entry, recent watched filings and any error, for one ticker."""
+    entry = cik_map.get(ticker) or (cik_map.get(ticker.replace(".", "-")) if "." in ticker else None) or {}
+    if not entry.get("cik"):
+        return entry, [], "No CIK for ticker (not SEC-registered or ticker map unavailable)"
+    try:
+        return entry, _recent_filings(int(entry["cik"]), fetch, today=today), None
+    except Exception as exc:  # noqa: BLE001
+        return entry, [], f"EDGAR unavailable: {exc}"
 
 
 def _earnings(ticker: str, fetch: Fetch) -> dict:
@@ -112,16 +131,7 @@ def build(*, tickers: list[str] | None = None, fetch: Fetch | None = None, today
         cik_map = {}
     rows = []
     for ticker in tickers:
-        entry = cik_map.get(ticker) or (cik_map.get(ticker.replace(".", "-")) if "." in ticker else None) or {}
-        filings: list[dict] = []
-        error = None
-        if entry.get("cik"):
-            try:
-                filings = _recent_filings(int(entry["cik"]), fetch, today=today)
-            except Exception as exc:  # noqa: BLE001
-                error = f"EDGAR unavailable: {exc}"
-        else:
-            error = "No CIK for ticker (not SEC-registered or ticker map unavailable)"
+        entry, filings, error = _filings_for(ticker, cik_map, fetch, today=today)
         earnings = _earnings(ticker, fetch)
         next_date = earnings.get("next_date")
         days_to = None
@@ -179,4 +189,77 @@ def get(*, refresh: bool = False, fetch: Fetch | None = None) -> dict:
     return result
 
 
-__all__ = ["build", "get", "watched_tickers", "Any"]
+def _keep_material(filings: list[dict], limit: int) -> list[dict]:
+    """The newest ``limit`` filings, never dropping a material one for an
+    insider trade."""
+    material = [f for f in filings if f.get("material")]
+    rest = [f for f in filings if not f.get("material")]
+    kept = material[:limit] + rest[: max(0, limit - len(material))]
+    return sorted(kept, key=lambda f: f.get("filed") or "", reverse=True)
+
+
+_TICKER_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_CACHE_LOCK = threading.Lock()
+
+
+def for_ticker(
+    ticker: str,
+    *,
+    refresh: bool = False,
+    fetch: Fetch | None = None,
+    today: date | None = None,
+) -> dict:
+    """One ticker's earnings and filings, for that company's own page.
+
+    ``get()`` rebuilds every watched ticker whenever its cache is stale —
+    a dozen EDGAR and Nasdaq round trips — which is far too much to pay for
+    opening one dossier. This fetches the one ticker and keeps the answer in
+    memory for ``CACHE_TTL_S``. It also keeps the last four reported
+    quarters, actual EPS against the consensus estimate, which the desk-wide
+    table reduces to a single surprise figure.
+    """
+    symbol = str(ticker or "").strip().upper()
+    cacheable = fetch is None and today is None
+    if cacheable and not refresh:
+        with _TICKER_CACHE_LOCK:
+            hit = _TICKER_CACHE.get(symbol)
+        if hit and time.time() - hit[0] < CACHE_TTL_S:
+            return hit[1]
+    fetch = fetch or _default_fetch
+    today = today or date.today()
+    try:
+        cik_map = _ticker_map(fetch)
+    except Exception:  # noqa: BLE001
+        cik_map = {}
+    entry, filings, error = _filings_for(symbol, cik_map, fetch, today=today)
+    earnings = _earnings(symbol, fetch)
+    next_date = earnings.get("next_date")
+    try:
+        days_to = (date.fromisoformat(next_date) - today).days if next_date else None
+    except ValueError:
+        days_to = None
+    result = {
+        "ticker": symbol,
+        "company_name": entry.get("name"),
+        "generated_at": _now(),
+        "earnings": {
+            "next_date": next_date,
+            "next_estimated": bool(earnings.get("next_estimated")),
+            "days_to_next": days_to,
+            "history": [
+                {k: row.get(k) for k in ("period", "reported", "eps", "estimate", "surprise_pct")}
+                for row in (earnings.get("past") or [])[:4]
+            ],
+        },
+        "filings": _keep_material(filings, 8),
+        "material_count": sum(1 for f in filings if f.get("material")),
+        "error": error,
+        "note": "Filings: SEC EDGAR, last 90 days. The next earnings date is Nasdaq's last report + 91 days unless confirmed.",
+    }
+    if cacheable:
+        with _TICKER_CACHE_LOCK:
+            _TICKER_CACHE[symbol] = (time.time(), result)
+    return result
+
+
+__all__ = ["build", "for_ticker", "get", "watched_tickers", "Any"]

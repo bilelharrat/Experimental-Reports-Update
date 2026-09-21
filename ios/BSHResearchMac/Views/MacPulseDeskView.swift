@@ -59,8 +59,18 @@ struct MacPulseDeskView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         MacCardHeader("Macro takeaways", systemImage: "sparkles")
 
-                        Text(headline)
-                            .font(.title3.weight(.bold))
+                        // Front-page order, as on the web: headline, then dek.
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(headline)
+                                .font(.system(.title, design: .serif).weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let dek = note.dek(zh: zh) {
+                                Text(dek)
+                                    .font(.system(.title3, design: .serif))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
 
                         Divider()
 

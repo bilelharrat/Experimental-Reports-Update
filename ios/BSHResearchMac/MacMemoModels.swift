@@ -124,16 +124,29 @@ struct MacFounderDossier: Hashable, Codable {
     let developerTraction: MacDeveloperTraction?
     let searchedAt: String?
     let isDeepAudited: Bool?
+    /// Which engine researched the team ("gemini") and with what model; nil
+    /// when the dossier is only the company record.
+    let engine: String?
+    let model: String?
+    let sources: [MacDossierSource]?
+    /// Set when a research pass failed; the record-built people still show.
+    let researchError: String?
 
     enum CodingKeys: String, CodingKey {
-        case founders
+        case founders, engine, model, sources
         case companyId = "company_id"
         case advisorsAndBoard = "advisors_and_board"
         case teamHeadcount = "team_headcount"
         case developerTraction = "developer_traction"
         case searchedAt = "searched_at"
         case isDeepAudited = "is_deep_audited"
+        case researchError = "research_error"
     }
+}
+
+struct MacDossierSource: Hashable, Codable {
+    let title: String?
+    let url: String?
 }
 
 // MARK: - Deal Pipeline & Affinity-Grade CRM Models
@@ -148,6 +161,10 @@ struct MacDealPipeline: Hashable, Codable {
     var daysInStage: Int
     var lastTouchpoint: String?
     var nextStep: String?
+    /// YYYY-MM-DD the next step is due by.
+    var nextStepDue: String?
+    /// Server-computed: a next step past its due date.
+    var nextStepOverdue: Bool?
     let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
@@ -159,6 +176,8 @@ struct MacDealPipeline: Hashable, Codable {
         case daysInStage = "days_in_stage"
         case lastTouchpoint = "last_touchpoint"
         case nextStep = "next_step"
+        case nextStepDue = "next_step_due"
+        case nextStepOverdue = "next_step_overdue"
         case updatedAt = "updated_at"
     }
 }
@@ -1385,6 +1404,10 @@ struct MacMemoEditorCard: Identifiable, Hashable, Codable {
     var sourceClass: String?
     var bullets: [MacMemoEditorBullet]
     var sourceRefs: [MacMemoEditorSourceRef]?
+    /// Built from the company record, not researched: the server marks the
+    /// template cards an un-investigated company starts with, and clears the
+    /// mark when someone writes into the card or an investigation replaces it.
+    var placeholder: Bool = false
 
     init(
         id: String = UUID().uuidString,
@@ -1415,7 +1438,7 @@ struct MacMemoEditorCard: Identifiable, Hashable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, category, severity, likelihood, rating, confidence, included, expanded, bullets
+        case id, title, category, severity, likelihood, rating, confidence, included, expanded, bullets, placeholder
         case sourceClass = "source_class"
         case sourceRefs = "source_refs"
     }
@@ -1434,6 +1457,7 @@ struct MacMemoEditorCard: Identifiable, Hashable, Codable {
         sourceClass = try c.decodeIfPresent(String.self, forKey: .sourceClass)
         bullets = (try c.decodeIfPresent([MacMemoEditorBullet].self, forKey: .bullets)) ?? []
         sourceRefs = try c.decodeIfPresent([MacMemoEditorSourceRef].self, forKey: .sourceRefs)
+        placeholder = (try? c.decodeIfPresent(Bool.self, forKey: .placeholder)) ?? false
     }
 
     var isCardIncluded: Bool { included ?? true }
@@ -1531,9 +1555,27 @@ struct MacMemoEditorState: Identifiable, Hashable, Codable {
     let createdAt: String?
     let updatedAt: String?
     var sections: MacMemoEditorSections
+    /// Set once an investigation has seeded the cards; nil means everything
+    /// in the editor is still the company-record template or hand-written.
+    let agentRun: AgentRun?
+
+    struct AgentRun: Hashable, Codable {
+        let mode: String?
+        let seededAt: String?
+        enum CodingKeys: String, CodingKey {
+            case mode
+            case seededAt = "seeded_at"
+        }
+    }
+
+    var templateCardCount: Int {
+        (sections.investmentThesis?.cards ?? []).filter(\.placeholder).count
+            + (sections.risksMitigations?.cards ?? []).filter(\.placeholder).count
+    }
 
     enum CodingKeys: String, CodingKey {
         case version, revision, status, sections
+        case agentRun = "agent_run"
         case schemaVersion = "schema_version"
         case companyId = "company_id"
         case companyName = "company_name"

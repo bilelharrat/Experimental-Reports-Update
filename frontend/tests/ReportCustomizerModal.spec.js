@@ -371,4 +371,21 @@ describe("ReportCustomizerModal", () => {
       expect(wrapper.find(`[data-testid="quality-${id}"]`).attributes("disabled")).toBeUndefined();
     }
   });
+
+  it("opens on Memo Studio review when the desk asks for a Deep Investigate", async () => {
+    const wrapper = mountModal({ open: false });
+    expect(wrapper.text()).not.toContain("Studio Paused");
+
+    await wrapper.setProps({ open: true, initialGenerationMode: "studio_review" });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Studio Paused");
+  });
+
+  it("keeps One-Click as the default otherwise", async () => {
+    const wrapper = mountModal({ open: false });
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Autonomous");
+  });
 });

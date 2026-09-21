@@ -543,3 +543,31 @@ def test_the_firm_desk_can_be_adopted_once(monkeypatch):
     assert desk_store.load_prefs(owner="op@example.com")["data"]["bsh.marketPinnedTickers"] == ["NVDA"]
     # And nobody is adopted by accident.
     assert desk_store.adopt_firm_prefs("") is False
+
+
+def test_profile_reports_the_company_records_figures():
+    """The profile reads the labelled metric rows the memo snapshot quotes,
+    so the card cannot show "ARR —" beside a memo that says $24M."""
+    from server import company_profile
+
+    company = {
+        "id": "zainar-test",
+        "name": "ZaiNar Test",
+        "metrics": [
+            {"label": "ARR", "value": "~$24M", "as_of": "2026-06-13", "source_class": "BSH diligence"},
+            {"label": "YoY Growth", "value": "+180%", "as_of": "2026-06-13"},
+            {"label": "Headcount", "value": "140"},
+            {"label": "ARR", "value": "older duplicate"},
+            {"label": "Runway", "value": ""},
+        ],
+    }
+    reported = company_profile._reported_metrics(company)
+    assert reported["arr"] == {
+        "label": "ARR",
+        "value": "~$24M",
+        "as_of": "2026-06-13",
+        "source_class": "BSH diligence",
+    }
+    assert reported["growth"]["value"] == "+180%"
+    # unknown labels and empty values are not reported; the first ARR row wins
+    assert set(reported) == {"arr", "growth"}
