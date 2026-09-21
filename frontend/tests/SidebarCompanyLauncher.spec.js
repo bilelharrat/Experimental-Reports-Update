@@ -360,6 +360,28 @@ describe("Sidebar company launcher", () => {
     expect(launcher()).toBeNull();
   });
 
+  it("renders into the app's own overlay layer, with the sidebar raised over it", async () => {
+    // App.vue's #app-overlays sits inside the app's stacking context, so the
+    // sidebar's menus, the sheets and the palette can stack above the
+    // launcher; <body> would put it over all of them.
+    const layer = document.createElement("div");
+    layer.id = "app-overlays";
+    document.body.appendChild(layer);
+    await mountSidebar();
+    const aside = wrapper.get("aside");
+    expect(aside.classes()).toContain("lg:z-20");
+
+    await open("intc");
+    expect(layer.contains(launcher())).toBe(true);
+    // Over the launcher (z-45) while it is open: the rail's account menu
+    // opens out to the right, across it.
+    expect(aside.classes()).toContain("lg:z-[46]");
+    expect(aside.classes()).not.toContain("lg:z-20");
+
+    await press("Escape");
+    expect(aside.classes()).toContain("lg:z-20");
+  });
+
   it("a modified click keeps the plain link (new tab) and opens nothing", async () => {
     await mountSidebar();
     await companyRow("intc").trigger("click", { button: 0, metaKey: true });

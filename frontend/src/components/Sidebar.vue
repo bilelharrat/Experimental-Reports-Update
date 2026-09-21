@@ -317,6 +317,16 @@ const launcherCompany = computed(() => {
 // screen when the sidebar is a drawer.
 const launcherLeft = computed(() => (isDesktop.value ? (collapsed.value ? 76 : 268) : 0));
 
+// It renders into App.vue's #app-overlays, inside the app's stacking layer,
+// so this sidebar (raised over it while it is open), the sheets and the ⌘K
+// palette stack above it by z-index. <body> would put it over all of them.
+// Found once mounted, when the whole app is in the document; a sidebar
+// mounted on its own (tests) falls back to <body>.
+const overlayTarget = ref(null);
+onMounted(() => {
+  overlayTarget.value = document.getElementById("app-overlays") || document.body;
+});
+
 function onCompanyRowClick(event, company) {
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
     return;
@@ -422,11 +432,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- While the company launcher (z-45) covers the content column, the
+       sidebar rises above it: the two never overlap, but the sidebar's own
+       menus do — the rail's account menu opens out to its right. -->
   <aside
-    class="fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:max-w-none lg:translate-x-0"
+    class="fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:h-screen lg:max-w-none lg:translate-x-0"
     :class="[
       collapsed ? 'lg:w-[76px]' : 'lg:w-[268px]',
       mobileOpen ? 'translate-x-0' : '-translate-x-[108%]',
+      launcherCompany ? 'lg:z-[46]' : 'lg:z-20',
     ]"
     :data-collapsed="collapsed ? 'true' : 'false'"
     :inert="(!isDesktop && !mobileOpen) || undefined"
@@ -835,7 +849,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <Teleport to="body">
+    <Teleport v-if="overlayTarget" :to="overlayTarget">
       <Transition name="launcher">
         <CompanyLauncher
           v-if="launcherCompany"
