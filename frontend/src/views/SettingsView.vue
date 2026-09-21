@@ -59,11 +59,12 @@ const MEMO_PARALLEL_OPTIONS = [1, 2, 3, 4];
 // dossier, the daily desk note and the company news sweep. Desk-wide, not
 // per-user: it decides where the workspace spends. Memos are NOT affected;
 // their engine is picked per run in the report customizer.
-const RESEARCH_ENGINE_OPTIONS = ["gemini", "gemini-only", "claude"];
+// Claude first: it is the default until someone chooses Gemini here.
+const RESEARCH_ENGINE_OPTIONS = ["claude", "gemini", "gemini-only"];
 // Unset means nothing has been chosen here yet, so the server is still
-// falling back to BSH_AI_ENGINE and then its own default.
+// falling back to BSH_AI_ENGINE and then its own default, which is Claude.
 const researchEngine = computed(
-  () => prefs.value.research_engine || "gemini",
+  () => prefs.value.research_engine || "claude",
 );
 const account = computed(() => profile.value?.account || settings.value?.account || {});
 const team = computed(() => profile.value?.team || {});

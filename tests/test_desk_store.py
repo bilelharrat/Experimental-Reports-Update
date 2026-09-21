@@ -399,6 +399,20 @@ def test_research_engine_setting_beats_the_env_pin(monkeypatch, tmp_path):
     assert ai_engine.policy() == "gemini-only"
 
 
+def test_research_engine_defaults_to_claude_until_someone_picks_gemini(monkeypatch, tmp_path):
+    from server import ai_engine, product_store, storage
+
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
+    monkeypatch.delenv("BSH_AI_ENGINE", raising=False)
+
+    # nothing chosen anywhere: Claude, and Gemini is never called
+    assert product_store.research_engine() is None
+    assert ai_engine.policy() == "claude"
+
+    product_store.update_preferences(None, {"research_engine": "gemini"})
+    assert ai_engine.policy() == "gemini"
+
+
 def test_research_engine_rejects_an_unknown_engine(monkeypatch, tmp_path):
     import pytest as _pytest
 

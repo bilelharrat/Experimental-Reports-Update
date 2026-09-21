@@ -324,7 +324,26 @@ def test_timeout_is_an_error_not_a_raise(monkeypatch, key):
 # ---- engine policy --------------------------------------------------------
 
 
-def test_default_policy_prefers_gemini(monkeypatch, key):
+def test_default_policy_is_claude_and_never_calls_gemini(monkeypatch, key):
+    """Claude answers until someone chooses Gemini — even with a key set."""
+    calls = []
+    _stub_post(monkeypatch, [], calls)
+    monkeypatch.setattr(
+        ai_engine.claude_runner,
+        "run_structured_prompt",
+        lambda **_kw: ({"headline": "c"}, None),
+    )
+    data, meta, error = ai_engine.structured(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="t"
+    )
+    assert error is None and data == {"headline": "c"}
+    assert meta["engine"] == "claude"
+    assert meta["fallback_reason"] is None
+    assert calls == []
+
+
+def test_gemini_policy_tries_gemini_first(monkeypatch, key):
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
     _stub_post(monkeypatch, [_response(200, _envelope('{"headline": "g"}'))])
     monkeypatch.setattr(
         ai_engine.claude_runner,
@@ -340,6 +359,7 @@ def test_default_policy_prefers_gemini(monkeypatch, key):
 
 
 def test_gemini_failure_falls_back_to_claude_and_records_why(monkeypatch, key):
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
     _stub_post(monkeypatch, [_response(403, {"error": {"message": "key revoked"}})])
     monkeypatch.setattr(
         ai_engine.claude_runner,
@@ -355,7 +375,7 @@ def test_gemini_failure_falls_back_to_claude_and_records_why(monkeypatch, key):
 
 
 def test_missing_key_falls_back_to_claude(monkeypatch, no_key):
-    monkeypatch.delenv("BSH_AI_ENGINE", raising=False)
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
     monkeypatch.setattr(
         ai_engine.claude_runner,
         "run_structured_prompt",
@@ -403,6 +423,7 @@ def test_claude_policy_skips_gemini_entirely(monkeypatch, key):
 
 
 def test_grounded_fallback_reports_no_sources(monkeypatch, key):
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
     _stub_post(monkeypatch, [_response(500, {"error": {"message": "boom"}})] * gemini_runner.MAX_ATTEMPTS)
     monkeypatch.setattr(gemini_runner.time, "sleep", lambda _s: None)
     monkeypatch.setattr(
@@ -497,7 +518,7 @@ def test_unsupported_schema_keywords_are_stripped_before_sending(monkeypatch, ke
 def test_availability_does_not_depend_on_the_claude_cli(monkeypatch, key):
     """A Gemini key with no CLI installed is a working setup. The pre-Gemini
     check would have left background loops switched off."""
-    monkeypatch.delenv("BSH_AI_ENGINE", raising=False)
+    monkeypatch.setenv("BSH_AI_ENGINE", "gemini")
     monkeypatch.setattr(ai_engine.claude_runner, "is_available", lambda: False)
     assert ai_engine.available() is True
 

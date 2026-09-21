@@ -1,8 +1,9 @@
-"""Engine selection for the research surfaces that run on Gemini Flash.
+"""Engine selection for the web-grounded research surfaces.
 
 Three surfaces — the founder/team dossier, the daily desk note, and the
-company news sweep — run on Gemini Flash with Claude as the fallback. This
-module owns that policy so the call sites stay about their own domain.
+company news sweep — run on Claude unless someone switches the workspace to
+Gemini in Settings (or a deployment pins ``BSH_AI_ENGINE``). This module owns
+that policy so the call sites stay about their own domain.
 
 The fallback is deliberately **not** silent: every call returns a ``meta``
 dict recording which engine actually produced the answer and, when Gemini
@@ -11,9 +12,9 @@ degraded answer is visible in the UI and in the stored record rather than
 looking like a normal Gemini result.
 
 ``BSH_AI_ENGINE`` picks the policy:
-- ``gemini`` (default) — Gemini first, Claude on failure.
+- ``claude`` (default) — Claude only; Gemini is never called.
+- ``gemini`` — Gemini first, Claude on failure.
 - ``gemini-only`` — Gemini only; a failure is an error, no Claude spend.
-- ``claude`` — Claude only, exactly the pre-Gemini behavior.
 """
 from __future__ import annotations
 
@@ -25,7 +26,9 @@ from . import claude_runner, gemini_runner
 logger = logging.getLogger(__name__)
 
 POLICIES = ("gemini", "gemini-only", "claude")
-DEFAULT_POLICY = "gemini"
+# Claude unless someone chooses Gemini: an engine that answers the research
+# desk is a choice a person makes, not something a workspace starts on.
+DEFAULT_POLICY = "claude"
 
 
 def policy() -> str:
@@ -36,7 +39,7 @@ def policy() -> str:
        that silently overrode them would be indistinguishable from a bug.
     2. ``BSH_AI_ENGINE``, which is how a deployment sets the starting
        position and how this worked before the setting existed.
-    3. ``gemini``.
+    3. ``claude``.
 
     Imported lazily: product_store pulls in claude_runner and the storage
     layer, and this module is imported from call sites that have no
