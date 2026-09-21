@@ -408,12 +408,19 @@ onBeforeUnmount(() => {
             data-testid="launcher-quote"
             @click="go('market')"
           >
-            <div class="flex items-center justify-end gap-2">
+            <!-- One short strip, no taller than the name beside it: price and
+                 today's move over the Market link; the chart over its range. -->
+            <span class="launcher-quote-price">
               <span class="launcher-price mono-data">{{ price }}</span>
-              <span v-if="dayPct != null" class="price-pill" :data-up="dayPct >= 0 ? 'true' : 'false'">
+              <span
+                v-if="dayPct != null"
+                class="price-pill"
+                :data-up="dayPct >= 0 ? 'true' : 'false'"
+                :title="t('launcher.today')"
+              >
                 {{ signedPct(dayPct) }}
               </span>
-            </div>
+            </span>
             <svg
               v-if="spark.line"
               class="launcher-spark"
@@ -439,19 +446,13 @@ onBeforeUnmount(() => {
                 vector-effect="non-scaling-stroke"
               />
             </svg>
-            <div class="launcher-quote-sub">
-              <span class="launcher-quote-open">
-                {{ t("launcher.market") }}
-                <ArrowUpRight class="h-3 w-3" aria-hidden="true" />
-              </span>
-              <span class="flex gap-1.5">
-                <span>{{ t("launcher.today") }}</span>
-                <template v-if="sparkPct != null">
-                  <span aria-hidden="true">·</span>
-                  <span>{{ t("launcher.six_months", { change: signedPct(sparkPct) }) }}</span>
-                </template>
-              </span>
-            </div>
+            <span class="launcher-quote-open">
+              {{ t("launcher.market") }}
+              <ArrowUpRight class="h-3 w-3" aria-hidden="true" />
+            </span>
+            <span v-if="sparkPct != null" class="launcher-quote-range">
+              {{ t("launcher.six_months", { change: signedPct(sparkPct) }) }}
+            </span>
           </button>
 
           <div class="launcher-head-actions glass-capsule relative">
