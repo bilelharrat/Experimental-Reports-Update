@@ -1001,3 +1001,53 @@ def test_a_per_model_price_wins_over_the_general_one(monkeypatch):
     assert gemini_runner.usd_cost(usage, "gemini-3.8-flash") == 0.022
     # A different model still falls back to the general price.
     assert gemini_runner.usd_cost(usage, "gemini-3.8-pro") == 0.061
+
+
+# ---- a grounded call's second step ------------------------------------------
+
+
+def test_the_structuring_step_sees_the_task_and_the_pages(monkeypatch, key):
+    """A caller that sends everything in the user prompt left step 2
+    converting notes for a task it was never shown, and with no pages it
+    had no URLs to put on the sources it built."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, _grounded_pair(), calls)
+    seen: list[dict] = []
+
+    def addendum(meta):
+        seen.append(meta)
+        return "Pages the search returned:\n- Acme — https://acme.example/about"
+
+    data, _meta, error = gemini_runner.run_grounded_json(
+        system_prompt="",
+        user_prompt="u",
+        schema=SCHEMA,
+        name="team",
+        task_context="THE PASS INSTRUCTIONS",
+        notes_addendum=addendum,
+    )
+    assert error is None and data == {"headline": "x"}
+    # The addendum is given the research step's meta, sources included.
+    assert seen and seen[0]["sources"]
+    structure = calls[1]["body"]["contents"][0]["parts"][0]["text"]
+    assert "THE PASS INSTRUCTIONS" in structure
+    assert "https://acme.example/about" in structure
+    assert "Dana Reeve" in structure
+
+
+def test_both_steps_of_a_grounded_call_are_counted(monkeypatch, key):
+    """Step 2 was billed too; its usage used to be discarded."""
+    usage = _USAGE_PAYLOAD["usageMetadata"]
+    first = _envelope("research notes", grounding=GROUNDING)
+    first["usageMetadata"] = usage
+    second = _envelope('{"headline": "x"}')
+    second["usageMetadata"] = usage
+    _stub_post(monkeypatch, [_response(200, first), _response(200, second)])
+
+    _data, meta, error = gemini_runner.run_grounded_json(
+        system_prompt="s", user_prompt="u", schema=SCHEMA, name="team"
+    )
+    assert error is None
+    single = gemini_runner._usage_from_payload(first)
+    assert meta["usage"]["input_tokens"] == 2 * single["input_tokens"]
+    assert meta["usage"]["output_tokens"] == 2 * single["output_tokens"]

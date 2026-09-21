@@ -1733,6 +1733,32 @@ def test_repair_dates_a_source_that_used_its_own_word():
     assert not memo_docx_renderer.english_package_validation_errors(repaired)
 
 
+def test_repair_rejoins_a_bullet_delivered_as_paragraph_blocks():
+    """RadixArk 2026-09-21__195426, attempt 2: eighteen bullets arrived as
+    lists of paragraph blocks — every word there in both languages, one
+    level too deep — and failed the attempt as "must be bilingual"."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": [
+                [{"type": "paragraph", "text": {"en": "Inference overtakes training.", "zh": "推理超过训练。"}}],
+                [
+                    {"type": "paragraph", "text": {"en": "First half.", "zh": "前半。"}},
+                    {"type": "paragraph", "text": {"en": "Second half.", "zh": "后半。"}},
+                ],
+            ],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][-1]["items"] == [
+        {"en": "Inference overtakes training.", "zh": "推理超过训练。"},
+        {"en": "First half. Second half.", "zh": "前半。 后半。"},
+    ]
+    assert any("paragraph block" in r for r in repairs)
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
 def test_repair_orders_column_keyed_rows():
     """A table delivered as `columns` of {key, label} plus rows keyed by
     those column keys. Every cell is already localized and in the right

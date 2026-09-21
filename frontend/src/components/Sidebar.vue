@@ -137,13 +137,23 @@ const trackedCount = computed(
     ).length,
 );
 
+// The desks run Home, Reports, Research Desk, News, Pulse, Market, Tracking.
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
   { id: "reports", to: { name: "reports" }, label: t("sidebar.reports"), icon: FileText },
   { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
-  { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
-  { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
-  { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
+  // News, Pulse and Market share one line: each keeps its own button, one
+  // click from anywhere, without spending three rows on one desk. The icon
+  // rail has no room for three across, so there they stack as plain rows.
+  {
+    id: "markets",
+    label: t("sidebar.markets"),
+    group: [
+      { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
+      { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
+      { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
+    ],
+  },
   {
     id: "tracking",
     to: { name: "tracking" },
@@ -243,6 +253,18 @@ const accountDetail = computed(() => {
   return isAnonDev() ? t("sidebar.local_dev") : "";
 });
 
+// What the desk list renders. Expanded, the markets group is one row of
+// three buttons; collapsed, its members become ordinary rail rows.
+const navRows = computed(() =>
+  navItems.value.flatMap((item) =>
+    item.group && collapsed.value ? item.group : [item],
+  ),
+);
+
+const route = useRoute();
+const MARKET_ROUTES = new Set(["market-radar", "weekly-summary", "news-desk", "markets"]);
+const onMarketDesk = computed(() => MARKET_ROUTES.has(String(route.name || "")));
+
 // One levitating glass pill per list, gliding to the selected row.
 const navRef = ref(null);
 const companyListRef = ref(null);
@@ -251,7 +273,12 @@ const {
   visible: navGliderVisible,
   instant: navGliderInstant,
   moveTo: moveNavGlider,
-} = useGlider(navRef, ".source-row.router-link-exact-active");
+} = useGlider(
+  navRef,
+  // The pill spans the whole width, so on a market desk it lands on the
+  // shared row; the active button inside marks which of the three.
+  ".source-row.router-link-exact-active, .desk-segments[data-active='true']",
+);
 const {
   style: companyGliderStyle,
   visible: companyGliderVisible,
@@ -263,6 +290,11 @@ const {
 
 function onNavRowClick(event) {
   moveNavGlider(event.currentTarget);
+  onNavigate();
+}
+
+function onSegmentClick(event) {
+  moveNavGlider(event.currentTarget.closest(".desk-segments"));
   onNavigate();
 }
 
@@ -337,7 +369,6 @@ function onNavigate() {
 }
 
 const router = useRouter();
-const route = useRoute();
 
 async function onSignOut() {
   if (signingOut.value) return;
@@ -490,25 +521,48 @@ onBeforeUnmount(() => {
             :data-instant="navGliderInstant ? 'true' : 'false'"
             aria-hidden="true"
           />
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.id"
-            :to="item.to"
-            class="source-row focus-ring"
-            active-class=""
-            :title="item.label"
-            :data-tour="`nav-${item.id}`"
-            @click="onNavRowClick"
-          >
-            <component :is="item.icon" :size="18" class="source-row-icon shrink-0" />
-            <span v-if="!collapsed" class="min-w-0 flex-1 truncate">{{ item.label }}</span>
-            <span
-              v-if="!collapsed && item.count"
-              class="mono-data text-caption1 text-ink-subtle"
+          <template v-for="item in navRows" :key="item.id">
+            <div
+              v-if="item.group"
+              class="desk-segments"
+              role="group"
+              :aria-label="item.label"
+              :data-active="onMarketDesk ? 'true' : 'false'"
             >
-              {{ item.count }}
-            </span>
-          </RouterLink>
+              <RouterLink
+                v-for="seg in item.group"
+                :key="seg.id"
+                :to="seg.to"
+                class="desk-segment focus-ring"
+                active-class=""
+                exact-active-class="is-active"
+                :title="seg.label"
+                :data-tour="`nav-${seg.id}`"
+                @click="onSegmentClick"
+              >
+                <component :is="seg.icon" :size="16" class="desk-segment-icon shrink-0" />
+                <span class="truncate">{{ seg.label }}</span>
+              </RouterLink>
+            </div>
+            <RouterLink
+              v-else
+              :to="item.to"
+              class="source-row focus-ring"
+              active-class=""
+              :title="item.label"
+              :data-tour="`nav-${item.id}`"
+              @click="onNavRowClick"
+            >
+              <component :is="item.icon" :size="18" class="source-row-icon shrink-0" />
+              <span v-if="!collapsed" class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+              <span
+                v-if="!collapsed && item.count"
+                class="mono-data text-caption1 text-ink-subtle"
+              >
+                {{ item.count }}
+              </span>
+            </RouterLink>
+          </template>
         </div>
       </nav>
 

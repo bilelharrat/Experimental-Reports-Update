@@ -807,6 +807,35 @@ def _joined_localized(item: Any, keys: tuple[str, str]) -> dict | None:
     return joined if joined.get("en") else None
 
 
+def _text_of_block_list(item: Any) -> dict | None:
+    """A bullet delivered as a list of paragraph blocks, joined into the one
+    localized string a bullet is. ``None`` unless every entry is a block
+    carrying a localized ``text``.
+
+    Live on 2026-09-21 (RadixArk 2026-09-21__195426, attempt 2) twelve
+    bullets across three thesis_market lists arrived as
+    ``[[{"type": "paragraph", "text": {en, zh}}], ...]`` — every word
+    present in both languages, one level too deep — and failed the attempt
+    as "must be bilingual with en and zh"."""
+    if not isinstance(item, list) or not item:
+        return None
+    texts: list[dict] = []
+    for entry in item:
+        text = entry.get("text") if isinstance(entry, dict) else None
+        if not isinstance(text, dict) or not isinstance(text.get("en"), str):
+            return None
+        texts.append(text)
+    joined = {
+        half: " ".join(
+            str(text.get(half) or "").strip()
+            for text in texts
+            if str(text.get(half) or "").strip()
+        )
+        for half in ("en", "zh")
+    }
+    return joined if joined["en"] else None
+
+
 def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
     if not isinstance(items, list):
         return items
@@ -819,6 +848,14 @@ def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
         ):
             out.append({"en": item, "zh": ""})
             repairs.append(f"{where}[{index}]: wrapped plain string as bilingual en value")
+            continue
+        flattened = _text_of_block_list(item)
+        if flattened is not None:
+            out.append(flattened)
+            repairs.append(
+                f"{where}[{index}]: joined the {len(item)} paragraph block(s) "
+                "it carried into one bullet"
+            )
             continue
         nested = _unwrapped_localized(item)
         if nested is not None:
@@ -1565,8 +1602,18 @@ def _package_validation_errors(package: Any) -> list[str]:
     _validate_required_memo_components(package, errors, structure)
 
     if isinstance(sources, list):
+        # Stamped by the pipeline before validation (``memo_fact_check.
+        # stamp_private_material``). Absent — a stored package, a fixture —
+        # the class-based exemption stands as it always did.
+        run_meta = package.get("run") if isinstance(package.get("run"), dict) else {}
+        private_on_file = run_meta.get("private_material_on_file")
         for index, source in enumerate(sources):
-            _validate_source(source, f"sources[{index}]", errors)
+            _validate_source(
+                source,
+                f"sources[{index}]",
+                errors,
+                private_material=private_on_file if isinstance(private_on_file, bool) else None,
+            )
     return errors
 
 
@@ -2078,7 +2125,17 @@ def source_url_optional(source: dict) -> bool:
     return bool(_SOURCE_URL_OPTIONAL_RE.search(haystack))
 
 
-def _validate_source(source: Any, location: str, errors: list[str]) -> None:
+def _validate_source(
+    source: Any,
+    location: str,
+    errors: list[str],
+    *,
+    private_material: bool | None = None,
+) -> None:
+    """``private_material`` is whether the firm holds anything private on
+    this company (None = unknown). When it is False, no source can honestly
+    be private, so the class-based URL exemption does not apply — otherwise
+    a public page only has to call itself an "internal document"."""
     if not isinstance(source, dict):
         errors.append(f"{location} must be an object")
         return
@@ -2086,18 +2143,41 @@ def _validate_source(source: Any, location: str, errors: list[str]) -> None:
         if not str(source.get(key) or "").strip():
             errors.append(f"{location}.{key} is required")
     url = source.get("url")
+    claims_private = source_url_optional(source)
     if url is not None and str(url).strip():
         if not isinstance(url, str) or not url.strip().startswith(
             ("http://", "https://")
         ):
             errors.append(f"{location}.url must be an http(s) URL when present")
-    elif _memo_source_url_required_enabled() and not source_url_optional(source):
+    elif _memo_source_url_required_enabled() and claims_private and private_material is False:
         source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
+        errors.append(
+            f"{location}.url is required: its class {source_class!r} says it is "
+            "private, but the firm holds nothing private on this company — no "
+            "research documents, founder updates, transcripts or reference "
+            "calls — so it came from a page a reader can open. Carry that "
+            "page's URL from the analysis artifacts or the known-sources list; "
+            "do not reclassify it"
+        )
+    elif _memo_source_url_required_enabled() and not claims_private:
+        source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
+        # Only offer reclassifying when it could be true. With nothing
+        # private on file it is the loophole, and it would cost a round to
+        # be caught by the branch above (RadixArk 2026-09-21__195426).
+        way_out = (
+            "; the firm holds nothing private on this company, so it cannot "
+            "be an internal document. For a paid report (IDC, Gartner and the "
+            "like) cite the publisher's own press release or summary page for "
+            "the figure; only if no page carries it, drop the source and the "
+            "claims that rest on it"
+            if private_material is False
+            else "; if it is really a private file, interview or internal "
+            "document, say so in its class instead"
+        )
         errors.append(
             f"{location}.url is required: a source of class {source_class!r} is "
             "web-retrieved, so carry the page URL the analysis artifacts or the "
-            "known-sources list recorded; if it is really a private file, "
-            "interview or internal document, say so in its class instead"
+            "known-sources list recorded" + way_out
         )
     _validate_localized_value(
         source.get("class"),

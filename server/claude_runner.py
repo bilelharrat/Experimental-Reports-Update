@@ -4647,6 +4647,7 @@ def _run_memo_local_json_artifact(
     effort: str | None = None,
     append_system_prompt: str | None = None,
     tools: str | None = None,
+    web_research: bool = False,
 ) -> tuple[dict | None, str | None]:
     if memo_engine.run_engine(run_dir) != "gemini" and not is_available():
         return None, (
@@ -4700,6 +4701,7 @@ def _run_memo_local_json_artifact(
                 timeout_label=timeout_label,
                 timeout_sec=timeout_sec,
                 run_dir=run_dir,
+                web_research=web_research,
             )
         data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,
@@ -5375,6 +5377,9 @@ the schema; do not test it with a throwaway answer.
         effort=_memo_pass_effort(
             pass_id, _memo_role_effort("ANALYSIS_PASS", run_dir)
         ),
+        # The research phase: on Gemini this runs grounded in web search,
+        # which a Claude pass does on its own. Claude ignores the flag.
+        web_research=True,
     )
 
 

@@ -348,3 +348,52 @@ def test_the_section_prompt_states_the_budget_this_run_actually_uses():
     assert prompt.index("Your word budget") > prompt.index(
         "## Your section:"
     )
+
+
+# ---- source-list errors skip the regeneration too ---------------------------
+# RadixArk 2026-09-21__195426: two sources cited without a URL (IDC's and
+# Gartner's spending guides) regenerated the spine and all seven sections.
+# The envelope repair that fixes exactly those already ran one step later.
+
+# The renderer's own wording for a missing source URL, verbatim.
+_URL_ERR = (
+    "sources[11].url is required: a source of class 'syndicated market "
+    "research' is web-retrieved, so carry the page URL the analysis "
+    "artifacts or the known-sources list recorded"
+)
+_PACKAGE = {"sections": [{"id": "risks", "blocks": []}], "sources": []}
+
+
+def test_source_list_errors_skip_the_regeneration():
+    assert memo_analysis._only_envelope_or_budget_errors([_URL_ERR], _PACKAGE)
+    assert memo_analysis._only_envelope_or_budget_errors([_URL_ERR, _URL_ERR], _PACKAGE)
+
+
+def test_source_and_budget_errors_together_skip_it():
+    assert memo_analysis._only_envelope_or_budget_errors([_URL_ERR, _BUDGET_ERR], _PACKAGE)
+
+
+def test_a_section_error_beside_them_still_earns_a_regeneration():
+    assert not memo_analysis._only_envelope_or_budget_errors([_URL_ERR, _OTHER_ERR], _PACKAGE)
+    assert not memo_analysis._only_envelope_or_budget_errors([], _PACKAGE)
+
+
+def test_the_renderer_really_says_it_that_way(monkeypatch):
+    """Built from the producer, not typed by hand: a guard that matches
+    wording the renderer no longer emits goes quietly dead."""
+    monkeypatch.delenv("BSH_MEMO_SOURCE_URL_REQUIRED", raising=False)
+    errors: list[str] = []
+    memo_docx_renderer._validate_source(
+        {
+            "id": "S12",
+            "title": {"en": "Worldwide AI Spending Guide", "zh": "全球人工智能支出指南"},
+            "class": "syndicated market research",
+            "treatment": {"en": "Weighed as is.", "zh": "按原样采信。"},
+            "as_of": "2026-01-01",
+        },
+        "sources[11]",
+        errors,
+        private_material=False,
+    )
+    assert errors
+    assert memo_analysis._only_envelope_or_budget_errors(errors, _PACKAGE)

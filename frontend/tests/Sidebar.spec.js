@@ -87,9 +87,9 @@ describe("Sidebar", () => {
     expect(text).toContain("NVIDIA");
     expect(text).toContain("Zeta Labs");
     expect(text).toContain("Home");
-    // Every desk has its own row: Research Desk, and Market, Pulse and News
-    // each as a row of their own rather than one combined Markets row — in
-    // the order the owner set on 2026-09-21.
+    // Every desk is one click away — News, Pulse and Market as buttons on one
+    // shared line rather than one combined Markets row — in the order the
+    // owner set on 2026-09-21.
     const desks = ["Home", "Reports", "Research Desk", "News", "Pulse", "Market", "Tracking"];
     for (const desk of desks) expect(text).toContain(desk);
     for (let i = 1; i < desks.length; i += 1) {
@@ -141,6 +141,28 @@ describe("Sidebar", () => {
     expect(trackedCompanyIds.value.has("nvda")).toBe(true);
     await wrapper.get('button[aria-label="Unfollow"]').trigger("click");
     expect(trackedCompanyIds.value.has("nvda")).toBe(false);
+  });
+
+  it("puts News, Pulse and Market on one line, each its own button", async () => {
+    // Each desk stays one click away from anywhere (the reason they came
+    // back as rows), without spending three rows on one desk.
+    const wrapper = mountSidebar();
+    const row = wrapper.get(".desk-segments");
+    const buttons = row.findAll(".desk-segment");
+    expect(buttons.map((b) => b.text())).toEqual(["News", "Pulse", "Market"]);
+    expect(buttons.map((b) => b.attributes("data-tour"))).toEqual([
+      "nav-news",
+      "nav-pulse",
+      "nav-market",
+    ]);
+    expect(row.attributes("role")).toBe("group");
+
+    // The rail has no room for three across: they stack as ordinary rows.
+    await wrapper.get('button[aria-label="Collapse sidebar"]').trigger("click");
+    expect(wrapper.find(".desk-segments").exists()).toBe(false);
+    for (const id of ["news", "pulse", "market"]) {
+      expect(wrapper.get(`[data-tour="nav-${id}"]`).classes()).toContain("source-row");
+    }
   });
 
   it("collapses to an icon rail and expands again", async () => {

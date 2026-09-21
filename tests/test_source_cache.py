@@ -466,3 +466,64 @@ def test_gemini_research_walk_skips_the_cache_and_inlines_the_digest(tmp_path):
     text = memo_engine.inline_research([research])
     assert "cached page text that must not inline" not in text
     assert text.index("known_sources.md") < text.index("notes.md")
+
+
+def test_the_fact_check_corpus_skips_gemini_research_prose():
+    """A grounding record's text is Gemini's own research notes — model
+    output. Counting it would let a Gemini memo verify a figure against the
+    notes it wrote the figure from."""
+    source_cache.record_grounding(
+        "acme",
+        {
+            "research_text": "Acme's ARR reached $40M in 2026, per our research.",
+            "sources": [{"title": "acme.example", "url": "https://acme.example/a"}],
+            "queries": ["acme arr"],
+        },
+        origin="news_sweep",
+    )
+    source_cache.record_source(
+        "acme",
+        kind="web_fetch",
+        url="https://acme.example/about",
+        title="About Acme",
+        text="Acme reported $38M of ARR at the end of 2025 in its annual letter.",
+    )
+    labels = [label for label, _text in source_cache.corpus_texts("acme")]
+    assert len(labels) == 1
+    assert "https://acme.example/about" in labels[0]
+
+
+def test_known_pages_never_offers_a_grounding_redirect():
+    """The news sweep stores the pages Gemini reported as links through
+    Google's redirector. They are not citations — they expire, and name no
+    page a reader would recognise — so the known-sources list drops them."""
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC"
+    source_cache.record_grounding(
+        "acme",
+        {
+            "research_text": "Acme published a product update and a hiring post this quarter.",
+            "sources": [
+                {"title": "acme.example", "url": redirect},
+                {"title": "Acme blog", "url": "https://acme.example/blog"},
+            ],
+        },
+        origin="news_sweep",
+    )
+    urls = [page["url"] for page in source_cache.known_pages("acme")]
+    assert redirect not in urls
+    assert "https://acme.example/blog" in urls
+
+
+def test_a_grounded_fetch_is_stored_as_a_fetched_page(tmp_path):
+    record = source_cache.record_run_source(
+        "acme",
+        tmp_path,
+        tool="GroundedFetch",
+        text="Acme raised $100M in its seed round, led by Example Ventures.",
+        url="https://acme.example/news/seed",
+        title="Acme raises a seed round",
+        run_id="r1",
+    )
+    assert record["kind"] == "web_fetch"
+    manifest = (tmp_path / "sources" / "manifest.jsonl").read_text(encoding="utf-8")
+    assert '"tool": "GroundedFetch"' in manifest

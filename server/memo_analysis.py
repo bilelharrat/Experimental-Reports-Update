@@ -684,6 +684,27 @@ def _only_word_budget_errors(validation_errors: list[str]) -> bool:
     )
 
 
+def _only_envelope_or_budget_errors(
+    validation_errors: list[str], package: dict | None
+) -> bool:
+    """Every error is either a word-budget overrun or lives in the package
+    envelope (sources, company, run) — defects the per-section repair fixes
+    without writing a section, and a regeneration would not.
+
+    Live on 2026-09-21 (RadixArk 2026-09-21__195426) two sources cited
+    without a URL — IDC's and Gartner's spending guides — sent the run into
+    a full regeneration: a new spine and all seven sections rewritten, for
+    two missing strings in the source list. The envelope repair that fixes
+    exactly that already existed, one step further on."""
+    if not validation_errors or not isinstance(package, dict):
+        return False
+    return all(
+        _WORD_BUDGET_ERROR_MARKER in str(err)
+        or claude_runner._is_envelope_repair_finding(package, str(err))
+        for err in validation_errors
+    )
+
+
 def _memo_package_render_validation_error(
     package_path: Path,
     *,
@@ -960,6 +981,15 @@ def _attach_memo_source_urls(
     to ``logs/source_urls.md``; never raises."""
     if not isinstance(candidate, dict):
         return []
+    try:
+        from . import memo_fact_check
+
+        # Before the URL rule judges the envelope: whether any source here
+        # can honestly be private. Stamped every attempt, because an
+        # envelope repair can rewrite `run`.
+        memo_fact_check.stamp_private_material(candidate, company_id=company_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("private-material stamp failed", exc_info=True)
     try:
         from . import memo_fact_check
 
@@ -4087,6 +4117,20 @@ def _run_fast_synthesis(
                     validation_errors=validation_errors[:10],
                 )
                 break
+            if _only_envelope_or_budget_errors(validation_errors, candidate):
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_envelope_repair_shortcut",
+                    message=(
+                        "Only source-list and word-budget errors remain; "
+                        "repairing those directly instead of regenerating "
+                        "every section"
+                    ),
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    validation_errors=validation_errors[:10],
+                )
+                break
             if attempt < max_attempts:
                 # Feed back the cumulative error list, not just this
                 # attempt's: retry 2 of the Axiom run fixed the fed-back
@@ -4225,6 +4269,28 @@ def _run_fast_synthesis(
                         ),
                         validation_error=quality_error[:4000],
                     )
+                # The deterministic checks run inside the attempt loop, on
+                # a candidate that passed validation. A package rescued here
+                # never passed an attempt, so without this it shipped with no
+                # pin check and no fact check at all — silently: RadixArk
+                # 2026-09-21__195426 had the best evidence of any run (40
+                # fetched pages, 79% of figures traceable) and its report
+                # showed no fact check. Report only: the attempts are spent,
+                # so the findings go on the record rather than to a repair.
+                _run_memo_pin_check(
+                    run_dir=run_dir,
+                    candidate=repaired_package,
+                    progress=phase3_progress,
+                    attempt=None,
+                )
+                _run_memo_fact_check(
+                    run_dir=run_dir,
+                    candidate=repaired_package,
+                    company_id=company_slug,
+                    research_dir=research_dir,
+                    progress=phase3_progress,
+                    attempt=None,
+                )
                 english_result = dict(last_attempt_result or {})
                 english_result["memo_package"] = repaired_package
                 english_error = None

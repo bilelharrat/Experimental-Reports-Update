@@ -45,7 +45,10 @@ run sees is written by `server/source_cache.py` to
 `data/research/<slug>/sources/` (deduped on canonical URL, newest text
 wins) and frozen in the run's own `sources/manifest.jsonl` — the
 point-in-time input record. Grounded Gemini sweeps (`company_news_research`)
-land there too. `known_sources.md`, rendered from the cache before Phase 2
+land there too, and so do the pages a Gemini memo's grounded research
+passes found, fetched at their real addresses (`GroundedFetch`). Gemini's
+own research prose (`grounding` records) is kept for the digest but is not
+fact-check corpus — it is model output. `known_sources.md`, rendered from the cache before Phase 2
 and refreshed as retrievals arrive, is injected into every pass and the
 spine so a page found once is offered every time (`BSH_MEMO_KNOWN_SOURCES=0`
 stops the injection). The Gemini research walk skips the `sources/`

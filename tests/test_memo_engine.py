@@ -1145,3 +1145,168 @@ def test_an_uncuttable_draft_is_revised_whole(tmp_path, monkeypatch):
     assert len(prompts) == 1
     assert "Write ONE subsection" not in prompts[0]
     assert str(draft_path) in prompts[0]
+
+
+# ---- web research on Gemini --------------------------------------------------
+# Until 2026-09-21 no Gemini memo call was grounded: every research pass
+# answered from the inlined registry and the model's memory, so its URLs
+# were remembered rather than found, and the source cache and fact check
+# saw nothing. A research pass now searches, and the pages it found are
+# fetched at their real addresses and stored like a Claude WebFetch.
+
+
+def _grounded_fake(seen: dict, meta: dict | None = None):
+    def fake(**kwargs):
+        seen.update(kwargs)
+        found = meta or {
+            "sources": [{"title": "acme.example", "url": "https://acme.example/about"}],
+            "queries": ["acme"],
+            "grounded": True,
+        }
+        seen["addendum"] = kwargs["notes_addendum"](found)
+        return {"answer": "ok"}, found, None
+
+    return fake
+
+
+def test_a_research_pass_searches_and_hands_over_real_pages(tmp_path, monkeypatch):
+    monkeypatch.delenv("BSH_MEMO_GEMINI_WEB_RESEARCH", raising=False)
+    monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
+    seen: dict = {}
+    monkeypatch.setattr(memo_engine.gemini_runner, "run_grounded_json", _grounded_fake(seen))
+    monkeypatch.setattr(
+        memo_engine,
+        "fetch_grounded_pages",
+        lambda meta, run_dir: [{"title": "About Acme", "url": "https://acme.example/about"}],
+    )
+
+    data, error = memo_engine.run_artifact(
+        prompt="THE PASS PROMPT",
+        schema=SCHEMA,
+        add_dirs=[tmp_path],
+        timeout_label="memo pass market_sizing",
+        timeout_sec=600,
+        web_research=True,
+    )
+    assert error is None and data == {"answer": "ok"}
+    # The structuring step is told the pass's own instructions...
+    assert seen["task_context"] == "THE PASS PROMPT"
+    # ...and gets the pages at their real addresses to cite.
+    assert "About Acme — https://acme.example/about" in seen["addendum"]
+
+
+def test_a_writing_stage_does_not_search(tmp_path, monkeypatch):
+    """Sections, the spine and repairs write from the research; only the
+    research passes go to the web."""
+    monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
+    monkeypatch.setattr(
+        memo_engine.gemini_runner,
+        "run_grounded_json",
+        lambda **_k: pytest.fail("a writing stage must not search"),
+    )
+    monkeypatch.setattr(
+        memo_engine.gemini_runner,
+        "run_structured_prompt_with_meta",
+        lambda **_k: ({"answer": "ok"}, {}, None),
+    )
+    data, error = memo_engine.run_artifact(
+        prompt="p", schema=SCHEMA, add_dirs=[tmp_path], timeout_label="spine", timeout_sec=60
+    )
+    assert error is None and data == {"answer": "ok"}
+
+
+def test_web_research_can_be_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_GEMINI_WEB_RESEARCH", "0")
+    monkeypatch.setattr(memo_engine.gemini_runner, "is_available", lambda: True)
+    monkeypatch.setattr(
+        memo_engine.gemini_runner,
+        "run_grounded_json",
+        lambda **_k: pytest.fail("switched off"),
+    )
+    monkeypatch.setattr(
+        memo_engine.gemini_runner,
+        "run_structured_prompt_with_meta",
+        lambda **_k: ({"answer": "ok"}, {}, None),
+    )
+    _data, error = memo_engine.run_artifact(
+        prompt="p", schema=SCHEMA, add_dirs=[tmp_path], timeout_label="pass",
+        timeout_sec=60, web_research=True,
+    )
+    assert error is None
+
+
+def test_grounded_pages_are_fetched_at_their_real_address_and_stored(tmp_path, monkeypatch):
+    """Gemini reports pages as links through Google's redirector. Each is
+    followed to where it lands, and a page with text is stored in the
+    company cache and the run's manifest, like a Claude WebFetch."""
+    from server import claude_runner, link_preview, source_cache
+
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC"
+    monkeypatch.setattr(
+        link_preview,
+        "fetch",
+        lambda url: link_preview.LinkPreview(
+            url=url,
+            final_url="https://acme.example/news/seed",
+            title="Acme raises a seed round",
+            text="Acme raised $100M in its seed round, led by Example Ventures. " * 3,
+        ),
+    )
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        source_cache, "record_run_source", lambda *a, **k: recorded.append(k) or {}
+    )
+    monkeypatch.setattr(source_cache, "write_known_sources_file", lambda *a, **k: True)
+    monkeypatch.setattr(
+        claude_runner,
+        "memo_run_source_capture",
+        lambda _rd: {"company_id": "acme", "run_id": "r1", "research_dir": tmp_path},
+    )
+
+    pages = memo_engine.fetch_grounded_pages(
+        {"sources": [{"title": "acme.example", "url": redirect}]}, tmp_path
+    )
+    assert pages == [{"title": "Acme raises a seed round", "url": "https://acme.example/news/seed"}]
+    assert len(recorded) == 1
+    assert recorded[0]["tool"] == "GroundedFetch"
+    assert recorded[0]["url"] == "https://acme.example/news/seed"
+
+
+def test_a_page_that_never_left_the_redirector_is_dropped(tmp_path, monkeypatch):
+    from server import link_preview
+
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/XyZ"
+    monkeypatch.setattr(
+        link_preview,
+        "fetch",
+        lambda url: link_preview.LinkPreview(url=url, final_url=url, error="Fetch failed"),
+    )
+    monkeypatch.setattr(memo_engine, "_resolve_only", lambda _url: None)
+    assert memo_engine.fetch_grounded_pages({"sources": [{"url": redirect}]}, None) == []
+
+
+def test_the_research_passes_ask_for_web_research(tmp_path, monkeypatch):
+    """The flag has to be set where the passes are launched, or the Gemini
+    branch never sees it and every pass answers from memory again."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        claude_runner,
+        "_run_memo_local_json_artifact",
+        lambda **kwargs: seen.update(kwargs) or ({}, None),
+    )
+    (tmp_path / "companies.yaml").write_text("companies: []\n", encoding="utf-8")
+    (tmp_path / "background.md").write_text("bg", encoding="utf-8")
+    claude_runner.run_memo_fast_analysis_pass(
+        run_dir=tmp_path,
+        company_name="Acme",
+        company_slug="acme",
+        run_id="r1",
+        pass_id="market_sizing",
+        pass_label="Market sizing",
+        artifact_filename="market_sizing.md",
+        focus="size the market",
+        settings_path=tmp_path / "background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        common_context="shared",
+    )
+    assert seen["web_research"] is True

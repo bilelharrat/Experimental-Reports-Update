@@ -375,6 +375,120 @@ def inline_research(
 # ---- the artifact call ----------------------------------------------------
 
 
+def memo_web_research_enabled() -> bool:
+    """``BSH_MEMO_GEMINI_WEB_RESEARCH`` (default on): whether a Gemini
+    memo's research passes search the web. Off, they answer from the
+    research material inlined into the prompt and the model's memory — how
+    every Gemini memo ran before 2026-09-21."""
+    return os.environ.get("BSH_MEMO_GEMINI_WEB_RESEARCH", "1") != "0"
+
+
+# A grounded pass reports a dozen pages at most in practice; fetching them is
+# the slow part of the pass, so it is bounded and runs in parallel.
+GROUNDED_FETCH_MAX_PAGES = 12
+GROUNDED_FETCH_WORKERS = 6
+
+
+def _resolve_only(url: str) -> str | None:
+    """Follow a redirect to the page's real address without reading it —
+    for a page that would not hand over its text (a PDF, a 403) but whose
+    address is still worth citing."""
+    import httpx
+
+    from . import link_preview
+
+    try:
+        with httpx.Client(
+            timeout=8.0,
+            headers=link_preview.HEADERS,
+            follow_redirects=True,
+            max_redirects=5,
+        ) as client:
+            with client.stream("GET", url) as response:
+                return str(response.url)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def fetch_grounded_pages(meta: dict, run_dir: Path | None) -> list[dict]:
+    """Fetch every page a grounded search reported, at its real address, and
+    store the ones that yield text in the company's source cache and the
+    run's frozen manifest — what a Claude run's WebFetch results already
+    get. Returns ``[{"title", "url"}]`` for every page whose real address is
+    known, fetched or not. Never raises.
+
+    Gemini reports pages as links through Google's redirector; those are
+    not citations, so each one is followed to where it lands.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import link_preview, source_cache
+
+    reported = [
+        row
+        for row in (meta.get("sources") if isinstance(meta, dict) else None) or []
+        if isinstance(row, dict) and str(row.get("url") or "").strip()
+    ][:GROUNDED_FETCH_MAX_PAGES]
+    if not reported:
+        return []
+    capture = None
+    if run_dir is not None:
+        try:
+            from . import claude_runner
+
+            capture = claude_runner.memo_run_source_capture(run_dir)
+        except Exception:  # noqa: BLE001
+            capture = None
+
+    def one(row: dict) -> dict | None:
+        preview = link_preview.fetch(str(row["url"]))
+        url = preview.final_url
+        if source_cache.is_grounding_redirect(url):
+            url = _resolve_only(str(row["url"])) or ""
+        if not url or source_cache.is_grounding_redirect(url):
+            return None
+        title = preview.title or str(row.get("title") or "") or url
+        if capture and not preview.error and preview.text.strip():
+            try:
+                source_cache.record_run_source(
+                    capture["company_id"],
+                    run_dir,
+                    tool="GroundedFetch",
+                    text=preview.text,
+                    url=url,
+                    title=title,
+                    run_id=capture.get("run_id"),
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("grounded page not recorded: %s", url, exc_info=True)
+        return {"title": title, "url": url}
+
+    with ThreadPoolExecutor(max_workers=GROUNDED_FETCH_WORKERS) as pool:
+        pages = [page for page in pool.map(one, reported) if page]
+    if capture and capture.get("research_dir") and pages:
+        try:
+            from . import claude_runner
+
+            source_cache.write_known_sources_file(
+                capture["company_id"],
+                capture["research_dir"],
+                claude_runner.MEMO_KNOWN_SOURCES_FILENAME,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("known-sources refresh failed", exc_info=True)
+    return pages
+
+
+def _pages_addendum(pages: list[dict]) -> str:
+    if not pages:
+        return ""
+    lines = "\n".join(f"- {page['title']} — {page['url']}" for page in pages)
+    return (
+        "Pages the search returned, at their real addresses. A source drawn "
+        "from one of these carries its URL exactly as listed here:\n" + lines
+    )
+
+
 def run_artifact(
     *,
     prompt: str,
@@ -384,9 +498,17 @@ def run_artifact(
     timeout_sec: int,
     model: str | None = None,
     run_dir: Path | None = None,
+    web_research: bool = False,
 ) -> tuple[dict | None, str | None]:
     """One memo stage on Gemini. Same ``(data, error)`` contract as the
-    Claude funnel, so every caller, retry and repair pass is unchanged."""
+    Claude funnel, so every caller, retry and repair pass is unchanged.
+
+    ``web_research`` marks a research pass. A Claude pass searches the web
+    as it works; a Gemini call does not unless it is grounded, and until
+    2026-09-21 none was — every Gemini memo's research, and every URL in
+    it, came from the model's memory, and the source cache and fact check
+    saw nothing. A research pass now runs grounded (search, then structure
+    as a separate call), and the pages it found are fetched and stored."""
     if not gemini_runner.is_available():
         return None, (
             "Gemini API key not configured. Set GEMINI_API_KEY in .env, or "
@@ -405,16 +527,38 @@ def run_artifact(
         + (f"{referenced}\n\n" if referenced else "")
         + f"{research}\n"
     )
-    data, meta, error = gemini_runner.run_structured_prompt_with_meta(
-        system_prompt="",
-        user_prompt=combined,
-        schema=schema,
-        name=timeout_label,
-        timeout_sec=timeout_sec,
-        model=model or memo_gemini_model(),
-        thinking_level=memo_thinking_level(),
-        max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
-    )
+    if web_research and memo_web_research_enabled():
+        data, meta, error = gemini_runner.run_grounded_json(
+            system_prompt="",
+            user_prompt=combined,
+            schema=schema,
+            name=timeout_label,
+            timeout_sec=timeout_sec,
+            model=model or memo_gemini_model(),
+            thinking_level=memo_thinking_level(),
+            max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
+            # The structuring step sees the pass's own instructions, not
+            # the research material — that was the first step's input.
+            task_context=prompt,
+            notes_addendum=lambda found: _pages_addendum(
+                fetch_grounded_pages(found, run_dir)
+            ),
+        )
+        if not meta.get("grounded"):
+            logger.warning(
+                "memo_engine: %s ran as a research pass but did not search", timeout_label
+            )
+    else:
+        data, meta, error = gemini_runner.run_structured_prompt_with_meta(
+            system_prompt="",
+            user_prompt=combined,
+            schema=schema,
+            name=timeout_label,
+            timeout_sec=timeout_sec,
+            model=model or memo_gemini_model(),
+            thinking_level=memo_thinking_level(),
+            max_output_tokens=MEMO_MAX_OUTPUT_TOKENS,
+        )
     if isinstance(data, dict):
         # The pipeline carries per-call spend in these two keys, set from
         # the Claude CLI's result event. A Gemini call reports the same

@@ -36,6 +36,13 @@ def memo_env(monkeypatch, tmp_path):
     monkeypatch.setattr(memo_prep, "COMPANIES_FILE", data_root / "companies.yaml")
     monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "0")
+    # The fixture package cites "Company investor materials" with no URL,
+    # which is only honest if the firm holds that deck. Say so, rather than
+    # let the private-material check read the real data/research folder.
+    monkeypatch.setattr(
+        "server.memo_fact_check.private_material_on_file",
+        lambda *_a, **_k: ["research file: investor_materials.pdf"],
+    )
     return data_root
 
 
@@ -3420,6 +3427,13 @@ def test_phase3_surgical_structure_repair_rescues_exhausted_run(
     assert "memo_package_structure_repair_succeeded" in stages
     # The invalid package was persisted for the repair pass and debugging.
     assert (run_dir / "logs" / "memo_package.en.invalid.json").exists()
+    # A rescued package never passed an attempt, so the deterministic checks
+    # that run inside the loop never saw it. They run here instead — before
+    # this, RadixArk 2026-09-21__195426 shipped with no fact check at all.
+    # (The pin check runs there too; this fixture has no spine, so it has
+    # no pins to check and stays quiet, as it does inside the loop.)
+    assert "memo_fact_check" in stages
+    assert (run_dir / "logs" / "fact_check.json").exists()
 
 
 # ---- Resume-path validation of the freshly regenerated package ----
