@@ -21,6 +21,7 @@ import {
   Sparkles,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
+import { normalizeReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import AiMark from "../components/AiMark.vue";
 import DocumentViewerWindow from "../components/DocumentViewerWindow.vue";
@@ -126,20 +127,7 @@ function reportKindLabel(kind) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function normalizeStatus(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "complete" || s === "ready") return "complete";
-  if (s.includes("running") || s === "queued" || s === "investigating" || s === "generating") {
-    return "running";
-  }
-  if (s.includes("warn") || s === "cards_ready" || s === "awaiting_studio") {
-    return "needs_attention";
-  }
-  if (s.includes("fail") || s === "error") {
-    return "failed";
-  }
-  return "complete";
-}
+const normalizeStatus = normalizeReportStatus;
 
 function reportSources(report) {
   if (!report) return [];
@@ -210,7 +198,22 @@ const companyOptions = computed(() => {
       map.set(r.company_id, formatReportCompanyName(r));
     }
   }
+  // A company picked from the sidebar menu may have no reports yet. Listed
+  // anyway, or the select would fall back to showing "All companies" over
+  // a list that is really filtered to it.
+  const picked = selectedCompany.value;
+  if (picked && picked !== "all" && !map.has(picked)) {
+    map.set(picked, selectedCompanyName.value);
+  }
   return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+});
+
+const selectedCompanyName = computed(() => {
+  const id = selectedCompany.value;
+  if (!id || id === "all") return "";
+  const known = (workspaceCompanies.value || []).find((c) => c.id === id);
+  const reported = reports.value.find((r) => r.company_id === id);
+  return known?.name || (reported ? formatReportCompanyName(reported) : id);
 });
 
 // Available report kinds filter list
@@ -307,6 +310,15 @@ watch(
     if (newId && newId !== selectedReportId.value) {
       selectedReportId.value = String(newId);
     }
+  },
+);
+
+// The sidebar's company menu → Reports lands here with `?company=<id>`,
+// often while Reports is already open for another company.
+watch(
+  () => route.query.company,
+  (company) => {
+    selectedCompany.value = String(company || "all");
   },
 );
 
@@ -471,7 +483,9 @@ onMounted(loadReports);
           <span class="mb-2 grid h-11 w-11 place-items-center rounded-[12px] bg-ink-primary/[0.05]">
             <FileText class="h-5 w-5 text-ink-subtle" />
           </span>
-          <div class="text-callout font-semibold text-ink-primary">{{ t("reports.empty_title") }}</div>
+          <div class="text-callout font-semibold text-ink-primary">
+            {{ selectedCompanyName ? t("reports.empty_company_title", { name: selectedCompanyName }) : t("reports.empty_title") }}
+          </div>
           <p class="mt-1 max-w-xs text-footnote text-ink-muted">{{ t("reports.empty_desc") }}</p>
           <button
             type="button"

@@ -147,6 +147,23 @@ export function isTerminalReportStatus(status) {
   );
 }
 
+// The four buckets the Reports page and the company launcher sort a report
+// into, so a report reads the same in the preview as on the page.
+export function normalizeReportStatus(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "complete" || s === "ready") return "complete";
+  if (s.includes("running") || s === "queued" || s === "investigating" || s === "generating") {
+    return "running";
+  }
+  if (s.includes("warn") || s === "cards_ready" || s === "awaiting_studio") {
+    return "needs_attention";
+  }
+  if (s.includes("fail") || s === "error") {
+    return "failed";
+  }
+  return "complete";
+}
+
 export function humanizeStatus(value, fallback = "Pending", language = "en") {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;

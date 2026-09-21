@@ -1,5 +1,6 @@
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   Building2,
   ChartColumn,
@@ -13,6 +14,7 @@ import {
   Search,
   Sparkles,
   Users,
+  X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
@@ -27,6 +29,7 @@ import {
   newsToneKey,
 } from "../homeDesk.js";
 import { briefCacheKey, cacheBrief, loadCachedBrief } from "../offlineCache.js";
+import { useTickerNews } from "../companyLauncher.js";
 
 const props = defineProps({
   bookIds: { type: Array, default: () => [] },
@@ -40,9 +43,17 @@ const workspaceResearch = inject("workspaceResearch", ref([]));
 const workspaceCompanies = inject("workspaceCompanies", ref([]));
 const workspaceLiveNews = inject("workspaceLiveNews", ref([]));
 
+const route = useRoute();
+const router = useRouter();
+
 const scope = ref("all");
 const query = ref("");
-const selectedId = ref("");
+
+// `?company=<id>`: the sidebar's company launcher → News opens the desk on
+// one company. The chip above the list says so and clears it. `?story=<id>`
+// leads with the headline picked in the launcher's preview.
+const focusCompanyId = computed(() => String(route?.query?.company || ""));
+const selectedId = ref(String(route?.query?.story || ""));
 const leadEl = ref(null);
 
 const brief = ref(null);
@@ -64,14 +75,48 @@ const feed = computed(() => [
   ...(unref(workspaceResearch) || []),
 ]);
 const companies = computed(() => unref(workspaceCompanies) || []);
-const live = computed(() => unref(workspaceLiveNews) || []);
+const focusCompany = computed(() =>
+  focusCompanyId.value
+    ? companies.value.find((c) => String(c.id) === focusCompanyId.value) || null
+    : null,
+);
+// The app polls the wire for its first ten tickers only; a company further
+// down would read "no news" here. Its own ticker's headlines fill that in.
+const focusLive = useTickerNews(
+  computed(() => String(focusCompany.value?.ticker || "").trim().toUpperCase()),
+);
+const live = computed(() => [...focusLive.value, ...(unref(workspaceLiveNews) || [])]);
+const focusName = computed(
+  () => focusCompany.value?.name || focusCompanyId.value,
+);
 const assembled = computed(() =>
   assembleDeskNews({
     feed: feed.value,
     companies: companies.value,
     live: live.value,
+    focusCompanyId: focusCompanyId.value,
   }),
 );
+
+function clearCompanyFocus() {
+  const next = { ...(route?.query || {}) };
+  delete next.company;
+  delete next.story;
+  router?.replace({ query: next });
+}
+
+watch(
+  () => route?.query?.story,
+  (story) => {
+    if (story) selectedId.value = String(story);
+  },
+);
+
+// A new company is a new question: start from the whole of its news.
+watch(focusCompanyId, () => {
+  scope.value = "all";
+  query.value = "";
+});
 const rows = computed(() =>
   filterDeskNews(assembled.value, {
     scope: scope.value,
@@ -87,7 +132,13 @@ const rest = computed(() =>
   rows.value.filter((row) => row.id !== selected.value?.id),
 );
 
+// The story named in the URL is held even before it is in the list: it can
+// arrive a beat later, with the company's own ticker headlines. Until then
+// `selected` shows the top story.
+const routeStory = computed(() => String(route?.query?.story || ""));
+
 watch(rows, (list) => {
+  if (selectedId.value && selectedId.value === routeStory.value) return;
   if (!list.length) {
     selectedId.value = "";
     return;
@@ -100,6 +151,9 @@ watch(rows, (list) => {
 watch(
   assembled,
   (list) => {
+    // One company's headlines are not the tape: recording them would narrow
+    // the scheduled refresh to that company for everyone.
+    if (focusCompanyId.value) return;
     recordTape(list || []);
   },
   { immediate: true },
@@ -517,6 +571,26 @@ const refreshLabel = computed(() => {
       </button>
     </div>
 
+    <div
+      v-if="focusCompanyId"
+      class="mt-4 flex flex-wrap items-center gap-2"
+      data-testid="news-company-focus"
+    >
+      <span class="chip inline-flex items-center gap-1.5 bg-accent/10 text-accent-ink">
+        <Building2 class="h-3.5 w-3.5" aria-hidden="true" />
+        {{ t("news.company_focus", { name: focusName }) }}
+      </span>
+      <button
+        type="button"
+        class="btn-bordered focus-ring inline-flex items-center gap-1"
+        data-testid="news-company-focus-clear"
+        @click="clearCompanyFocus"
+      >
+        <X class="h-3.5 w-3.5" aria-hidden="true" />
+        {{ t("news.company_focus_clear") }}
+      </button>
+    </div>
+
     <article
       v-if="selected"
       ref="leadEl"
@@ -678,7 +752,7 @@ const refreshLabel = computed(() => {
       </div>
     </article>
     <div v-else class="news-grouped mt-5 px-5 py-10 text-center text-callout text-ink-muted">
-      {{ t("home.desk_news_empty") }}
+      {{ focusCompanyId ? t("news.company_focus_empty", { name: focusName }) : t("home.desk_news_empty") }}
     </div>
 
     <div v-if="rest.length" class="mt-5">

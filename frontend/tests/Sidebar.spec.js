@@ -88,8 +88,9 @@ describe("Sidebar", () => {
     expect(text).toContain("Zeta Labs");
     expect(text).toContain("Home");
     // Every desk has its own row: Research Desk, and Market, Pulse and News
-    // each as a row of their own rather than one combined Markets row.
-    const desks = ["Home", "Research Desk", "Market", "Pulse", "News", "Reports", "Tracking"];
+    // each as a row of their own rather than one combined Markets row — in
+    // the order the owner set on 2026-09-21.
+    const desks = ["Home", "Reports", "Research Desk", "News", "Pulse", "Market", "Tracking"];
     for (const desk of desks) expect(text).toContain(desk);
     for (let i = 1; i < desks.length; i += 1) {
       expect(text.indexOf(desks[i - 1])).toBeLessThan(text.indexOf(desks[i]));

@@ -113,6 +113,34 @@ again) and Settings can replay it. Classes: `.welcome-tour-*` and the
 `tour-forward` / `tour-back` page transitions. The iPhone/iPad and Mac apps
 carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`).
 
+## Company launcher
+
+Clicking a company in the sidebar opens `CompanyLauncher.vue` over the
+content column, with the sidebar still usable beside it. It shows the
+company's name in large type and three panes to choose from: Reports, News
+and Research Desk. Each pane previews what it opens, using data the app
+already has or a plain quotes read, never an AI call. Keys `1`, `2` and `3`
+open the panes, and `Esc` closes the launcher. For a listed company, the
+ticker and the price panel open the stock on the Market desk.
+
+The launcher is a presented surface, like Spotlight, so it is the one place
+content sits on glass instead of white cards:
+
+- The page behind is blurred under a neutral veil. There is no colored
+  glow or colored shadow: color appears only in the pane icons, the labels
+  and a pane's button while the pointer is on the pane.
+- Each pane has a translucent fill and a gradient rim that is brightest
+  along the top edge. A specular highlight follows the pointer (`--mx` and
+  `--my`, set on `pointermove`).
+- Buttons are glass capsules. A pane's own button turns to its tinted glass
+  while the pointer is anywhere on the pane.
+
+The glass values are local tokens on `.company-launcher` (`--pane-*`,
+`--well-*`, `--capsule-*`), redefined under `.dark`. Layout answers to the
+launcher's own width through container queries, because the sidebar takes a
+different share when collapsed. The classes are `.company-launcher`,
+`.launcher-*` and `.launcher-card[data-tone]`.
+
 ## Page anatomy
 
 - A desk opens with a large title (`.page-title`, or `<PageHeader>`). Register

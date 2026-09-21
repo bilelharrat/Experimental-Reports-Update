@@ -198,3 +198,39 @@ describe("homeDesk", () => {
     ).toEqual(["AAA"]);
   });
 });
+
+describe("news for one company (sidebar menu → News)", () => {
+  const intel = { id: "intc", name: "Intel Corp", ticker: "INTC", company_news: [] };
+  const niocorp = { id: "nb", name: "Niocorp Developments Ltd", ticker: "NB" };
+
+  it("matches the name headlines actually use, as whole words", () => {
+    const ids = (title) =>
+      matchCompaniesForNews({ title }, [intel, niocorp]).map((c) => c.id);
+    // "Intel", not "Intel Corp": the full legal name alone missed the story.
+    expect(ids("Intel shares jump on foundry deal")).toEqual(["intc"]);
+    expect(ids("Why $INTC is moving")).toEqual(["intc"]);
+    // A ticker inside another word is not a mention.
+    expect(ids("NBA playoffs lift sponsors")).toEqual([]);
+    expect(ids("Intelligence agencies warn")).toEqual([]);
+  });
+
+  it("keeps only that company's rows, archive included, before the cap", () => {
+    const old = { title: "Intel opens Ohio fab", published_at: "2025-01-02T00:00:00Z" };
+    const companies = [{ ...intel, company_news: [old] }, niocorp];
+    const live = [
+      { title: "Intel shares jump on foundry deal", published_at: new Date().toISOString() },
+      { title: "Fed holds rates", published_at: new Date().toISOString() },
+    ];
+    const all = assembleDeskNews({ companies, live });
+    // Unfocused, a year-old archive row is dropped once there is live news.
+    expect(all.map((r) => r.title)).not.toContain("Intel opens Ohio fab");
+
+    const focused = assembleDeskNews({ companies, live, focusCompanyId: "intc", limit: 1 });
+    expect(focused.map((r) => r.title)).toEqual(["Intel shares jump on foundry deal"]);
+    const withArchive = assembleDeskNews({ companies, live, focusCompanyId: "intc" });
+    expect(withArchive.map((r) => r.title)).toEqual([
+      "Intel shares jump on foundry deal",
+      "Intel opens Ohio fab",
+    ]);
+  });
+});

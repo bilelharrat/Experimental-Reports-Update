@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, inject, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, h, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   ArrowUpDown,
@@ -37,6 +37,7 @@ import { useGlider } from "../glassMotion.js";
 import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
+import CompanyLauncher from "./CompanyLauncher.vue";
 import Monogram from "./Monogram.vue";
 import PulseECGIcon from "./PulseECGIcon.vue";
 
@@ -138,11 +139,11 @@ const trackedCount = computed(
 
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
-  { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
-  { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
-  { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
-  { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
   { id: "reports", to: { name: "reports" }, label: t("sidebar.reports"), icon: FileText },
+  { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
+  { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
+  { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
+  { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
   {
     id: "tracking",
     to: { name: "tracking" },
@@ -265,8 +266,51 @@ function onNavRowClick(event) {
   onNavigate();
 }
 
-function onCompanyRowClick(event) {
-  moveCompanyGlider(event.currentTarget);
+// Clicking a company opens the company launcher: the content area fills with
+// its reports, its news and the Research Desk, each previewed, to pick from
+// (CompanyLauncher.vue). The sidebar stays live beside it, so another company
+// swaps the launcher over and the same one closes it. A modified click (new
+// tab, etc.) keeps the row's plain link to the desk.
+const launcher = ref(null); // { company, anchor }
+
+// Polling replaces the company objects; show the fresh one.
+const launcherCompany = computed(() => {
+  const id = launcher.value?.company?.id;
+  if (id == null) return null;
+  return (props.companies || []).find((c) => c.id === id) || launcher.value.company;
+});
+
+// The launcher covers the content column, which starts where the sidebar
+// ends: the aside's width on a desktop (see its lg:w-* classes), the whole
+// screen when the sidebar is a drawer.
+const launcherLeft = computed(() => (isDesktop.value ? (collapsed.value ? 76 : 268) : 0));
+
+function onCompanyRowClick(event, company) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  if (launcher.value?.company?.id === company.id) {
+    closeLauncher();
+    return;
+  }
+  closeMenus();
+  launcher.value = { company, anchor: event.currentTarget };
+  // On a phone the drawer gives the screen to the launcher.
+  if (props.mobileOpen) emit("close");
+}
+
+function closeLauncher({ restoreFocus = false } = {}) {
+  const anchor = launcher.value?.anchor;
+  launcher.value = null;
+  if (restoreFocus && anchor?.isConnected) anchor.focus({ preventScroll: true });
+}
+
+function onLauncherGo(to, kind) {
+  const anchor = launcher.value?.anchor;
+  launcher.value = null;
+  if (kind === "desk" && anchor) moveCompanyGlider(anchor);
+  router?.push(to);
   onNavigate();
 }
 
@@ -317,6 +361,7 @@ function onDocPointerDown(event) {
   }
 }
 
+// Escape for the launcher is the launcher's own (it runs first, in capture).
 function onKeydown(event) {
   if (event.key !== "Escape") return;
   if (sortMenuOpen.value || accountMenuOpen.value) {
@@ -325,6 +370,14 @@ function onKeydown(event) {
   }
   if (props.mobileOpen) emit("close");
 }
+
+// Any navigation — a desk row, the toolbar, Back — leaves the launcher.
+watch(
+  () => route?.fullPath,
+  () => {
+    if (launcher.value) launcher.value = null;
+  },
+);
 
 onMounted(() => {
   document.addEventListener("pointerdown", onDocPointerDown);
@@ -610,12 +663,27 @@ onBeforeUnmount(() => {
               :key="company.id"
               class="group relative"
             >
+              <!-- `custom`: RouterLink's own click handler would navigate
+                   before ours could open the launcher, so the anchor is ours
+                   and only a modified click falls through to the plain link. -->
               <RouterLink
+                v-slot="{ href, isActive, isExactActive }"
                 :to="{ name: 'research', params: { companyId: company.id } }"
+                custom
+              >
+              <a
+                :href="href"
                 class="source-row company-source-row focus-ring"
-                :class="collapsed ? 'company-rail-link' : '!py-[5px] !pl-2'"
+                :class="[
+                  collapsed ? 'company-rail-link' : '!py-[5px] !pl-2',
+                  { 'router-link-active': isActive, 'router-link-exact-active': isExactActive },
+                ]"
+                :aria-current="isExactActive ? 'page' : undefined"
                 :title="company.name"
-                @click="onCompanyRowClick"
+                aria-haspopup="dialog"
+                :aria-expanded="launcher?.company?.id === company.id"
+                :data-launcher="launcher?.company?.id === company.id ? 'open' : undefined"
+                @click="onCompanyRowClick($event, company)"
               >
                 <Monogram
                   :company="company"
@@ -636,6 +704,7 @@ onBeforeUnmount(() => {
                   </span>
                   <CompanyFollowButton :company-id="company.id" hide-until-hover />
                 </template>
+              </a>
               </RouterLink>
             </div>
           </div>
@@ -712,5 +781,17 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    <Teleport to="body">
+      <Transition name="launcher">
+        <CompanyLauncher
+          v-if="launcherCompany"
+          :company="launcherCompany"
+          :companies="companies"
+          :left="launcherLeft"
+          @close="closeLauncher"
+          @go="onLauncherGo"
+        />
+      </Transition>
+    </Teleport>
   </aside>
 </template>

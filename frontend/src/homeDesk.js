@@ -69,6 +69,33 @@ export function inferNewsCategory(item) {
   return "press";
 }
 
+// Headlines say "Intel", not "Intel Corp", and "Amgen", not "Amgen Inc": a
+// match on the full legal name alone missed nearly every story. Suffixes are
+// dropped (repeatedly: "Holdings Inc."), and names and tickers must match as
+// whole words, so "nb" no longer matches inside "nba" or "amd" inside "amdocs".
+const NAME_SUFFIX_RE =
+  /[,\s]+(incorporated|inc\.?|corporation|corp\.?|company|co\.?|ltd\.?|limited|plc|llc|l\.?p\.?|holdings?|group|n\.v\.|s\.a\.|ag|se)$/i;
+
+export function companyNameKeys(company) {
+  const full = String(company?.name || "").trim().toLowerCase();
+  const keys = new Set();
+  if (full.length >= 3) keys.add(full);
+  let short = full;
+  for (let i = 0; i < 3; i += 1) {
+    const next = short.replace(NAME_SUFFIX_RE, "").trim();
+    if (next === short) break;
+    short = next;
+  }
+  if (short.length >= 3) keys.add(short);
+  return [...keys];
+}
+
+function containsWord(hay, needle) {
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`).test(hay);
+}
+
 export function matchCompaniesForNews(item, companies = []) {
   const assigned =
     item?.company_id ||
@@ -96,10 +123,9 @@ export function matchCompaniesForNews(item, companies = []) {
   }
   const hay = newsHaystack(item);
   for (const company of companies) {
-    const name = String(company?.name || "").trim().toLowerCase();
     const ticker = String(company?.ticker || "").trim().toLowerCase();
-    if (name && name.length >= 3 && hay.includes(name)) push(company);
-    if (ticker && hay.includes(ticker)) push(company);
+    if (companyNameKeys(company).some((key) => containsWord(hay, key))) push(company);
+    if (ticker && containsWord(hay, ticker)) push(company);
   }
   return hits;
 }
@@ -206,13 +232,21 @@ function isFreshArchiveRow(row, { hasLive = false, now = Date.now() } = {}) {
   return stamp >= cutoff;
 }
 
+/**
+ * `focusCompanyId` narrows the desk to one company (the sidebar's company
+ * menu → News). Its own stored news is then kept however old it is — that
+ * archive is the company's news page — and the cap applies after the
+ * narrowing, so a busy tape cannot crowd the company's rows out.
+ */
 export function assembleDeskNews({
   feed = [],
   companies = [],
   live = [],
   limit = 100,
   now = Date.now(),
+  focusCompanyId = "",
 } = {}) {
+  const focus = String(focusCompanyId || "");
   const liveRows = (live || [])
     .map((item) => normalizeLiveNews(item, companies))
     .filter(Boolean);
@@ -226,15 +260,16 @@ export function assembleDeskNews({
       Array.isArray(company.company_news) && company.company_news.length
         ? company.company_news
         : company.recent_news || [];
+    const keepAll = focus && String(company.id) === focus;
     local.forEach((item, index) => {
       const row = normalizeCompanyNews(company, item, index);
-      if (row && isFreshArchiveRow(row, { hasLive, now })) companyRows.push(row);
+      if (row && (keepAll || isFreshArchiveRow(row, { hasLive, now }))) companyRows.push(row);
     });
   }
 
-  const candidates = [...liveRows, ...feedRows, ...companyRows].sort((a, b) =>
-    String(b.ts || "").localeCompare(String(a.ts || "")),
-  );
+  const candidates = [...liveRows, ...feedRows, ...companyRows]
+    .filter((row) => !focus || row.companyIds.includes(focus))
+    .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
   const rows = [];
   const seen = new Set();
   for (const row of candidates) {
