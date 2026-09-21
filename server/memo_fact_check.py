@@ -915,6 +915,91 @@ def _best_url_match(title: str, candidates: list[tuple[str, str]], *, min_score:
     return best
 
 
+# Files the pipeline writes into a research folder by itself, from the web:
+# the known-sources digest and the tracked-news digest. They can vouch for a
+# figure, but they are not private material — a source drawn from them came
+# from a page a reader can open, so it has a URL to carry.
+_WEB_DIGEST_FILES = {"known_sources.md", "recent_news.md"}
+
+
+def private_material_on_file(
+    company_id: str, *, research_dir: Path | None = None
+) -> list[str]:
+    """What the firm holds on this company that a reader cannot browse to:
+    research-folder documents (not the web digests the pipeline writes
+    there), founder updates and KPI rows, call transcripts and reference
+    calls. One label per kind found; empty means there is nothing private
+    on file, so no source in the memo can honestly be one.
+
+    The renderer's URL rule exempts a source whose class or title says it is
+    private. Nothing checked that claim, and live on 2026-09-21 a RadixArk
+    Gemini memo — no research folder, no uploads, nothing private at all —
+    classed three public sources as "internal document" and passed, because
+    the rule's own error message told it that was the way out.
+    """
+    found: list[str] = []
+    if research_dir is None:
+        try:
+            research_dir = research_store.RESEARCH_ROOT / company_paths.storage_key(company_id)
+        except ValueError:
+            research_dir = None
+    root = Path(research_dir) if research_dir is not None else None
+    if root is not None and root.is_dir():
+        try:
+            for path in sorted(p for p in root.iterdir() if p.is_file()):
+                name = path.name
+                if (
+                    name.startswith("index.yaml")
+                    or name.endswith(".progress.jsonl")
+                    or name in _WEB_DIGEST_FILES
+                ):
+                    continue
+                if path.stat().st_size > 0:
+                    found.append(f"research file: {name}")
+        except OSError:
+            logger.warning("private material: could not list %s", root, exc_info=True)
+    try:
+        from . import portfolio
+
+        if portfolio.has_record(company_id):
+            record = portfolio.get_portfolio(company_id)
+            if record.get("updates") or record.get("kpis"):
+                found.append("founder updates / KPI rows")
+    except Exception:  # noqa: BLE001
+        logger.debug("private material: no portfolio record for %s", company_id, exc_info=True)
+    try:
+        from . import transcripts
+
+        if any(t.get("company_id") == company_id for t in transcripts.all_transcripts()):
+            found.append("call transcripts")
+    except Exception:  # noqa: BLE001
+        logger.debug("private material: transcripts unavailable", exc_info=True)
+    try:
+        from . import ic_room
+
+        if ic_room.list_reference_calls(company_id).get("items"):
+            found.append("reference calls")
+    except Exception:  # noqa: BLE001
+        logger.debug("private material: reference calls unavailable", exc_info=True)
+    return found
+
+
+def stamp_private_material(
+    package: dict, *, company_id: str, research_dir: Path | None = None
+) -> list[str]:
+    """Record on the package envelope whether the firm holds anything private
+    on this company, so the renderer's URL rule can tell an honest "internal
+    document" from a public page that dropped its URL. Returns the labels."""
+    found = private_material_on_file(company_id, research_dir=research_dir)
+    if isinstance(package, dict):
+        run = package.get("run")
+        if not isinstance(run, dict):
+            run = {}
+            package["run"] = run
+        run["private_material_on_file"] = bool(found)
+    return found
+
+
 def attach_source_urls(package: dict, *, company_id: str, run_dir: Path | None) -> list[str]:
     """Fill in ``url`` on package sources that lack one, from what this
     run's analysis passes recorded and from the company's source cache.

@@ -36,6 +36,13 @@ def memo_env(monkeypatch, tmp_path):
     monkeypatch.setattr(memo_prep, "COMPANIES_FILE", data_root / "companies.yaml")
     monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "0")
+    # The fixture package cites "Company investor materials" with no URL,
+    # which is only honest if the firm holds that deck. Say so, rather than
+    # let the private-material check read the real data/research folder.
+    monkeypatch.setattr(
+        "server.memo_fact_check.private_material_on_file",
+        lambda *_a, **_k: ["research file: investor_materials.pdf"],
+    )
     return data_root
 
 

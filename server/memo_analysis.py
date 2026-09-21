@@ -963,6 +963,15 @@ def _attach_memo_source_urls(
     try:
         from . import memo_fact_check
 
+        # Before the URL rule judges the envelope: whether any source here
+        # can honestly be private. Stamped every attempt, because an
+        # envelope repair can rewrite `run`.
+        memo_fact_check.stamp_private_material(candidate, company_id=company_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("private-material stamp failed", exc_info=True)
+    try:
+        from . import memo_fact_check
+
         notes = memo_fact_check.attach_source_urls(
             candidate, company_id=company_id, run_dir=run_dir
         )

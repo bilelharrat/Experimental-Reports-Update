@@ -1565,8 +1565,18 @@ def _package_validation_errors(package: Any) -> list[str]:
     _validate_required_memo_components(package, errors, structure)
 
     if isinstance(sources, list):
+        # Stamped by the pipeline before validation (``memo_fact_check.
+        # stamp_private_material``). Absent — a stored package, a fixture —
+        # the class-based exemption stands as it always did.
+        run_meta = package.get("run") if isinstance(package.get("run"), dict) else {}
+        private_on_file = run_meta.get("private_material_on_file")
         for index, source in enumerate(sources):
-            _validate_source(source, f"sources[{index}]", errors)
+            _validate_source(
+                source,
+                f"sources[{index}]",
+                errors,
+                private_material=private_on_file if isinstance(private_on_file, bool) else None,
+            )
     return errors
 
 
@@ -2078,7 +2088,17 @@ def source_url_optional(source: dict) -> bool:
     return bool(_SOURCE_URL_OPTIONAL_RE.search(haystack))
 
 
-def _validate_source(source: Any, location: str, errors: list[str]) -> None:
+def _validate_source(
+    source: Any,
+    location: str,
+    errors: list[str],
+    *,
+    private_material: bool | None = None,
+) -> None:
+    """``private_material`` is whether the firm holds anything private on
+    this company (None = unknown). When it is False, no source can honestly
+    be private, so the class-based URL exemption does not apply — otherwise
+    a public page only has to call itself an "internal document"."""
     if not isinstance(source, dict):
         errors.append(f"{location} must be an object")
         return
@@ -2086,12 +2106,23 @@ def _validate_source(source: Any, location: str, errors: list[str]) -> None:
         if not str(source.get(key) or "").strip():
             errors.append(f"{location}.{key} is required")
     url = source.get("url")
+    claims_private = source_url_optional(source)
     if url is not None and str(url).strip():
         if not isinstance(url, str) or not url.strip().startswith(
             ("http://", "https://")
         ):
             errors.append(f"{location}.url must be an http(s) URL when present")
-    elif _memo_source_url_required_enabled() and not source_url_optional(source):
+    elif _memo_source_url_required_enabled() and claims_private and private_material is False:
+        source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
+        errors.append(
+            f"{location}.url is required: its class {source_class!r} says it is "
+            "private, but the firm holds nothing private on this company — no "
+            "research documents, founder updates, transcripts or reference "
+            "calls — so it came from a page a reader can open. Carry that "
+            "page's URL from the analysis artifacts or the known-sources list; "
+            "do not reclassify it"
+        )
+    elif _memo_source_url_required_enabled() and not claims_private:
         source_class = _loc(source.get("class"), "en") or str(source.get("class") or "")
         errors.append(
             f"{location}.url is required: a source of class {source_class!r} is "
