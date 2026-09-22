@@ -7,6 +7,7 @@ import {
   formatCompactNumber,
   formatIsoDate,
   formatMetricValue,
+  formatModelName,
   humanizeStatus,
   isPendingValue,
   normalizeReportStatus,
@@ -56,5 +57,14 @@ describe("user-facing formatters", () => {
     expect(companyInitials({ name: "Taiwan Semiconductor", ticker: "TSM" })).toBe("TS");
     expect(companyInitials({ name: "G" })).toBe("G");
     expect(companyInitials({})).toBe("?");
+  });
+});
+
+describe("formatModelName", () => {
+  it("says a model id the way people do", () => {
+    expect(formatModelName("gemini-3.8-flash")).toBe("Gemini 3.8 Flash");
+    expect(formatModelName("claude-sonnet-5")).toBe("Claude Sonnet 5");
+    expect(formatModelName("")).toBe("");
+    expect(formatModelName(null)).toBe("");
   });
 });

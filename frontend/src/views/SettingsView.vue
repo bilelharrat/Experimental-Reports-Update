@@ -13,7 +13,7 @@ import {
   scheduleDeskSync,
   snapshotDeskState,
 } from "../deskSync.js";
-import { accountInitials } from "../formatters.js";
+import { accountInitials, formatModelName } from "../formatters.js";
 import { useT } from "../i18n.js";
 import Monogram from "../components/Monogram.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -67,6 +67,17 @@ const RESEARCH_ENGINE_OPTIONS = ["claude", "gemini", "gemini-only"];
 // falling back to BSH_AI_ENGINE and then its own default, which is Claude.
 const researchEngine = computed(
   () => prefs.value.research_engine || "claude",
+);
+// Which engine Warren asks first; the other stands in when it cannot answer
+// (server/warren_engine.py). The server reports the Gemini model it runs and
+// whether a key is set, so the labels say what will actually happen.
+const WARREN_ENGINE_OPTIONS = ["claude", "gemini"];
+const warren = computed(() => settings.value?.warren || {});
+const warrenEngine = computed(
+  () => warren.value.engine || prefs.value.warren_engine || "claude",
+);
+const geminiModelLabel = computed(
+  () => formatModelName(warren.value.gemini_model) || t("copilot.engine_gemini"),
 );
 const account = computed(() => profile.value?.account || settings.value?.account || {});
 // With nobody signed in the server fills the email with a placeholder
@@ -424,6 +435,51 @@ async function importDeskState(event) {
           </div>
           <p class="mt-2 text-caption1 text-ink-muted">
             {{ t("settings.research_engine_hint") }}
+          </p>
+        </div>
+        <div class="mt-5">
+          <div class="vogue-label mb-2">{{ t("settings.warren_engine") }}</div>
+          <div
+            class="segmented"
+            role="group"
+            :aria-label="t('settings.warren_engine')"
+          >
+            <button
+              v-for="option in WARREN_ENGINE_OPTIONS"
+              :key="option"
+              type="button"
+              @click="patchPreference('warren_engine', option)"
+              class="segmented-item focus-ring"
+              :disabled="saving === 'warren_engine'"
+              :data-selected="warrenEngine === option"
+              :data-testid="`warren-engine-${option}`"
+            >
+              {{ option === "gemini" ? geminiModelLabel : t("settings.warren_engine_claude") }}
+            </button>
+          </div>
+          <p class="mt-2 text-caption1 text-ink-muted">
+            {{
+              t(
+                warrenEngine === "gemini"
+                  ? "settings.warren_engine_hint_gemini"
+                  : "settings.warren_engine_hint_claude",
+                { model: geminiModelLabel },
+              )
+            }}
+          </p>
+          <p
+            v-if="warren.gemini_available === false"
+            class="mt-1 text-caption1 text-warning"
+            data-testid="warren-no-gemini-key"
+          >
+            {{ t("settings.warren_no_gemini_key") }}
+          </p>
+          <p
+            v-else-if="warren.claude_resting"
+            class="mt-1 text-caption1 text-ink-muted"
+            data-testid="warren-claude-resting"
+          >
+            {{ t("settings.warren_claude_resting", { reason: warren.claude_resting, model: geminiModelLabel }) }}
           </p>
         </div>
       </section>

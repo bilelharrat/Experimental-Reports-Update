@@ -27,7 +27,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, console_store, files_store, job_progress, research_store, storage
+from . import (
+    claude_runner,
+    console_store,
+    files_store,
+    job_progress,
+    research_store,
+    storage,
+    warren_engine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +50,9 @@ IOS_ASK_SKILL_PATH = SKILLS_DIR / "bsh_copilot_ask_ios.md"
 
 # Session kinds that use the fast Ask profile (not Deep Console).
 _QUICK_ASK_KINDS = frozenset({"copilot_quick", "copilot_quick_ios"})
+# Warren's sessions, quick and deep. These answer through warren_engine, so
+# Gemini stands in when Claude cannot; the company Console stays on Claude.
+_WARREN_KINDS = _QUICK_ASK_KINDS | {"copilot_deep"}
 
 
 def _env_strip(name: str, default: str) -> str:
@@ -269,19 +280,43 @@ class _SessionDispatcher:
         ask_opts = quick_ask_cli_options(meta.get("session_kind"))
         if ask_opts.get("skill_path") is not None:
             skill_path = ask_opts.pop("skill_path")
-        try:
-            outcome = claude_runner.run_console_ask(
+
+        def run_claude(sink, user_prompt: str = ask_prompt) -> dict:
+            return claude_runner.run_console_ask(
                 claude_session_id=meta["claude_session_id"],
                 work_dir=console_store.workdir(self.company_id, self.session_id),
-                user_prompt=ask_prompt,
+                user_prompt=user_prompt,
                 skill_path=skill_path,
-                progress=progress,
+                progress=sink,
                 attachments=attachments,
                 output_language=meta.get("output_language"),
                 cancel_event=cancel_event,
                 bootstrap_session=bootstrap_session,
                 **ask_opts,
             )
+
+        try:
+            if meta.get("session_kind") in _WARREN_KINDS:
+                turns = console_store.read_turns(self.company_id, self.session_id)
+                catch_up = warren_engine.catch_up_block(turns)
+                system_prompt = claude_runner._console_skill_text(
+                    skill_path,
+                    meta.get("output_language"),
+                    lean_language_directive=bool(ask_opts.get("lean_language_directive")),
+                )
+                outcome = warren_engine.answer(
+                    run_claude=lambda sink: run_claude(sink, catch_up + ask_prompt),
+                    run_gemini=lambda sink: warren_engine.ask_gemini(
+                        system_prompt=system_prompt,
+                        turns=turns,
+                        question=ask_prompt,
+                        progress=sink,
+                        cancel_event=cancel_event,
+                    ),
+                    progress=progress,
+                )
+            else:
+                outcome = run_claude(progress)
         finally:
             _unregister_cancel(self.company_id, self.session_id, turn_id)
 
@@ -298,6 +333,11 @@ class _SessionDispatcher:
             "subtype": outcome.get("subtype")
                 or ("success" if outcome.get("ok") else "error"),
         }
+        # Which engine answered, and why the other one did not: the panel
+        # prints both under the answer so a stand-in never passes for Claude.
+        for key in ("engine", "model", "fallback_reason"):
+            if outcome.get(key):
+                record[key] = outcome[key]
         if not outcome.get("ok"):
             record["error"] = outcome.get("error") or "Ask failed"
             if outcome.get("interrupt_reason"):
@@ -318,7 +358,10 @@ class _SessionDispatcher:
         # Auto-rename after the first successful turn lands. Cheap one-shot
         # Claude call; failure falls back to the timestamp title silently.
         if outcome.get("ok"):
-            if bootstrap_session:
+            # Only a Claude answer creates the CLI session. After a Gemini
+            # one the next Claude ask must still bootstrap, or it would try
+            # to resume a session that does not exist.
+            if bootstrap_session and outcome.get("engine", "claude") == "claude":
                 console_store.update_meta(
                     self.company_id,
                     self.session_id,

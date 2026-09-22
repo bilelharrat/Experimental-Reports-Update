@@ -1134,6 +1134,77 @@ def run_grounded_json(
     return data, meta, None
 
 
+def run_chat(
+    *,
+    system_prompt: str,
+    history: list[tuple[str, str]],
+    user_prompt: str,
+    name: str = "chat",
+    timeout_sec: int = 120,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    grounded: bool = True,
+) -> tuple[str | None, dict, str | None]:
+    """A conversational reply in prose. Returns ``(text, meta, error)``.
+
+    ``history`` is the conversation so far as ``(question, answer)`` pairs,
+    oldest first, and ``user_prompt`` the new question. Pairs keep the roles
+    alternating, which the API requires of a multi-turn request.
+
+    With ``grounded`` the model may run Google Search, and ``meta`` reports
+    what it read (``sources``, ``queries``, ``grounded``) beside ``model``,
+    ``usage`` and ``cost_usd``. One call is enough here: the two-step split
+    in ``run_grounded_json`` exists because a schema in the prompt stops the
+    model searching, and a chat reply carries no schema.
+    """
+    key = api_key()
+    if key is None:
+        return None, {}, (
+            "Gemini API key not configured. Set GEMINI_API_KEY in .env "
+            "(get one at https://aistudio.google.com/apikey)."
+        )
+    chosen_model = (model or default_model()).strip() or DEFAULT_MODEL
+    thinking = (thinking_level or default_thinking_level(grounded=grounded)).strip().lower()
+    if thinking not in THINKING_LEVELS:
+        thinking = DEFAULT_GROUNDED_THINKING if grounded else DEFAULT_THINKING
+
+    contents: list[dict] = []
+    for question, answer in history:
+        contents.append({"role": "user", "parts": [{"text": question}]})
+        contents.append({"role": "model", "parts": [{"text": answer}]})
+    contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+    body: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": {"thinkingConfig": {"thinkingLevel": thinking}},
+    }
+    if system_prompt:
+        body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+    if grounded:
+        body["tools"] = [{"google_search": {}}]
+
+    payload, error, _status = _post(
+        body, model=chosen_model, key=key, timeout_sec=timeout_sec
+    )
+    if error is not None:
+        return None, {"engine": "gemini", "model": chosen_model}, f"{error} ({name})"
+    payload = payload or {}
+    meta = _grounding_meta(payload)
+    meta["model"] = chosen_model
+    meta["engine"] = "gemini"
+    meta["usage"] = _usage_from_payload(payload)
+    meta["cost_usd"] = usd_cost(meta["usage"], chosen_model)
+    meta["grounded"] = bool(grounded and (meta["sources"] or meta["queries"]))
+    text = _candidate_text(payload)
+    if not text:
+        return None, meta, (
+            _blocked_reason(payload) or "gemini returned an empty response"
+        ) + f" ({name})"
+    # A reply cut off at the output limit is still worth reading; say so
+    # rather than discard it.
+    meta["truncated"] = _hit_output_limit(payload)
+    return text, meta, None
+
+
 def health_check(*, timeout_sec: int = 30) -> dict:
     """Cheap liveness probe for the settings/diagnostics surface."""
     if not is_available():

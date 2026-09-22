@@ -184,6 +184,16 @@ export function displayNameFromEmail(email) {
     .join(" ");
 }
 
+/** A model id as people say it ("gemini-3.8-flash" → "Gemini 3.8 Flash"). */
+export function formatModelName(id) {
+  return String(id || "")
+    .trim()
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 /** Compact 1–2 letter mark for a company rail badge (e.g. "ZaiNar, Inc." → "ZI"). */
 export function companyInitials(company, fallback = "?") {
   const ticker = String(company?.ticker || "").trim();

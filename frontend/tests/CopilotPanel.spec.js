@@ -305,4 +305,63 @@ describe("CopilotPanel — Ask Warren", () => {
     await wrapper.find(".ask-suggestion").trigger("click");
     expect(wrapper.emitted("choose-company")[0]).toEqual(["acme"]);
   });
+  it("says when Gemini answered because Claude was out of tokens", async () => {
+    const limit = "You've hit your weekly limit · resets 5pm (America/Los_Angeles)";
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await wrapper.find("textarea").setValue("Why did chip stocks soar today?");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    const stream = streams.at(-1);
+    // Claude streams its limit message as text before it gives up...
+    stream.emit({ type: "claude_action", action: "thinking", text: limit });
+    await flushPromises();
+    expect(wrapper.text()).toContain(limit);
+    // ...and Gemini takes the question over: that text was never the answer.
+    stream.emit({ type: "claude_action", action: "fallback", engine: "gemini", reason: limit });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain(limit);
+    expect(wrapper.text()).toContain("Asking Gemini instead…");
+
+    m.console.getTurns.mockResolvedValue([
+      { id: "turn-1", role: "user", text: "Why did chip stocks soar today?", ts: new Date().toISOString() },
+      {
+        id: "turn-1",
+        role: "assistant",
+        text: "AI demand lifted the whole group.",
+        engine: "gemini",
+        model: "gemini-3.8-flash",
+        fallback_reason: limit,
+        ts: new Date().toISOString(),
+      },
+    ]);
+    stream.emit({ type: "done", text: "AI demand lifted the whole group." });
+    await flushPromises();
+
+    const answer = wrapper.find('[data-turn-role="assistant"]');
+    expect(answer.text()).toContain("AI demand lifted the whole group.");
+    expect(answer.find('[data-testid="warren-engine-note"]').text()).toBe(
+      `Gemini 3.8 Flash answered · Claude couldn't: ${limit}`,
+    );
+    expect(answer.find(".warren-error").exists()).toBe(false);
+  });
+
+  it("names a chosen Gemini, and says nothing under a Claude answer", async () => {
+    m.console.getTurns.mockResolvedValue([
+      { id: "t1", role: "user", text: "Is the moat widening?" },
+      { id: "t1", role: "assistant", text: "Yes, slowly.", engine: "claude", model: "claude-sonnet-5" },
+      { id: "t2", role: "user", text: "And the margins?" },
+      { id: "t2", role: "assistant", text: "Holding up.", engine: "gemini", model: "gemini-3.8-flash" },
+    ]);
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const notes = wrapper
+      .findAll('[data-turn-role="assistant"]')
+      .map((answer) => answer.find('[data-testid="warren-engine-note"]'));
+    expect(notes[0].exists()).toBe(false);
+    expect(notes[1].text()).toBe("Answered by Gemini 3.8 Flash");
+  });
 });

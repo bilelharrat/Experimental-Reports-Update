@@ -87,6 +87,7 @@ from . import (
     trader_stats,
     tracking_dashboard,
     tracking_updates,
+    warren_engine,
     weekly_stocks,
 )
 
@@ -1416,6 +1417,9 @@ class WorkspacePreferencePatch(BaseModel):
     # "gemini" | "gemini-only" | "claude" — which engine answers the
     # web-grounded research surfaces (server/ai_engine.py). Desk-wide.
     research_engine: str | None = None
+    # "claude" | "gemini" — which engine Warren asks first; the other one
+    # stands in when it cannot answer (server/warren_engine.py). Desk-wide.
+    warren_engine: str | None = None
 
 
 class ThreadIn(BaseModel):
@@ -1625,6 +1629,7 @@ def get_workspace_settings(request: Request) -> dict:
             role_override=_caller_role(request),
         )["account"],
         **product_store.get_preferences(_caller_email(request)),
+        "warren": warren_engine.status(),
     }
 
 
@@ -1644,6 +1649,8 @@ def patch_workspace_settings(
                 _caller_email(request),
                 patch.model_dump(exclude_none=True),
             ),
+            # Read after the update, so a new Warren choice shows at once.
+            "warren": warren_engine.status(),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

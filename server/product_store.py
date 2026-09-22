@@ -176,6 +176,7 @@ def update_preferences(email: str | None, patch: dict) -> dict:
         "language",
         "memo_parallel_runs",
         "research_engine",
+        "warren_engine",
     }
     normalized = {
         key: patch[key]
@@ -189,6 +190,11 @@ def update_preferences(email: str | None, patch: dict) -> dict:
             raise ValueError(
                 "research_engine must be one of " + ", ".join(RESEARCH_ENGINES)
             )
+    if "warren_engine" in normalized:
+        if normalized["warren_engine"] not in WARREN_ENGINES:
+            raise ValueError(
+                "warren_engine must be one of " + ", ".join(WARREN_ENGINES)
+            )
     for key in ("weekly_summary", "stock_auto_refresh", "agent_alerts", "compact_density"):
         if key in normalized:
             normalized[key] = bool(normalized[key])
@@ -200,7 +206,7 @@ def update_preferences(email: str | None, patch: dict) -> dict:
     # server's memory), so they never live in a per-user override.
     global_only = {
         key: normalized.pop(key)
-        for key in ("memo_parallel_runs", "research_engine")
+        for key in ("memo_parallel_runs", "research_engine", "warren_engine")
         if key in normalized
     }
     with _LOCK:
@@ -271,6 +277,20 @@ def research_engine() -> str | None:
     return _normalize_research_engine(
         (payload.get("preferences") or {}).get("research_engine")
     )
+
+
+# Which engine answers Warren first. Desk-wide for the same reason as the
+# research engine: it decides where the workspace spends. The other engine
+# still answers when the first cannot (server/warren_engine.py).
+WARREN_ENGINES = ("claude", "gemini")
+
+
+def warren_engine() -> str | None:
+    """The stored engine Warren asks first, or None when nothing is set."""
+    with _LOCK:
+        payload = _read_yaml(default_preferences(None))
+    value = str((payload.get("preferences") or {}).get("warren_engine") or "").strip().lower()
+    return value if value in WARREN_ENGINES else None
 
 
 def display_name(email: str | None) -> str:

@@ -210,6 +210,15 @@ const messages = {
     "settings.research_engine_claude": "Claude",
     "settings.research_engine_hint":
       "Which model answers the team dossier, the daily desk note and the company news sweep. Gemini falls back to Claude if a call fails; Gemini only reports the failure instead. Reports are not affected — each report picks its engine when you start it.",
+    "settings.warren_engine": "Warren",
+    "settings.warren_engine_claude": "Claude",
+    "settings.warren_engine_hint_claude":
+      "Claude answers Warren. When Claude is out of tokens or can't be reached, {model} answers instead, and the answer says so.",
+    "settings.warren_engine_hint_gemini":
+      "{model} answers Warren and searches the web when a question needs it. Claude answers only if {model} fails.",
+    "settings.warren_no_gemini_key":
+      "No Gemini API key is set, so nothing can stand in for Claude. Add GEMINI_API_KEY to the server's .env.",
+    "settings.warren_claude_resting": "Claude is out right now: {reason}. {model} is answering Warren.",
     "settings.system": "System",
     "settings.system_details": "System details",
     "settings.workspace_role": "Workspace role",
@@ -795,6 +804,11 @@ const messages = {
     "copilot.activity_queued": "Waiting for the previous answer",
     "copilot.stopping": "Stopping…",
     "copilot.no_answer": "No answer came back.",
+    "copilot.engine_claude": "Claude",
+    "copilot.engine_gemini": "Gemini",
+    "copilot.answered_by": "Answered by {model}",
+    "copilot.answered_instead": "{model} answered · {other} couldn't: {reason}",
+    "copilot.activity_fallback": "Asking {engine} instead…",
     "copilot.clear_context": "Ask without this context",
     "copilot.choose_company_body": "Warren answers from one company’s memo, filings and notes. Pick one to start.",
     "copilot.no_companies": "Add a company first, then ask Warren about it.",
@@ -3168,6 +3182,15 @@ const messages = {
     "settings.research_engine_claude": "Claude",
     "settings.research_engine_hint":
       "由哪个模型来完成团队档案、每日工作台简报以及公司新闻扫描。选择 Gemini 时，调用失败会自动回退到 Claude；选择「仅用 Gemini」则直接报错、不回退。本设置不影响报告生成——每次启动报告时单独选择引擎。",
+    "settings.warren_engine": "沃伦",
+    "settings.warren_engine_claude": "Claude",
+    "settings.warren_engine_hint_claude":
+      "由 Claude 为沃伦作答。Claude 额度用尽或无法连接时，改由 {model} 回答，并在回答下方注明。",
+    "settings.warren_engine_hint_gemini":
+      "由 {model} 为沃伦作答，需要时会搜索网络。仅当 {model} 失败时才由 Claude 回答。",
+    "settings.warren_no_gemini_key":
+      "尚未设置 Gemini API 密钥，Claude 不可用时无人代答。请在服务器的 .env 中添加 GEMINI_API_KEY。",
+    "settings.warren_claude_resting": "Claude 当前不可用：{reason}。沃伦暂由 {model} 作答。",
     "settings.system": "系统",
     "settings.system_details": "系统详情",
     "settings.workspace_role": "工作区角色",
@@ -3737,6 +3760,11 @@ const messages = {
     "copilot.activity_queued": "等待上一个回答完成",
     "copilot.stopping": "正在停止…",
     "copilot.no_answer": "没有收到回答。",
+    "copilot.engine_claude": "Claude",
+    "copilot.engine_gemini": "Gemini",
+    "copilot.answered_by": "由 {model} 回答",
+    "copilot.answered_instead": "由 {model} 代答 · {other} 无法回答：{reason}",
+    "copilot.activity_fallback": "改由 {engine} 回答…",
     "copilot.clear_context": "不带此上下文提问",
     "copilot.choose_company_body": "沃伦基于一家公司的备忘录、文件和笔记作答。选择一家公司开始。",
     "copilot.no_companies": "请先添加公司，再向沃伦提问。",

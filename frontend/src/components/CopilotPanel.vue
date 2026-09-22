@@ -43,6 +43,7 @@ import {
 } from "../copilotContext.js";
 import CompanyConsole from "./CompanyConsole.vue";
 import { renderMarkdown } from "../markdown.js";
+import { formatModelName } from "../formatters.js";
 import { appLanguage } from "../state.js";
 import { useT } from "../i18n.js";
 
@@ -215,6 +216,21 @@ function formatTime(ts) {
   });
 }
 
+// Who answered, when it was not the usual Claude: a stand-in names itself and
+// says why the first engine could not answer, so it never passes for Claude.
+function engineNote(turn) {
+  const engine = String(turn.engine || "");
+  if (!engine || (engine === "claude" && !turn.fallback_reason)) return "";
+  const model = formatModelName(turn.model) || t(`copilot.engine_${engine}`);
+  if (!turn.fallback_reason) return t("copilot.answered_by", { model });
+  const other = engine === "gemini" ? "claude" : "gemini";
+  return t("copilot.answered_instead", {
+    model,
+    other: t(`copilot.engine_${other}`),
+    reason: turn.fallback_reason,
+  });
+}
+
 function viewTurn(turn, index) {
   const role = turn.role === "user" ? "user" : "assistant";
   const key = `${role}-${turn.id || "row"}-${index}`;
@@ -239,6 +255,7 @@ function viewTurn(turn, index) {
     stopped,
     failed: Boolean(error) && !stopped,
     error,
+    engineNote: engineNote(turn),
     time: formatTime(turn.ts),
   };
 }
@@ -532,6 +549,13 @@ function openAskStream(sid, turnId, attempt = 0) {
         scrollToBottom();
       } else if (entry.action === "tool_use") {
         pendingActivity.value = activityFor(entry);
+      } else if (entry.action === "fallback") {
+        // The first engine could not answer; what it streamed was its own
+        // error ("You've hit your weekly limit…"), not the answer.
+        pendingText.value = "";
+        pendingActivity.value = t("copilot.activity_fallback", {
+          engine: t(`copilot.engine_${entry.engine === "claude" ? "claude" : "gemini"}`),
+        });
       }
     } else if (entry.type === "done" || entry.type === "error") {
       completeAnswer(sid, turnId);
@@ -1168,6 +1192,13 @@ defineExpose({
               </header>
               <div class="pl-[30px]">
                 <div v-if="turn.html" class="warren-md md-body mt-1" v-html="turn.html" />
+                <p
+                  v-if="turn.engineNote && !turn.failed"
+                  class="mt-1.5 text-caption1 text-ink-muted"
+                  data-testid="warren-engine-note"
+                >
+                  {{ turn.engineNote }}
+                </p>
                 <p v-if="turn.stopped" class="mt-1 text-caption1 text-ink-muted">
                   {{ t("copilot.stopped") }}
                 </p>

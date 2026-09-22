@@ -150,6 +150,7 @@ which spends the user's Claude Code subscription. Three surfaces do not:
 | Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
 | Story briefings | `news_brief.py` | Highest-frequency call in the app; no tools needed |
 | Memos and reports | `memo_engine.py` | Opt-in per run only — see below |
+| Ask Warren | `warren_engine.py` | Stands in when Claude cannot answer; first choice if Settings says so |
 
 `server/gemini_runner.py` is the backend — the Gemini `generateContent`
 REST API over `httpx`, no new dependency. It mirrors
@@ -188,6 +189,33 @@ to rediscover, both measured against the live API:
 `response_schema` also takes an OpenAPI-flavored subset of JSON Schema and
 400s on keywords outside it (`additionalProperties`, which our Claude-era
 schemas all carry), so `gemini_runner` strips those before sending.
+
+### Warren's stand-in
+
+Warren's questions go to the Claude CLI through `console_session`, like the
+company Console. For Warren's session kinds (`copilot_quick`,
+`copilot_quick_ios`, `copilot_deep`) the worker hands the turn to
+`warren_engine.answer`, which asks the engine chosen under Settings → Warren
+(Claude unless someone picks Gemini) and, when that one fails, the other.
+A Stop is never passed on.
+
+- **The stream must not end early.** The ask SSE closes at the first `error`
+  event, so the first engine's failure is held back and one terminal event
+  is emitted once the turn is settled; a `claude_action` with
+  `action: "fallback"` tells the panel to drop what Claude streamed (its
+  limit message) and say who is answering.
+- **Gemini has no CLI session.** `gemini_runner.run_chat` gets the stored
+  transcript as alternating turns, answered exchanges only, plus Warren's own
+  persona file with a note that it cannot open staged files. It may run
+  Google Search, and a grounded reply links what it read.
+- **Claude's session misses Gemini's turns.** The next Claude prompt starts
+  with what Gemini answered since Claude last did, and a Gemini answer never
+  marks a quick session's CLI session as created, or the next Claude ask
+  would resume nothing.
+- **A usage limit rests Claude for 15 minutes**, so a run of questions does
+  not respawn a CLI that is bound to fail; a Claude answer ends the rest.
+- The stored turn carries `engine`, `model` and `fallback_reason`, and the
+  panel prints them under the answer.
 
 ### Memos are the exception
 

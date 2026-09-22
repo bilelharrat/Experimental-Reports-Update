@@ -902,6 +902,50 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("lets Settings choose Warren's engine and says who stands in", async () => {
+    const limit = "You've hit your weekly limit · resets 5pm (America/Los_Angeles)";
+    const base = await api.workspaceSettings();
+    const warren = {
+      engine: "claude",
+      gemini_available: true,
+      gemini_model: "gemini-3.8-flash",
+      claude_available: true,
+      claude_resting: limit,
+    };
+    api.workspaceSettings.mockResolvedValueOnce({ ...base, warren });
+    let wrapper = await mountRoute("/settings");
+
+    const claude = wrapper.get('[data-testid="warren-engine-claude"]');
+    const gemini = wrapper.get('[data-testid="warren-engine-gemini"]');
+    expect(claude.text()).toBe("Claude");
+    // The label is the model the server will actually run.
+    expect(gemini.text()).toBe("Gemini 3.8 Flash");
+    expect(claude.attributes("data-selected")).toBe("true");
+    expect(wrapper.text()).toContain("Gemini 3.8 Flash answers instead");
+    expect(wrapper.get('[data-testid="warren-claude-resting"]').text()).toContain(limit);
+
+    api.updateWorkspaceSettings.mockResolvedValueOnce({
+      ...base,
+      preferences: { ...base.preferences, warren_engine: "gemini" },
+      warren: { ...warren, engine: "gemini" },
+    });
+    await gemini.trigger("click");
+    await flushPromises();
+    expect(api.updateWorkspaceSettings).toHaveBeenCalledWith({ warren_engine: "gemini" });
+    expect(wrapper.get('[data-testid="warren-engine-gemini"]').attributes("data-selected")).toBe("true");
+    expect(wrapper.text()).toContain("Claude answers only if Gemini 3.8 Flash fails");
+    wrapper.unmount();
+
+    // With no key there is no stand-in, and Settings says so.
+    api.workspaceSettings.mockResolvedValueOnce({
+      ...base,
+      warren: { ...warren, gemini_available: false, claude_resting: null },
+    });
+    wrapper = await mountRoute("/settings");
+    expect(wrapper.find('[data-testid="warren-no-gemini-key"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it("offers Sign in on Settings until someone signs in, then the account's controls", async () => {
     // Nobody signed in (the local anon-dev bypass): the server fills the
     // email with a placeholder and there is no account to act on.

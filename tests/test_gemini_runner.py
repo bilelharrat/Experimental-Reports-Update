@@ -1051,3 +1051,60 @@ def test_both_steps_of_a_grounded_call_are_counted(monkeypatch, key):
     single = gemini_runner._usage_from_payload(first)
     assert meta["usage"]["input_tokens"] == 2 * single["input_tokens"]
     assert meta["usage"]["output_tokens"] == 2 * single["output_tokens"]
+
+
+# ---- chat (Warren's stand-in) ---------------------------------------------
+
+
+def test_chat_sends_the_conversation_and_searches(monkeypatch, key):
+    calls: list[dict] = []
+    _stub_post(
+        monkeypatch,
+        [_response(200, _envelope("Chips rose on AI demand.", grounding=GROUNDING))],
+        calls,
+    )
+
+    text, meta, error = gemini_runner.run_chat(
+        system_prompt="You are Warren.",
+        history=[("how is AMD doing", "AMD is up 4%.")],
+        user_prompt="why did chip stocks soar today",
+        name="warren",
+    )
+
+    assert error is None
+    assert text == "Chips rose on AI demand."
+    body = calls[0]["body"]
+    assert calls[0]["url"].endswith("/models/gemini-3.8-flash:generateContent")
+    assert [c["role"] for c in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][1]["parts"][0]["text"] == "AMD is up 4%."
+    assert body["contents"][2]["parts"][0]["text"] == "why did chip stocks soar today"
+    assert body["systemInstruction"]["parts"][0]["text"] == "You are Warren."
+    assert body["tools"] == [{"google_search": {}}]
+    # Prose out: none of the JSON-mode settings belong on a chat reply.
+    assert "responseMimeType" not in body["generationConfig"]
+    assert "responseSchema" not in body["generationConfig"]
+    assert meta["grounded"] is True
+    assert meta["model"] == "gemini-3.8-flash"
+    assert [s["url"] for s in meta["sources"]] == ["https://example.com/a", "https://example.com/b"]
+
+
+def test_chat_without_a_key_is_an_error(no_key):
+    text, meta, error = gemini_runner.run_chat(
+        system_prompt="s", history=[], user_prompt="hi",
+    )
+    assert text is None and meta == {}
+    assert "GEMINI_API_KEY" in error
+
+
+def test_chat_reports_api_errors(monkeypatch, key):
+    _stub_post(
+        monkeypatch,
+        [_response(403, {"error": {"status": "PERMISSION_DENIED", "message": "API key not valid"}})],
+    )
+    text, meta, error = gemini_runner.run_chat(
+        system_prompt="s", history=[], user_prompt="hi", name="warren",
+    )
+    assert text is None
+    assert "PERMISSION_DENIED" in error and "(warren)" in error
+    assert "test-key" not in error
+    assert meta["model"] == "gemini-3.8-flash"
