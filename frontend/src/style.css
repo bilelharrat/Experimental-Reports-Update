@@ -1421,60 +1421,6 @@ select.field-sm {
   animation: none;
 }
 
-/* Market, Pulse and News on one sidebar line. The gliding pill paints the
-   whole row (it only moves vertically); the button you are on carries a
-   quieter fill and the accent icon, so the row says "markets" and the
-   button says which one. */
-.desk-segments {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 10px;
-}
-
-[data-glider="off"] .desk-segments[data-active="true"] {
-  background-color: var(--glass-pill);
-  box-shadow: var(--glass-rim), var(--pill-shadow);
-}
-
-.desk-segment {
-  display: flex;
-  flex: 1 1 0;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border-radius: 8px;
-  padding: 4px 6px;
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: -0.006em;
-  color: rgb(var(--color-text-secondary));
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
-}
-
-.desk-segment:hover {
-  background-color: rgb(var(--color-text-primary) / 0.045);
-  color: rgb(var(--color-text-primary));
-}
-
-.desk-segment:active {
-  background-color: rgb(var(--color-text-primary) / 0.07);
-}
-
-.desk-segment.is-active {
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-text-primary) / 0.07);
-}
-
-.desk-segment.is-active .desk-segment-icon {
-  color: rgb(var(--color-accent));
-}
-
 .nav-glider {
   position: absolute;
   left: 0;
