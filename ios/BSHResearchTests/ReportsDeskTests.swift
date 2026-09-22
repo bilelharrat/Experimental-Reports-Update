@@ -70,7 +70,9 @@ final class ReportsDeskTests: XCTestCase {
             streamUrl: nil,
             downloadUrls: ["en": "/download/r1"],
             previewUrls: ["en": "/preview/r1"],
-            resumeAvailable: false
+            resumeAvailable: false,
+            logoUrl: nil,
+            logoDomain: nil
         )
 
         let r2 = ReportSummary(
@@ -90,7 +92,9 @@ final class ReportsDeskTests: XCTestCase {
             streamUrl: "/stream/r2",
             downloadUrls: nil,
             previewUrls: nil,
-            resumeAvailable: false
+            resumeAvailable: false,
+            logoUrl: nil,
+            logoDomain: nil
         )
 
         let r3 = ReportSummary(
@@ -110,7 +114,9 @@ final class ReportsDeskTests: XCTestCase {
             streamUrl: nil,
             downloadUrls: nil,
             previewUrls: nil,
-            resumeAvailable: true
+            resumeAvailable: true,
+            logoUrl: nil,
+            logoDomain: nil
         )
 
         model.reports = [r1, r2, r3]
