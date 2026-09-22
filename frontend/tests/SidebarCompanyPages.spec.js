@@ -20,8 +20,8 @@ import Sidebar from "../src/components/Sidebar.vue";
 import { setSidebarCollapsed } from "../src/state.js";
 
 // Clicking a company in the sidebar opens it in place, like a folder: its
-// Reports, News and Research Desk, one row each, with how many reports and
-// headlines the first two hold.
+// Reports, News, Research Desk and, when listed, Market, one row each, with
+// how many reports and headlines the first two hold.
 
 const now = new Date().toISOString();
 
@@ -142,12 +142,41 @@ describe("Sidebar company pages", () => {
       "Reports",
       "News",
       "Research Desk",
+      "Market",
     ]);
     expect(rows.map((row) => row.attributes("href"))).toEqual([
       "/reports?company=intc",
       "/news-desk?company=intc",
       "/intc",
+      "/market-radar?ticker=INTC",
     ]);
+  });
+
+  it("a company with no listing has no Market row", async () => {
+    await mountSidebar();
+    await toggle("zeta");
+
+    const kinds = pages().findAll("a.company-page-row").map((row) => row.attributes("data-kind"));
+    expect(kinds).toEqual(["reports", "news", "desk"]);
+  });
+
+  it("the Market desk on a company's stock marks its Market row", async () => {
+    const { router } = await mountSidebar();
+    await router.push({ name: "market-radar", query: { ticker: "intc" } });
+    await flushPromises();
+
+    expect(pages().attributes("id")).toBe("company-pages-intc");
+    expect(page("market").attributes("aria-current")).toBe("page");
+    const deskRow = wrapper.get('[data-tour="nav-market"]');
+    expect(deskRow.classes()).not.toContain("router-link-exact-active");
+
+    // A symbol that isn't a workspace company: the Market desk row holds it,
+    // and the open company stays open.
+    await router.push({ name: "market-radar", query: { ticker: "SPY" } });
+    await flushPromises();
+    expect(deskRow.classes()).toContain("router-link-exact-active");
+    expect(page("market").attributes("aria-current")).toBeUndefined();
+    expect(pages().attributes("id")).toBe("company-pages-intc");
   });
 
   it("counts the company's reports and its headlines, its own ticker's included", async () => {
@@ -159,6 +188,7 @@ describe("Sidebar company pages", () => {
     expect(count("reports").text()).toBe("2");
     expect(count("news").text()).toBe("2");
     expect(count("desk").exists()).toBe(false);
+    expect(count("market").exists()).toBe(false);
   });
 
   it("holds a count back until its numbers are in, rather than showing 0", async () => {
@@ -179,6 +209,17 @@ describe("Sidebar company pages", () => {
     expect(api.quotesNews).not.toHaveBeenCalled();
     expect(count("reports").text()).toBe("0");
     expect(count("news").text()).toBe("0");
+  });
+
+  it("marks the open company, row and pages together, for the welcome tour", async () => {
+    await mountSidebar();
+    expect(wrapper.find('[data-tour="company-folder"]').exists()).toBe(false);
+
+    await toggle("intc");
+    const folder = wrapper.findAll('[data-tour="company-folder"]');
+    expect(folder).toHaveLength(1);
+    expect(folder[0].find('a.company-source-row[href="/intc"]').exists()).toBe(true);
+    expect(folder[0].find('[data-testid="company-pages"]').exists()).toBe(true);
   });
 
   it("closes on a second click, and one company is open at a time", async () => {
@@ -268,6 +309,7 @@ describe("Sidebar company pages", () => {
       "Reports",
       "News",
       "Research Desk",
+      "Market",
     ]);
     expect(rows.every((row) => row.text() === "")).toBe(true);
     // No glider in the rail: the logo keeps its ring as well.

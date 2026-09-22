@@ -1484,9 +1484,10 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
   box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.5);
 }
 
-/* A company opened in the list, like a folder: its Reports, News and
-   Research Desk, indented under the logo along a hairline guide. Each page
-   keeps its own tint on the glyph; the one on screen takes the glass pill.
+/* A company opened in the list, like a folder: its Reports, News, Research
+   Desk and (when listed) Market, indented under the logo along a hairline
+   guide. Each page keeps its own tint on the glyph; the one on screen takes
+   the glass pill.
    Opacity only on the way in: the glider measures these rows, and a moving
    transform would leave it measuring them mid-flight. */
 .company-pages {
@@ -1524,6 +1525,10 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
 
 .company-page-row[data-kind="desk"] .company-page-icon {
   color: rgb(var(--color-info-ink));
+}
+
+.company-page-row[data-kind="market"] .company-page-icon {
+  color: rgb(var(--color-success-ink));
 }
 
 .company-disclosure {

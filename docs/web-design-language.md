@@ -111,35 +111,42 @@ the state: it opens once per browser (`bsh.welcomeTourSeen` stores the tour
 version; bump `WELCOME_TOUR_VERSION` when the content changes enough to show
 again) and Settings can replay it. Classes: `.welcome-tour-*` and the
 `tour-forward` / `tour-back` page transitions. The iPhone/iPad and Mac apps
-carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`).
+carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`),
+except for the web's "Open a company like a folder" step: it opens the last
+company visited (else the top of the list) and spotlights its folder in the
+sidebar (`[data-tour="company-folder"]`), which the apps don't have.
 
 ## Company pages in the sidebar
 
 Clicking a company in the sidebar opens it in place, like a folder in the
-Finder sidebar: three rows appear under it, indented along a hairline guide —
-Reports, News and Research Desk. Reports and News show how many reports and
-headlines they hold, counted the way those pages build them (the reports
-list, and the News desk's headlines for the company with its own ticker's
-wire), never with an AI call. A count waits until its numbers are in rather
-than showing a wrong 0.
+Finder sidebar: rows appear under it, indented along a hairline guide —
+Reports, News, Research Desk and, for a listed company, Market (its stock on
+the Market desk). Reports and News show how many reports and headlines they
+hold, counted the way those pages build them (the reports list, and the
+News desk's headlines for the company with its own ticker's wire), never
+with an AI call. A count waits until its numbers are in rather than showing
+a wrong 0.
 
 - One company is open at a time. Clicking it again closes it; `→` and `←`
   open and close it from the keyboard. A modified click (new tab) keeps the
   row's plain link to the Research Desk.
-- Reaching a company's page any other way (search, ⌘K, a link) opens that
-  company in the list with the page marked, so the sidebar always says where
-  you are.
+- Reaching a company's page any other way (search, ⌘K, a link, a ticker
+  tape) opens that company in the list with the page marked, so the sidebar
+  always says where you are. The Market desk counts as the company's page
+  while it shows the company's stock.
 - The page on screen takes the glass pill. While it does, the desk row above
-  (Reports, News) gives up its own highlight: the sidebar holds one selection.
-  Shut, the company row itself holds it.
+  (Reports, News, Market) gives up its own highlight: the sidebar holds one
+  selection. Shut, the company row itself holds it.
 - Each row keeps its glyph's tint: accent for Reports, the warning ink for
-  News and the info ink for Research Desk. The open company shows a chevron.
+  News, the info ink for Research Desk and the success ink for Market. The
+  open company shows a chevron.
 - In the icon rail the rows stack as glyphs on a quiet tray under the logo,
   named on hover.
 
-The rows link to `/reports?company=`, `/news-desk?company=` and the Research
-Desk. The classes are `.company-pages`, `.company-page-row[data-kind]` and
-`.company-disclosure`; the counting helpers are in `src/companyPages.js`.
+The rows link to `/reports?company=`, `/news-desk?company=`, the Research
+Desk and `/market-radar?ticker=`. The classes are `.company-pages`,
+`.company-page-row[data-kind]` and `.company-disclosure`; the counting
+helpers are in `src/companyPages.js`.
 
 ## Page anatomy
 

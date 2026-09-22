@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
 import WelcomeTour from "../src/components/WelcomeTour.vue";
 import {
   WELCOME_TOUR_KEY,
@@ -11,6 +11,7 @@ import {
   shouldShowWelcomeTour,
   welcomeTourOpen,
 } from "../src/welcomeTour.js";
+import { setCompanySort, setLastCompanyId } from "../src/state.js";
 
 const push = vi.fn(() => Promise.resolve());
 const mockRoute = reactive({ fullPath: "/" });
@@ -40,8 +41,14 @@ function plantTarget(selector, box = { top: 120, left: 12, width: 190, height: 3
   return el;
 }
 
+const workspaceCompanies = ref([]);
+
 function mountTour(open = true) {
-  return mount(WelcomeTour, { props: { open }, attachTo: document.body });
+  return mount(WelcomeTour, {
+    props: { open },
+    attachTo: document.body,
+    global: { provide: { workspaceCompanies } },
+  });
 }
 
 function title() {
@@ -108,6 +115,12 @@ describe("WelcomeTour", () => {
   beforeEach(() => {
     push.mockClear();
     mockRoute.fullPath = "/";
+    workspaceCompanies.value = [
+      { id: "zeta", name: "Zeta Labs" },
+      { id: "acme", name: "Acme Inc." },
+    ];
+    setCompanySort("az");
+    setLastCompanyId("");
   });
 
   afterEach(() => {
@@ -138,6 +151,7 @@ describe("WelcomeTour", () => {
     // the company list is where research starts; the markets step points at
     // the Market row
     plantTarget('[data-tour="companies"]');
+    plantTarget('[data-tour="company-folder"]', { top: 300, left: 12, width: 244, height: 150 });
     plantTarget('[data-tour="nav-reports"]');
     plantTarget('[data-tour="nav-market"]');
     plantTarget('[data-tour="nav-tracking"]');
@@ -156,6 +170,13 @@ describe("WelcomeTour", () => {
     await next();
     expect(title()).toBe("The Research Desk");
     expect(push).toHaveBeenLastCalledWith({ name: "home" });
+
+    // A company opens like a folder: going to its desk opens it in the
+    // sidebar, and the open folder is what the step spotlights.
+    await next();
+    expect(title()).toBe("Open a company like a folder");
+    expect(push).toHaveBeenLastCalledWith({ name: "research", params: { companyId: "acme" } });
+    expect(spotlight()).not.toBeNull();
 
     await next();
     expect(title()).toBe("Investment memos");
@@ -182,6 +203,33 @@ describe("WelcomeTour", () => {
 
     click("welcome-tour-next");
     expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("opens the last company visited for the folder step, else the top of the list", async () => {
+    const folderStep = WELCOME_TOUR_STEPS.findIndex((entry) => entry.id === "folders");
+    const reach = async () => {
+      wrapper?.unmount();
+      push.mockClear();
+      wrapper = mountTour();
+      await flushPromises();
+      for (let i = 0; i < folderStep; i += 1) await next();
+      expect(title()).toBe("Open a company like a folder");
+    };
+
+    setLastCompanyId("zeta");
+    await reach();
+    expect(push).toHaveBeenLastCalledWith({ name: "research", params: { companyId: "zeta" } });
+
+    // A last company that's gone falls back to the list's first, A to Z.
+    setLastCompanyId("deleted-co");
+    await reach();
+    expect(push).toHaveBeenLastCalledWith({ name: "research", params: { companyId: "acme" } });
+
+    // No companies yet: the step stays home and centres its callout.
+    workspaceCompanies.value = [];
+    await reach();
+    expect(push).toHaveBeenLastCalledWith({ name: "home" });
+    expect(spotlight()).toBeNull();
   });
 
   it("centres the callout when the step's control isn't on screen", async () => {

@@ -1,18 +1,21 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, ref, unref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Bell,
   Building2,
   ChevronLeft,
   FileText,
+  FolderOpen,
   Gauge,
   Newspaper,
   Search,
   TrendingUp,
   X,
 } from "lucide-vue-next";
+import { sortCompanies } from "../companyLists.js";
 import { useT } from "../i18n.js";
+import { companySort, companyViews, lastCompanyId, trackedCompanyIds } from "../state.js";
 import { WELCOME_TOUR_STEPS } from "../welcomeTour.js";
 import BrandMark from "./BrandMark.vue";
 import PulseECGIcon from "./PulseECGIcon.vue";
@@ -34,6 +37,22 @@ const SPOTLIGHT_PADDING = 8;
 const CALLOUT_WIDTH = 380;
 const VIEWPORT_MARGIN = 16;
 const CALLOUT_GAP = 14;
+
+const workspaceCompanies = inject("workspaceCompanies", ref([]));
+
+// The company the folder step opens: the last one opened, else the one at
+// the top of the sidebar's list, so the folder shows without a long scroll.
+function tourCompanyId() {
+  const companies = unref(workspaceCompanies) || [];
+  const last = String(lastCompanyId.value || "");
+  if (last && companies.some((company) => company.id === last)) return last;
+  const [first] = sortCompanies(companies, {
+    sort: companySort.value,
+    views: companyViews.value,
+    favorites: trackedCompanyIds.value,
+  });
+  return first?.id || "";
+}
 
 const step = ref(0);
 const spot = ref(null);
@@ -71,6 +90,15 @@ const content = computed(() => ({
     tips: [
       { text: t("welcome.research_tip_files") },
       { text: t("welcome.research_tip_decision") },
+    ],
+  },
+  folders: {
+    icon: FolderOpen,
+    title: t("welcome.folders_title"),
+    body: t("welcome.folders_body"),
+    tips: [
+      { text: t("welcome.folders_tip_counts") },
+      { text: t("welcome.folders_tip_close"), keys: ["←", "→"] },
     ],
   },
   memo: {
@@ -249,8 +277,12 @@ async function applyStep() {
 
   if (entry.route && router) {
     seeking.value = true;
+    const to =
+      typeof entry.route === "function"
+        ? entry.route({ companyId: tourCompanyId() })
+        : entry.route;
     try {
-      await router.push(entry.route);
+      await router.push(to);
     } catch {
       // A redirect or an identical route rejects; the step still shows.
     }

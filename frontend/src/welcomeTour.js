@@ -16,7 +16,8 @@ export const welcomeTourOpen = ref(false);
  * work (Final Cut and Logic for iPad, Freeform, Swift Playgrounds, Tips): the
  * app moves under the callout instead of the tour describing it from a modal.
  *
- * - `route`   vue-router target for the step; omitted means "stay put".
+ * - `route`   vue-router target for the step; omitted means "stay put". A
+ *             function gets `{ companyId }` (a company to show) and returns it.
  * - `target`  CSS selector for the element to spotlight. Missing targets are
  *             not an error: the step falls back to a centered callout over the
  *             real screen (this is what happens on narrow windows where the
@@ -37,6 +38,16 @@ export const WELCOME_TOUR_STEPS = [
     // open a second copy of this list is gone.
     route: { name: "home" },
     target: '[data-tour="companies"]',
+    placement: "right",
+  },
+  {
+    id: "folders",
+    // A company opens like a folder in the sidebar: its Reports, News,
+    // Research Desk and, when listed, Market. Going to a company's desk opens
+    // its folder there, which is the control this step points at.
+    route: ({ companyId }) =>
+      companyId ? { name: "research", params: { companyId } } : { name: "home" },
+    target: '[data-tour="company-folder"]',
     placement: "right",
   },
   {

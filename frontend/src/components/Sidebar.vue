@@ -271,18 +271,34 @@ function onNavRowClick(event) {
   onNavigate();
 }
 
-// Clicking a company opens it in place, like a folder: its reports, its news
-// and its Research Desk, one row each, with how many reports and headlines
-// the first two hold. One company is open at a time; clicking it again closes
-// it. A modified click (new tab, etc.) keeps the row's plain link to the desk.
+// Clicking a company opens it in place, like a folder: its reports, its news,
+// its Research Desk and, for a listed company, its stock on the Market desk,
+// one row each, with how many reports and headlines the first two hold. One
+// company is open at a time; clicking it again closes it. A modified click
+// (new tab, etc.) keeps the row's plain link to the desk.
 const openCompanyId = ref(null);
 
-// The company page on screen, if any: whose, and which of its three.
+function companyByTicker(value) {
+  const ticker = String(value || "").trim().toUpperCase();
+  if (!ticker) return null;
+  return (
+    (props.companies || []).find(
+      (company) => String(company.ticker || "").trim().toUpperCase() === ticker,
+    ) || null
+  );
+}
+
+// The company page on screen, if any: whose, and which of its pages. The
+// Market desk counts as a company's page while it shows that company's stock.
 const routePage = computed(() => {
   const name = String(route?.name || "");
   if (name === "research" || name === "research-desk-company") {
     const id = String(route.params?.companyId || "");
     return id ? { companyId: id, kind: "desk" } : null;
+  }
+  if (name === "market-radar") {
+    const company = companyByTicker(route.query?.ticker);
+    return company ? { companyId: String(company.id), kind: "market" } : null;
   }
   const id = String(route?.query?.company || "");
   if (!id || id === "all") return null;
@@ -412,6 +428,7 @@ const newsCount = computed(() => {
 const companyPages = computed(() => {
   const id = openCompany.value?.id;
   if (!id) return [];
+  const ticker = String(openTicker.value).trim().toUpperCase();
   return [
     {
       kind: "reports",
@@ -434,6 +451,18 @@ const companyPages = computed(() => {
       to: { name: "research", params: { companyId: id } },
       count: null,
     },
+    // A listed company's stock, on the Market desk.
+    ...(ticker
+      ? [
+          {
+            kind: "market",
+            label: t("sidebar.markets_radar"),
+            icon: MarketIcon,
+            to: { name: "market-radar", query: { ticker } },
+            count: null,
+          },
+        ]
+      : []),
   ];
 });
 
@@ -770,7 +799,13 @@ onBeforeUnmount(() => {
               :data-instant="companyGliderInstant ? 'true' : 'false'"
               aria-hidden="true"
             />
-            <template v-for="company in visibleCompanies" :key="company.id">
+            <!-- One wrapper per company holds its row and, when open, its
+                 pages: the welcome tour spotlights the open one as a whole. -->
+            <div
+              v-for="company in visibleCompanies"
+              :key="company.id"
+              :data-tour="isOpen(company) ? 'company-folder' : undefined"
+            >
             <div class="group relative">
               <!-- `custom`: RouterLink's own click handler would navigate
                    before ours could open the company, so the anchor is ours
@@ -859,7 +894,7 @@ onBeforeUnmount(() => {
                 </span>
               </RouterLink>
             </div>
-            </template>
+            </div>
           </div>
         </div>
 </section>
