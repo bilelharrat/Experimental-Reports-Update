@@ -47,4 +47,35 @@ describe("FilePreviewModal", () => {
       "Markdown Title",
     );
   });
+
+  it("opens a PDF at the page a citation names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["%PDF-1.7"]) }),
+    );
+    // jsdom has no object URLs.
+    URL.createObjectURL = vi.fn(() => "blob:preview-1");
+    URL.revokeObjectURL = vi.fn();
+
+    const wrapper = mount(FilePreviewModal, {
+      attachTo: document.body,
+      props: {
+        file: { id: "file-2", kind: "pdf", filename: "deck.pdf" },
+        previewUrl: "/api/companies/acme/research-files/file-2?inline=1",
+        previewableKinds: ["pdf"],
+        page: "12",
+      },
+    });
+    await flushPromises();
+    const frame = () => document.body.querySelector("iframe")?.getAttribute("src");
+    expect(frame()).toBe("blob:preview-1#page=12");
+
+    // No page, or one that is not a number ("p.xii"), opens at the start.
+    await wrapper.setProps({ page: "p.xii" });
+    expect(frame()).toBe("blob:preview-1");
+
+    wrapper.unmount();
+    delete URL.createObjectURL;
+    delete URL.revokeObjectURL;
+  });
 });

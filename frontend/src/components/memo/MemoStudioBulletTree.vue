@@ -15,10 +15,17 @@ const props = defineProps({
   cardTitle: { type: String, default: "" },
   bullets: { type: Array, default: () => [] },
   depth: { type: Number, default: 0 },
+  // The point the editor just scrolled to (one Warren edited): it glows.
+  focusBulletId: { type: String, default: "" },
 });
 
 const emit = defineEmits(["updated", "discuss"]);
 const t = useT();
+
+const FOCUS_GLOW = {
+  background: "color-mix(in srgb, var(--mac-accent) 12%, transparent)",
+  boxShadow: "0 0 0 4px color-mix(in srgb, var(--mac-accent) 12%, transparent)",
+};
 
 const editingId = ref(null);
 const draftText = ref("");
@@ -103,6 +110,7 @@ function discuss(bullet) {
     <li
       v-for="(bullet, bulletIndex) in bullets"
       :key="bullet.id"
+      :data-bullet-id="bullet.id"
       class="group py-2"
       :class="bulletIndex > 0 || depth ? 'mac-hairline-t' : ''"
     >
@@ -147,7 +155,12 @@ function discuss(bullet) {
           </button>
         </div>
       </div>
-      <div v-else>
+      <div
+        v-else
+        class="rounded-[4px] transition-[background-color,box-shadow] duration-700"
+        :data-focused="bullet.id === focusBulletId || null"
+        :style="bullet.id === focusBulletId ? FOCUS_GLOW : null"
+      >
         <p class="mac-t-caption" style="line-height: 1.5">{{ bullet.text }}</p>
         <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">
@@ -197,6 +210,7 @@ function discuss(bullet) {
         :card-title="cardTitle"
         :bullets="bullet.children"
         :depth="depth + 1"
+        :focus-bullet-id="focusBulletId"
         @updated="$emit('updated', $event)"
         @discuss="$emit('discuss', $event)"
       />

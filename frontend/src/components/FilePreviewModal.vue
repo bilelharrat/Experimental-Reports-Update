@@ -29,6 +29,9 @@ const props = defineProps({
     type: Array,
     default: () => ["pdf", "ppt", "pptx", "image", "md", "markdown"],
   },
+  // The page a citation names ("p.12"). PDFs, and decks the server renders
+  // to PDF, open the browser's viewer there.
+  page: { type: [String, Number], default: null },
 });
 const emit = defineEmits(["close"]);
 
@@ -72,6 +75,15 @@ const previewError = ref(null);
 const previewBlobUrl = ref(null);
 const previewText = ref(null);
 let abortCtl = null;
+
+const frameSrc = computed(() => {
+  const page = Number.parseInt(props.page, 10);
+  const isPdf =
+    ["pdf", "ppt", "pptx"].includes(props.file?.kind) || filenameExt.value === ".pdf";
+  return previewBlobUrl.value && isPdf && page > 0
+    ? `${previewBlobUrl.value}#page=${page}`
+    : previewBlobUrl.value;
+});
 
 const annotationMeta = ref(null);
 const annotationOverlayUrl = ref(null);
@@ -296,7 +308,7 @@ watch(
         <div class="flex-1 min-h-0 bg-surface-muted relative">
           <iframe
             v-if="previewBlobUrl"
-            :src="previewBlobUrl"
+            :src="frameSrc"
             class="w-full h-full border-0"
             :title="file?.filename"
           ></iframe>

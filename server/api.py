@@ -7392,10 +7392,11 @@ def _summary_kind_records():
                 f"/api/companies/{company_id}/files/{file_id}/summary/stream"
             ),
             "log_url": f"/api/jobs/log?path=summary:{company_id}/{file_id}",
+            # The desk's Files tab, which opens this deck's summary.
             "primary_route": {
                 "name": "research",
                 "params": {"companyId": company_id},
-                "query": {"file": file_id},
+                "query": {"section": "files", "file": file_id},
             },
             # Extra summary-specific fields the deck modal still uses.
             "company_id": company_id,
@@ -7750,6 +7751,7 @@ def _research_summary_kind_records():
             "primary_route": {
                 "name": "research",
                 "params": {"companyId": company_id},
+                "query": {"section": "files"},
             },
             "company_id": company_id,
             "file_id": file_id,
@@ -7803,6 +7805,7 @@ def _research_analysis_kind_records():
             "primary_route": {
                 "name": "research",
                 "params": {"companyId": company_id},
+                "query": {"section": "files"},
             },
             "company_id": company_id,
             "file_id": target_id,
@@ -8145,10 +8148,12 @@ def _serena_research_task_kind_records():
                 f"/api/jobs/log?path=serena_research_task:"
                 f"{company_id}/{session_id}/{task_id}"
             ),
+            # IC prep, under the desk's Decisions tab, shows risk research
+            # and the analysis tools, as MacICPrepView does on the Mac.
             "primary_route": {
                 "name": "research",
                 "params": {"companyId": company_id},
-                "query": {"tab": "analysis"},
+                "query": {"section": "decisions"},
             },
             "company_id": company_id,
             "session_id": session_id,
@@ -8194,7 +8199,7 @@ def _serena_analysis_tool_kind_records():
             "primary_route": {
                 "name": "research",
                 "params": {"companyId": company_id},
-                "query": {"tab": "analysis"},
+                "query": {"section": "decisions"},
             },
             "company_id": company_id,
             "session_id": session_id,

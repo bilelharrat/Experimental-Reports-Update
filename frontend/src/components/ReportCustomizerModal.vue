@@ -370,7 +370,7 @@ async function launchReport() {
 
     if (selectedGenerationMode.value === "studio_review") {
       // Launch studio deep investigation
-      await api.studioInvestigate({
+      const rep = await api.studioInvestigate({
         company_id: companyId,
         report_type: reportTypeVal,
       });
@@ -378,11 +378,12 @@ async function launchReport() {
       emit("created");
       emit("close");
 
-      // Navigate to memo studio for the company
+      // Memo Studio on the company's desk; `report` reloads its run list,
+      // where the investigation waits for review.
       router.push({
         name: "research",
         params: { companyId },
-        query: { tab: "memo", memoStage: "studio" },
+        query: rep?.id ? { section: "memos", report: rep.id } : { section: "memos" },
       });
     } else {
       // Launch one-click autonomous report
@@ -402,11 +403,12 @@ async function launchReport() {
       emit("created", rep);
       emit("close");
 
-      // Navigate to the research page with the new report active
+      // Memo Studio on the company's desk, where the new run shows under
+      // Active Analysis Pipelines once `report` reloads the list.
       router.push({
         name: "research",
         params: { companyId },
-        query: { report: rep.id },
+        query: { section: "memos", report: rep.id },
       });
     }
   } catch (err) {

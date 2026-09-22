@@ -815,11 +815,12 @@ function openNextRoute() {
   if (!route) return;
   recordEvent("copilot_route_click", { surface: route.surface, tab: route.tab });
   const companyId = props.companyId;
+  // The desk's Files tab is where the evidence lives.
   if (route.surface === "evidence") {
     router.push({
       name: "research",
       params: { companyId },
-      query: { tab: "documents", evidence: "1", ...(route.query || {}) },
+      query: { section: "files", ...(route.query || {}) },
     });
     return;
   }
@@ -831,12 +832,14 @@ function openNextRoute() {
     });
     return;
   }
+  // His tab names (memo, documents…) are the ones the desk maps; a section
+  // he names opens Memo Studio there.
   router.push({
     name: "research",
     params: { companyId },
     query: {
       tab: route.tab || "memo",
-      memoStage: route.memo_stage || "edit",
+      ...(route.section_id ? { memoSection: route.section_id } : {}),
       ...(route.query || {}),
     },
   });

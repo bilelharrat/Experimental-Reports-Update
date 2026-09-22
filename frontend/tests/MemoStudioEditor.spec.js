@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 
 const m = vi.hoisted(() => ({
@@ -560,5 +560,98 @@ describe("MemoStudioEditor template cards", () => {
     await flushPromises();
     expect(wrapper.find('[data-testid="not-investigated"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="template-tag"]').exists()).toBe(false);
+  });
+});
+
+// Warren applies an edit and the desk opens Memo Studio at that point
+// (?memoSection=&memoBullet=): the editor reloads to show the new text,
+// opens the card holding it and scrolls to it.
+describe("MemoStudioEditor focus", () => {
+  let scrolled;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    m.history.mockResolvedValue({ versions: [], audit_records: [] });
+    ma.get.mockResolvedValue({ additional_areas: [] });
+    ma.getEvidenceMatrix.mockResolvedValue({ claims: [] });
+    // jsdom does no layout, so it has no scrollIntoView.
+    scrolled = [];
+    Element.prototype.scrollIntoView = vi.fn(function scrollIntoView(options) {
+      scrolled.push({ el: this, options });
+    });
+  });
+
+  afterEach(() => {
+    delete Element.prototype.scrollIntoView;
+  });
+
+  function withRiskPoint(text) {
+    const state = baseState();
+    state.sections.risks_mitigations.cards[0].bullets = [
+      { id: "risk-point-1", text, source_class: "BSH primary diligence", children: [] },
+    ];
+    return state;
+  }
+
+  it("reloads, opens the card holding the edited point and scrolls to it", async () => {
+    m.get.mockResolvedValue(withRiskPoint("Revenue is from pilots only."));
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+    // The risk card is folded, so its points are not on screen.
+    expect(wrapper.find('[data-bullet-id="risk-point-1"]').exists()).toBe(false);
+
+    m.get.mockResolvedValue(withRiskPoint("Revenue is contracted with two paying customers."));
+    await wrapper.setProps({
+      focus: { key: 1, section: "risks_mitigations", bullet: "risk-point-1" },
+    });
+    await flushPromises();
+
+    expect(m.get).toHaveBeenCalledTimes(2);
+    const point = wrapper.get('[data-bullet-id="risk-point-1"]');
+    expect(point.text()).toContain("two paying customers");
+    expect(point.find("[data-focused]").exists()).toBe(true);
+    expect(scrolled.map((s) => s.el.dataset.bulletId)).toEqual(["risk-point-1"]);
+    expect(scrolled[0].options).toEqual({ behavior: "smooth", block: "center" });
+    // Opened on screen only: the card's saved fold is left alone.
+    expect(m.patchCard).not.toHaveBeenCalled();
+  });
+
+  it("keeps the newest reload when a company switch and an edit land together", async () => {
+    // Warren can be reading another company than the page, so applying his
+    // edit switches company and asks for the point in the same tick.
+    m.get.mockResolvedValue(baseState());
+    const wrapper = mount(MemoStudioEditor, { props: { companyId: "zainar-inc" } });
+    await flushPromises();
+
+    let releaseStale;
+    m.get
+      .mockReturnValueOnce(new Promise((resolve) => {
+        releaseStale = () => resolve(baseState());
+      }))
+      .mockResolvedValueOnce(withRiskPoint("Revenue is contracted with two paying customers."));
+    await wrapper.setProps({
+      companyId: "nextnav",
+      focus: { key: 3, section: "risks_mitigations", bullet: "risk-point-1" },
+    });
+    await flushPromises();
+    releaseStale();
+    await flushPromises();
+
+    expect(m.get).toHaveBeenCalledTimes(3);
+    const point = wrapper.get('[data-bullet-id="risk-point-1"]');
+    expect(point.text()).toContain("two paying customers");
+    expect(point.find("[data-focused]").exists()).toBe(true);
+  });
+
+  it("scrolls to a section named without a point", async () => {
+    m.get.mockResolvedValue(baseState());
+    const wrapper = mount(MemoStudioEditor, {
+      props: { companyId: "zainar-inc", focus: { key: 2, section: "conclusion", bullet: "" } },
+      attachTo: document.body,
+    });
+    await flushPromises();
+
+    expect(scrolled.map((s) => s.el.id)).toEqual(["memo-sec-conclusion"]);
+    wrapper.unmount();
   });
 });

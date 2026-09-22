@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { copilotTabFromQuery } from "./dossierSections.js";
 
 /** Shared Co-Pilot workspace context (what the analyst is looking at). */
 export const copilotSelection = ref(null);
@@ -67,5 +68,6 @@ export function syncCopilotFromRoute(route, company) {
     return;
   }
   copilotSurface.value = "research";
-  copilotTab.value = String(route.query?.tab || "overview");
+  // The desk keeps its tab in ?section=, older links in ?tab=.
+  copilotTab.value = copilotTabFromQuery(route.query);
 }

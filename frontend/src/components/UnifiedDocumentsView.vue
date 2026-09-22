@@ -43,6 +43,10 @@ const DocumentViewerDrawer = defineAsyncComponent(
 const props = defineProps({
   companyId: { type: String, required: true },
   refreshKey: { type: Number, default: 0 },
+  // A file to open once the list holds it: one Warren cited
+  // ({ action: "preview", page }) or a deck whose summary job just finished
+  // ({ action: "summary" }). `key` tells one ask from the next.
+  focus: { type: Object, default: null },
 });
 
 const emit = defineEmits(["open-report", "files-changed"]);
@@ -192,6 +196,7 @@ async function load({ quiet = false } = {}) {
     error.value = "load";
   } finally {
     loading.value = false;
+    openFocusedFile();
   }
 }
 
@@ -205,6 +210,31 @@ watch(() => props.companyId, load);
 // re-broadcasts every files-changed emit) — reload quietly, or the list
 // unmounts behind the loading placeholder and the scroll jumps to top.
 watch(() => props.refreshKey, quietReload);
+
+let openedFocusKey = null;
+
+// Once per ask, when the list is in. A file that is gone since it was cited
+// just leaves the list on screen.
+function openFocusedFile() {
+  const focus = props.focus;
+  if (!focus || focus.key === openedFocusKey || loading.value) return;
+  openedFocusKey = focus.key;
+  const row = (payload.value.groups || [])
+    .flatMap((group) => group.rows || [])
+    .find(
+      (item) =>
+        item.backend !== "generated_report" &&
+        String(item.record_id) === String(focus.id),
+    );
+  if (!row) return;
+  if (focus.action === "summary") {
+    if (row.backend === "document_library") openSummary(props.companyId, row.record);
+    return;
+  }
+  openPreview(row, { page: focus.page });
+}
+
+watch(() => props.focus, openFocusedFile);
 
 const categories = computed(() => payload.value.categories || []);
 const sourceClasses = computed(() => payload.value.source_classes || []);
@@ -318,7 +348,7 @@ function groupLabel(group) {
   return t("documents.uploaded_documents");
 }
 
-function openPreview(row) {
+function openPreview(row, { page = "" } = {}) {
   // DOCX and Markdown render in the slide-in viewer; everything else keeps
   // the existing preview modal.
   if (VIEWER_TYPES.has(fileType(row))) {
@@ -331,6 +361,7 @@ function openPreview(row) {
       previewUrl: null,
       downloadUrl: null,
       previewableKinds: undefined,
+      page,
     };
     return;
   }
@@ -340,6 +371,7 @@ function openPreview(row) {
       previewUrl: api.researchFileUrl(props.companyId, row.record_id, { inline: true }),
       downloadUrl: api.researchFileUrl(props.companyId, row.record_id),
       previewableKinds: ["pdf", "image", "text"],
+      page,
     };
   }
 }
@@ -1092,6 +1124,7 @@ function openReport(row) {
       :preview-url="previewing?.previewUrl || null"
       :download-url="previewing?.downloadUrl || null"
       :previewable-kinds="previewing?.previewableKinds"
+      :page="previewing?.page || null"
       @close="closePreview"
     />
 

@@ -38,6 +38,14 @@ import ThesisTrackerCard from "./ThesisTrackerCard.vue";
 import CompanyCommentsCard from "./CompanyCommentsCard.vue";
 import UnifiedDocumentsView from "../UnifiedDocumentsView.vue";
 import api from "../../api.js";
+import {
+  DOSSIER_SECTIONS,
+  SECTION_LABEL_KEYS,
+  canonicalDossierQuery,
+  queryText,
+  sameQuery,
+  sectionFromQuery,
+} from "../../dossierSections.js";
 
 const openReportCustomizer = inject("openReportCustomizer", () => {});
 
@@ -55,22 +63,11 @@ const props = defineProps({
 const emit = defineEmits(["open-copilot", "stage-updated"]);
 
 const t = useT();
+// Both are undefined outside a router (some tests); the tab is local then.
 const route = useRoute();
 const router = useRouter();
 
-// Web twin of the bsh.launchDossierSection launch arg: ?section= picks the
-// tab, and the Mac's webCompanyMemoURL deep link (?tab=memo) lands on memos.
-const SECTIONS = ["overview", "memos", "files", "decisions", "team", "pipeline", "capTable", "comps", "ratios", "all"];
-function initialSection() {
-  // The desk renders outside a router in tests, so read the query defensively.
-  const query = route?.query ?? {};
-  const q = String(query.section || "");
-  if (SECTIONS.includes(q)) return q;
-  if (query.tab === "memo") return "memos";
-  return "overview";
-}
-
-const activeSection = ref(initialSection());
+const activeSection = ref("overview");
 const showMoreMenu = ref(false);
 const isDecisionModalOpen = ref(false);
 const isFollowed = ref(false);
@@ -78,19 +75,85 @@ const companyReports = ref([]);
 // Bumped after an upload, a delete or an Analyze run so the list reloads.
 const documentsRefresh = ref(0);
 const decisionsVersion = ref(0);
+// What a link asked this desk to show: a file (a citation Warren made, a
+// deck summary job's result) or a memo point (one Warren just edited).
+// Held here because the URL drops the ask as soon as it is read.
+const filesFocus = ref(null);
+const memoFocus = ref(null);
+let focusCount = 0;
 
-const tabItems = computed(() => [
-  { id: "overview", label: t("research_desk.section_overview") },
-  { id: "memos", label: t("research_desk.section_memo_studio") },
-  { id: "files", label: t("research_desk.section_files") },
-  { id: "decisions", label: t("research_desk.section_decisions") },
-  { id: "team", label: t("research_desk.section_team") },
-  { id: "pipeline", label: t("research_desk.section_pipeline") },
-  { id: "capTable", label: t("research_desk.section_cap_table") },
-  { id: "comps", label: t("research_desk.section_comps") },
-  { id: "ratios", label: t("research_desk.section_ratios") },
-  { id: "all", label: t("research_desk.section_all") },
-]);
+const tabItems = computed(() =>
+  DOSSIER_SECTIONS.map((id) => ({ id, label: t(SECTION_LABEL_KEYS[id]) })),
+);
+
+// The router's routes that render the Research Desk. Any other route is the
+// desk on its way out (the view transition keeps it mounted a moment), and
+// its URL is not the desk's to read or rewrite.
+const DESK_ROUTES = new Set(["research", "research-desk", "research-desk-company"]);
+let routeCompanyId = route?.params?.companyId;
+
+// The URL picks the tab on every navigation, not only the first (see
+// dossierSections.js): a link into this company — the toolbar's Add,
+// Warren's citations, a job's View result — moves the tab of a desk that
+// is already open.
+function followRoute(firstVisit) {
+  if (!DESK_ROUTES.has(route.name)) return;
+  const query = route.query || {};
+  const companyChanged = route.params?.companyId !== routeCompanyId;
+  routeCompanyId = route.params?.companyId;
+  // Another company keeps the tab, as the Mac's dossier does. Anything else
+  // that names none (Back to the bare company URL) is Overview.
+  const section =
+    sectionFromQuery(query) || (companyChanged ? activeSection.value : "overview");
+  activeSection.value = section;
+  if (companyChanged) {
+    filesFocus.value = null;
+    memoFocus.value = null;
+  }
+  if (query.previewFile || query.file) {
+    filesFocus.value = {
+      key: ++focusCount,
+      id: queryText(query.previewFile || query.file),
+      page: queryText(query.previewPage),
+      action: query.previewFile ? "preview" : "summary",
+    };
+  }
+  if (query.memoSection || query.memoBullet) {
+    memoFocus.value = {
+      key: ++focusCount,
+      section: queryText(query.memoSection),
+      bullet: queryText(query.memoBullet),
+    };
+  }
+  // A fresh desk loads both lists anyway.
+  if (!firstVisit && query.files) documentsRefresh.value += 1;
+  if (!firstVisit && query.report) loadCompanyReports();
+  writeSection(section);
+}
+
+function writeSection(section) {
+  if (!router || !DESK_ROUTES.has(route.name)) return;
+  const query = canonicalDossierQuery(route.query, section);
+  if (sameQuery(query, route.query)) return;
+  // replace, as the Markets desk does: a tab is not a step for the back
+  // button. By path, not name, so the /research/:id alias keeps its URL.
+  router.replace({ path: route.path, query, hash: route.hash });
+}
+
+if (route) {
+  watch(
+    () => route.fullPath,
+    (_path, previous) => followRoute(previous === undefined),
+    { immediate: true },
+  );
+}
+
+function selectSection(id) {
+  filesFocus.value = null;
+  memoFocus.value = null;
+  activeSection.value = id;
+  if (route) writeSection(id);
+}
 
 // DossierSection.shows(_:) — a card renders in its own sections and in All.
 function shows(...sections) {
@@ -274,7 +337,7 @@ onUnmounted(() => {
           type="button"
           class="mac-btn"
           :title="t('research_desk.ic_review_tooltip')"
-          @click="activeSection = 'decisions'"
+          @click="selectSection('decisions')"
         >
           <Columns2 class="h-3.5 w-3.5" />
           <span>{{ t("research_desk.ic_review_btn") }}</span>
@@ -335,7 +398,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <MacTabBar v-model="activeSection" :items="tabItems" />
+    <MacTabBar
+      :model-value="activeSection"
+      :items="tabItems"
+      @update:model-value="selectSection"
+    />
 
     <!-- Card stack in the Mac body order, one guard per card -->
     <template v-if="shows('overview')">
@@ -367,6 +434,7 @@ onUnmounted(() => {
       v-if="shows('files')"
       :company-id="companyId"
       :refresh-key="documentsRefresh"
+      :focus="filesFocus"
       @open-report="openMemo"
       @files-changed="documentsRefresh += 1"
     />
@@ -417,6 +485,7 @@ onUnmounted(() => {
         :is-public="isPublic"
         :generate-available="true"
         :reports="companyReports"
+        :focus="memoFocus"
         @generate="handleCustomReport"
         @synthesized="loadCompanyReports"
       />

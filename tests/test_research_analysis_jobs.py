@@ -213,12 +213,36 @@ def test_rail_collector_and_recovery(company):
     assert rows[0]["kind"] == "research_analysis"
     assert rows[0]["file_id"] == entry["id"]
     assert "analysis/stream" in rows[0]["stream_url"]
+    # View result opens the desk's Files tab, where the analysis lands.
+    assert rows[0]["primary_route"] == {
+        "name": "research",
+        "params": {"companyId": company},
+        "query": {"section": "files"},
+    }
 
     # The quick-summary collector must not pick the analysis jsonl up.
     assert all(
         row["file_id"] != entry["id"]
         for row in api._research_summary_kind_records()
     )
+
+    # A quick summary's result is on Files too.
+    summary_entry = _upload(company, "notes.md")
+    api.job_progress.ProgressLog(
+        research_store.quick_summary_progress_path(company, summary_entry["id"])
+    ).emit(
+        "job_init",
+        kind="research_summary",
+        title="notes.md",
+        company_id=company,
+        file_id=summary_entry["id"],
+    )
+    summary_row = next(
+        row
+        for row in api._research_summary_kind_records()
+        if row["file_id"] == summary_entry["id"]
+    )
+    assert summary_row["primary_route"]["query"] == {"section": "files"}
 
     # Log-path token resolves.
     resolved = api._resolve_job_log_path(

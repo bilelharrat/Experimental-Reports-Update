@@ -309,3 +309,204 @@ describe("ResearchDeskView", () => {
     expect(wrapper.emitted("saved")).toBeTruthy();
   });
 });
+
+// Links into a company land on a desk that may already be open: the toolbar's
+// Add, Warren's citations and edits, a job's View result. The dossier follows
+// its URL on every navigation, not only when it mounts.
+describe("CompanyDossierView follows its URL", () => {
+  const companies = [
+    { id: "globex", name: "Globex Corporation", status: "Private" },
+    { id: "initech", name: "Initech", ticker: "INTC", status: "Public" },
+  ];
+  // The cards are stubs: these tests are about which ones show and what they
+  // are handed, not what they fetch.
+  const stubs = {
+    UnifiedProfileCard: true,
+    SignalScoreCard: true,
+    EarningsFilingsCard: true,
+    DealPipelineCard: true,
+    CompsRailCard: true,
+    CapTableCard: true,
+    FounderRadarCard: true,
+    VCRatiosCard: true,
+    DecisionsCard: true,
+    ReportsMemosCard: true,
+    ICPrepCard: { template: '<div data-testid="ic-prep" />' },
+    ICRoomCard: true,
+    NumberLintCard: true,
+    ThesisTrackerCard: true,
+    CompanyCommentsCard: true,
+    FactLedgerCard: true,
+    RecordDecisionModal: true,
+    UnifiedDocumentsView: {
+      props: ["companyId", "refreshKey", "focus"],
+      template:
+        '<div data-testid="files" :data-refresh="refreshKey" :data-focus="JSON.stringify(focus)" />',
+    },
+    MemoStudioEditor: {
+      props: ["companyId", "focus"],
+      template: '<div data-testid="memo-studio" :data-focus="JSON.stringify(focus)" />',
+    },
+  };
+
+  let router;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.listCompanies.mockResolvedValue(companies);
+    api.getReports.mockResolvedValue([]);
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/research-desk", name: "research-desk", component: ResearchDeskView, props: true },
+        {
+          path: "/research-desk/:companyId",
+          name: "research-desk-company",
+          component: ResearchDeskView,
+          props: true,
+        },
+        { path: "/reports", name: "reports", component: { template: "<div>Reports</div>" } },
+        {
+          path: "/:companyId",
+          name: "research",
+          component: ResearchDeskView,
+          alias: "/research/:companyId",
+          props: true,
+        },
+      ],
+    });
+  });
+
+  async function openDesk(path) {
+    await router.push(path);
+    const wrapper = mount(
+      { template: "<RouterView />" },
+      { global: { plugins: [router], stubs } },
+    );
+    await flushPromises();
+    return wrapper;
+  }
+
+  async function go(path) {
+    await router.push(path);
+    await flushPromises();
+  }
+
+  const activeTab = (wrapper) => wrapper.find(".mac-tab.is-active").text();
+  const tab = (wrapper, label) => wrapper.findAll(".mac-tab").find((b) => b.text() === label);
+  const focusOf = (wrapper, testId) =>
+    JSON.parse(wrapper.find(`[data-testid="${testId}"]`).attributes("data-focus"));
+  const url = () => router.currentRoute.value.fullPath;
+
+  it("opens the section an old ?tab= names and rewrites the URL to ?section=", async () => {
+    // A Memo Studio job's View result, as the jobs rail sent it before.
+    const wrapper = await openDesk("/research/globex?tab=analysis");
+
+    expect(activeTab(wrapper)).toBe("Decisions");
+    expect(wrapper.find('[data-testid="ic-prep"]').exists()).toBe(true);
+    // By path, so the /research/ alias keeps its URL.
+    expect(url()).toBe("/research/globex?section=decisions");
+  });
+
+  it("moves an open desk to the tab a new link names and reloads Files for an upload", async () => {
+    const wrapper = await openDesk("/globex");
+    expect(activeTab(wrapper)).toBe("Overview");
+
+    await go("/globex?section=files");
+    expect(activeTab(wrapper)).toBe("Files");
+    expect(wrapper.find('[data-testid="files"]').attributes("data-refresh")).toBe("0");
+
+    // The toolbar's Add, finished while Files is already on screen.
+    await go("/globex?section=files&files=1700000000000");
+    expect(wrapper.find('[data-testid="files"]').attributes("data-refresh")).toBe("1");
+    // Read once: a reload does not replay the stamp.
+    expect(url()).toBe("/globex?section=files");
+  });
+
+  it("writes the tab it shows to the URL, so Back returns to the tab before", async () => {
+    const wrapper = await openDesk("/globex");
+
+    await tab(wrapper, "Files").trigger("click");
+    await flushPromises();
+    expect(url()).toBe("/globex?section=files");
+
+    await go("/globex?section=decisions");
+    expect(activeTab(wrapper)).toBe("Decisions");
+
+    router.back();
+    await flushPromises();
+    expect(url()).toBe("/globex?section=files");
+    expect(activeTab(wrapper)).toBe("Files");
+
+    await tab(wrapper, "Overview").trigger("click");
+    await flushPromises();
+    expect(url()).toBe("/globex");
+  });
+
+  it("hands a cited file and an edited memo point to the cards that show them", async () => {
+    const wrapper = await openDesk("/globex");
+
+    await go("/globex?section=files&previewFile=f-1&previewPage=4");
+    expect(activeTab(wrapper)).toBe("Files");
+    expect(focusOf(wrapper, "files")).toMatchObject({ id: "f-1", page: "4", action: "preview" });
+    expect(url()).toBe("/globex?section=files");
+
+    // A deck summary job's View result names its deck.
+    await go("/globex?section=files&file=deck-1");
+    expect(focusOf(wrapper, "files")).toMatchObject({ id: "deck-1", action: "summary" });
+
+    await go("/globex?section=memos&memoSection=risks_mitigations&memoBullet=b-2");
+    expect(activeTab(wrapper)).toBe("Memo Studio");
+    expect(focusOf(wrapper, "memo-studio")).toMatchObject({
+      section: "risks_mitigations",
+      bullet: "b-2",
+    });
+    expect(url()).toBe("/globex?section=memos");
+
+    // Choosing a tab drops an ask the analyst has moved on from.
+    await tab(wrapper, "Files").trigger("click");
+    await flushPromises();
+    expect(focusOf(wrapper, "files")).toBeNull();
+  });
+
+  it("reloads the memo list when a new run arrives with ?report=", async () => {
+    const wrapper = await openDesk("/globex?section=memos");
+    expect(api.getReports).toHaveBeenCalledTimes(1);
+
+    api.getReports.mockResolvedValue([
+      { id: "rep-2", title: "Globex memo run", status: "running", stage: "Phase 1" },
+    ]);
+    await go("/globex?section=memos&report=rep-2");
+
+    expect(api.getReports).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain("Globex memo run");
+    expect(url()).toBe("/globex?section=memos");
+  });
+
+  it("keeps the tab when the directory picks another company, as the Mac does", async () => {
+    const wrapper = await openDesk("/research-desk/globex?section=files");
+
+    const initech = wrapper.findAll("button.mac-row").find((b) => b.text().includes("Initech"));
+    await initech.trigger("click");
+    await flushPromises();
+
+    expect(activeTab(wrapper)).toBe("Files");
+    expect(url()).toBe("/research-desk/initech?section=files");
+  });
+
+  it("never writes its tab into another page's URL", async () => {
+    // The view transition keeps a desk mounted a moment after it is left.
+    await router.push("/reports");
+    const wrapper = mount(CompanyDossierView, {
+      props: { companyId: "globex", company: companies[0] },
+      global: { plugins: [router], stubs },
+    });
+    await flushPromises();
+
+    await tab(wrapper, "Files").trigger("click");
+    await flushPromises();
+
+    expect(activeTab(wrapper)).toBe("Files");
+    expect(url()).toBe("/reports");
+  });
+});

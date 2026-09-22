@@ -70,6 +70,11 @@ function makeRouter(initialPath) {
           },
         },
       },
+      {
+        path: "/research-desk/:companyId",
+        name: "research-desk-company",
+        component: { template: "<div>Desk company route</div>" },
+      },
       { path: "/:companyId", name: "research", component: { template: "<div>Company route</div>" } },
     ],
   });
@@ -200,8 +205,9 @@ describe("App global shell", () => {
     expect(sheet.text()).toContain("Ask Warren");
     // The header names the company Warren is reading, switchable in place.
     expect(sheet.find(".warren-about").text()).toContain("ZaiNar, Inc.");
+    // Named as the desk's tab bar names it.
     expect(wrapper.find("[data-testid='copilot-panel']").text()).toContain(
-      "Copilot zainar-inc sees Report",
+      "Copilot zainar-inc sees Memo Studio",
     );
     expect(openButton.attributes("aria-pressed")).toBe("true");
   });
@@ -224,7 +230,7 @@ describe("App global shell", () => {
     const panel = () => wrapper.find("[data-testid='copilot-panel']");
     expect(panel().text()).toContain("Copilot zainar-inc");
     // Off the company's own page Warren can't see a tab.
-    expect(panel().text()).not.toContain("sees Report");
+    expect(panel().text()).not.toMatch(/sees \S/);
 
     await wrapper.find(".warren-about").trigger("click");
     const option = wrapper
@@ -273,10 +279,49 @@ describe("App global shell", () => {
 
     expect(router.currentRoute.value.name).toBe("research");
     expect(router.currentRoute.value.params.companyId).toBe("zainar-inc");
-    expect(router.currentRoute.value.query).toMatchObject({
-      tab: "documents",
+    expect(router.currentRoute.value.query).toEqual({
+      section: "files",
       previewFile: "file-7",
       previewPage: "4",
     });
   });
+
+  async function addFromToolbar(wrapper, name) {
+    const input = wrapper.find('input[type="file"][multiple]');
+    const file = new File(["deck"], name, { type: "application/pdf" });
+    Object.defineProperty(input.element, "files", { value: [file], configurable: true });
+    await input.trigger("change");
+    await flushPromises();
+    return file;
+  }
+
+  it.each([
+    ["/zainar-inc?section=team", "/zainar-inc"],
+    ["/research-desk/zainar-inc", "/research-desk/zainar-inc"],
+  ])(
+    "uploads straight from the toolbar's Add on %s and opens the desk's Files tab",
+    async (start, path) => {
+      session.value = {
+        token: "test-token",
+        email: "elina.sun@bshfoundation.org",
+        expires_at: "2999-01-01T00:00:00Z",
+      };
+      api.uploadResearchFile.mockResolvedValue({ id: "new-file" });
+
+      const { wrapper, router } = await mountApp(start);
+      // A company page's Add is the upload itself, not the menu.
+      await wrapper.find('[aria-label="Add to ZaiNar, Inc."]').trigger("click");
+      expect(wrapper.find("[role='menu']").exists()).toBe(false);
+
+      const file = await addFromToolbar(wrapper, "deck.pdf");
+
+      expect(api.uploadResearchFile).toHaveBeenCalledWith("zainar-inc", file);
+      // Same page, Files tab, and a stamp that has the list reload.
+      expect(router.currentRoute.value.path).toBe(path);
+      expect(router.currentRoute.value.query).toEqual({
+        section: "files",
+        files: expect.stringMatching(/^\d+$/),
+      });
+    },
+  );
 });

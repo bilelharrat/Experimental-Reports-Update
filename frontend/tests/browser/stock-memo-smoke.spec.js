@@ -379,14 +379,92 @@ test("company desk IC prep loads the memo session and runs an analysis tool", as
   await expect(page).toHaveURL(/\/research\/research\/generalist\?section=decisions$/);
 });
 
-test("analysis deep link opens a public ticker's dossier on the overview", async ({ page }) => {
+test("an old analysis deep link opens a public ticker's dossier on Decisions", async ({ page }) => {
   await mockApi(page);
   await page.goto("/research/research/public-ticker?tab=analysis");
 
   await expect(page.getByRole("heading", { level: 1, name: "Public Ticker Co" })).toBeVisible();
   await expect(page.getByText("PTCO · Public")).toBeVisible();
-  // The desk has no analysis tab, so a ?tab=analysis link (the jobs rail
-  // still sends Memo Studio jobs there) opens Overview, which carries the
-  // Memo Studio cards.
+  // ?tab=analysis is where the jobs rail used to send Memo Studio jobs. Their
+  // tools and risk research run and report in IC prep, under Decisions, as
+  // on the Mac.
+  await expect(page.getByRole("button", { name: "Decisions", exact: true })).toHaveClass(/is-active/);
+  await expect(page.getByText("IC prep", { exact: true })).toBeVisible();
+  // The desk rewrites the old tab to its own ?section= and keeps the path.
+  await expect(page).toHaveURL(/\/research\/research\/public-ticker\?section=decisions$/);
+});
+
+test("the toolbar's Add uploads to the open desk, opens Files and lists the file", async ({ page }) => {
+  await mockApi(page);
+  const uploaded = [];
+  let documentLoads = 0;
+  const documentRow = (id, filename) => ({
+    id: `background_documents:${id}`,
+    backend: "background_documents",
+    record_id: id,
+    title: filename,
+    filename,
+    kind: "pdf",
+    type_badge: "PDF",
+    category: "company_materials",
+    source_class: "company material",
+    language: "en",
+    status: "ready",
+    captured_at: "2026-09-21T12:00:00Z",
+    provenance: { origin: "Upload", source_class: "company material" },
+    source_refs: [],
+    source_traces: [],
+    source_trace_count: 0,
+    editable_metadata: true,
+    use_in_report: true,
+    use_in_report_locked: false,
+    record: { id, filename, kind: "pdf", size_bytes: 1024 },
+  });
+  // Registered after mockApi, so these answer first.
+  await page.route("**/api/companies/generalist/research-files", (route) => {
+    const id = `upload-${uploaded.length + 1}`;
+    uploaded.push(id);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id }) });
+  });
+  await page.route("**/api/companies/generalist/documents", (route) => {
+    documentLoads += 1;
+    const rows = uploaded.map((id, i) => documentRow(id, `term-sheet-${i + 1}.pdf`));
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        groups: [{ id: "company_materials", rows }],
+        categories: [],
+        source_classes: [],
+        filters: { languages: [], statuses: [] },
+        unresolved_intake_count: 0,
+      }),
+    });
+  });
+  const addFile = async (name) => {
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Add to Generalist" }).click();
+    await (await chooser).setFiles({ name, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7") });
+  };
+
+  await page.goto("/research/research/generalist");
+  await expect(page.getByRole("button", { name: "Overview", exact: true })).toHaveClass(/is-active/);
+
+  // From Overview, the upload lands on Files with the new file listed.
+  await addFile("term-sheet-1.pdf");
+  await expect(page.getByRole("button", { name: "Files", exact: true })).toHaveClass(/is-active/);
+  await expect(page.getByText("term-sheet-1.pdf").first()).toBeVisible();
+  await expect(page).toHaveURL(/\/research\/research\/generalist\?section=files$/);
+
+  // With Files already open, the next upload reloads the list in place.
+  const loadsBefore = documentLoads;
+  await addFile("term-sheet-2.pdf");
+  await expect(page.getByText("term-sheet-2.pdf").first()).toBeVisible();
+  expect(documentLoads).toBeGreaterThan(loadsBefore);
+  expect(uploaded).toEqual(["upload-1", "upload-2"]);
+
+  // The tab is in the URL, so Back returns to the tab before the upload.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/research\/research\/generalist$/);
   await expect(page.getByRole("button", { name: "Overview", exact: true })).toHaveClass(/is-active/);
 });

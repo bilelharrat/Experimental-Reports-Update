@@ -28,6 +28,7 @@ vi.mock("../src/state.js", () => ({
 }));
 
 import UnifiedDocumentsView from "../src/components/UnifiedDocumentsView.vue";
+import { openSummary } from "../src/state.js";
 
 function documentsPayload() {
   const rows = [
@@ -490,5 +491,63 @@ describe("UnifiedDocumentsView", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("ZaiNar market report");
     expect(wrapper.text()).not.toContain("Loading");
+  });
+
+  // Warren's citations and a deck summary job's View result reach Files as a
+  // focus, opened once the list is in.
+  const PreviewStub = {
+    name: "FilePreviewModal",
+    props: ["file", "previewUrl", "page"],
+    emits: ["close"],
+    template:
+      '<div v-if="file" data-testid="preview" :data-file="file.id" :data-url="previewUrl" :data-page="page" />',
+  };
+
+  it("opens the file a citation names, at its page, once the list is in", async () => {
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: {
+        companyId: "zainar-inc",
+        focus: { key: 1, id: "bg-1", page: "4", action: "preview" },
+      },
+      global: { stubs: { Teleport: true, FilePreviewModal: PreviewStub } },
+    });
+    await flushPromises();
+
+    const preview = wrapper.find('[data-testid="preview"]');
+    expect(preview.attributes("data-file")).toBe("bg-1");
+    expect(preview.attributes("data-url")).toBe("/research/zainar-inc/bg-1");
+    expect(preview.attributes("data-page")).toBe("4");
+
+    // Closed, it stays closed through the next reload: an ask opens once.
+    wrapper.findComponent(PreviewStub).vm.$emit("close");
+    await wrapper.setProps({ refreshKey: 1 });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="preview"]').exists()).toBe(false);
+  });
+
+  it("opens a file cited while Files is already on screen", async () => {
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+      global: { stubs: { Teleport: true, FilePreviewModal: PreviewStub } },
+    });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="preview"]').exists()).toBe(false);
+
+    await wrapper.setProps({ focus: { key: 3, id: "bg-1", page: "", action: "preview" } });
+    expect(wrapper.find('[data-testid="preview"]').attributes("data-file")).toBe("bg-1");
+  });
+
+  it("opens a deck's summary when its summary job's result names it", async () => {
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc", focus: { key: 2, id: "file-1", action: "summary" } },
+      global: { stubs: { Teleport: true, FilePreviewModal: PreviewStub } },
+    });
+    await flushPromises();
+
+    expect(openSummary).toHaveBeenCalledWith(
+      "zainar-inc",
+      expect.objectContaining({ id: "file-1" }),
+    );
+    expect(wrapper.find('[data-testid="preview"]').exists()).toBe(false);
   });
 });

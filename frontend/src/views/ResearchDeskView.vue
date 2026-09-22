@@ -570,9 +570,11 @@ function onDeckDrop(e) {
         />
       </aside>
 
-      <!-- Detail pane -->
+      <!-- Detail pane. It runs up under the toolbar, so its scroll padding
+           keeps a card scrolled into view (Memo Studio's section jumps, a
+           point Warren edited) below the bar instead of behind it. -->
       <main
-        class="mac-scroll min-h-0 min-w-0 flex-1 overflow-y-auto md:pt-[52px]"
+        class="mac-scroll min-h-0 min-w-0 flex-1 overflow-y-auto md:scroll-pt-[52px] md:pt-[52px]"
         :class="mobileView === 'dossier' ? 'block' : 'hidden md:block'"
       >
         <CompanyDossierView

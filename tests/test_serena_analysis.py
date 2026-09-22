@@ -3248,6 +3248,12 @@ def test_memo_analysis_research_task_job_appears_in_active_jobs(
         f"/api/jobs/log?path=serena_research_task:"
         f"generalist/{session['id']}/task-1"
     )
+    # View result opens IC prep, under the desk's Decisions tab.
+    assert job["primary_route"] == {
+        "name": "research",
+        "params": {"companyId": "generalist"},
+        "query": {"section": "decisions"},
+    }
 
     log = client.get(job["log_url"])
     assert log.status_code == 200, log.text
@@ -3349,6 +3355,8 @@ def test_memo_analysis_tool_job_appears_in_active_jobs(tmp_path, monkeypatch):
     assert job["kind"] == "serena_analysis_tool"
     assert job["title"] == "Strategic Risk Mapper"
     assert job["job_id"] == f"generalist/{session['id']}/strategic_risk_mapper"
+    # The tools run and report in IC prep, under the desk's Decisions tab.
+    assert job["primary_route"]["query"] == {"section": "decisions"}
     assert job["stream_url"].endswith(
         f"/memo-analysis/sessions/{session['id']}/tools/strategic_risk_mapper/stream"
     )

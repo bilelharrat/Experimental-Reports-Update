@@ -6,7 +6,7 @@
 // double-click title rename, risk refine-framing, and the Readiness Gates
 // and Evidence Claims sections. Web-native features stay: drag reorder,
 // bullet tree with dive-deeper/discuss, tasks, export gating, history.
-import { computed, inject, onMounted, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { collapseRuns } from "../collapseRuns.js";
 import {
   AlertTriangle,
@@ -49,6 +49,10 @@ const props = defineProps({
   // A listed company raises no private round, so its summary drops the
   // Round tile rather than showing "Pending" forever.
   isPublic: { type: Boolean, default: false },
+  // A memo point to show on arrival: one Warren just edited ({ bullet }) or
+  // a section he pointed at ({ section }). `key` tells one ask from the
+  // next. The editor reloads first: the edit landed after it loaded.
+  focus: { type: Object, default: null },
 });
 
 const emit = defineEmits(["discuss", "generate", "synthesized"]);
@@ -249,20 +253,29 @@ function coverageLabel(result) {
   return t("memo.source_coverage", { pct: Math.round((coverage.coverage || 0) * 100) });
 }
 
+let loadRequest = 0;
+
 async function load() {
+  // Newest request wins: a company switch and a point Warren edited can
+  // both ask for a reload in one tick, and the older answer must not land
+  // over the newer one.
+  const ticket = ++loadRequest;
   loading.value = true;
   error.value = "";
   exportResult.value = null;
   try {
-    editor.value = await api.memoEditor.get(props.companyId);
+    const state = await api.memoEditor.get(props.companyId);
+    if (ticket !== loadRequest) return;
+    editor.value = state;
     await loadHistory();
     // Never let the automatic gates read break the editor it sits in.
     loadGatesAndEvidence({ create: false }).catch(() => {});
   } catch {
-    error.value = "load";
+    if (ticket === loadRequest) error.value = "load";
   } finally {
-    loading.value = false;
+    if (ticket === loadRequest) loading.value = false;
   }
+  if (ticket === loadRequest && !error.value) showFocus();
 }
 
 async function loadHistory() {
@@ -293,6 +306,55 @@ watch(
     load();
   },
 );
+
+const rootEl = ref(null);
+const focusedBulletId = ref("");
+let shownFocusKey = null;
+let focusGlowTimer = null;
+
+function holdsBullet(bullets, id) {
+  return (bullets || []).some(
+    (bullet) => bullet.id === id || holdsBullet(bullet.children, id),
+  );
+}
+
+// The card holding the point opens (on screen only: its saved state is left
+// alone), and the point scrolls to the middle and glows for a moment.
+async function showFocus() {
+  const focus = props.focus;
+  if (!focus || focus.key === shownFocusKey) return;
+  shownFocusKey = focus.key;
+  const card = focus.bullet
+    ? [focus.section, ...sectionIds]
+        .flatMap((id) => sections.value[id]?.cards || [])
+        .find((item) => holdsBullet(item.bullets, focus.bullet))
+    : null;
+  if (card) card.expanded = true;
+  await nextTick();
+  const point = card
+    ? [...(rootEl.value?.querySelectorAll("[data-bullet-id]") || [])].find(
+        (el) => el.dataset.bulletId === focus.bullet,
+      )
+    : null;
+  if (point) {
+    point.scrollIntoView({ behavior: "smooth", block: "center" });
+    focusedBulletId.value = focus.bullet;
+    clearTimeout(focusGlowTimer);
+    focusGlowTimer = setTimeout(() => {
+      focusedBulletId.value = "";
+    }, 2400);
+  } else if (navSections.value.some((section) => section.id === focus.section)) {
+    jumpTo(focus.section);
+  }
+}
+
+watch(
+  () => props.focus,
+  (focus) => {
+    if (focus) load();
+  },
+);
+onBeforeUnmount(() => clearTimeout(focusGlowTimer));
 
 function applyState(state) {
   editor.value = state;
@@ -720,7 +782,7 @@ async function setTaskStatus(task, status) {
 </script>
 
 <template>
-  <section class="mac-card flex flex-col gap-3.5 p-[18px]">
+  <section ref="rootEl" class="mac-card flex flex-col gap-3.5 p-[18px]">
     <!-- Workbench header (MacMemoStudioView.studioHeader) -->
     <div class="flex flex-wrap items-center gap-3">
       <SlidersHorizontal class="mac-c-accent h-4 w-4 shrink-0" stroke-width="2.4" />
@@ -1089,6 +1151,7 @@ async function setTaskStatus(task, status) {
                   :card-id="card.id"
                   :card-title="card.title"
                   :bullets="card.bullets || []"
+                  :focus-bullet-id="focusedBulletId"
                   @updated="applyState"
                   @discuss="discuss"
                 />
@@ -1326,6 +1389,7 @@ async function setTaskStatus(task, status) {
                   :card-id="card.id"
                   :card-title="card.title"
                   :bullets="card.bullets || []"
+                  :focus-bullet-id="focusedBulletId"
                   @updated="applyState"
                   @discuss="discuss"
                 />

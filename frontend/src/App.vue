@@ -40,6 +40,7 @@ import {
   parseMarketCommand,
   routeForMarketCommand,
 } from "./marketCommands.js";
+import { SECTION_LABEL_KEYS, sectionFromQuery } from "./dossierSections.js";
 import {
   clearCopilotFocus,
   copilotPendingPrompt,
@@ -307,9 +308,22 @@ function openCommandPalette() {
   commandOpen.value = true;
 }
 
+// A company's desk, at `/:companyId` (or its /research/ alias) or inside
+// the Research Desk at `/research-desk/:companyId`.
 const onCompanyPage = computed(
-  () => route.name === "research" && Boolean(currentCompanyId.value),
+  () =>
+    (route.name === "research" || route.name === "research-desk-company") &&
+    Boolean(currentCompanyId.value),
 );
+
+// Where to send a link into a company's desk. The company already on
+// screen keeps its own URL, so the link only moves the desk's tab.
+function companyLocation(companyId, query) {
+  if (onCompanyPage.value && currentCompanyId.value === companyId) {
+    return { path: route.path, query };
+  }
+  return { name: "research", params: { companyId }, query };
+}
 
 async function onCompanyAddFiles(event) {
   const input = event.target;
@@ -325,15 +339,12 @@ async function onCompanyAddFiles(event) {
     for (const file of files) {
       await api.uploadResearchFile(companyId, file);
     }
-    await router.push({
-      name: "research",
-      params: { companyId },
-      query: {
-        ...route.query,
-        tab: "documents",
-        files: String(Date.now()),
-      },
-    });
+    // Onto the desk's Files tab, and `files` has it reload the list: the
+    // desk is already open, so without both the upload looks like nothing.
+    // Already on Files, only the list changes, which is no step for Back.
+    const to = companyLocation(companyId, { section: "files", files: String(Date.now()) });
+    if (sectionFromQuery(route.query) === "files") await router.replace(to);
+    else await router.push(to);
   } catch (err) {
     addUploadError.value = err?.message || t("toolbar.upload_failed");
     addMenuOpen.value = true;
@@ -487,13 +498,9 @@ watch(
   { immediate: true },
 );
 
-function tabLabel(tab) {
-  if (tab === "documents") return t("research.tab_documents");
-  if (tab === "memo" || tab === "analysis") return t("research.tab_memo");
-  if (tab === "news") return t("research.tab_news");
-  if (tab === "industry") return t("research.tab_industry");
-  if (tab === "console") return t("research.tab_console");
-  return t("research.tab_overview");
+// The desk tab a company URL shows, named as the desk's tab bar names it.
+function sectionLabel(query) {
+  return t(SECTION_LABEL_KEYS[sectionFromQuery(query) || "overview"]);
 }
 
 const toolbarTitle = computed(() => {
@@ -541,7 +548,7 @@ const breadcrumbs = computed(() => {
     return [
       root,
       currentCompany.value?.name || currentCompanyId.value || t("app.company"),
-      tabLabel(route.query?.report ? route.query.tab || "memo" : route.query?.tab),
+      sectionLabel(route.query),
     ];
   }
   return [root];
@@ -581,7 +588,7 @@ const copilotCompanyName = computed(
 // The tab Warren can see, only while his company is the page on screen.
 const copilotSeesLabel = computed(() => {
   if (route.name !== "research" || copilotCompanyId.value !== currentCompanyId.value) return "";
-  return tabLabel(route.query?.report ? route.query.tab || "memo" : route.query?.tab);
+  return sectionLabel(route.query);
 });
 
 const copilotRecentIds = computed(() => {
@@ -677,31 +684,28 @@ function queueCopilotPrompt(prompt) {
 
 provide("openCopilot", onOpenCopilot);
 
+// Warren's citations open the file on the desk's Files tab (at the cited
+// page), and an edit he applied opens Memo Studio at that point.
 function onCopilotNavigate(target) {
   if (!target?.companyId) return;
   if (target.kind === "file") {
-    router.push({
-      name: "research",
-      params: { companyId: target.companyId },
-      query: {
-        tab: "documents",
+    router.push(
+      companyLocation(target.companyId, {
+        section: "files",
         previewFile: target.file?.id,
         previewPage: target.page || undefined,
-      },
-    });
+      }),
+    );
     return;
   }
   if (target.kind === "memo_bullet") {
-    router.push({
-      name: "research",
-      params: { companyId: target.companyId },
-      query: {
-        tab: "memo",
-        memoStage: "edit",
+    router.push(
+      companyLocation(target.companyId, {
+        section: "memos",
         memoSection: target.sectionId,
         memoBullet: target.bulletId,
-      },
-    });
+      }),
+    );
   }
 }
 
