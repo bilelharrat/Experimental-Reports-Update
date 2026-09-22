@@ -297,15 +297,16 @@ def test_recover_synthesizes_assistant_for_orphan_user_turn(tmp_consoles, monkey
     assert "Interrupted by server restart" in matching[1]["error"]
 
 
-def test_recover_flips_in_progress_hydration(tmp_consoles, monkeypatch):
-    monkeypatch.setattr(claude_runner, "run_console_hydrate", _stub_hydrate_ok)
+def test_recover_flips_in_progress_hydration(tmp_consoles):
+    # skip_hydrate: a live hydration worker's "done" write can land after
+    # the forced state below and hide recover()'s flip.
     meta = console_session.create_session(
         company_id=COMPANY,
         include_background_docs=False, include_library_docs=False,
+        skip_hydrate=True,
     )
     sid = meta["id"]
-    # Force the state we care about, regardless of whether the stub's
-    # background hydration has finished already.
+    # What a restart mid-hydration leaves on disk: in_progress, no worker.
     console_store.update_meta(COMPANY, sid, hydration_status="in_progress")
 
     console_session.recover()
