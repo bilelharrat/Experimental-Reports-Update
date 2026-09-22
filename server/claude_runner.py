@@ -4467,8 +4467,11 @@ _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
         "REPAIR": (None, "high"),
         "SPINE_CHECK": ("sonnet", "medium"),
         # Translation is transformation, not authorship: the English is
-        # already decided, so the top model at medium effort is enough.
-        "TRANSLATION": (None, "medium"),
+        # already decided, so Sonnet at medium effort is enough — on every
+        # tier. The owner's server pinned BSH_MEMO_MODEL_TRANSLATION to
+        # Sonnet for exactly that reason; since 2026-09-22 the tier says it
+        # itself, so a server without that .env line translates the same.
+        "TRANSLATION": ("sonnet", "medium"),
     },
     # Research and verification move to Sonnet; the English writing wave
     # keeps the default model at medium effort, so the prose the founder

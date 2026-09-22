@@ -79,17 +79,19 @@ def test_an_unregistered_run_falls_back_to_best(tmp_path):
     assert claude_runner._memo_role_effort("SECTION", tmp_path) == "high"
 
 
-def test_best_keeps_the_top_model_everywhere_but_the_checker(tmp_path):
+def test_best_keeps_the_top_model_for_everything_the_founder_reads(tmp_path):
     """The founder reads the English prose, so the writing wave stays on
-    the default model at high effort. Only the spine checker — a mechanical
-    gate — drops to Sonnet."""
+    the default model at high effort. The spine checker — a mechanical
+    gate — and translation, which renders prose already decided, run on
+    Sonnet."""
     claude_runner.register_memo_run_quality(tmp_path, "best")
     for role in ("SPINE", "SECTION", "ARTIFACTS", "REPAIR", "ENGLISH"):
         assert claude_runner._memo_role_model(role, tmp_path) is None
         assert claude_runner._memo_role_effort(role, tmp_path) == "high"
     assert claude_runner._memo_role_model("SPINE_CHECK", tmp_path) == "sonnet"
-    # Translation is transformation, not authorship: top model, less thinking.
-    assert claude_runner._memo_role_model("TRANSLATION", tmp_path) is None
+    # Translation is transformation, not authorship: Sonnet on every tier,
+    # which the owner's server had pinned by env (2026-09-22).
+    assert claude_runner._memo_role_model("TRANSLATION", tmp_path) == "sonnet"
     assert claude_runner._memo_role_effort("TRANSLATION", tmp_path) == "medium"
 
 

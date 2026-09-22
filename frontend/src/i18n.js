@@ -2307,7 +2307,7 @@ const messages = {
     "research.quality_balanced": "Balanced",
     "research.quality_economy": "Economy",
     "research.quality_hint":
-      "Best runs every agent on the top model at full effort. Balanced moves research and translation to a faster model and writes with the top model at medium effort; Economy moves everything to the faster model. Lower tiers cost less but may analyze less deeply.",
+      "Best researches and writes with the top model. Balanced moves research to a faster model and writes with the top model at medium effort; Economy moves everything to the faster model. Translation and fact checks use the faster model on every tier. Lower tiers cost less but may analyze less deeply.",
     "research.deep_investigate_button": "Start Deep Investigate",
     "research.generate_report_button": "Generate Report",
     "research.reinvestigate_button": "Re-investigate",
@@ -5261,7 +5261,7 @@ const messages = {
     "research.quality_balanced": "均衡",
     "research.quality_economy": "经济",
     "research.quality_hint":
-      "最佳档所有环节使用顶级模型、全力思考；均衡档将调研与翻译换用更快的模型，写作仍用顶级模型但思考强度为中等；经济档全部换用更快的模型。档位越低成本越低，但分析深度可能略降。",
+      "最佳档的调研与写作使用顶级模型；均衡档将调研换用更快的模型，写作仍用顶级模型但思考强度为中等；经济档全部换用更快的模型。各档位的翻译与事实核查均使用更快的模型。档位越低成本越低，但分析深度可能略降。",
     "research.deep_investigate_button": "开始深度调查",
     "research.generate_report_button": "生成报告",
     "research.reinvestigate_button": "重新调查",
