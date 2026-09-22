@@ -20,7 +20,7 @@ const caf =
     ? (id) => window.cancelAnimationFrame(id)
     : (id) => clearTimeout(id);
 
-function prefersReducedMotion() {
+export function prefersReducedMotion() {
   return Boolean(
     typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,

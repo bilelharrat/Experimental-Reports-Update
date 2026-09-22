@@ -147,8 +147,7 @@ export function isTerminalReportStatus(status) {
   );
 }
 
-// The four buckets the Reports page and the company launcher sort a report
-// into, so a report reads the same in the preview as on the page.
+// The four buckets the Reports page sorts a report into.
 export function normalizeReportStatus(status) {
   const s = String(status || "").toLowerCase();
   if (s === "complete" || s === "ready") return "complete";

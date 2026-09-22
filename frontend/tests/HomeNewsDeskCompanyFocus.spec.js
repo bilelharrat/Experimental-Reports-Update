@@ -24,8 +24,8 @@ vi.mock("../src/api.js", () => ({
 import { api } from "../src/api.js";
 import HomeNewsDesk from "../src/components/HomeNewsDesk.vue";
 
-// The launcher's News card opens the desk on one company (`?company=`) and,
-// when a headline was picked, leads with it (`?story=`).
+// The sidebar's News row opens the desk on one company (`?company=`), and a
+// link that names a headline leads with it (`?story=`).
 
 const minutesAgo = (n) => new Date(Date.now() - n * 60_000).toISOString();
 
@@ -75,7 +75,7 @@ describe("HomeNewsDesk on one company", () => {
     await flushPromises();
 
     expect(api.quotesNews).toHaveBeenCalledWith({ tickers: ["MSFT"], limit: 30 });
-    // Newer, but not the story picked in the launcher.
+    // Newer, but not the story the link names.
     expect(wrapper.find(".news-lead-title").text()).toBe("Microsoft signs a sovereign cloud deal");
     expect(wrapper.text()).toContain("Microsoft ships a new Surface");
     expect(wrapper.text()).not.toContain("Intel cuts a fab plan");

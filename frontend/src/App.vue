@@ -1127,11 +1127,5 @@ provide("copilotNavigate", onCopilotNavigate);
       @intake-complete="refreshAll"
     />
     <WelcomeTour :open="welcomeTourOpen" @close="closeWelcomeTour" />
-    <!-- Overlays that belong to the app's own layer render here rather than
-         in <body>: .canvas-wash isolates a stacking context, and anything
-         teleported past it covers the whole app — the sidebar's menus, the
-         sheets, the ⌘K palette — whatever their z-index. The sidebar's
-         company launcher (z-45) lives here, under the sheets. -->
-    <div id="app-overlays" />
   </div>
 </template>

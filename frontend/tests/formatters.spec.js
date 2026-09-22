@@ -9,6 +9,7 @@ import {
   formatMetricValue,
   humanizeStatus,
   isPendingValue,
+  normalizeReportStatus,
 } from "../src/formatters.js";
 
 describe("user-facing formatters", () => {
@@ -28,6 +29,14 @@ describe("user-facing formatters", () => {
     expect(formatIsoDate("2026-07-20T19:22:00Z")).toBe("2026-07-20");
     expect(humanizeStatus("failed_during_analysis")).toBe("Failed");
     expect(humanizeStatus("ready_for_input", "待处理", "zh")).toBe("等待输入");
+  });
+
+  it("buckets report statuses as the Reports page does", () => {
+    expect(normalizeReportStatus("complete")).toBe("complete");
+    expect(normalizeReportStatus("complete_with_warnings")).toBe("needs_attention");
+    expect(normalizeReportStatus("awaiting_studio")).toBe("needs_attention");
+    expect(normalizeReportStatus("failed_during_analysis")).toBe("failed");
+    expect(normalizeReportStatus("queued")).toBe("running");
   });
 
   it("builds display names and initials from emails", () => {

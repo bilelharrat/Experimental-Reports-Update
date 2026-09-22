@@ -169,8 +169,8 @@ function openCompany(company) {
 }
 
 // A ticker on the tape opens that stock on the Market desk, a workspace
-// company's own row included (the sidebar's company launcher is the way to
-// its desk). A row without a ticker opens the company.
+// company's own row included (its row in the sidebar is the way to its
+// desk). A row without a ticker opens the company.
 function openTapeItem(item) {
   if (item?.ticker) {
     router.push({ name: "market-radar", query: { ticker: item.ticker } });

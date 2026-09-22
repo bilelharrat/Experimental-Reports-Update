@@ -113,33 +113,33 @@ again) and Settings can replay it. Classes: `.welcome-tour-*` and the
 `tour-forward` / `tour-back` page transitions. The iPhone/iPad and Mac apps
 carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`).
 
-## Company launcher
+## Company pages in the sidebar
 
-Clicking a company in the sidebar opens `CompanyLauncher.vue` over the
-content column, with the sidebar still usable beside it. It shows the
-company's name in large type and three panes to choose from: Reports, News
-and Research Desk. Each pane previews what it opens, using data the app
-already has or a plain quotes read, never an AI call. Keys `1`, `2` and `3`
-open the panes, and `Esc` closes the launcher. For a listed company, the
-ticker and the price panel open the stock on the Market desk.
+Clicking a company in the sidebar opens it in place, like a folder in the
+Finder sidebar: three rows appear under it, indented along a hairline guide —
+Reports, News and Research Desk. Reports and News show how many reports and
+headlines they hold, counted the way those pages build them (the reports
+list, and the News desk's headlines for the company with its own ticker's
+wire), never with an AI call. A count waits until its numbers are in rather
+than showing a wrong 0.
 
-The launcher is a presented surface, like Spotlight, so it is the one place
-content sits on glass instead of white cards:
+- One company is open at a time. Clicking it again closes it; `→` and `←`
+  open and close it from the keyboard. A modified click (new tab) keeps the
+  row's plain link to the Research Desk.
+- Reaching a company's page any other way (search, ⌘K, a link) opens that
+  company in the list with the page marked, so the sidebar always says where
+  you are.
+- The page on screen takes the glass pill. While it does, the desk row above
+  (Reports, News) gives up its own highlight: the sidebar holds one selection.
+  Shut, the company row itself holds it.
+- Each row keeps its glyph's tint: accent for Reports, the warning ink for
+  News and the info ink for Research Desk. The open company shows a chevron.
+- In the icon rail the rows stack as glyphs on a quiet tray under the logo,
+  named on hover.
 
-- The page behind is blurred under a neutral veil. There is no colored
-  glow or colored shadow: color appears only in the pane icons, the labels
-  and a pane's button while the pointer is on the pane.
-- Each pane has a translucent fill and a gradient rim that is brightest
-  along the top edge. A specular highlight follows the pointer (`--mx` and
-  `--my`, set on `pointermove`).
-- Buttons are glass capsules. A pane's own button turns to its tinted glass
-  while the pointer is anywhere on the pane.
-
-The glass values are local tokens on `.company-launcher` (`--pane-*`,
-`--well-*`, `--capsule-*`), redefined under `.dark`. Layout answers to the
-launcher's own width through container queries, because the sidebar takes a
-different share when collapsed. The classes are `.company-launcher`,
-`.launcher-*` and `.launcher-card[data-tone]`.
+The rows link to `/reports?company=`, `/news-desk?company=` and the Research
+Desk. The classes are `.company-pages`, `.company-page-row[data-kind]` and
+`.company-disclosure`; the counting helpers are in `src/companyPages.js`.
 
 ## Page anatomy
 

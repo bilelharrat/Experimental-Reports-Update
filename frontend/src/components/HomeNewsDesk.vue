@@ -29,7 +29,7 @@ import {
   newsToneKey,
 } from "../homeDesk.js";
 import { briefCacheKey, cacheBrief, loadCachedBrief } from "../offlineCache.js";
-import { useTickerNews } from "../companyLauncher.js";
+import { useTickerNews } from "../companyPages.js";
 
 const props = defineProps({
   bookIds: { type: Array, default: () => [] },
@@ -49,9 +49,9 @@ const router = useRouter();
 const scope = ref("all");
 const query = ref("");
 
-// `?company=<id>`: the sidebar's company launcher → News opens the desk on
-// one company. The chip above the list says so and clears it. `?story=<id>`
-// leads with the headline picked in the launcher's preview.
+// `?company=<id>`: a company's News row in the sidebar opens the desk on
+// that company. The chip above the list says so and clears it. `?story=<id>`
+// leads with the headline a link names.
 const focusCompanyId = computed(() => String(route?.query?.company || ""));
 const selectedId = ref(String(route?.query?.story || ""));
 const leadEl = ref(null);

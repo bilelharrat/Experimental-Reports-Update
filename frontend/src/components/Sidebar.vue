@@ -1,10 +1,11 @@
 <script setup>
-import { computed, h, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, h, inject, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   ArrowUpDown,
   Building2,
   Check,
+  ChevronDown,
   ChevronsUpDown,
   Upload,
   Sparkle,
@@ -21,7 +22,9 @@ import {
   Settings,
   X,
 } from "lucide-vue-next";
+import { api } from "../api.js";
 import { companyStatusLine, sortCompanies } from "../companyLists.js";
+import { companyHeadlines, companyReports, useTickerNewsFeed } from "../companyPages.js";
 import { useT } from "../i18n.js";
 import {
   isAnonDev,
@@ -33,11 +36,10 @@ import {
   signOut,
 } from "../auth.js";
 import { useMediaQuery } from "../chrome.js";
-import { useGlider } from "../glassMotion.js";
+import { prefersReducedMotion, useGlider } from "../glassMotion.js";
 import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
-import CompanyLauncher from "./CompanyLauncher.vue";
 import Monogram from "./Monogram.vue";
 import PulseECGIcon from "./PulseECGIcon.vue";
 
@@ -102,6 +104,9 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["close", "navigate"]);
+
+const router = useRouter();
+const route = useRoute();
 
 const isDesktop = useMediaQuery("(min-width: 1024px)");
 // The icon rail is a desktop affordance; the mobile drawer always shows labels.
@@ -257,7 +262,7 @@ const {
   visible: companyGliderVisible,
   instant: companyGliderInstant,
   moveTo: moveCompanyGlider,
-} = useGlider(companyListRef, ".company-source-row.router-link-active", {
+} = useGlider(companyListRef, ".source-row.router-link-active", {
   enabled: computed(() => !collapsed.value),
 });
 
@@ -266,33 +271,60 @@ function onNavRowClick(event) {
   onNavigate();
 }
 
-// Clicking a company opens the company launcher: the content area fills with
-// its reports, its news and the Research Desk, each previewed, to pick from
-// (CompanyLauncher.vue). The sidebar stays live beside it, so another company
-// swaps the launcher over and the same one closes it. A modified click (new
-// tab, etc.) keeps the row's plain link to the desk.
-const launcher = ref(null); // { company, anchor }
+// Clicking a company opens it in place, like a folder: its reports, its news
+// and its Research Desk, one row each, with how many reports and headlines
+// the first two hold. One company is open at a time; clicking it again closes
+// it. A modified click (new tab, etc.) keeps the row's plain link to the desk.
+const openCompanyId = ref(null);
 
-// Polling replaces the company objects; show the fresh one.
-const launcherCompany = computed(() => {
-  const id = launcher.value?.company?.id;
-  if (id == null) return null;
-  return (props.companies || []).find((c) => c.id === id) || launcher.value.company;
+// The company page on screen, if any: whose, and which of its three.
+const routePage = computed(() => {
+  const name = String(route?.name || "");
+  if (name === "research" || name === "research-desk-company") {
+    const id = String(route.params?.companyId || "");
+    return id ? { companyId: id, kind: "desk" } : null;
+  }
+  const id = String(route?.query?.company || "");
+  if (!id || id === "all") return null;
+  if (name === "reports") return { companyId: id, kind: "reports" };
+  if (name === "news-desk") return { companyId: id, kind: "news" };
+  return null;
 });
 
-// The launcher covers the content column, which starts where the sidebar
-// ends: the aside's width on a desktop (see its lg:w-* classes), the whole
-// screen when the sidebar is a drawer.
-const launcherLeft = computed(() => (isDesktop.value ? (collapsed.value ? 76 : 268) : 0));
+// However a company's page was reached (search, ⌘K, a link), the company
+// opens here too, with that page marked.
+watch(
+  () => routePage.value?.companyId,
+  (id) => {
+    if (id) openCompanyId.value = id;
+  },
+  { immediate: true },
+);
 
-// It renders into App.vue's #app-overlays, inside the app's stacking layer,
-// so this sidebar (raised over it while it is open), the sheets and the ⌘K
-// palette stack above it by z-index. <body> would put it over all of them.
-// Found once mounted, when the whole app is in the document; a sidebar
-// mounted on its own (tests) falls back to <body>.
-const overlayTarget = ref(null);
-onMounted(() => {
-  overlayTarget.value = document.getElementById("app-overlays") || document.body;
+function isOpen(company) {
+  return openCompanyId.value === company.id;
+}
+
+function isCurrent(company) {
+  return routePage.value?.companyId === company.id;
+}
+
+// The row holds the selection when its company's page is on screen and the
+// folder is shut; open, the page row under it does. The rail has no glider,
+// so there the logo keeps its ring either way.
+function rowSelected(company) {
+  return isCurrent(company) && (collapsed.value || !isOpen(company));
+}
+
+function isPageActive(company, kind) {
+  return isCurrent(company) && routePage.value.kind === kind;
+}
+
+// With a company's page on screen, the list holds the selection, so the desk
+// row above it (Reports, News) doesn't hold a second one.
+const companyHoldsSelection = computed(() => {
+  const id = routePage.value?.companyId;
+  return Boolean(id && visibleCompanies.value.some((company) => company.id === id));
 });
 
 function onCompanyRowClick(event, company) {
@@ -300,29 +332,110 @@ function onCompanyRowClick(event, company) {
     return;
   }
   event.preventDefault();
-  if (launcher.value?.company?.id === company.id) {
-    closeLauncher();
-    return;
-  }
   closeMenus();
-  launcher.value = { company, anchor: event.currentTarget };
-  // On a phone the drawer gives the screen to the launcher.
-  if (props.mobileOpen) emit("close");
+  if (isOpen(company)) openCompanyId.value = null;
+  else openFolder(company);
 }
 
-function closeLauncher({ restoreFocus = false } = {}) {
-  const anchor = launcher.value?.anchor;
-  launcher.value = null;
-  if (restoreFocus && anchor?.isConnected) anchor.focus({ preventScroll: true });
+// A company opened near the bottom of the list scrolls its pages into view.
+function openFolder(company) {
+  openCompanyId.value = company.id;
+  nextTick(() => {
+    document.getElementById(`company-pages-${company.id}`)?.scrollIntoView?.({
+      block: "nearest",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  });
 }
 
-function onLauncherGo(to, kind) {
-  const anchor = launcher.value?.anchor;
-  launcher.value = null;
-  if (kind === "desk" && anchor) moveCompanyGlider(anchor);
-  router?.push(to);
+function closeFolder(company) {
+  if (isOpen(company)) openCompanyId.value = null;
+}
+
+function onPageClick(event) {
+  moveCompanyGlider(event.currentTarget);
   onNavigate();
 }
+
+// Polling replaces the company objects; count against the fresh one.
+const openCompany = computed(
+  () => (props.companies || []).find((company) => company.id === openCompanyId.value) || null,
+);
+
+// Reports: the whole list, read when a company opens and again on each move
+// between desks, so a report generated a moment ago is already counted. Until
+// the first read lands there is no count rather than a wrong 0.
+const allReports = ref(null);
+let reportsRequest = 0;
+
+async function loadReports() {
+  const id = ++reportsRequest;
+  try {
+    const list = await api.listReports();
+    if (id === reportsRequest) allReports.value = Array.isArray(list) ? list : [];
+  } catch {
+    // Keep the last count; the Reports page says what went wrong.
+  }
+}
+
+watch(
+  () => [openCompanyId.value, route?.name],
+  ([id]) => {
+    if (id) loadReports();
+  },
+  { immediate: true },
+);
+
+const reportsCount = computed(() => {
+  if (!openCompany.value || !allReports.value) return null;
+  return companyReports(allReports.value, openCompany.value.id).length;
+});
+
+// News: the headlines the News desk shows for the company, its own ticker's
+// wire included.
+const workspaceNews = inject("workspaceNews", ref([]));
+const workspaceResearch = inject("workspaceResearch", ref([]));
+const workspaceLiveNews = inject("workspaceLiveNews", ref([]));
+const openTicker = computed(() => openCompany.value?.ticker || "");
+const tickerNews = useTickerNewsFeed(openTicker);
+
+const newsCount = computed(() => {
+  if (!openCompany.value || !tickerNews.settled.value) return null;
+  return companyHeadlines({
+    feed: [...(unref(workspaceNews) || []), ...(unref(workspaceResearch) || [])],
+    companies: props.companies,
+    live: [...tickerNews.items.value, ...(unref(workspaceLiveNews) || [])],
+    companyId: openCompany.value.id,
+  }).length;
+});
+
+const companyPages = computed(() => {
+  const id = openCompany.value?.id;
+  if (!id) return [];
+  return [
+    {
+      kind: "reports",
+      label: t("sidebar.reports"),
+      icon: FileText,
+      to: { name: "reports", query: { company: id } },
+      count: reportsCount.value,
+    },
+    {
+      kind: "news",
+      label: t("nav.news"),
+      icon: Newspaper,
+      to: { name: "news-desk", query: { company: id } },
+      count: newsCount.value,
+    },
+    {
+      kind: "desk",
+      label: t("sidebar.research_desk"),
+      icon: Building2,
+      to: { name: "research", params: { companyId: id } },
+      count: null,
+    },
+  ];
+});
 
 function closeMenus() {
   sortMenuOpen.value = false;
@@ -346,9 +459,6 @@ function onNavigate() {
   emit("navigate");
 }
 
-const router = useRouter();
-const route = useRoute();
-
 async function onSignOut() {
   if (signingOut.value) return;
   signingOut.value = true;
@@ -371,7 +481,6 @@ function onDocPointerDown(event) {
   }
 }
 
-// Escape for the launcher is the launcher's own (it runs first, in capture).
 function onKeydown(event) {
   if (event.key !== "Escape") return;
   if (sortMenuOpen.value || accountMenuOpen.value) {
@@ -380,14 +489,6 @@ function onKeydown(event) {
   }
   if (props.mobileOpen) emit("close");
 }
-
-// Any navigation — a desk row, the toolbar, Back — leaves the launcher.
-watch(
-  () => route?.fullPath,
-  () => {
-    if (launcher.value) launcher.value = null;
-  },
-);
 
 onMounted(() => {
   document.addEventListener("pointerdown", onDocPointerDown);
@@ -401,15 +502,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- While the company launcher (z-45) covers the content column, the
-       sidebar rises above it: the two never overlap, but the sidebar's own
-       menus do — the rail's account menu opens out to its right. -->
   <aside
-    class="fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:h-screen lg:max-w-none lg:translate-x-0"
+    class="fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:max-w-none lg:translate-x-0"
     :class="[
       collapsed ? 'lg:w-[76px]' : 'lg:w-[268px]',
       mobileOpen ? 'translate-x-0' : '-translate-x-[108%]',
-      launcherCompany ? 'lg:z-[46]' : 'lg:z-20',
     ]"
     :data-collapsed="collapsed ? 'true' : 'false'"
     :inert="(!isDesktop && !mobileOpen) || undefined"
@@ -510,6 +607,7 @@ onBeforeUnmount(() => {
             :to="item.to"
             class="source-row focus-ring"
             active-class=""
+            :exact-active-class="companyHoldsSelection ? '' : 'router-link-exact-active'"
             :title="item.label"
             :data-tour="`nav-${item.id}`"
             @click="onNavRowClick"
@@ -672,16 +770,13 @@ onBeforeUnmount(() => {
               :data-instant="companyGliderInstant ? 'true' : 'false'"
               aria-hidden="true"
             />
-            <div
-              v-for="company in visibleCompanies"
-              :key="company.id"
-              class="group relative"
-            >
+            <template v-for="company in visibleCompanies" :key="company.id">
+            <div class="group relative">
               <!-- `custom`: RouterLink's own click handler would navigate
-                   before ours could open the launcher, so the anchor is ours
+                   before ours could open the company, so the anchor is ours
                    and only a modified click falls through to the plain link. -->
               <RouterLink
-                v-slot="{ href, isActive, isExactActive }"
+                v-slot="{ href }"
                 :to="{ name: 'research', params: { companyId: company.id } }"
                 custom
               >
@@ -690,14 +785,17 @@ onBeforeUnmount(() => {
                 class="source-row company-source-row focus-ring"
                 :class="[
                   collapsed ? 'company-rail-link' : '!py-[5px] !pl-2',
-                  { 'router-link-active': isActive, 'router-link-exact-active': isExactActive },
+                  { 'router-link-active': rowSelected(company) },
                 ]"
-                :aria-current="isExactActive ? 'page' : undefined"
+                :aria-current="
+                  isPageActive(company, 'desk') && !isOpen(company) ? 'page' : undefined
+                "
                 :title="company.name"
-                aria-haspopup="dialog"
-                :aria-expanded="launcher?.company?.id === company.id"
-                :data-launcher="launcher?.company?.id === company.id ? 'open' : undefined"
+                :aria-expanded="isOpen(company) ? 'true' : 'false'"
+                :aria-controls="isOpen(company) ? `company-pages-${company.id}` : undefined"
                 @click="onCompanyRowClick($event, company)"
+                @keydown.right.prevent="openFolder(company)"
+                @keydown.left.prevent="closeFolder(company)"
               >
                 <Monogram
                   :company="company"
@@ -717,10 +815,51 @@ onBeforeUnmount(() => {
                     </span>
                   </span>
                   <CompanyFollowButton :company-id="company.id" hide-until-hover />
+                  <ChevronDown
+                    v-if="isOpen(company)"
+                    class="company-disclosure h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
                 </template>
               </a>
               </RouterLink>
             </div>
+            <!-- The open company's pages, indented under its logo. Outside the
+                 row's hover group, so pointing at them doesn't wake its star. -->
+            <div
+              v-if="isOpen(company)"
+              :id="`company-pages-${company.id}`"
+              class="company-pages"
+              role="group"
+              :aria-label="company.name"
+              data-testid="company-pages"
+            >
+              <RouterLink
+                v-for="page in companyPages"
+                :key="page.kind"
+                :to="page.to"
+                class="source-row company-page-row focus-ring"
+                :class="{ 'router-link-active': isPageActive(company, page.kind) }"
+                active-class=""
+                exact-active-class=""
+                :aria-current="isPageActive(company, page.kind) ? 'page' : undefined"
+                :title="page.label"
+                :data-kind="page.kind"
+                :data-testid="`company-page-${page.kind}`"
+                @click="onPageClick"
+              >
+                <component :is="page.icon" :size="15" class="company-page-icon shrink-0" />
+                <span v-if="!collapsed" class="min-w-0 flex-1 truncate">{{ page.label }}</span>
+                <span
+                  v-if="!collapsed && page.count != null"
+                  class="mono-data text-caption1 text-ink-subtle"
+                  data-testid="company-page-count"
+                >
+                  {{ page.count }}
+                </span>
+              </RouterLink>
+            </div>
+            </template>
           </div>
         </div>
 </section>
@@ -795,17 +934,5 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <Teleport v-if="overlayTarget" :to="overlayTarget">
-      <Transition name="launcher">
-        <CompanyLauncher
-          v-if="launcherCompany"
-          :company="launcherCompany"
-          :companies="companies"
-          :left="launcherLeft"
-          @close="closeLauncher"
-          @go="onLauncherGo"
-        />
-      </Transition>
-    </Teleport>
   </aside>
 </template>
