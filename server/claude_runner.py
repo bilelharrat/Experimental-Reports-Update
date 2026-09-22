@@ -35,6 +35,7 @@ from typing import Any
 import yaml
 
 from . import job_progress, memo_engine, memo_prompts, memo_structure, source_cache
+from . import memo_flags
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -7132,15 +7133,15 @@ def _memo_english_parallel_enabled(run_dir: Path | None = None) -> bool:
     prompts, same stage graph; only the number of calls the memo is spread
     across differs.
     """
-    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1":
+    if memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL"):
         return True
     return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
 
 
 def _memo_artifacts_async_enabled() -> bool:
     return (
-        os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
-        and os.environ.get("BSH_MEMO_ARTIFACTS_ASYNC", "0") == "1"
+        memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL")
+        and memo_flags.enabled("BSH_MEMO_ARTIFACTS_ASYNC")
     )
 
 
@@ -7332,8 +7333,8 @@ class AsyncArtifacts:
 
 def _memo_spine_speculative_enabled() -> bool:
     return (
-        os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
-        and os.environ.get("BSH_MEMO_SPINE_SPECULATIVE", "0") == "1"
+        memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL")
+        and memo_flags.enabled("BSH_MEMO_SPINE_SPECULATIVE")
     )
 
 
@@ -7342,7 +7343,7 @@ def _memo_section_early_start_enabled() -> bool:
     its unvalidated pins) — three flags, deliberately."""
     return (
         _memo_spine_speculative_enabled()
-        and os.environ.get("BSH_MEMO_SECTION_EARLY_START", "0") == "1"
+        and memo_flags.enabled("BSH_MEMO_SECTION_EARLY_START")
     )
 
 
@@ -11270,7 +11271,7 @@ def _memo_zh_compact_enabled(run_dir: Path | None = None) -> bool:
     BSH_MEMO_ZH_SPLIT_CHARS into two parallel calls; any compact failure
     still falls back to the legacy method per unit.
     """
-    if os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1":
+    if memo_flags.enabled("BSH_MEMO_ZH_COMPACT"):
         return True
     return run_dir is not None and memo_engine.run_engine(run_dir) == "gemini"
 

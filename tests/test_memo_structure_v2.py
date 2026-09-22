@@ -108,7 +108,7 @@ def test_v2_contracts_are_substantive():
 
 
 def test_active_structure_honors_flag(monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_STRUCTURE_V2", raising=False)
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "0")
     assert memo_structure.active_structure("late").version == 1
     monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
     assert memo_structure.active_structure("late").version == 2
@@ -297,7 +297,7 @@ def test_spine_prompt_lists_v2_sections_inline(tmp_path, monkeypatch):
 
 
 def test_parallel_disabled_refuses_v2(tmp_path, monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     result, error = claude_runner.run_memo_fast_english_package_parallel(
         run_dir=tmp_path,
         company_name="Acme",

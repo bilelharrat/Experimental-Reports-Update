@@ -99,8 +99,8 @@ def _parallel_kwargs(tmp_path: Path) -> dict:
 
 
 def test_flag_helper_requires_both_flags(monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
-    monkeypatch.delenv("BSH_MEMO_ARTIFACTS_ASYNC", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
+    monkeypatch.setenv("BSH_MEMO_ARTIFACTS_ASYNC", "0")
     assert claude_runner._memo_artifacts_async_enabled() is False
     monkeypatch.setenv("BSH_MEMO_ARTIFACTS_ASYNC", "1")
     assert claude_runner._memo_artifacts_async_enabled() is False

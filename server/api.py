@@ -73,6 +73,7 @@ from . import (
     market_brief,
     memo_analysis,
     memo_editor_store,
+    memo_flags,
     memo_studio_bridge,
     memo_prep,
     news_archive,
@@ -5365,7 +5366,7 @@ def post_memo_studio_investigate(
     before ``POST /api/memos/studio/{report_id}/generate``.
     """
     _require_permission(request, "tasks:action")
-    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+    if not memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL"):
         raise HTTPException(status_code=409, detail=_STUDIO_NEEDS_PARALLEL_DETAIL)
     report_type = payload.report_type or memo_prep.AUTO_STAGE_REPORT_TYPE
     if report_type == "Investment Report":
@@ -5420,7 +5421,7 @@ def post_memo_studio_generate(request: Request, report_id: str) -> ReportDetail:
     Phase 3+ worker with the spine pinned.
     """
     _require_permission(request, "tasks:action")
-    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+    if not memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL"):
         raise HTTPException(status_code=409, detail=_STUDIO_NEEDS_PARALLEL_DETAIL)
     report = storage.get_report(report_id)
     if report is None:

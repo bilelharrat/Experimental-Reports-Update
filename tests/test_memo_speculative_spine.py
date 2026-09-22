@@ -87,8 +87,8 @@ def _speculator(tmp_path: Path, **overrides) -> claude_runner.SpeculativeEnglish
 
 
 def test_flag_helpers(monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
-    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATIVE", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATIVE", "0")
     assert claude_runner._memo_spine_speculative_enabled() is False
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATIVE", "1")
     assert claude_runner._memo_spine_speculative_enabled() is False

@@ -262,7 +262,7 @@ def test_execute_report_action_passes_provenance(tmp_path, monkeypatch):
 
 def test_execute_investigate_requires_parallel(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     storage.bootstrap_seed_data()
     storage.materialize_seed_company_records()
     company_id = "zainar-inc"

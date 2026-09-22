@@ -459,12 +459,13 @@ def test_env_flag_disables_parallel(tmp_path, monkeypatch):
     assert len(monolithic_calls) == 1
 
 
-def test_parallel_is_disabled_by_default(tmp_path, monkeypatch):
-    """The parallel path must be opt-in: the 2026-08-21 NVIDIA validation run
-    showed ~5x cost per attempt with no wall-clock win, so the default is the
-    monolithic call."""
+def test_parallel_switched_off_takes_the_monolithic_call(tmp_path, monkeypatch):
+    """With the switch at 0 the English stage is one monolithic call. The
+    parallel path was opt-in until 2026-09-22 (the 2026-08-21 NVIDIA run
+    measured ~5x cost per attempt); it is now the default, because the v2
+    structure has no monolithic twin — see server/memo_flags.py."""
     kwargs = _parallel_kwargs(tmp_path)
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     monkeypatch.setattr(
         claude_runner,
         "run_memo_fast_english_spine",
@@ -1224,7 +1225,7 @@ def _words(section_id: str, count: int) -> dict:
 def _gemini_wave(tmp_path: Path, monkeypatch) -> tuple[dict, dict]:
     kwargs = _parallel_kwargs(tmp_path)
     memo_engine.register_run_engine(kwargs["run_dir"], "gemini")
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     monkeypatch.delenv("BSH_MEMO_GEMINI_WORDS", raising=False)
     monkeypatch.setattr(
         claude_runner,

@@ -49,6 +49,7 @@ from . import (
     memo_chinese_parity,
     memo_docx_renderer,
     memo_engine,
+    memo_flags,
     memo_pin_check,
     memo_prep,
     memo_prompts,
@@ -317,8 +318,8 @@ def _memo_zh_chasing_enabled() -> bool:
     are no per-section English drafts to chase.
     """
     return (
-        os.environ.get("BSH_MEMO_ZH_CHASING", "0") == "1"
-        and os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
+        memo_flags.enabled("BSH_MEMO_ZH_CHASING")
+        and memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL")
     )
 
 
@@ -336,7 +337,7 @@ def _memo_pin_check_enabled() -> bool:
 def _memo_pin_check_repair_enabled() -> bool:
     """Feed pin-echo findings into the repair loop (default OFF: report
     only). Turn on once live runs show the findings are trustworthy."""
-    return _env_flag("BSH_MEMO_PIN_CHECK_REPAIR", default=False)
+    return memo_flags.enabled("BSH_MEMO_PIN_CHECK_REPAIR")
 
 
 def _memo_fast_max_workers() -> int:

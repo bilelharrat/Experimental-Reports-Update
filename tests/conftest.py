@@ -218,10 +218,17 @@ def _neutral_structure_flag(monkeypatch):
     anywhere in the session load_dotenv()s the project .env into
     os.environ, and a BSH_MEMO_STRUCTURE_V2=1 there flips every
     pipeline test to the v2 structure mid-session (observed 2026-09-11
-    as order-dependent failures). Default the flag off; tests that
-    exercise v2 set it themselves.
+    as order-dependent failures). Tests that exercise v2 set it themselves.
+
+    Since 2026-09-22 the pipeline switches default ON (server/memo_flags.py),
+    so deleting the variable is no longer neutral. Every switch is pinned
+    OFF here: the historical baseline these tests were written against.
+    tests/test_memo_flags.py checks the real defaults on a clean env.
     """
-    monkeypatch.delenv("BSH_MEMO_STRUCTURE_V2", raising=False)
+    from server import memo_flags
+
+    for name in memo_flags.DEFAULTS:
+        monkeypatch.setenv(name, "0")
 
 
 @pytest.fixture(autouse=True)

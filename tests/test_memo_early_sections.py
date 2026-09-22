@@ -118,7 +118,7 @@ def test_flag_helper_requires_all_three_flags(monkeypatch):
         "BSH_MEMO_SPINE_SPECULATIVE",
         "BSH_MEMO_SECTION_EARLY_START",
     ):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "0")
     assert claude_runner._memo_section_early_start_enabled() is False
     monkeypatch.setenv("BSH_MEMO_SECTION_EARLY_START", "1")
     assert claude_runner._memo_section_early_start_enabled() is False

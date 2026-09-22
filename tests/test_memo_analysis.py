@@ -4446,7 +4446,7 @@ def test_fast_pipeline_chasing_end_to_end(memo_env, monkeypatch):
 
 def test_fast_pipeline_chasing_flag_off_passes_no_hooks(memo_env, monkeypatch):
     report, run_dir = _chasing_env(memo_env, monkeypatch)
-    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "0")
     package = _memo_package(body_zh="")
 
     def fake_parallel_english(**kwargs):
@@ -4479,7 +4479,7 @@ def test_fast_pipeline_chasing_flag_off_passes_no_hooks(memo_env, monkeypatch):
 
 def test_fast_pipeline_emits_fact_ledger_stage(memo_env, monkeypatch):
     report, run_dir = _chasing_env(memo_env, monkeypatch)
-    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "0")
     monkeypatch.delenv("BSH_MEMO_FACT_LEDGER", raising=False)
     research_root = memo_env / "research"
     monkeypatch.setattr(
@@ -4689,7 +4689,7 @@ def _fact_check_env(memo_env, monkeypatch, *, package=None):
     from server import source_cache  # noqa: F401  (redirected through research_store)
 
     report, run_dir = _chasing_env(memo_env, monkeypatch)
-    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "0")
     monkeypatch.delenv("BSH_MEMO_FACT_LEDGER", raising=False)
     monkeypatch.delenv("BSH_MEMO_FACT_CHECK", raising=False)
     monkeypatch.delenv("BSH_MEMO_FACT_CHECK_REPAIR", raising=False)

@@ -24,6 +24,8 @@ from typing import Any
 
 import yaml
 
+from . import memo_flags
+
 # Repo-root skills/memo/structures — the editorial stage profiles, beside
 # the other memo prompts the founder's team edits (see skills/memo/README.md).
 STRUCTURES_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo" / "structures"
@@ -892,20 +894,19 @@ def active_structure(
 ) -> MemoStructure:
     """The structure a NEW pipeline run should use for this stage.
 
-    Default (flag off): every run writes the historical late v1
-    structure regardless of stage — classification is advisory until the
-    owner's live test rounds sign the restructure off (Round 5 flips
-    this default). ``BSH_MEMO_STRUCTURE_V2=1`` opts a run into the
-    restructure: the classified stage picks its profile (late -> the
-    12-section late v2, growth/early -> their own profiles), and a stage
-    without a profile falls back to the late v2 chain.
+    The restructure is on by default (``BSH_MEMO_STRUCTURE_V2``, see
+    ``memo_flags``; the owner signed it off on 2026-09-22): the classified
+    stage picks its profile (late -> the 12-section late v2, growth/early
+    -> their own profiles), and a stage without a profile falls back to
+    the late v2 chain. ``BSH_MEMO_STRUCTURE_V2=0`` restores the
+    historical late v1 structure for every stage.
 
     ``mode="compact"`` prefers the stage's compact profile
     (``{stage}_compact.md`` — the short Wisdom-style memo: fewer merged
     sections, tight budgets, bullet-format risks) and falls back to the
     full chain when the stage has none, so the mode can ship stage by
     stage without ever failing a run."""
-    if os.environ.get("BSH_MEMO_STRUCTURE_V2", "0") != "1":
+    if not memo_flags.enabled("BSH_MEMO_STRUCTURE_V2"):
         return LATE
     candidates: list[tuple[str, int]] = []
     if mode == "compact":

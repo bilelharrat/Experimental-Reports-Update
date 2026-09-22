@@ -57,7 +57,7 @@ def test_round_label_beats_funding_total():
 
 
 def test_flag_off_every_stage_runs_late_v1(monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_STRUCTURE_V2", raising=False)
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "0")
     for stage in ("late", "growth", "early", "nonsense"):
         assert memo_structure.active_structure(stage) is memo_structure.LATE
 

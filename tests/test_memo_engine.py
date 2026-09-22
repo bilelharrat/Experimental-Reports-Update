@@ -392,7 +392,7 @@ def test_a_gemini_run_always_takes_the_per_section_wave(tmp_path, monkeypatch):
     """One monolithic call is where a Gemini memo's depth went (~2,700
     words against the ~12,200 of the benchmarked wave memos). Claude keeps
     the operator's flag."""
-    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     gem = tmp_path / "g"; gem.mkdir()
     cla = tmp_path / "c"; cla.mkdir()
     memo_engine.register_run_engine(gem, "gemini")
@@ -409,7 +409,7 @@ def test_a_gemini_run_always_takes_the_compact_chinese_method(tmp_path, monkeypa
     length contract brought the English up to the Claude reference, that
     doubled output hit Gemini's 64k response ceiling and the risk unit's
     translation failed outright. Claude keeps the operator's flag."""
-    monkeypatch.delenv("BSH_MEMO_ZH_COMPACT", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ZH_COMPACT", "0")
     gem = tmp_path / "g"; gem.mkdir()
     cla = tmp_path / "c"; cla.mkdir()
     memo_engine.register_run_engine(gem, "gemini")

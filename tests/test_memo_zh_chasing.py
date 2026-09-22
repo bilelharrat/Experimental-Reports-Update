@@ -215,7 +215,7 @@ def test_chase_env_knobs_parse_and_clamp(monkeypatch):
 
     from server import memo_analysis
 
-    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "0")
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
     assert memo_analysis._memo_zh_chasing_enabled() is False
     monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "1")

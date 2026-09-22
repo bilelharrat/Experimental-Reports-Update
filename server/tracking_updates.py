@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from . import auto_update, context_store, storage
+from . import memo_flags
 
 logger = logging.getLogger("bsh.tracking_updates")
 
@@ -509,7 +510,7 @@ def execute_auto_run(
         # Studio investigation (Phase 1-2 + card refresh). It requires
         # the spine-lite architecture; without the flag the run would
         # dispatch and fail downstream, so skip and stay recommended.
-        if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+        if not memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL"):
             return {
                 "executed": False,
                 "reason": "studio_requires_parallel",

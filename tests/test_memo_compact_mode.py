@@ -219,7 +219,7 @@ def test_active_structure_compact_mode(monkeypatch):
 
 
 def test_flag_off_compact_still_runs_late_v1(monkeypatch):
-    monkeypatch.delenv("BSH_MEMO_STRUCTURE_V2", raising=False)
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "0")
     assert (
         memo_structure.active_structure("late", "compact")
         is memo_structure.LATE
