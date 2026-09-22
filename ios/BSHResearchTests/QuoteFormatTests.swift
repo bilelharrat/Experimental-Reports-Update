@@ -18,6 +18,8 @@ final class QuoteFormatTests: XCTestCase {
             length: "short",
             headlineEn: "Risk-off",
             headlineZh: "避险",
+            dekEn: nil,
+            dekZh: nil,
             bulletsEn: ["A"],
             bulletsZh: ["甲"],
             sectionsEn: nil,
