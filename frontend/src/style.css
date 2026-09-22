@@ -833,6 +833,13 @@ select.field-sm {
   background-size: 9px 13px;
 }
 
+/* The Reports list's three filters share one row, so their chevron sits a
+   touch tighter than a standalone field's and every label fits. */
+select.field-sm.reports-filter {
+  padding-right: 1.6rem;
+  background-position: right 0.55rem center;
+}
+
 .dark select.field,
 .dark select.field-sm {
   background-color: rgb(255 255 255 / 0.05);

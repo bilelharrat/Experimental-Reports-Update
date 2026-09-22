@@ -282,6 +282,20 @@ const stats = computed(() => {
   };
 });
 
+// One count beside the title: every report, or how many of them the search
+// and filters leave.
+const countLabel = computed(() => {
+  const shown = filteredReports.value.length;
+  const total = stats.value.total;
+  return shown === total
+    ? t("reports.total_count", { count: total })
+    : t("reports.filtered_count", { shown, total });
+});
+
+const selectedKindLabel = computed(
+  () => kindOptions.value.find((k) => k.id === selectedKind.value)?.label || "",
+);
+
 function selectReport(report) {
   selectedReportId.value = report.id;
   router.replace({
@@ -337,83 +351,9 @@ onMounted(loadReports);
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-52px)] w-full flex-col gap-3 overflow-hidden px-3 pb-3 md:px-5 md:pb-5">
-    <header class="flex shrink-0 flex-wrap items-end justify-between gap-x-4 gap-y-3 px-1 pt-1">
-      <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 ref="pageTitleEl" class="font-display text-title1 text-ink-primary">
-          {{ t("reports.title") }}
-        </h1>
-        <span class="text-footnote text-ink-muted tabular">
-          {{ t("reports.total_count", { count: stats.total }) }}
-        </span>
-        <span
-          v-if="stats.running > 0"
-          class="chip bg-info-soft text-info-ink"
-        >
-          <Loader2 class="h-3 w-3 animate-spin" />
-          {{ stats.running }} {{ t("reports.status_running") }}
-        </span>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <div class="relative w-48 sm:w-60">
-          <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted" />
-          <input
-            v-model="searchQuery"
-            type="text"
-            :placeholder="t('reports.search_placeholder')"
-            class="news-search-field !py-[5px] !text-footnote"
-          />
-        </div>
-
-        <select v-model="selectedCompany" class="field field-sm w-auto max-w-[12rem]">
-          <option value="all">{{ t("reports.filter_company") }}</option>
-          <option v-for="c in companyOptions" :key="c.id" :value="c.id">
-            {{ c.name }}
-          </option>
-        </select>
-
-        <select
-          v-if="kindOptions.length > 1"
-          v-model="selectedKind"
-          class="field field-sm w-auto max-w-[12rem]"
-        >
-          <option value="all">{{ t("reports.filter_kind") }}</option>
-          <option v-for="k in kindOptions" :key="k.id" :value="k.id">
-            {{ k.label }}
-          </option>
-        </select>
-
-        <select v-model="selectedStatus" class="field field-sm w-auto">
-          <option value="all">{{ t("reports.filter_status") }}</option>
-          <option value="complete">{{ t("reports.status_complete") }}</option>
-          <option value="running">{{ t("reports.status_running") }}</option>
-          <option value="needs_attention">{{ t("reports.status_needs_attention") }}</option>
-          <option value="failed">{{ t("reports.status_failed") }}</option>
-        </select>
-
-        <button
-          type="button"
-          class="btn-filled btn-sm focus-ring inline-flex items-center gap-1.5"
-          :title="`${t('memo.generate_report')} (⌘N)`"
-          @click="openReportCustomizer(selectedCompany !== 'all' ? selectedCompany : null)"
-        >
-          <AiMark class="h-3.5 w-3.5 shrink-0" />
-          <span>{{ t("memo.generate_report") }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="btn-bordered btn-sm focus-ring"
-          :disabled="loading"
-          @click="loadReports"
-        >
-          <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
-          <span class="hidden sm:inline">{{ t("pulse.refresh") }}</span>
-        </button>
-      </div>
-    </header>
-
+  <!-- No header row above the panes: the desk's title, search and filters sit
+       on the list they filter, so the document runs the window's height. -->
+  <div class="flex h-[calc(100vh-52px)] w-full flex-col gap-3 overflow-hidden px-3 pb-3 pt-1 md:px-4 md:pb-4">
     <div v-if="error" class="banner-danger flex shrink-0 items-center gap-3 !text-footnote">
       <AlertCircle class="h-4 w-4 shrink-0" />
       <div class="flex-1">{{ error }}</div>
@@ -450,22 +390,106 @@ onMounted(loadReports);
         </button>
 
         <template v-else>
-        <div class="flex shrink-0 items-center justify-between gap-2 px-4 pb-1.5 pt-3">
-          <span class="text-footnote font-semibold text-ink-muted">
-            {{ t("reports.total_count", { count: filteredReports.length }) }}
-          </span>
-          <button
-            v-if="isSplitWidth"
-            type="button"
-            class="icon-btn !h-6 !w-6 -mr-1 text-ink-muted"
-            :aria-label="t('reports.collapse_list')"
-            :title="t('reports.collapse_list')"
-            :aria-expanded="true"
-            data-testid="reports-list-collapse"
-            @click="toggleList"
+        <div class="flex shrink-0 flex-col gap-2 px-3 pb-2 pt-2.5" data-testid="reports-list-header">
+          <div class="flex items-center gap-2">
+            <div class="flex min-w-0 flex-1 items-baseline gap-2">
+              <h1 ref="pageTitleEl" class="min-w-0 truncate text-headline font-semibold text-ink-primary">
+                {{ t("reports.title") }}
+              </h1>
+              <span class="shrink-0 text-footnote text-ink-muted tabular" data-testid="reports-count">
+                {{ countLabel }}
+              </span>
+            </div>
+            <span
+              v-if="stats.running > 0"
+              class="chip shrink-0 bg-info-soft text-info-ink"
+            >
+              <Loader2 class="h-3 w-3 animate-spin" />
+              {{ stats.running }} {{ t("reports.status_running") }}
+            </span>
+            <button
+              v-if="isSplitWidth"
+              type="button"
+              class="icon-btn !h-6 !w-6 -mr-1 shrink-0 text-ink-muted"
+              :aria-label="t('reports.collapse_list')"
+              :title="t('reports.collapse_list')"
+              :aria-expanded="true"
+              data-testid="reports-list-collapse"
+              @click="toggleList"
+            >
+              <PanelLeftClose class="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <div class="relative min-w-0 flex-1">
+              <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted" />
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="t('reports.search_placeholder')"
+                class="news-search-field !py-[5px] !text-footnote"
+              />
+            </div>
+            <button
+              type="button"
+              class="icon-btn !h-7 !w-7 shrink-0"
+              :title="`${t('memo.generate_report')} (⌘N)`"
+              :aria-label="t('memo.generate_report')"
+              data-testid="reports-generate"
+              @click="openReportCustomizer(selectedCompany !== 'all' ? selectedCompany : null)"
+            >
+              <AiMark class="h-4 w-4 shrink-0" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn !h-7 !w-7 shrink-0 text-ink-muted"
+              :disabled="loading"
+              :title="t('common.refresh')"
+              :aria-label="t('common.refresh')"
+              data-testid="reports-refresh"
+              @click="loadReports"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
+            </button>
+          </div>
+
+          <!-- Company names run long, so its filter gets the widest share. -->
+          <div
+            class="grid gap-1.5"
+            :class="kindOptions.length > 1 ? 'grid-cols-[1.35fr_1fr_1.1fr]' : 'grid-cols-[1.35fr_1.1fr]'"
           >
-            <PanelLeftClose class="h-3.5 w-3.5" />
-          </button>
+            <select
+              v-model="selectedCompany"
+              class="field field-sm reports-filter w-full min-w-0"
+              :title="selectedCompanyName || t('reports.filter_company')"
+            >
+              <option value="all">{{ t("reports.filter_company") }}</option>
+              <option v-for="c in companyOptions" :key="c.id" :value="c.id">
+                {{ c.name }}
+              </option>
+            </select>
+
+            <select
+              v-if="kindOptions.length > 1"
+              v-model="selectedKind"
+              class="field field-sm reports-filter w-full min-w-0"
+              :title="selectedKindLabel || t('reports.filter_kind')"
+            >
+              <option value="all">{{ t("reports.filter_kind") }}</option>
+              <option v-for="k in kindOptions" :key="k.id" :value="k.id">
+                {{ k.label }}
+              </option>
+            </select>
+
+            <select v-model="selectedStatus" class="field field-sm reports-filter w-full min-w-0">
+              <option value="all">{{ t("reports.filter_status") }}</option>
+              <option value="complete">{{ t("reports.status_complete") }}</option>
+              <option value="running">{{ t("reports.status_running") }}</option>
+              <option value="needs_attention">{{ t("reports.status_needs_attention") }}</option>
+              <option value="failed">{{ t("reports.status_failed") }}</option>
+            </select>
+          </div>
         </div>
 
         <div

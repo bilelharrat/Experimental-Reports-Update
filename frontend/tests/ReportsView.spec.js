@@ -244,4 +244,37 @@ describe("ReportsView", () => {
     expect(wrapper.findAll("article").length).toBeGreaterThan(0);
     expect(window.localStorage.getItem("bsh.reportsListCollapsed")).toBe("0");
   });
+
+  it("keeps the title, search, filters and actions on the list, nothing above the panes", async () => {
+    window.localStorage.removeItem("bsh.reportsListCollapsed");
+    const router = await createTestRouter({ company: "acme" });
+    const openReportCustomizer = vi.fn();
+    const wrapper = mount(ReportsView, {
+      global: {
+        plugins: [router],
+        stubs: { DocumentViewerDrawer: true },
+        provide: { openReportCustomizer },
+      },
+    });
+    await flushPromises();
+
+    // The document pane runs from the top: no header row above the panes.
+    expect(wrapper.element.querySelector(":scope > header")).toBeNull();
+    const header = wrapper.get('[data-testid="reports-list-header"]');
+    expect(header.get("h1").text()).toBe("Research Reports");
+    expect(header.find('input[type="text"]').exists()).toBe(true);
+    expect(header.findAll("select").length).toBe(3);
+
+    // Filtered to Acme: the count says how many of all the reports show.
+    expect(wrapper.get('[data-testid="reports-count"]').text()).toBe("2 of 3 reports");
+
+    // Generate starts a report for the company the list is filtered to.
+    await wrapper.get('[data-testid="reports-generate"]').trigger("click");
+    expect(openReportCustomizer).toHaveBeenCalledWith("acme");
+
+    mockApi.listReports.mockClear();
+    await wrapper.get('[data-testid="reports-refresh"]').trigger("click");
+    await flushPromises();
+    expect(mockApi.listReports).toHaveBeenCalledTimes(1);
+  });
 });

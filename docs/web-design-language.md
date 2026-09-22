@@ -154,6 +154,15 @@ helpers are in `src/companyPages.js`.
   it with `useLargeTitle(ref)` from `src/chrome.js` so the toolbar's small
   title only fades in once the large title scrolls away. Pages that don't
   register get the same behavior for their first `h1` automatically.
+- A document desk (Reports) is the exception: it has no header row above its
+  panes. The title, count, search, filters and actions sit on the list pane's
+  own header, so the viewer runs the window's full height. Collapse the list
+  and the toolbar's small title takes over.
+- The document viewer (`DocumentViewerWindow.vue`) keeps its header to one
+  line and fits a Word page to the viewer's width (`src/docxFit.js`). Its zoom
+  capsule steps − and + from 50% to 300%, the percentage returns to actual
+  size, the arrows return to fit, and a trackpad pinch zooms around the
+  pointer. The choice is kept per browser (`bsh.docViewerZoom`).
 - Use sentence case for section labels (`.vogue-label` / `.section-label`),
   never all caps. The i18n strings are already sentence case.
 - Numbers: `.mono-data` / `tabular` set SF Pro with tabular figures, not a
