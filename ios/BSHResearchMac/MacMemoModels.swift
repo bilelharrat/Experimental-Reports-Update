@@ -722,6 +722,14 @@ struct MacCopilotMessage: Identifiable, Hashable {
     /// The answer failed; `text` holds the reason and the bubble offers a retry.
     var isError = false
     let date: Date
+    /// The server's id for this turn, once known — what an edit points at.
+    var turnId: String?
+    /// Who asked, when it wasn't you: the thread is shared with the team.
+    var author: String?
+    /// The question has been rewritten since it was first asked.
+    var edited = false
+    /// Files that rode with the question, by the name the analyst picked.
+    var files: [String] = []
 
     enum Role {
         case user
@@ -735,6 +743,180 @@ struct MacCopilotMessage: Identifiable, Hashable {
         self.thinking = thinking
         self.sources = sources
         self.date = date
+    }
+}
+
+// MARK: - Warren threads, attachments and offered work
+
+/// One Warren thread for a company (`GET /copilot/threads`). The thread belongs to
+/// the company, not to a Mac: everyone on the desk reads and adds to the same one.
+struct MacCopilotThread: Identifiable, Hashable, Decodable {
+    let id: String
+    let active: Bool
+    let startedAt: String?
+    let lastAt: String?
+    let questionCount: Int
+    let openingQuestion: String
+    let latestQuestion: String
+    let askers: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, active, askers
+        case startedAt = "started_at"
+        case lastAt = "last_at"
+        case questionCount = "question_count"
+        case openingQuestion = "opening_question"
+        case latestQuestion = "latest_question"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        active = (try? c.decodeIfPresent(Bool.self, forKey: .active)) ?? false
+        startedAt = try? c.decodeIfPresent(String.self, forKey: .startedAt)
+        lastAt = try? c.decodeIfPresent(String.self, forKey: .lastAt)
+        questionCount = (try? c.decodeIfPresent(Int.self, forKey: .questionCount)) ?? 0
+        openingQuestion = (try? c.decodeIfPresent(String.self, forKey: .openingQuestion)) ?? ""
+        latestQuestion = (try? c.decodeIfPresent(String.self, forKey: .latestQuestion)) ?? ""
+        askers = (try? c.decodeIfPresent([String].self, forKey: .askers)) ?? []
+    }
+}
+
+/// A file picked for the next question. Uploaded as soon as it is picked, so one
+/// Warren cannot read is refused while the analyst is still at the composer.
+struct MacStagedAttachment: Identifiable, Hashable {
+    enum State: Hashable {
+        case staging
+        case ready(storedName: String)
+        case failed(String)
+    }
+
+    let id = UUID()
+    let url: URL
+    var state: State = .staging
+
+    var name: String { url.lastPathComponent }
+    var storedName: String? {
+        if case .ready(let stored) = state { return stored }
+        return nil
+    }
+}
+
+/// Work Warren offered to start (the `run_work` block). He proposes; the analyst
+/// confirms. Anything the Mac cannot act on is dropped rather than shown as a
+/// button that fails — the same rules as the web's `normalizeWork`.
+struct MacCopilotWork: Hashable {
+    enum Kind: String {
+        case report
+        case documentAnalysis = "document_analysis"
+        case decision
+        case follow
+    }
+
+    static let reportTypes = [
+        "Investment Report (Auto)",
+        "Investment Memo (Late-Stage)",
+        "Buffett Investment Memo",
+    ]
+    static let audiences = ["LP", "Assistant", "Partner", "Internal"]
+
+    let kind: Kind
+    let title: String
+    let why: String
+    var reportType = MacCopilotWork.reportTypes[0]
+    var audience = "Partner"
+    var language = "en"
+    var reportMode = "full"
+    var quality = "best"
+    var fileId = ""
+    var fileName = ""
+    /// A decision is what the decision log takes: one of three verdicts, and why.
+    var verdict = ""
+    var explanation = ""
+
+    init?(json: [String: Any]) {
+        guard let raw = json["kind"] as? String, let kind = Kind(rawValue: raw) else { return nil }
+        func text(_ key: String) -> String {
+            (json[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        func pick(_ key: String, _ allowed: [String], _ fallback: String) -> String {
+            let value = text(key)
+            return allowed.contains(value) ? value : fallback
+        }
+        self.kind = kind
+        self.why = String(text("why").prefix(400))
+        var title = String(text("title").prefix(140))
+        switch kind {
+        case .report:
+            reportType = pick("report_type", Self.reportTypes, Self.reportTypes[0])
+            audience = pick("audience", Self.audiences, "Partner")
+            language = pick("language", ["en", "zh"], "en")
+            reportMode = pick("report_mode", ["full", "compact"], "full")
+            quality = pick("quality", ["best", "balanced", "economy"], "best")
+            if title.isEmpty { title = reportType }
+        case .documentAnalysis:
+            fileId = text("file_id")
+            // Without a file there is nothing to analyze.
+            guard !fileId.isEmpty else { return nil }
+            fileName = text("file_name")
+            if title.isEmpty { title = fileName.isEmpty ? fileId : fileName }
+        case .decision:
+            verdict = text("verdict").lowercased()
+            explanation = String(text("explanation").prefix(2000))
+            // server/decisions_store.py VERDICTS; anything else would be refused.
+            guard ["invest", "watch", "pass"].contains(verdict), !explanation.isEmpty else { return nil }
+            if title.isEmpty { title = verdict.capitalized }
+        case .follow:
+            break
+        }
+        self.title = title
+    }
+
+    var confirmLabel: String {
+        switch kind {
+        case .report: return "Run It"
+        case .documentAnalysis: return "Analyze It"
+        case .decision: return "Record It"
+        case .follow: return "Follow"
+        }
+    }
+
+    var detailLine: String? {
+        guard kind == .report else { return nil }
+        let qualityLabel = ["best": "Best quality", "balanced": "Balanced", "economy": "Economy"][quality] ?? quality
+        return "\(reportType) · \(audience) · \(qualityLabel)"
+    }
+}
+
+/// Warren's answers can end in fenced JSON blocks the UI acts on (`run_work`,
+/// `research_task`, `next_route`…). They are instructions for the app, never prose
+/// for the reader, so they come out of the text before it is rendered.
+enum MacCopilotStructured {
+    private static let blockPattern = try! NSRegularExpression(
+        pattern: "```json\\s*(\\{[\\s\\S]*?\\})\\s*```",
+        options: []
+    )
+    private static let knownKeys: Set<String> = [
+        "research_task", "suggested_edit", "next_route", "contradiction", "run_work",
+    ]
+
+    /// The readable answer, and the work it offers, if any.
+    static func parse(_ text: String) -> (body: String, work: MacCopilotWork?) {
+        let range = NSRange(text.startIndex..., in: text)
+        var work: MacCopilotWork?
+        var body = text
+        for match in blockPattern.matches(in: text, range: range).reversed() {
+            guard let jsonRange = Range(match.range(at: 1), in: text),
+                  let whole = Range(match.range, in: body),
+                  let data = String(text[jsonRange]).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  !knownKeys.isDisjoint(with: object.keys) else { continue }
+            if work == nil, let offer = object["run_work"] as? [String: Any] {
+                work = MacCopilotWork(json: offer)
+            }
+            body.removeSubrange(whole)
+        }
+        return (body.trimmingCharacters(in: .whitespacesAndNewlines), work)
     }
 }
 

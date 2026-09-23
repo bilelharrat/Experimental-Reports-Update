@@ -1178,6 +1178,7 @@ struct MacCopilotContextInfo: Decodable {
 
 /// What the copilot / console stream yields to the UI.
 enum MacCopilotChunk {
+    case started(sessionId: String, turnId: String)  // the thread and turn the question landed in
     case partial(String)   // a `claude_action/thinking` text block
     case tool(String)      // tool use / result preview, for the activity line
     case final(String)     // the canonical reply from `done.text`
@@ -1373,9 +1374,19 @@ struct MacConsoleTurn: Identifiable, Hashable, Decodable {
     let costUsd: Double?
     let subtype: String?
     let error: String?
+    /// Who asked — the thread is the company's, shared by the team.
+    let authorName: String?
+    let authorEmail: String?
+    /// The question this one rewrote; the server already dropped the old one.
+    let edits: String?
+
+    private struct Author: Decodable {
+        let name: String?
+        let email: String?
+    }
 
     enum CodingKeys: String, CodingKey {
-        case ts, id, role, text, attachments, subtype, error
+        case ts, id, role, text, attachments, subtype, error, author, edits
         case durationMs = "duration_ms"
         case costUsd = "cost_usd"
     }
@@ -1391,6 +1402,10 @@ struct MacConsoleTurn: Identifiable, Hashable, Decodable {
         costUsd = try? c.decodeIfPresent(Double.self, forKey: .costUsd)
         subtype = try? c.decodeIfPresent(String.self, forKey: .subtype)
         error = try? c.decodeIfPresent(String.self, forKey: .error)
+        let author = try? c.decodeIfPresent(Author.self, forKey: .author)
+        authorName = author?.name
+        authorEmail = author?.email
+        edits = try? c.decodeIfPresent(String.self, forKey: .edits)
     }
 
     init(turnId: String, role: String, text: String) {
@@ -1403,6 +1418,9 @@ struct MacConsoleTurn: Identifiable, Hashable, Decodable {
         self.costUsd = nil
         self.subtype = nil
         self.error = nil
+        self.authorName = nil
+        self.authorEmail = nil
+        self.edits = nil
     }
 
     var isUser: Bool { role == "user" }

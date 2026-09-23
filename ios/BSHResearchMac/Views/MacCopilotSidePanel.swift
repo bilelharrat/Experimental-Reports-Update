@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - MacCopilotSidePanel (Identical to Web CopilotPanel.vue & App.vue Drawer)
 
@@ -8,7 +9,14 @@ struct MacCopilotSidePanel: View {
 
     @State private var inputPrompt = ""
     @State private var copiedTurnId: String? = nil
+    @State private var fileDropTargeted = false
     @FocusState private var isInputFocused: Bool
+
+    /// An earlier thread reads in place of the current one, read-only.
+    private var reading: Bool { store.copilotViewingThread != nil }
+    private var shownMessages: [MacCopilotMessage] {
+        reading ? store.copilotViewingMessages : store.copilotMessages
+    }
 
     private var activeCompany: MacCompany? {
         store.selectedCompany
@@ -55,10 +63,10 @@ struct MacCopilotSidePanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 16) {
-                        if store.copilotMessages.isEmpty {
+                        if shownMessages.isEmpty {
                             emptyHeroState
                         } else {
-                            ForEach(store.copilotMessages) { msg in
+                            ForEach(shownMessages) { msg in
                                 if msg.role == .user {
                                     userTurnView(msg)
                                         .id(msg.id)
@@ -68,7 +76,7 @@ struct MacCopilotSidePanel: View {
                                 }
                             }
 
-                            if store.copilotStreaming {
+                            if store.copilotStreaming, !reading {
                                 pendingWarrenTurn
                                     .id("pending_stream_turn")
                             }
@@ -96,6 +104,8 @@ struct MacCopilotSidePanel: View {
         .onAppear {
             isInputFocused = true
         }
+        // Each time the panel opens: what the team asked meanwhile is on the server.
+        .task(id: store.selectedCompany?.id) { await store.loadCopilotThread(force: true) }
     }
 
     // MARK: - Drawer Header
@@ -158,18 +168,17 @@ struct MacCopilotSidePanel: View {
 
             Spacer(minLength: 6)
 
-            // Clear chat button
-            if !store.copilotMessages.isEmpty {
-                Button {
-                    store.copilotMessages.removeAll()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.caption)
-                }
+            // The thread is the company's, shared with the team: its history, and
+            // New Chat, which files this thread there for everyone.
+            MacWarrenThreadsButton(iconOnly: true)
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Clear chat")
+            MacWarrenNewChatButton(iconOnly: true) {
+                inputPrompt = ""
+                isInputFocused = true
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
 
             // Close drawer button
             Button {
@@ -280,22 +289,7 @@ struct MacCopilotSidePanel: View {
     // MARK: - User Turn View
 
     private func userTurnView(_ msg: MacCopilotMessage) -> some View {
-        HStack {
-            Spacer(minLength: 48)
-            VStack(alignment: .trailing, spacing: 4) {
-                if let ctx = msg.contextLabel {
-                    Text(ctx)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                Text(msg.text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
+        MacWarrenQuestionBubble(message: msg, readOnly: reading, compact: true)
     }
 
     // MARK: - Warren Turn View
@@ -317,13 +311,21 @@ struct MacCopilotSidePanel: View {
                 Spacer()
             }
 
-            // Body
-            VStack(alignment: .leading, spacing: 4) {
-                Text(msg.text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .lineSpacing(2)
-                    .foregroundStyle(.primary)
+            // Body: Warren's action blocks are for the app, not the reader.
+            let parsed = MacCopilotStructured.parse(msg.text)
+            VStack(alignment: .leading, spacing: 8) {
+                if msg.isError {
+                    Label(msg.text, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.dsWarning)
+                        .textSelection(.enabled)
+                } else {
+                    MacMarkdownText(text: parsed.body)
+                        .textSelection(.enabled)
+                }
+                if !reading, msg.id == store.copilotMessages.last?.id, let work = parsed.work {
+                    MacWarrenWorkCard(work: work)
+                }
             }
             .padding(.leading, 30)
 
@@ -331,7 +333,7 @@ struct MacCopilotSidePanel: View {
             HStack(spacing: 12) {
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(msg.text, forType: .string)
+                    NSPasteboard.general.setString(parsed.body, forType: .string)
                     copiedTurnId = msg.id
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                         if copiedTurnId == msg.id { copiedTurnId = nil }
@@ -403,7 +405,16 @@ struct MacCopilotSidePanel: View {
 
     private var inputWell: some View {
         VStack(spacing: 6) {
+            MacWarrenAttachmentStrip()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if reading {
+                MacWarrenViewingBar()
+            } else {
             HStack(alignment: .bottom, spacing: 8) {
+                MacWarrenAttachButton()
+                    .padding(.bottom, 2)
+
                 TextField(placeholderText, text: $inputPrompt, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.callout)
@@ -430,8 +441,10 @@ struct MacCopilotSidePanel: View {
             .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                    .stroke(fileDropTargeted ? Color.accentColor : Color.primary.opacity(0.12),
+                            lineWidth: fileDropTargeted ? 2 : 1)
             )
+            }
 
             HStack {
                 Text("Enter to send · Shift+Enter for newline")
@@ -447,10 +460,12 @@ struct MacCopilotSidePanel: View {
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .modifier(MacWarrenFileDrop(targeted: $fileDropTargeted))
     }
 
     private var canSubmit: Bool {
-        !inputPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !store.copilotStreaming
+        !inputPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !store.copilotStreaming && !store.copilotAttachmentsStaging
     }
 
     private func submitCurrentPrompt() {

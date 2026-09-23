@@ -1353,37 +1353,68 @@ actor MacAPIClient {
 
     /// Quick or deep Ask. The console stream has no token deltas: assistant text arrives as
     /// `claude_action/thinking` blocks and the canonical reply on the terminal `done` event.
+    ///
+    /// The lens rides as `lens_instruction`, not glued onto the question: the thread is
+    /// shared with the team, and they should read the question, not the lens.
+    /// `attachments` are stored names from `stageCopilotAttachment`; `edits` is the
+    /// turn id of a question this one rewrites.
     func askCopilotStream(
         companyId: String,
         prompt: String,
         persona: MacCopilotPersona,
         context: MacCopilotContext,
-        mode: String = "quick"
+        mode: String = "quick",
+        attachments: [String] = [],
+        attachmentNames: [String: String] = [:],
+        edits: String? = nil
     ) -> AsyncThrowingStream<MacCopilotChunk, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let fullPrompt = persona.promptPrefix + prompt
                     struct AskBody: Encodable {
                         let prompt: String
                         let mode: String
                         let outputLanguage: String
                         let context: MacCopilotContext
+                        let lensInstruction: String
+                        let attachments: [String]
+                        let attachmentNames: [String: String]
+                        let edits: String?
                         enum CodingKeys: String, CodingKey {
-                            case prompt, mode, context
+                            case prompt, mode, context, attachments, edits
                             case outputLanguage = "output_language"
+                            case lensInstruction = "lens_instruction"
+                            case attachmentNames = "attachment_names"
                         }
                     }
                     struct AskResponse: Decodable {
                         let streamUrl: String?
-                        enum CodingKeys: String, CodingKey { case streamUrl = "stream_url" }
+                        let sessionId: String?
+                        let turnId: String?
+                        enum CodingKeys: String, CodingKey {
+                            case streamUrl = "stream_url"
+                            case sessionId = "session_id"
+                            case turnId = "turn_id"
+                        }
                     }
 
                     let res: AskResponse = try await self.request(
                         "companies/\(companyId)/copilot/ask",
                         method: "POST",
-                        body: AskBody(prompt: fullPrompt, mode: mode, outputLanguage: "en", context: context)
+                        body: AskBody(
+                            prompt: prompt,
+                            mode: mode,
+                            outputLanguage: "en",
+                            context: context,
+                            lensInstruction: persona.promptPrefix,
+                            attachments: attachments,
+                            attachmentNames: attachmentNames,
+                            edits: edits
+                        )
                     )
+                    if let sid = res.sessionId, let tid = res.turnId {
+                        continuation.yield(.started(sessionId: sid, turnId: tid))
+                    }
                     guard let streamPath = res.streamUrl, !streamPath.isEmpty else {
                         throw MacAPIError.stream("No response stream available.")
                     }
@@ -1395,6 +1426,63 @@ actor MacAPIClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    // MARK: - Warren threads, attachments, offered work
+
+    /// The company's Warren threads, newest first — the team's, not this Mac's.
+    func fetchCopilotThreads(companyId: String, mode: String = "quick") async throws -> [MacCopilotThread] {
+        try await request(
+            "companies/\(companyId)/copilot/threads",
+            method: "GET",
+            query: [URLQueryItem(name: "mode", value: mode)]
+        )
+    }
+
+    /// Files the current thread into the history and opens a fresh one, for everyone.
+    func startCopilotThread(companyId: String, mode: String = "quick") async throws -> String {
+        struct Body: Encodable { let mode: String }
+        struct Started: Decodable {
+            let sessionId: String
+            enum CodingKeys: String, CodingKey { case sessionId = "session_id" }
+        }
+        let started: Started = try await request(
+            "companies/\(companyId)/copilot/threads", method: "POST", body: Body(mode: mode)
+        )
+        return started.sessionId
+    }
+
+    /// Stage one file beside Warren's session; returns the stored name the ask carries.
+    /// The server turns documents into text here, so an unreadable one fails now.
+    func stageCopilotAttachment(companyId: String, fileURL: URL, mode: String = "quick") async throws -> String {
+        let data = try Data(contentsOf: fileURL)
+        let boundary = "bsh-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"mode\"\r\n\r\n\(mode)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\nContent-Type: \(Self.mimeType(for: fileURL))\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var req = URLRequest(url: try apiURL("companies/\(companyId)/copilot/attachments"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 120
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
+        if let token = MacConfig.readToken() { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = body
+        let (respData, response) = try await session.data(for: req, delegate: MacRedirectPolicy.shared)
+        try Self.check(response: response, data: respData)
+        struct Staged: Decodable {
+            let storedName: String
+            enum CodingKeys: String, CodingKey { case storedName = "stored_name" }
+        }
+        do { return try decoder.decode(Staged.self, from: respData).storedName } catch { throw MacAPIError.decoding }
+    }
+
+    /// Start the deep read of a research file (the web's "Analyze" on a file).
+    func analyzeResearchFile(companyId: String, fileId: String) async throws {
+        let escaped = fileId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileId
+        try await requestVoid("companies/\(companyId)/research-files/\(escaped)/analysis", method: "POST")
     }
 
     /// Shared reader for copilot and console turn streams.
@@ -1564,6 +1652,16 @@ actor MacAPIClient {
         case "doc": return "application/msword"
         case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        case "gif": return "image/gif"
+        case "rtf": return "application/rtf"
+        case "txt", "log": return "text/plain"
+        case "md", "markdown": return "text/markdown"
+        case "csv": return "text/csv"
+        case "tsv": return "text/tab-separated-values"
+        case "json": return "application/json"
+        case "yaml", "yml": return "application/yaml"
+        case "html", "htm": return "text/html"
         default: return "application/octet-stream"
         }
     }

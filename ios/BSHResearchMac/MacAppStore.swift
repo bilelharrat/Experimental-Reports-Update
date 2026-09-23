@@ -155,6 +155,22 @@ final class MacAppStore: ObservableObject {
     @Published var copilotDeepMode = false
     private var copilotContextTask: Task<Void, Never>?
 
+    /// The company's current Warren thread on the server, and the earlier ones — the
+    /// team's, not this Mac's. `copilotMessages` mirrors the current thread.
+    @Published private(set) var copilotSessionId: String?
+    @Published private(set) var copilotThreads: [MacCopilotThread] = []
+    @Published private(set) var copilotThreadsLoading = false
+    /// An earlier thread being read. Read-only: nobody adds to a closed thread.
+    @Published private(set) var copilotViewingThread: MacCopilotThread?
+    @Published private(set) var copilotViewingMessages: [MacCopilotMessage] = []
+    private var copilotThreadCompanyId: String?
+    /// Files picked for the next question, staged on the server as they are picked.
+    @Published var copilotAttachments: [MacStagedAttachment] = []
+    /// What happened when the analyst pressed the button on work Warren offered.
+    @Published private(set) var copilotWorkRunning = false
+    @Published private(set) var copilotWorkNote: String?
+    @Published private(set) var copilotWorkError: String?
+
     /// Context info only while it still belongs to the company on screen.
     var visibleCopilotContextInfo: MacCopilotContextInfo? {
         guard let info = copilotContextInfo else { return nil }
@@ -2817,9 +2833,11 @@ final class MacAppStore: ObservableObject {
         sendCopilotMessage(prompt: prompt)
     }
 
-    func sendCopilotMessage(prompt: String) {
+    /// `edits` is the server turn id of a question this one rewrites; `displayFiles`
+    /// names the files an edit inherits from the question it replaces.
+    func sendCopilotMessage(prompt: String, edits: String? = nil, displayFiles: [String] = []) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !copilotStreaming else { return }
+        guard !trimmed.isEmpty, !copilotStreaming, !copilotAttachmentsStaging else { return }
         guard canRunTasks else {
             copilotMessages.append(MacCopilotMessage(role: .assistant, text: "Sign in with an analyst or partner role to ask Warren."))
             return
@@ -2829,9 +2847,16 @@ final class MacAppStore: ObservableObject {
             return
         }
 
+        let staged = copilotAttachments.compactMap { item in item.storedName.map { ($0, item.name) } }
         var userMsg = MacCopilotMessage(role: .user, text: trimmed)
         userMsg.contextLabel = copilotContext.isSpecific ? copilotContext.chipLabel : nil
+        userMsg.files = staged.isEmpty ? displayFiles : staged.map(\.1)
+        userMsg.edited = edits != nil
         copilotMessages.append(userMsg)
+        // The question carries them now; the composer starts clean.
+        copilotAttachments.removeAll()
+        copilotWorkNote = nil
+        copilotWorkError = nil
         copilotDraft = ""
         copilotStreaming = true
         copilotCurrentThinking = nil
@@ -2864,11 +2889,25 @@ final class MacAppStore: ObservableObject {
                     prompt: trimmed,
                     persona: persona,
                     context: context,
-                    mode: mode
+                    mode: mode,
+                    attachments: staged.map(\.0),
+                    attachmentNames: Dictionary(staged, uniquingKeysWith: { first, _ in first }),
+                    edits: edits
                 )
                 for try await chunk in stream {
                     guard !Task.isCancelled else { break }
                     switch chunk {
+                    case .started(let sessionId, let turnId):
+                        // The thread and turn the question landed in: what a later
+                        // edit points at, and what the history lists.
+                        copilotSessionId = sessionId
+                        copilotThreadCompanyId = cid
+                        if let i = copilotMessages.firstIndex(where: { $0.id == userMsg.id }) {
+                            copilotMessages[i].turnId = turnId
+                        }
+                        if let i = copilotMessages.firstIndex(where: { $0.id == assistantMsg.id }) {
+                            copilotMessages[i].turnId = turnId
+                        }
                     case .partial(let text):
                         reply += (reply.isEmpty ? "" : "\n\n") + text
                         setAssistantText(reply, false)
@@ -2898,6 +2937,217 @@ final class MacAppStore: ObservableObject {
             guard !Task.isCancelled else { return }
             copilotCurrentThinking = nil
             copilotStreaming = false
+        }
+    }
+
+    // MARK: - Warren's shared thread
+
+    /// Load the company's Warren thread from the server. The Mac used to keep the
+    /// conversation only in memory, so two people on the same company — or this Mac
+    /// after a relaunch — saw different conversations; the web shows the server's
+    /// thread, and now so does the Mac.
+    func loadCopilotThread(force: Bool = false) async {
+        guard let cid = selectedCompany?.id ?? companies.first?.id, !cid.isEmpty,
+              !copilotStreaming, canRunTasks else { return }
+        if !force, copilotThreadCompanyId == cid { return }
+        copilotThreadCompanyId = cid
+        copilotViewingThread = nil
+        copilotViewingMessages = []
+        do {
+            let threads = try await MacAPIClient.shared.fetchCopilotThreads(companyId: cid)
+            guard copilotThreadCompanyId == cid else { return }
+            copilotThreads = threads
+            guard let active = threads.first(where: \.active) else {
+                copilotSessionId = nil
+                if !copilotStreaming { copilotMessages = [] }
+                return
+            }
+            let turns = try await MacAPIClient.shared.fetchConsoleTurns(companyId: cid, sessionId: active.id)
+            guard copilotThreadCompanyId == cid, !copilotStreaming else { return }
+            copilotSessionId = active.id
+            copilotMessages = Self.copilotMessages(from: turns, me: session?.email)
+        } catch {
+            // Offline or signed out: keep what is on screen rather than blanking it.
+            copilotThreadCompanyId = nil
+        }
+    }
+
+    func refreshCopilotThreads() async {
+        guard let cid = selectedCompany?.id ?? companies.first?.id, !cid.isEmpty else { return }
+        copilotThreadsLoading = true
+        defer { copilotThreadsLoading = false }
+        if let threads = try? await MacAPIClient.shared.fetchCopilotThreads(companyId: cid) {
+            copilotThreads = threads
+        }
+    }
+
+    /// File the current thread into the history and open a fresh one — for everyone,
+    /// which is the point. Replaces the old Clear, which only emptied this Mac's copy.
+    func newCopilotThread() async {
+        guard let cid = selectedCompany?.id ?? companies.first?.id, !cid.isEmpty,
+              !copilotStreaming else { return }
+        do {
+            let sid = try await MacAPIClient.shared.startCopilotThread(
+                companyId: cid, mode: copilotDeepMode ? "deep" : "quick"
+            )
+            copilotThreadCompanyId = cid
+            copilotSessionId = sid
+            copilotViewingThread = nil
+            copilotViewingMessages = []
+            copilotMessages = []
+            copilotWorkNote = nil
+            copilotWorkError = nil
+            await refreshCopilotThreads()
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// Read an earlier thread. The current one stays where it is.
+    func openCopilotThread(_ thread: MacCopilotThread) async {
+        guard let cid = selectedCompany?.id ?? companies.first?.id else { return }
+        guard !thread.active else {
+            backToCurrentCopilotThread()
+            return
+        }
+        copilotViewingThread = thread
+        copilotViewingMessages = []
+        if let turns = try? await MacAPIClient.shared.fetchConsoleTurns(companyId: cid, sessionId: thread.id),
+           copilotViewingThread?.id == thread.id {
+            copilotViewingMessages = Self.copilotMessages(from: turns, me: session?.email)
+        }
+    }
+
+    func backToCurrentCopilotThread() {
+        copilotViewingThread = nil
+        copilotViewingMessages = []
+    }
+
+    /// Rewrite a question already asked. The old question and its answer leave the
+    /// thread for everyone (the server drops them), and the new one inherits any
+    /// files the old one carried.
+    func editCopilotQuestion(_ message: MacCopilotMessage, to text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard message.role == .user, let turnId = message.turnId, !trimmed.isEmpty,
+              trimmed != message.text, !copilotStreaming,
+              let index = copilotMessages.firstIndex(where: { $0.id == message.id }) else { return }
+        var end = index + 1
+        while end < copilotMessages.count, copilotMessages[end].role == .assistant { end += 1 }
+        copilotMessages.removeSubrange(index..<end)
+        sendCopilotMessage(prompt: trimmed, edits: turnId, displayFiles: message.files)
+    }
+
+    /// Server turns as the chat shows them. Assistant turns carry the id of the
+    /// question they answer, so the pair shares a turn id.
+    static func copilotMessages(from turns: [MacConsoleTurn], me: String?) -> [MacCopilotMessage] {
+        turns.map { turn in
+            let when = MacTimeFormat.parse(turn.ts) ?? Date()
+            if turn.isUser {
+                var message = MacCopilotMessage(id: turn.id, role: .user, text: turn.text, date: when)
+                message.turnId = turn.turnId
+                message.files = turn.attachments.compactMap(\.name)
+                message.edited = turn.edits != nil
+                let email = turn.authorEmail ?? ""
+                if !email.isEmpty, email.lowercased() != (me ?? "").lowercased() {
+                    message.author = turn.authorName.flatMap { $0.isEmpty ? nil : $0 }
+                        ?? email.components(separatedBy: "@").first
+                }
+                return message
+            }
+            let failed = turn.subtype == "error" || (turn.text.isEmpty && turn.error != nil)
+            var message = MacCopilotMessage(
+                id: turn.id,
+                role: .assistant,
+                text: turn.text.isEmpty ? (turn.error ?? "") : turn.text,
+                date: when
+            )
+            message.turnId = turn.turnId
+            message.persona = .warren
+            message.isError = failed
+            return message
+        }
+    }
+
+    // MARK: - Warren attachments
+
+    var copilotAttachmentsStaging: Bool {
+        copilotAttachments.contains { if case .staging = $0.state { return true } else { return false } }
+    }
+
+    /// Upload each file as it is picked, so one Warren cannot read is refused while
+    /// the analyst is still at the composer (the server turns documents into text).
+    func stageCopilotAttachments(_ urls: [URL]) {
+        guard let cid = selectedCompany?.id ?? companies.first?.id, !cid.isEmpty else { return }
+        let mode = copilotDeepMode ? "deep" : "quick"
+        for url in urls {
+            let entry = MacStagedAttachment(url: url)
+            copilotAttachments.append(entry)
+            Task { [weak self] in
+                let outcome: MacStagedAttachment.State
+                do {
+                    let stored = try await MacAPIClient.shared.stageCopilotAttachment(
+                        companyId: cid, fileURL: url, mode: mode
+                    )
+                    outcome = .ready(storedName: stored)
+                } catch {
+                    outcome = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                }
+                guard let self, let i = self.copilotAttachments.firstIndex(where: { $0.id == entry.id }) else { return }
+                self.copilotAttachments[i].state = outcome
+            }
+        }
+    }
+
+    func removeCopilotAttachment(_ id: UUID) {
+        copilotAttachments.removeAll { $0.id == id }
+    }
+
+    // MARK: - Work Warren offers to start
+
+    /// He proposes; the analyst presses the button. Nothing here runs unless they do.
+    func confirmCopilotWork(_ work: MacCopilotWork) async {
+        guard let company = selectedCompany ?? companies.first, !copilotWorkRunning else { return }
+        copilotWorkRunning = true
+        copilotWorkError = nil
+        copilotWorkNote = nil
+        defer { copilotWorkRunning = false }
+        do {
+            switch work.kind {
+            case .report:
+                _ = try await MacAPIClient.shared.createReport(
+                    companyId: company.id,
+                    reportType: work.reportType,
+                    audience: work.audience,
+                    language: work.language,
+                    reportMode: work.reportMode,
+                    quality: work.quality
+                )
+                copilotWorkNote = "\(work.reportType) is running — it will appear in Jobs."
+                await refreshJobs()
+            case .documentAnalysis:
+                try await MacAPIClient.shared.analyzeResearchFile(companyId: company.id, fileId: work.fileId)
+                copilotWorkNote = "Reading \(work.fileName.isEmpty ? work.title : work.fileName) — it will appear in Jobs."
+                await refreshJobs()
+            case .decision:
+                let recorded = await recordDecision(
+                    companyId: company.id,
+                    verdict: work.verdict,
+                    explanation: work.explanation,
+                    decidedAt: Date(),
+                    reportId: nil
+                )
+                guard recorded else {
+                    copilotWorkError = error ?? "The decision was not recorded."
+                    return
+                }
+                copilotWorkNote = "Recorded on \(company.title)'s decision log."
+            case .follow:
+                // Idempotent: confirming twice should not unfollow.
+                if !isFollowed(company.id) { await toggleFollow(company.id) }
+                copilotWorkNote = "Following \(company.title)."
+            }
+        } catch {
+            copilotWorkError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
@@ -3099,6 +3349,9 @@ final class MacAppStore: ObservableObject {
                     for try await chunk in stream {
                         guard !Task.isCancelled else { break }
                         switch chunk {
+                        case .started:
+                            // The Console knows its turn already (from the ask's reply).
+                            break
                         case .partial(let text):
                             reply += (reply.isEmpty ? "" : "\n\n") + text
                             consoleActivity = "Writing…"
