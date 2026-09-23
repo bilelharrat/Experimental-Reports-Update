@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Paperclip,
   Pencil,
+  Play,
   RotateCcw,
   ScrollText,
   Sparkles,
@@ -24,10 +25,13 @@ import WarrenMark from "./WarrenMark.vue";
 import Monogram from "./Monogram.vue";
 import { api } from "../api.js";
 import { sessionEmail } from "../auth.js";
+import { refreshActiveJobs } from "../activeJobs.js";
+import { toggleTrackedCompany, trackedCompanyIds } from "../state.js";
 import {
   buildDiscussPrompt,
   extractCitations,
   followUpChips,
+  normalizeWork,
   parseStructuredOutputs,
   resolveCopilotAction,
   resolveCitationTarget,
@@ -68,6 +72,8 @@ const emit = defineEmits(["close", "navigate", "state", "choose-company"]);
 const t = useT();
 const router = useRouter();
 const copilotNavigate = inject("copilotNavigate", null);
+// The customizer is mounted at app level; the panel just asks for it.
+const openReportCustomizer = inject("openReportCustomizer", null);
 
 // A thread belongs to the company, not to a browser. An older release
 // hid turns behind this key, which meant two people on the same desk saw
@@ -332,6 +338,8 @@ const proposedTask = computed(() => structuredOutputs.value.research_task || nul
 const suggestedEdit = computed(() => structuredOutputs.value.suggested_edit || null);
 const nextRoute = computed(() => structuredOutputs.value.next_route || null);
 const contradiction = computed(() => structuredOutputs.value.contradiction || null);
+// Work Warren has offered to start. He proposes; the analyst confirms.
+const proposedWork = computed(() => normalizeWork(structuredOutputs.value.run_work));
 const latestCitations = computed(() =>
   latestAnswer.value?.body ? extractCitations(latestAnswer.value.body) : [],
 );
@@ -763,6 +771,9 @@ async function sendPrompt(text, { edits = "" } = {}) {
   sending.value = true;
   taskSaved.value = false;
   editApplied.value = false;
+  workState.value = "";
+  workError.value = "";
+  workNote.value = "";
   localRows.value = [];
   if (!text || value === prompt.value.trim()) prompt.value = "";
   nextTick(autoGrow);
@@ -1163,6 +1174,69 @@ async function acceptProposedTask() {
   } finally {
     taskSaving.value = false;
   }
+}
+
+// ---- Starting work Warren offered -------------------------------------
+
+const workState = ref("");      // "" | "running" | "started"
+const workError = ref("");
+const workNote = ref("");
+
+async function confirmWork() {
+  const work = proposedWork.value;
+  if (!work || !props.companyId || workState.value) return;
+  const companyId = props.companyId;
+  workState.value = "running";
+  workError.value = "";
+  workNote.value = "";
+  try {
+    if (work.kind === "report") {
+      const job = await api.generateReport({
+        company_id: companyId,
+        ...work.options,
+        // An empty engine means "whatever Settings says".
+        ...(work.options.engine ? {} : { engine: undefined }),
+      });
+      workNote.value = t("copilot.work_report_started", {
+        type: work.options.report_type,
+      });
+      if (job?.report_id) refreshActiveJobs();
+    } else if (work.kind === "document_analysis") {
+      await api.analyzeResearchFile(companyId, work.options.file_id);
+      workNote.value = t("copilot.work_analysis_started", {
+        file: work.options.file_name || work.title,
+      });
+      refreshActiveJobs();
+    } else if (work.kind === "decision") {
+      await api.decisionRecords.add(companyId, {
+        decision: work.options.decision,
+        rationale: work.options.rationale,
+      });
+      workNote.value = t("copilot.work_decision_recorded");
+    } else if (work.kind === "follow") {
+      // Idempotent: confirming twice should not unfollow.
+      if (!trackedCompanyIds.value.has(String(companyId))) {
+        toggleTrackedCompany(companyId);
+      }
+      workNote.value = t("copilot.work_following", {
+        company: props.companyName || companyId,
+      });
+    }
+    workState.value = "started";
+    recordEvent("copilot_work_started", { kind: work.kind });
+  } catch (e) {
+    workState.value = "";
+    workError.value = e?.message || t("copilot.work_failed");
+  }
+}
+
+function openWorkOptions() {
+  const work = proposedWork.value;
+  if (!work || work.kind !== "report") return;
+  recordEvent("copilot_work_options", { kind: work.kind });
+  // The customizer opens on this company; Warren's choices are a
+  // starting point, not a lock-in.
+  openReportCustomizer?.(props.companyId);
 }
 
 function switchMode(next) {
@@ -1653,6 +1727,51 @@ defineExpose({
                     >
                       {{ editApplied ? t("copilot.edit_applied") : t("copilot.apply_edit") }}
                     </button>
+                  </div>
+
+                  <!-- Work Warren offered to start. He never starts it
+                       himself: this is where the analyst spends the money. -->
+                  <div v-if="proposedWork" class="warren-card warren-work mt-2.5">
+                    <div class="flex items-start gap-2">
+                      <Play class="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-ink" />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-footnote font-semibold text-ink-primary">
+                          {{ proposedWork.title }}
+                        </div>
+                        <p v-if="proposedWork.why" class="mt-1 text-caption1 text-ink-muted">
+                          {{ proposedWork.why }}
+                        </p>
+                        <p
+                          v-if="proposedWork.kind === 'report'"
+                          class="mt-1 text-caption2 text-ink-subtle"
+                        >
+                          {{ proposedWork.options.report_type }} ·
+                          {{ proposedWork.options.audience }} ·
+                          {{ t(`copilot.work_quality_${proposedWork.options.quality}`) }}
+                        </p>
+                      </div>
+                    </div>
+                    <p v-if="workNote" class="mt-2 text-caption1 text-ink-secondary">{{ workNote }}</p>
+                    <p v-else-if="workError" class="mt-2 text-caption1 text-danger">{{ workError }}</p>
+                    <div v-if="workState !== 'started'" class="mt-2 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        class="btn-filled btn-sm focus-ring"
+                        :disabled="workState === 'running'"
+                        @click="confirmWork"
+                      >
+                        <Loader2 v-if="workState === 'running'" class="h-3 w-3 animate-spin" />
+                        {{ t(`copilot.work_confirm_${proposedWork.kind}`) }}
+                      </button>
+                      <button
+                        v-if="proposedWork.kind === 'report' && openReportCustomizer"
+                        type="button"
+                        class="btn-bordered btn-sm focus-ring"
+                        @click="openWorkOptions"
+                      >
+                        {{ t("copilot.work_options") }}
+                      </button>
+                    </div>
                   </div>
 
                   <div v-if="proposedTask" class="warren-card mt-2.5">

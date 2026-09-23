@@ -40,7 +40,15 @@ _STRUCTURED_BLOCK = re.compile(
     r"```json\s*(\{.*?\})\s*```",
     re.DOTALL,
 )
-_STRUCTURED_KEYS = ("research_task", "suggested_edit", "next_route", "contradiction")
+_STRUCTURED_KEYS = (
+    "research_task",
+    "suggested_edit",
+    "next_route",
+    "contradiction",
+    # Work Warren offers to start. The analyst confirms it in the UI; the
+    # server never acts on this block by itself.
+    "run_work",
+)
 
 
 def _clean(value: Any, *, limit: int = 800) -> str:

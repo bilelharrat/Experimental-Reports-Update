@@ -387,6 +387,36 @@ def test_parse_structured_outputs():
     assert "```json" not in cleaned
 
 
+def test_work_warren_offers_survives_the_round_trip():
+    """The offer has to reach the panel, which is what draws the button —
+    the server never acts on it."""
+    text = (
+        "I can put the IC packet together.\n"
+        '```json\n{"run_work":{"kind":"report","report_type":'
+        '"Buffett Investment Memo","audience":"Partner"}}\n```'
+    )
+    outputs = copilot.parse_structured_outputs(text)
+    assert outputs["run_work"]["kind"] == "report"
+    assert outputs["run_work"]["report_type"] == "Buffett Investment Memo"
+    assert copilot.strip_structured_blocks(text) == (
+        "I can put the IC packet together."
+    )
+
+
+def test_the_skill_tells_warren_the_analyst_confirms():
+    """A prompt that let him claim he had started a run would be worse
+    than no offer at all."""
+    skill = copilot.INSPECTOR_SKILL.read_text(encoding="utf-8")
+    assert "run_work" in skill
+    assert "The analyst confirms." in skill
+    for report_type in (
+        "Investment Report (Auto)",
+        "Investment Memo (Late-Stage)",
+        "Buffett Investment Memo",
+    ):
+        assert report_type in skill
+
+
 def test_ensure_deep_session_reuses_existing(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
     storage.bootstrap_seed_data()

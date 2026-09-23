@@ -3925,6 +3925,12 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-accent) / 0.15);
 }
 
+/* The card Warren offers work in: the same card, with the accent of a
+   thing that will cost money when it is confirmed. */
+.warren-work {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.25);
+}
+
 /* One earlier thread in the history list. */
 .warren-thread {
   @apply w-full rounded-[12px] px-2.5 py-2 text-left;

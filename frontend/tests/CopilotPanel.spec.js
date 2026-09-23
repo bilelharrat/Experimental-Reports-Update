@@ -16,6 +16,9 @@ const m = vi.hoisted(() => ({
     recordEvent: vi.fn(() => Promise.resolve()),
   },
   uploadResearchFile: vi.fn(),
+  generateReport: vi.fn(),
+  analyzeResearchFile: vi.fn(),
+  decisionRecords: { add: vi.fn() },
   console: {
     getTurns: vi.fn(),
     cancelAsk: vi.fn(() => Promise.resolve(true)),
@@ -692,5 +695,117 @@ describe("CopilotPanel — the thread history the team shares", () => {
     await wrapper.find(".warren-viewing button").trigger("click");
     await flushPromises();
     expect(wrapper.find(".ask-composer").exists()).toBe(true);
+  });
+});
+
+describe("CopilotPanel — work Warren offers to start", () => {
+  function answerOffering(work) {
+    return [
+      { id: "t1", role: "user", text: "Should we write this up?", ts: "2026-09-23T12:00:00Z" },
+      {
+        id: "t1",
+        role: "assistant",
+        text: `I can put the IC packet together.\n\`\`\`json\n${JSON.stringify({ run_work: work })}\n\`\`\``,
+        ts: "2026-09-23T12:00:05Z",
+      },
+    ];
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streams.length = 0;
+    copilotMode.value = "quick";
+    copilotSelection.value = null;
+    copilotAttention.value = null;
+    copilotDraftPrompt.value = "";
+    window.localStorage.clear();
+    m.copilot.context.mockResolvedValue(contextPayload());
+    m.copilot.threads.mockResolvedValue([]);
+    m.generateReport.mockResolvedValue({ report_id: "r-1" });
+    m.analyzeResearchFile.mockResolvedValue({ kind: "analysis" });
+    m.decisionRecords.add.mockResolvedValue({ id: "d-1" });
+  });
+
+  afterEach(() => {
+    for (const wrapper of [...mounted]) unmountPanel(wrapper);
+  });
+
+  function confirmButton(wrapper) {
+    return wrapper.find(".warren-work button");
+  }
+
+  it("runs the report Warren proposed, once it is confirmed", async () => {
+    m.console.getTurns.mockResolvedValue(
+      answerOffering({
+        kind: "report",
+        title: "IC packet for Acme",
+        why: "The files are staged.",
+        report_type: "Investment Memo (Late-Stage)",
+        audience: "Partner",
+        quality: "balanced",
+      }),
+    );
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const card = wrapper.find(".warren-work");
+    expect(card.text()).toContain("IC packet for Acme");
+    expect(card.text()).toContain("Investment Memo (Late-Stage)");
+    // Nothing has been spent yet.
+    expect(m.generateReport).not.toHaveBeenCalled();
+
+    await confirmButton(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(m.generateReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: "acme",
+        report_type: "Investment Memo (Late-Stage)",
+        audience: "Partner",
+        quality: "balanced",
+      }),
+    );
+    expect(wrapper.find(".warren-work").text()).toContain("jobs rail");
+  });
+
+  it("says so when the run will not start", async () => {
+    m.generateReport.mockRejectedValue(new Error("HTTP 409"));
+    m.console.getTurns.mockResolvedValue(answerOffering({ kind: "report" }));
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await confirmButton(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".warren-work").text()).toContain("HTTP 409");
+    // Still offered, so it can be tried again.
+    expect(confirmButton(wrapper).exists()).toBe(true);
+  });
+
+  it("reads a document when that is what was offered", async () => {
+    m.console.getTurns.mockResolvedValue(
+      answerOffering({
+        kind: "document_analysis",
+        file_id: "file-7",
+        file_name: "term-sheet.pdf",
+      }),
+    );
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await confirmButton(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(m.analyzeResearchFile).toHaveBeenCalledWith("acme", "file-7");
+  });
+
+  it("ignores an offer it cannot act on", async () => {
+    m.console.getTurns.mockResolvedValue(
+      answerOffering({ kind: "document_analysis", file_name: "mystery.pdf" }),
+    );
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.find(".warren-work").exists()).toBe(false);
   });
 });

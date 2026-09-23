@@ -51,7 +51,13 @@ export function buildDiveDeeperPrompt(context = {}) {
 }
 
 const STRUCTURED_BLOCK_RE = /```json\s*(\{[\s\S]*?\})\s*```/g;
-const STRUCTURED_KEYS = ["research_task", "suggested_edit", "next_route", "contradiction"];
+const STRUCTURED_KEYS = [
+  "research_task",
+  "suggested_edit",
+  "next_route",
+  "contradiction",
+  "run_work",
+];
 
 export function parseStructuredOutputs(text = "") {
   const outputs = Object.fromEntries(STRUCTURED_KEYS.map((key) => [key, null]));
@@ -137,4 +143,82 @@ export function followUpChips(structured = {}, t = (key) => key) {
     prompt: "What is the single best next source to read?",
   });
   return chips.slice(0, 3);
+}
+
+// ---- Work Warren proposes to start -------------------------------------
+//
+// He can offer to run something rather than describe it, but he never
+// starts it himself: the proposal renders as a card with a Confirm, and
+// the analyst is the one who spends the money. Anything the card cannot
+// vouch for — an unknown kind, a report type the server would refuse —
+// is dropped rather than shown as a button that 400s.
+
+// Kept in step with server/api.py's REPORT_TYPES and AUDIENCES.
+export const REPORT_TYPES = [
+  "Investment Report (Auto)",
+  "Investment Memo (Late-Stage)",
+  "Buffett Investment Memo",
+];
+export const REPORT_AUDIENCES = ["LP", "Assistant", "Partner", "Internal"];
+const QUALITIES = ["best", "balanced", "economy"];
+const ENGINES = ["claude", "gemini"];
+const MODES = ["full", "compact"];
+const WORK_KINDS = ["report", "document_analysis", "decision", "follow"];
+
+function pick(value, allowed, fallback) {
+  const text = String(value || "").trim();
+  return allowed.includes(text) ? text : fallback;
+}
+
+/**
+ * Normalize a `run_work` block into something the card can render and
+ * the panel can act on, or null when it is not worth offering.
+ */
+export function normalizeWork(work) {
+  if (!work || typeof work !== "object") return null;
+  const kind = String(work.kind || "").trim();
+  if (!WORK_KINDS.includes(kind)) return null;
+  const base = {
+    kind,
+    title: String(work.title || "").trim().slice(0, 140),
+    why: String(work.why || "").trim().slice(0, 400),
+  };
+  if (kind === "report") {
+    const reportType = pick(work.report_type, REPORT_TYPES, REPORT_TYPES[0]);
+    return {
+      ...base,
+      title: base.title || reportType,
+      options: {
+        report_type: reportType,
+        audience: pick(work.audience, REPORT_AUDIENCES, "Partner"),
+        language: pick(work.language, ["en", "zh"], "en"),
+        report_mode: pick(work.report_mode, MODES, "full"),
+        quality: pick(work.quality, QUALITIES, "best"),
+        engine: pick(work.engine, ENGINES, ""),
+      },
+    };
+  }
+  if (kind === "document_analysis") {
+    const fileId = String(work.file_id || "").trim();
+    // Without a file there is nothing to analyze.
+    if (!fileId) return null;
+    return {
+      ...base,
+      title: base.title || String(work.file_name || fileId),
+      options: { file_id: fileId, file_name: String(work.file_name || "").trim() },
+    };
+  }
+  if (kind === "decision") {
+    const decision = String(work.decision || "").trim();
+    if (!decision) return null;
+    return {
+      ...base,
+      title: base.title || decision,
+      options: {
+        decision,
+        rationale: String(work.rationale || "").trim().slice(0, 2000),
+      },
+    };
+  }
+  return { ...base, options: {} };
 }
