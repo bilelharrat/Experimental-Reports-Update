@@ -673,3 +673,78 @@ def test_an_unsigned_question_carries_no_author(tmp_consoles, monkeypatch):
         t for t in console_store.read_turns(COMPANY, sid) if t["role"] == "user"
     )
     assert "author" not in user_turn
+
+
+def test_an_edited_question_keeps_the_file_it_asked_about(
+    tmp_consoles, monkeypatch, real_docx_bytes
+):
+    """Rewording "what's in this?" must not turn it into a question about
+    nothing — which is how it answered before, confidently and wrongly.
+    """
+    seen: list[list[str]] = []
+
+    def fake_ask(*, attachments=None, **kw):
+        seen.append(list(attachments or []))
+        return _make_stub_ask(reply_text="ok")(attachments=attachments, **kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+    sid = _quick_session()["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="term-sheet.docx", data=real_docx_bytes,
+    )
+
+    first = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="what is in this?", attachments=[record["stored_name"]],
+        attachment_names={record["stored_name"]: "term-sheet.docx"},
+    )["turn_id"]
+    _wait_for_assistant(COMPANY, sid, first)
+
+    second = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="just the liquidation preference, please",
+        attachments=[], edits=first,
+    )["turn_id"]
+    _wait_for_assistant(COMPANY, sid, second)
+
+    assert seen[-1] == [record["stored_name"]]
+    edited = next(
+        t for t in console_store.read_turns(COMPANY, sid)
+        if t["id"] == second and t["role"] == "user"
+    )
+    # And the chip still names the file the way the analyst picked it.
+    assert [a["name"] for a in edited["attachments"]] == ["term-sheet.docx"]
+
+
+def test_an_edit_that_brings_its_own_file_does_not_inherit(
+    tmp_consoles, monkeypatch, real_docx_bytes, png_bytes
+):
+    seen: list[list[str]] = []
+
+    def fake_ask(*, attachments=None, **kw):
+        seen.append(list(attachments or []))
+        return _make_stub_ask(reply_text="ok")(attachments=attachments, **kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+    sid = _quick_session()["id"]
+    doc = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="term-sheet.docx", data=real_docx_bytes,
+    )
+    chart = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid, filename="chart.png", data=png_bytes,
+    )
+
+    first = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="read this",
+        attachments=[doc["stored_name"]],
+    )["turn_id"]
+    _wait_for_assistant(COMPANY, sid, first)
+    second = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="this one instead",
+        attachments=[chart["stored_name"]], edits=first,
+    )["turn_id"]
+    _wait_for_assistant(COMPANY, sid, second)
+
+    assert seen[-1] == [chart["stored_name"]]

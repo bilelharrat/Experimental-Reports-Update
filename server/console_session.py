@@ -724,11 +724,20 @@ def submit_ask(
     question is worth signing. ``edits`` is the id of a question this one
     replaces: the old question and its answer drop out of the thread (see
     ``console_store.drop_superseded``) and, if it was still running, it is
-    cancelled rather than left to finish an answer nobody will read.
+    cancelled rather than left to finish an answer nobody will read. An
+    edit that carries no files of its own inherits the ones the original
+    question carried, or rewording a question about a document would ask
+    it about nothing.
 
     Raises ``ValueError`` if the session is not active.
     """
-    display = attachment_names or {}
+    display = dict(attachment_names or {})
+    attachments = list(attachments)
+    if edits and not attachments:
+        attachments, inherited = _attachments_of_turn(
+            company_id, session_id, str(edits)
+        )
+        display.update(inherited)
     meta = console_store.load_meta(company_id, session_id)
     if meta is None:
         raise ValueError("session_not_found")
@@ -877,6 +886,37 @@ def recover() -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _attachments_of_turn(
+    company_id: str, session_id: str, turn_id: str
+) -> tuple[list[str], dict[str, str]]:
+    """The files that rode with one question: ``([stored names], {stored:
+    display})``.
+
+    A turn records the attachment's sha and the filename the analyst
+    picked, not the stored name, so the extension is read back off disk.
+    """
+    stored: list[str] = []
+    display: dict[str, str] = {}
+    for turn in console_store.read_turns(
+        company_id, session_id, include_superseded=True
+    ):
+        if turn.get("id") != turn_id or turn.get("role") != "user":
+            continue
+        for item in turn.get("attachments") or []:
+            sha = str((item or {}).get("id") or "")
+            if not sha:
+                continue
+            try:
+                path = console_store.get_attachment_path(company_id, session_id, sha)
+            except ValueError:
+                continue
+            if path is None:
+                continue
+            stored.append(path.name)
+            display[path.name] = str(item.get("name") or path.name)
+    return stored, display
 
 
 def _strip_ext(filename: str) -> str:
