@@ -306,6 +306,78 @@ def test_warren_attachment_is_staged_for_the_next_question(
     assert [a["name"] for a in user_turn["attachments"]] == ["term-sheet.pdf"]
 
 
+def test_warren_edit_replaces_the_question_for_everyone(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    """An edited question is re-asked and the old pair leaves the thread,
+    which is the copy the rest of the team loads."""
+    first = client.post(
+        f"/api/companies/{warren_company}/copilot/ask",
+        json={"prompt": "whats the mote"},
+    )
+    assert first.status_code == 200, first.text
+    sid = first.json()["session_id"]
+
+    second = client.post(
+        f"/api/companies/{warren_company}/copilot/ask",
+        json={"prompt": "what is the moat?", "edits": first.json()["turn_id"]},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["session_id"] == sid
+
+    thread = console_store.read_turns(warren_company, sid)
+    assert [t["text"] for t in thread if t["role"] == "user"] == [
+        "what is the moat?"
+    ]
+
+
+def test_warren_threads_are_the_companys_not_the_browsers(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    """Starting a new thread files the old one in the history everyone
+    reads, instead of hiding it for one browser."""
+    first = client.post(
+        f"/api/companies/{warren_company}/copilot/ask",
+        json={"prompt": "how do they make money?"},
+    )
+    assert first.status_code == 200, first.text
+    old_sid = first.json()["session_id"]
+
+    started = client.post(f"/api/companies/{warren_company}/copilot/threads", json={})
+    assert started.status_code == 201, started.text
+    new_sid = started.json()["session_id"]
+    assert new_sid != old_sid
+    assert started.json()["previous_session_id"] == old_sid
+
+    threads = client.get(f"/api/companies/{warren_company}/copilot/threads").json()
+    by_id = {t["id"]: t for t in threads}
+    assert by_id[new_sid]["active"] is True
+    assert by_id[old_sid]["active"] is False
+    assert by_id[old_sid]["opening_question"] == "how do they make money?"
+    assert by_id[old_sid]["question_count"] == 1
+
+    # And the old thread still reads back in full.
+    turns = client.get(
+        f"/api/companies/{warren_company}/console/sessions/{old_sid}/turns"
+    ).json()
+    assert [t["text"] for t in turns if t["role"] == "user"] == [
+        "how do they make money?"
+    ]
+
+
+def test_an_empty_thread_is_not_history(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    client.post(f"/api/companies/{warren_company}/copilot/ask", json={"prompt": "hi"})
+    client.post(f"/api/companies/{warren_company}/copilot/threads", json={})
+    # The fresh thread has no questions yet, so only it and the one with
+    # the question are listed — not a trail of empty ones.
+    client.post(f"/api/companies/{warren_company}/copilot/threads", json={})
+
+    threads = client.get(f"/api/companies/{warren_company}/copilot/threads").json()
+    assert sum(1 for t in threads if not t["question_count"] and not t["active"]) == 0
+
+
 def test_warren_attachment_too_large_400(
     tmp_consoles, stubbed_claude, client, warren_company
 ):

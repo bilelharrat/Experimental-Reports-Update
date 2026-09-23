@@ -581,3 +581,95 @@ def test_cancel_in_flight_turn(tmp_consoles, monkeypatch):
 
     # After completion, cancel is a no-op.
     assert console_session.cancel_turn(COMPANY, sid, info["turn_id"]) is False
+
+
+# ---- Editing a question you already sent --------------------------------
+
+
+def _quick_session():
+    return console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False,
+        include_library_docs=False,
+        skip_hydrate=True,
+        session_kind="copilot_quick",
+    )
+
+
+def test_an_edited_question_replaces_the_one_it_rewrites(tmp_consoles, monkeypatch):
+    """The thread shows the new question; the old one and the answer it
+    drew are gone — for everyone, because the thread is shared."""
+    monkeypatch.setattr(claude_runner, "run_console_ask", _make_stub_ask(reply_text="ok"))
+    sid = _quick_session()["id"]
+
+    first = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="whats the mote here", attachments=[],
+    )["turn_id"]
+    _wait_for_assistant(COMPANY, sid, first)
+    second = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="what is the moat here?", attachments=[], edits=first,
+    )["turn_id"]
+
+    thread = console_store.read_turns(COMPANY, sid)
+    assert [t["text"] for t in thread if t["role"] == "user"] == [
+        "what is the moat here?"
+    ]
+    assert not [t for t in thread if t["id"] == first]
+    assert second != first
+
+    # The log itself keeps every version — nothing is rewritten on disk.
+    whole = console_store.read_turns(COMPANY, sid, include_superseded=True)
+    assert "whats the mote here" in [t.get("text") for t in whole]
+
+
+def test_editing_an_edit_leaves_one_question(tmp_consoles, monkeypatch):
+    monkeypatch.setattr(claude_runner, "run_console_ask", _make_stub_ask(reply_text="ok"))
+    sid = _quick_session()["id"]
+
+    first = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="v1", attachments=[],
+    )["turn_id"]
+    second = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="v2", attachments=[], edits=first,
+    )["turn_id"]
+    console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="v3", attachments=[], edits=second,
+    )
+
+    users = [t for t in console_store.read_turns(COMPANY, sid) if t["role"] == "user"]
+    assert [t["text"] for t in users] == ["v3"]
+
+
+def test_a_question_is_signed_by_whoever_asked(tmp_consoles, monkeypatch):
+    monkeypatch.setattr(claude_runner, "run_console_ask", _make_stub_ask(reply_text="ok"))
+    sid = _quick_session()["id"]
+
+    console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="who owns this?", attachments=[],
+        author={"email": "sam@bshventures.com", "name": "Sam Ortiz"},
+    )
+
+    user_turn = next(
+        t for t in console_store.read_turns(COMPANY, sid) if t["role"] == "user"
+    )
+    assert user_turn["author"] == {
+        "email": "sam@bshventures.com",
+        "name": "Sam Ortiz",
+    }
+
+
+def test_an_unsigned_question_carries_no_author(tmp_consoles, monkeypatch):
+    monkeypatch.setattr(claude_runner, "run_console_ask", _make_stub_ask(reply_text="ok"))
+    sid = _quick_session()["id"]
+
+    console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="anon", attachments=[],
+        author={"email": "", "name": ""},
+    )
+
+    user_turn = next(
+        t for t in console_store.read_turns(COMPANY, sid) if t["role"] == "user"
+    )
+    assert "author" not in user_turn

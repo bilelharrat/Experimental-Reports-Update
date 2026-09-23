@@ -1417,6 +1417,17 @@ export const api = {
       );
       return res.json();
     },
+    // Warren's threads for this company — everyone's, not this browser's.
+    threads: (companyId, mode = "quick") =>
+      request(
+        `/api/companies/${companyId}/copilot/threads?mode=${encodeURIComponent(mode)}`,
+      ),
+    // Files the current thread into the history and opens a fresh one.
+    startThread: (companyId, body = {}) =>
+      request(`/api/companies/${companyId}/copilot/threads`, {
+        method: "POST",
+        body: JSON.stringify({ mode: "quick", ...body }),
+      }),
     createTask: (companyId, body) =>
       request(`/api/companies/${companyId}/copilot/tasks`, {
         method: "POST",

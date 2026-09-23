@@ -453,7 +453,18 @@ def append_turn(company_id: str, session_id: str, record: dict) -> None:
             f.flush()
 
 
-def read_turns(company_id: str, session_id: str) -> list[dict]:
+def read_turns(
+    company_id: str, session_id: str, *, include_superseded: bool = False
+) -> list[dict]:
+    """The thread as it stands.
+
+    The log itself is append-only — an edited question is never rewritten
+    or deleted. A re-asked question carries ``edits: <old turn id>``, and
+    the old question (plus the answer it drew) drops out of the thread
+    here, so nobody on the team — and no model reading the transcript for
+    context — works from the version that was replaced. Pass
+    ``include_superseded`` to see the whole log.
+    """
     path = turns_path(company_id, session_id)
     if not path.exists():
         return []
@@ -467,7 +478,24 @@ def read_turns(company_id: str, session_id: str) -> list[dict]:
                 out.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-    return out
+    return out if include_superseded else drop_superseded(out)
+
+
+def drop_superseded(turns: list[dict]) -> list[dict]:
+    """Remove every turn an edit replaced, questions and answers alike.
+
+    An assistant turn carries the id of the question it answers, so one
+    id covers the pair. Edits chain: edit an edit and both earlier
+    versions go.
+    """
+    replaced = {
+        str(turn.get("edits"))
+        for turn in turns
+        if turn.get("edits")
+    }
+    if not replaced:
+        return turns
+    return [turn for turn in turns if str(turn.get("id")) not in replaced]
 
 
 # ---- Workdir staging ----------------------------------------------------
@@ -730,6 +758,7 @@ def session_exists(company_id: str, session_id: str) -> bool:
 
 
 __all__ = [
+    "drop_superseded",
     "MAX_ATTACHMENT_BYTES",
     "ALLOWED_ATTACHMENT_TYPES",
     "ATTACHMENT_TYPE_BY_EXT",

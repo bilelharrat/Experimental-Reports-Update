@@ -709,6 +709,8 @@ def submit_ask(
     attachments: list[str],
     runtime_prompt: str | None = None,
     attachment_names: dict[str, str] | None = None,
+    author: dict | None = None,
+    edits: str | None = None,
 ) -> dict:
     """Append a user turn and enqueue the ask. Returns ``{turn_id,
     queue_position}``. Returns 0 for position if running immediately.
@@ -717,6 +719,12 @@ def submit_ask(
     runner hands the model. ``attachment_names`` maps those back to the
     filenames the analyst picked, so a transcript read later still names
     the file they attached rather than its hash.
+
+    ``author`` is whoever asked — the thread is shared with the team, so a
+    question is worth signing. ``edits`` is the id of a question this one
+    replaces: the old question and its answer drop out of the thread (see
+    ``console_store.drop_superseded``) and, if it was still running, it is
+    cancelled rather than left to finish an answer nobody will read.
 
     Raises ``ValueError`` if the session is not active.
     """
@@ -740,6 +748,14 @@ def submit_ask(
     }
     if runtime_prompt and runtime_prompt != prompt:
         record["runtime_prompt"] = runtime_prompt
+    if author and (author.get("email") or author.get("name")):
+        record["author"] = {
+            "email": author.get("email") or "",
+            "name": author.get("name") or "",
+        }
+    if edits:
+        record["edits"] = str(edits)
+        cancel_turn(company_id, session_id, str(edits))
     console_store.append_turn(company_id, session_id, record)
 
     # Touch the progress file immediately so SSE clients don't hit

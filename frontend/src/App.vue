@@ -1170,13 +1170,23 @@ provide("copilotNavigate", onCopilotNavigate);
             </div>
           </div>
           <button
+            v-if="copilotCompanyId && copilotState.mode === 'quick'"
+            type="button"
+            class="icon-btn"
+            :aria-label="t('copilot.history_title')"
+            :title="t('copilot.history_title')"
+            @click="copilotPanelRef?.toggleHistory()"
+          >
+            <History class="h-4 w-4" />
+          </button>
+          <button
             v-if="copilotCompanyId && copilotState.hasTurns && copilotState.mode === 'quick'"
             type="button"
             class="icon-btn"
             :disabled="copilotState.busy"
-            :aria-label="t('copilot.clear_chat')"
-            :title="t('copilot.clear_chat')"
-            @click="copilotPanelRef?.clearChat()"
+            :aria-label="t('copilot.new_chat')"
+            :title="t('copilot.new_chat')"
+            @click="copilotPanelRef?.newThread()"
           >
             <SquarePen class="h-4 w-4" />
           </button>

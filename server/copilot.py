@@ -938,6 +938,79 @@ def ensure_quick_session(
     return meta
 
 
+# ---- Threads ------------------------------------------------------------
+# A Warren thread is a console session of a copilot kind. There is one
+# active thread per company per mode, and it belongs to the company, not
+# to whoever opened it: everyone on the desk reads and adds to the same
+# one. Starting a new thread archives the old one, which is how the
+# history gets written — nothing is hidden or deleted.
+
+_THREAD_KINDS = {
+    "quick": (COPILOT_SESSION_KIND, COPILOT_IOS_SESSION_KIND),
+    "deep": (COPILOT_DEEP_SESSION_KIND,),
+}
+
+
+def list_threads(company_id: str, *, mode: str = "quick") -> list[dict]:
+    """Every Warren thread for this company, newest first."""
+    kinds = _THREAD_KINDS.get(mode, _THREAD_KINDS["quick"])
+    out: list[dict] = []
+    for meta in console_store.list_sessions(company_id):
+        if meta.get("session_kind") not in kinds:
+            continue
+        active = meta.get("status") == "active"
+        turns = console_store.read_turns(company_id, meta["id"])
+        questions = [t for t in turns if t.get("role") == "user"]
+        # An archived thread nobody asked anything in is not history.
+        if not questions and not active:
+            continue
+        askers: list[str] = []
+        for turn in questions:
+            author = turn.get("author") or {}
+            name = str(author.get("name") or author.get("email") or "").strip()
+            if name and name not in askers:
+                askers.append(name)
+        last = questions[-1] if questions else None
+        out.append({
+            "id": meta.get("id"),
+            "active": active,
+            "started_at": meta.get("created_at"),
+            "last_at": (last or {}).get("ts") or meta.get("created_at"),
+            "question_count": len(questions),
+            "opening_question": str(questions[0].get("text") or "")[:240] if questions else "",
+            "latest_question": str((last or {}).get("text") or "")[:240],
+            "askers": askers,
+        })
+    return out
+
+
+def start_new_thread(
+    company_id: str, *, output_language: str = "en", mode: str = "quick"
+) -> dict:
+    """Archive the thread in front of everyone and open a fresh one.
+
+    Archived here rather than through ``console_session.archive_session``
+    on purpose: that one spends a Claude call summarizing, which is not
+    something a "new chat" click should cost.
+    """
+    current = (
+        find_deep_session(company_id)
+        if mode == "deep"
+        else find_quick_session(company_id)
+    )
+    if current is not None:
+        console_store.archive_session(company_id, current["id"])
+    meta = (
+        ensure_deep_session(company_id, output_language=output_language)
+        if mode == "deep"
+        else ensure_quick_session(company_id, output_language=output_language)
+    )
+    return {
+        "session_id": meta["id"],
+        "previous_session_id": (current or {}).get("id") or "",
+    }
+
+
 def find_deep_session(company_id: str) -> dict | None:
     for meta in console_store.list_sessions(company_id):
         if (
@@ -1039,6 +1112,8 @@ def submit_quick_ask(
     output_language: str = "en",
     attachments: list[str] | None = None,
     attachment_names: dict[str, str] | None = None,
+    author: dict | None = None,
+    edits: str | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
@@ -1069,6 +1144,8 @@ def submit_quick_ask(
         attachments=list(attachments or []),
         runtime_prompt=runtime_prompt,
         attachment_names=attachment_names or {},
+        author=author,
+        edits=edits,
     )
     return {
         "session_id": meta["id"],
@@ -1095,6 +1172,8 @@ def submit_deep_ask(
     output_language: str = "en",
     attachments: list[str] | None = None,
     attachment_names: dict[str, str] | None = None,
+    author: dict | None = None,
+    edits: str | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
@@ -1108,6 +1187,8 @@ def submit_deep_ask(
         attachments=list(attachments or []),
         runtime_prompt=runtime_prompt,
         attachment_names=attachment_names or {},
+        author=author,
+        edits=edits,
     )
     return {
         "session_id": meta["id"],

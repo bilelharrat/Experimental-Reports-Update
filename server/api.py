@@ -1014,6 +1014,21 @@ def _caller_email(request: Request) -> str | None:
     return getattr(request.state, "session_email", None)
 
 
+def _caller_identity(request: Request) -> dict | None:
+    """Who is asking, for a thread the whole team reads.
+
+    Mirrors what ``/auth/me`` reports, including the name a solo dev box
+    runs under, so a question is signed the same way it is displayed.
+    """
+    email = _caller_email(request)
+    name = product_store.display_name(email) if email else None
+    if not name and getattr(request.state, "auth_kind", None) == "anon_dev":
+        name = (os.environ.get("BSH_ANON_DEV_NAME") or "").strip() or None
+    if not email and not name:
+        return None
+    return {"email": email or "", "name": name or ""}
+
+
 def _caller_role(request: Request) -> str:
     """Resolve the effective RBAC role for the request.
 
@@ -1381,6 +1396,9 @@ class CopilotAskBody(BaseModel):
     # stored name -> the filename the analyst picked, so the transcript
     # names the file rather than its hash.
     attachment_names: dict[str, str] = Field(default_factory=dict)
+    # The id of a question this one rewrites. The old question and its
+    # answer drop out of the thread for everyone.
+    edits: str | None = None
 
 
 class CopilotTaskBody(BaseModel):
@@ -1388,6 +1406,11 @@ class CopilotTaskBody(BaseModel):
     description: str = ""
     action_type: str = "discuss"
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class CopilotThreadBody(BaseModel):
+    mode: str = "quick"
+    output_language: str = "en"
 
 
 class CopilotApplyEditBody(BaseModel):
@@ -2251,6 +2274,8 @@ def post_copilot_ask(
                     output_language=body.output_language,
                     attachments=body.attachments,
                     attachment_names=body.attachment_names,
+                    author=_caller_identity(request),
+                    edits=body.edits,
                 ),
             }
         return {
@@ -2262,6 +2287,8 @@ def post_copilot_ask(
                 output_language=body.output_language,
                 attachments=body.attachments,
                 attachment_names=body.attachment_names,
+                author=_caller_identity(request),
+                edits=body.edits,
             ),
         }
     except ValueError as exc:
@@ -2271,6 +2298,51 @@ def post_copilot_ask(
         if code == "company_not_found":
             raise HTTPException(status_code=404, detail="Company not found") from exc
         raise HTTPException(status_code=400, detail=code) from exc
+
+
+@router.get("/companies/{company_id}/copilot/threads")
+def list_copilot_threads(company_id: str, mode: str = "quick") -> list[dict]:
+    """Warren's threads for this company, newest first.
+
+    The thread is the company's, not the browser's: whoever opens Warren
+    here reads the same questions and answers, and the ones before them
+    are in this list rather than in somebody's local storage.
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if mode not in {"quick", "deep"}:
+        raise HTTPException(status_code=400, detail="Invalid copilot mode")
+    return copilot.list_threads(company_id, mode=mode)
+
+
+@router.post("/companies/{company_id}/copilot/threads", status_code=201)
+def start_copilot_thread(
+    company_id: str, request: Request, body: CopilotThreadBody | None = None
+) -> dict:
+    """Put the current thread into the history and open a fresh one — for
+    everyone, which is the point.
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    payload = body or CopilotThreadBody()
+    if payload.mode not in {"quick", "deep"}:
+        raise HTTPException(status_code=400, detail="Invalid copilot mode")
+    try:
+        return copilot.start_new_thread(
+            company_id,
+            mode=payload.mode,
+            output_language=payload.output_language,
+        )
+    except console_store.SessionLimitReached as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "session_limit_reached",
+                "limit": console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY,
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.post("/companies/{company_id}/copilot/attachments", status_code=201)

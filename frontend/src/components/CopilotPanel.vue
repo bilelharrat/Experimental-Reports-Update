@@ -13,6 +13,7 @@ import {
   Loader2,
   MessageSquareText,
   Paperclip,
+  Pencil,
   RotateCcw,
   ScrollText,
   Sparkles,
@@ -22,6 +23,7 @@ import {
 import WarrenMark from "./WarrenMark.vue";
 import Monogram from "./Monogram.vue";
 import { api } from "../api.js";
+import { sessionEmail } from "../auth.js";
 import {
   buildDiscussPrompt,
   extractCitations,
@@ -67,9 +69,10 @@ const t = useT();
 const router = useRouter();
 const copilotNavigate = inject("copilotNavigate", null);
 
-// "Clear chat" hides the turns so far; the server session (and Warren's
-// memory of it) carries on, as on the Mac.
-const CLEARED_KEY = "bsh.warren.cleared";
+// A thread belongs to the company, not to a browser. An older release
+// hid turns behind this key, which meant two people on the same desk saw
+// two different conversations; it is cleared on sight now.
+const LEGACY_CLEARED_KEY = "bsh.warren.cleared";
 // A question still unanswered this long after it was asked is picked back up
 // when the panel reopens; older ones are treated as lost.
 const RESUME_WINDOW_MS = 15 * 60 * 1000;
@@ -92,7 +95,15 @@ const pendingTurnId = ref(null);
 const pendingText = ref("");
 const pendingActivity = ref("");
 const stopping = ref(false);
-const clearedMarker = ref(null);
+// Earlier threads: the list, and the one being read if it isn't the
+// current one.
+const historyOpen = ref(false);
+const threads = ref([]);
+const threadsLoading = ref(false);
+const threadError = ref("");
+const startingThread = ref(false);
+const viewingThreadId = ref("");
+const viewingTurns = ref([]);
 const copiedKey = ref("");
 // Long handed-over questions (a market packet) open collapsed.
 const expandedKeys = ref(new Set());
@@ -213,11 +224,9 @@ const provenanceGaps = computed(() => provenance.value?.gaps || []);
 const provenanceContradictions = computed(() => provenance.value?.contradictions || []);
 const indexedFiles = computed(() => contextPayload.value?.files || []);
 
-const hiddenCount = computed(() => {
-  const marker = clearedMarker.value;
-  if (!marker || !sessionId.value || marker.sid !== sessionId.value) return 0;
-  return Math.min(Number(marker.count) || 0, serverTurns.value.length);
-});
+const viewingThread = computed(
+  () => threads.value.find((row) => row.id === viewingThreadId.value) || null,
+);
 
 function formatTime(ts) {
   if (!ts) return "";
@@ -249,11 +258,18 @@ function viewTurn(turn, index) {
   const key = `${role}-${turn.id || "row"}-${index}`;
   if (role === "user") {
     const text = String(turn.text || "");
+    // The thread is shared, so a question asked by someone else is
+    // signed. Your own needs no byline — you were there.
+    const author = turn.author && typeof turn.author === "object" ? turn.author : null;
+    const email = String(author?.email || "");
+    const mine = !email || email === (sessionEmail.value || "");
     return {
       key,
       role,
       id: turn.id,
       text,
+      author: mine ? "" : String(author?.name || "") || email.split("@")[0],
+      edited: Boolean(turn.edits),
       files: (turn.attachments || []).map((item) => String(item?.name || "")).filter(Boolean),
       long: text.length > 320 || text.split("\n").length > 6,
     };
@@ -281,7 +297,10 @@ function viewTurn(turn, index) {
 }
 
 const visibleTurns = computed(() => {
-  const rows = serverTurns.value.slice(hiddenCount.value);
+  if (viewingThreadId.value) return viewingTurns.value.map(viewTurn);
+  const rows = serverTurns.value.filter(
+    (row) => !supersededIds.value.has(row.id),
+  );
   const question = pendingQuestion.value;
   const recorded =
     question?.turnId && rows.some((row) => row.role === "user" && row.id === question.turnId);
@@ -366,24 +385,11 @@ const placeholder = computed(() =>
     : t("copilot.input_placeholder"),
 );
 
-function readClearedMarker(companyId) {
-  if (!companyId) return null;
+function forgetLegacyClearedChats() {
   try {
-    const all = JSON.parse(window.localStorage.getItem(CLEARED_KEY) || "{}");
-    const marker = all?.[companyId];
-    return marker && typeof marker === "object" ? marker : null;
+    window.localStorage.removeItem(LEGACY_CLEARED_KEY);
   } catch {
-    return null;
-  }
-}
-
-function writeClearedMarker(companyId, marker) {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(CLEARED_KEY) || "{}") || {};
-    all[companyId] = marker;
-    window.localStorage.setItem(CLEARED_KEY, JSON.stringify(all));
-  } catch {
-    // Private windows can refuse storage; the chat just stays cleared for now.
+    // Private windows refuse storage; nothing was hidden there anyway.
   }
 }
 
@@ -743,7 +749,7 @@ function onComposerDrop(event) {
   for (const file of files) stageFile(file);
 }
 
-async function sendPrompt(text) {
+async function sendPrompt(text, { edits = "" } = {}) {
   const value = String(text || prompt.value || "").trim();
   if (!value || !props.companyId || busy.value || attachBusy.value) return;
   const companyId = props.companyId;
@@ -774,6 +780,7 @@ async function sendPrompt(text) {
       attachment_names: Object.fromEntries(
         files.map((item) => [item.storedName, item.name]),
       ),
+      ...(edits ? { edits } : {}),
     });
     if (companyId !== props.companyId) return;
     // The turn carries them now; the composer starts clean.
@@ -787,6 +794,11 @@ async function sendPrompt(text) {
     openAskStream(payload.session_id, payload.turn_id);
   } catch (e) {
     pendingQuestion.value = null;
+    if (edits) {
+      const back = new Set(supersededIds.value);
+      back.delete(edits);
+      supersededIds.value = back;
+    }
     localRows.value = [
       { id: "local-question", role: "user", text: value },
       { id: "local-error", role: "assistant", text: "", error: e.message || t("copilot.no_answer") },
@@ -823,6 +835,77 @@ function onComposerEnter(event) {
   sendPrompt();
 }
 
+// ---- Editing a question already sent ----------------------------------
+// Re-asking with a pointer to what it replaces: the server drops the old
+// question and its answer from the thread everyone reads, so the team
+// does not work from a version that has been corrected.
+
+const editingKey = ref("");
+const editDraft = ref("");
+const editEl = ref(null);
+// Hidden here the moment the edit is sent, so the old pair does not
+// linger until the next poll catches up with the server.
+const supersededIds = ref(new Set());
+
+// The textarea lives inside the v-for, so Vue hands back an array even
+// though only the row being edited renders one.
+function editBox() {
+  const el = editEl.value;
+  return Array.isArray(el) ? el[0] : el;
+}
+
+function startEdit(turn) {
+  if (busy.value || !turn.id || turn.id === "pending") return;
+  editingKey.value = turn.key;
+  editDraft.value = turn.text;
+  nextTick(() => {
+    const el = editBox();
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    growEdit();
+  });
+}
+
+function cancelEdit() {
+  editingKey.value = "";
+  editDraft.value = "";
+}
+
+function growEdit() {
+  const el = editBox();
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+}
+
+function saveEdit(turn) {
+  const next = editDraft.value.trim();
+  if (!next || next === String(turn.text || "").trim()) {
+    cancelEdit();
+    return;
+  }
+  const replaced = turn.id;
+  cancelEdit();
+  recordEvent("copilot_edit_question", {});
+  supersededIds.value = new Set([...supersededIds.value, replaced]);
+  sendPrompt(next, { edits: replaced });
+}
+
+function onEditKey(event, turn) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelEdit();
+    return;
+  }
+  // Same contract as the composer: Enter sends, Shift+Enter breaks a line.
+  if (event.key === "Enter" && !event.shiftKey) {
+    if (event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    saveEdit(turn);
+  }
+}
+
 function retryFrom(turn) {
   const turns = visibleTurns.value;
   const index = turns.findIndex((row) => row.key === turn.key);
@@ -853,18 +936,95 @@ async function copyAnswer(turn) {
   }
 }
 
-function clearChat() {
-  if (busy.value || !props.companyId) return;
-  localRows.value = [];
-  if (sessionId.value) {
-    const marker = { sid: sessionId.value, count: serverTurns.value.length };
-    clearedMarker.value = marker;
-    writeClearedMarker(props.companyId, marker);
+// ---- Threads ----------------------------------------------------------
+
+async function newThread() {
+  if (busy.value || startingThread.value || !props.companyId) return;
+  const companyId = props.companyId;
+  startingThread.value = true;
+  threadError.value = "";
+  try {
+    const payload = await api.copilot.startThread(companyId, { mode: mode.value });
+    if (companyId !== props.companyId) return;
+    sessionId.value = payload.session_id;
+    serverTurns.value = [];
+    localRows.value = [];
+    supersededIds.value = new Set();
+    threads.value = [];
+    viewingThreadId.value = "";
+    viewingTurns.value = [];
+    historyOpen.value = false;
+    taskSaved.value = false;
+    editApplied.value = false;
+    recordEvent("copilot_new_thread", {});
+    nextTick(() => composerEl.value?.focus());
+  } catch (e) {
+    threadError.value = e?.message || t("copilot.thread_failed");
+  } finally {
+    startingThread.value = false;
   }
-  taskSaved.value = false;
-  editApplied.value = false;
-  recordEvent("copilot_clear_chat", {});
-  nextTick(() => composerEl.value?.focus());
+}
+
+async function loadThreads() {
+  if (!props.companyId) return;
+  const companyId = props.companyId;
+  threadsLoading.value = true;
+  threadError.value = "";
+  try {
+    const rows = await api.copilot.threads(companyId, mode.value);
+    if (companyId !== props.companyId) return;
+    threads.value = Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    threads.value = [];
+    threadError.value = e?.message || t("copilot.thread_failed");
+  } finally {
+    threadsLoading.value = false;
+  }
+}
+
+function toggleHistory() {
+  if (!props.companyId) return;
+  historyOpen.value = !historyOpen.value;
+  if (historyOpen.value) {
+    recordEvent("copilot_history_open", {});
+    loadThreads();
+  }
+}
+
+async function openThread(thread) {
+  historyOpen.value = false;
+  if (!thread || thread.active) {
+    backToCurrentThread();
+    return;
+  }
+  const companyId = props.companyId;
+  viewingThreadId.value = thread.id;
+  viewingTurns.value = [];
+  recordEvent("copilot_history_open_thread", {});
+  try {
+    const rows = await api.console.getTurns(companyId, thread.id);
+    if (companyId !== props.companyId || viewingThreadId.value !== thread.id) return;
+    viewingTurns.value = Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    threadError.value = e?.message || t("copilot.thread_failed");
+  }
+}
+
+function backToCurrentThread() {
+  viewingThreadId.value = "";
+  viewingTurns.value = [];
+  historyOpen.value = false;
+}
+
+function threadWhen(thread) {
+  const stamp = thread?.last_at || thread?.started_at;
+  if (!stamp) return "";
+  const date = new Date(stamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(appLanguage.value === "zh" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function clearFocus() {
@@ -1020,7 +1180,12 @@ watch(
     serverTurns.value = [];
     localRows.value = [];
     contextPayload.value = null;
-    clearedMarker.value = readClearedMarker(props.companyId);
+    forgetLegacyClearedChats();
+    threads.value = [];
+    historyOpen.value = false;
+    viewingThreadId.value = "";
+    viewingTurns.value = [];
+    supersededIds.value = new Set();
     autoPromptSent.value = false;
     loadContext({ triggerAuto: true });
     if (props.companyId) {
@@ -1093,7 +1258,8 @@ defineExpose({
   sendPrompt,
   runAction,
   buildDiscussPrompt,
-  clearChat,
+  newThread,
+  toggleHistory,
 });
 </script>
 
@@ -1158,7 +1324,52 @@ defineExpose({
       </div>
 
       <template v-else>
+        <!-- Earlier threads, in place of the transcript while open. -->
+        <div v-if="historyOpen" class="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
+          <div class="flex items-center justify-between px-1 pb-2 pt-1">
+            <div class="text-footnote font-semibold text-ink-primary">
+              {{ t("copilot.history_title") }}
+            </div>
+            <button type="button" class="warren-action" @click="toggleHistory">
+              <X class="h-3 w-3" />
+              {{ t("copilot.history_close") }}
+            </button>
+          </div>
+          <p class="px-1 pb-2 text-caption1 text-ink-muted">
+            {{ t("copilot.history_shared") }}
+          </p>
+          <p v-if="threadsLoading" class="px-1 py-3 text-caption1 text-ink-muted">
+            {{ t("common.loading") }}
+          </p>
+          <p v-else-if="!threads.length" class="px-1 py-3 text-caption1 text-ink-muted">
+            {{ t("copilot.history_empty") }}
+          </p>
+          <div v-else class="space-y-1">
+            <button
+              v-for="thread in threads"
+              :key="thread.id"
+              type="button"
+              class="warren-thread focus-ring"
+              :data-current="thread.active ? 'true' : 'false'"
+              @click="openThread(thread)"
+            >
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="truncate text-footnote text-ink-primary">
+                  {{ thread.opening_question || t("copilot.history_no_questions") }}
+                </span>
+                <span class="shrink-0 text-caption2 text-ink-subtle">{{ threadWhen(thread) }}</span>
+              </div>
+              <div class="mt-0.5 flex items-center gap-1.5 text-caption2 text-ink-subtle">
+                <span v-if="thread.active" class="text-accent-ink">{{ t("copilot.history_current") }}</span>
+                <span>{{ t("copilot.history_questions", { count: thread.question_count }) }}</span>
+                <span v-if="thread.askers?.length" class="truncate">· {{ thread.askers.join(", ") }}</span>
+              </div>
+            </button>
+          </div>
+          <p v-if="threadError" class="px-1 pt-2 text-caption1 text-danger">{{ threadError }}</p>
+        </div>
         <div
+          v-show="!historyOpen"
           ref="transcriptEl"
           class="ask-transcript relative -mx-2 min-h-0 flex-1 space-y-5 overflow-y-auto px-2"
         >
@@ -1296,34 +1507,84 @@ defineExpose({
 
           <template v-for="turn in visibleTurns" :key="turn.key">
             <!-- The analyst asks in a tinted bubble on the right... -->
-            <div v-if="turn.role === 'user'" class="flex flex-col items-end pl-10" data-turn-role="user">
-              <div class="ask-bubble">
-                <!-- Clamp inside the padding so a cut line never peeks out. -->
-                <div :class="turn.long && !expandedKeys.has(turn.key) ? 'line-clamp-6' : ''">{{ turn.text }}</div>
-                <div v-if="turn.files?.length" class="mt-1.5 flex flex-wrap justify-end gap-1">
-                  <span v-for="name in turn.files" :key="name" class="warren-file" :title="name">
-                    <Paperclip class="h-2.5 w-2.5 shrink-0" />
-                    <span class="truncate">{{ name }}</span>
-                  </span>
+            <div
+              v-if="turn.role === 'user'"
+              class="warren-question flex flex-col items-end pl-10"
+              data-turn-role="user"
+            >
+              <!-- Rewriting a question in place, where it was asked. -->
+              <form
+                v-if="editingKey === turn.key"
+                class="ask-edit"
+                @submit.prevent="saveEdit(turn)"
+              >
+                <textarea
+                  ref="editEl"
+                  v-model="editDraft"
+                  rows="2"
+                  class="ask-edit-input"
+                  :aria-label="t('copilot.edit_question')"
+                  @input="growEdit"
+                  @keydown="onEditKey($event, turn)"
+                />
+                <div class="mt-1.5 flex items-center justify-end gap-1">
+                  <button type="button" class="warren-action" @click="cancelEdit">
+                    {{ t("common.cancel") }}
+                  </button>
+                  <button
+                    type="submit"
+                    class="btn-filled btn-sm focus-ring"
+                    :disabled="!editDraft.trim()"
+                  >
+                    {{ t("copilot.save_and_ask") }}
+                  </button>
                 </div>
-              </div>
-              <button
-                v-if="turn.long"
-                type="button"
-                class="warren-action mt-0.5"
-                @click="toggleExpanded(turn.key)"
-              >
-                {{ expandedKeys.has(turn.key) ? t("copilot.show_less") : t("copilot.show_more") }}
-              </button>
-              <button
-                v-if="turn.key === latestTurn?.key && !busy"
-                type="button"
-                class="warren-action mt-1"
-                @click="retryFrom(turn)"
-              >
-                <RotateCcw class="h-3 w-3" />
-                {{ t("copilot.retry") }}
-              </button>
+              </form>
+              <template v-else>
+                <div class="ask-bubble">
+                  <!-- Clamp inside the padding so a cut line never peeks out. -->
+                  <div :class="turn.long && !expandedKeys.has(turn.key) ? 'line-clamp-6' : ''">{{ turn.text }}</div>
+                  <div v-if="turn.files?.length" class="mt-1.5 flex flex-wrap justify-end gap-1">
+                    <span v-for="name in turn.files" :key="name" class="warren-file" :title="name">
+                      <Paperclip class="h-2.5 w-2.5 shrink-0" />
+                      <span class="truncate">{{ name }}</span>
+                    </span>
+                  </div>
+                </div>
+                <div v-if="turn.author || turn.edited" class="warren-byline">
+                  <span v-if="turn.author">{{ turn.author }}</span>
+                  <span v-if="turn.author && turn.edited" aria-hidden="true">·</span>
+                  <span v-if="turn.edited">{{ t("copilot.edited") }}</span>
+                </div>
+                <button
+                  v-if="turn.long"
+                  type="button"
+                  class="warren-action mt-0.5"
+                  @click="toggleExpanded(turn.key)"
+                >
+                  {{ expandedKeys.has(turn.key) ? t("copilot.show_less") : t("copilot.show_more") }}
+                </button>
+                <div class="warren-question-actions">
+                  <button
+                    v-if="turn.id && turn.id !== 'pending' && !busy"
+                    type="button"
+                    class="warren-action"
+                    @click="startEdit(turn)"
+                  >
+                    <Pencil class="h-3 w-3" />
+                    {{ t("copilot.edit_question") }}
+                  </button>
+                  <button
+                    v-if="turn.key === latestTurn?.key && !busy"
+                    type="button"
+                    class="warren-action"
+                    @click="retryFrom(turn)"
+                  >
+                    <RotateCcw class="h-3 w-3" />
+                    {{ t("copilot.retry") }}
+                  </button>
+                </div>
+              </template>
             </div>
 
             <!-- ...and Warren answers as a page on the left, under his portrait. -->
@@ -1544,7 +1805,18 @@ defineExpose({
             </span>
           </div>
           <p v-if="attachError" class="mb-1.5 px-1 text-caption1 text-danger">{{ attachError }}</p>
-          <form class="ask-composer" @submit.prevent="sendPrompt()">
+          <div v-if="viewingThreadId" class="warren-viewing">
+            <span class="truncate">
+              {{ t("copilot.viewing_earlier") }}
+              <template v-if="viewingThread?.askers?.length">
+                · {{ viewingThread.askers.join(", ") }}
+              </template>
+            </span>
+            <button type="button" class="warren-action shrink-0" @click="backToCurrentThread">
+              {{ t("copilot.back_to_current") }}
+            </button>
+          </div>
+          <form v-else class="ask-composer" @submit.prevent="sendPrompt()">
             <input
               ref="attachInput"
               type="file"

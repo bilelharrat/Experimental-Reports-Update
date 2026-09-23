@@ -3925,6 +3925,68 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-accent) / 0.15);
 }
 
+/* One earlier thread in the history list. */
+.warren-thread {
+  @apply w-full rounded-[12px] px-2.5 py-2 text-left;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-thread:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+.warren-thread[data-current="true"] {
+  background-color: rgb(var(--color-accent) / 0.08);
+}
+
+/* Reading an older thread: the composer is replaced by the way back. */
+.warren-viewing {
+  @apply flex items-center justify-between gap-2 rounded-[14px] px-3 py-2 text-caption1 text-ink-muted;
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+/* A question's own actions, as quiet as an answer's: nothing under the
+   bubble until it is pointed at. */
+.warren-question-actions {
+  @apply mt-0.5 flex items-center gap-0.5;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.warren-question:hover .warren-question-actions,
+.warren-question:focus-within .warren-question-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .warren-question-actions {
+    opacity: 1;
+  }
+}
+
+/* Who asked, and whether it has been rewritten since. */
+.warren-byline {
+  @apply mt-1 flex items-center gap-1 pr-1 text-caption2 text-ink-subtle;
+}
+
+/* The bubble, opened up for editing in place. */
+.ask-edit {
+  @apply w-full max-w-full rounded-[16px] rounded-br-[5px] p-2;
+  background-color: rgb(var(--color-accent) / 0.11);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-accent) / 0.3);
+}
+
+.ask-edit-input {
+  @apply max-h-56 w-full resize-none rounded-[10px] border-0 px-2 py-1.5 text-subheadline text-ink-primary;
+  background-color: rgb(var(--color-surface));
+  line-height: 1.5;
+}
+
+.ask-edit-input:focus {
+  @apply outline-none;
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.5);
+}
+
 /* Warren's rail is dragged by its left edge, like the Mac app's side
    panel (MacRootView.swift). The width lives on the document element so
    the jobs rail and task history can sit beside whatever it is now. */

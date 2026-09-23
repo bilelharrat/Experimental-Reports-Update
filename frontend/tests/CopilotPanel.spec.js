@@ -9,6 +9,8 @@ const m = vi.hoisted(() => ({
     context: vi.fn(),
     ask: vi.fn(),
     attach: vi.fn(),
+    threads: vi.fn(),
+    startThread: vi.fn(),
     createTask: vi.fn(),
     applyEdit: vi.fn(),
     recordEvent: vi.fn(() => Promise.resolve()),
@@ -104,6 +106,8 @@ describe("CopilotPanel — Ask Warren", () => {
     m.copilot.context.mockResolvedValue(contextPayload());
     m.console.getTurns.mockResolvedValue([]);
     m.copilot.ask.mockResolvedValue({ session_id: SID, turn_id: "turn-1" });
+    m.copilot.threads.mockResolvedValue([]);
+    m.copilot.startThread.mockResolvedValue({ session_id: SID, previous_session_id: "" });
     m.copilot.attach.mockResolvedValue({
       session_id: SID,
       name: "term-sheet.pdf",
@@ -263,24 +267,44 @@ describe("CopilotPanel — Ask Warren", () => {
     expect(wrapper.find(".warren-status").text()).toBe("Buffetting…");
   });
 
-  it("clears the chat from view and remembers it", async () => {
+  it("starts a new thread on the server, for everyone", async () => {
     m.console.getTurns.mockResolvedValue([
       { id: "t1", role: "user", text: "Old question", ts: "2026-01-01T00:00:00Z" },
       { id: "t1", role: "assistant", text: "Old answer", ts: "2026-01-01T00:00:01Z" },
     ]);
+    m.copilot.startThread.mockResolvedValue({
+      session_id: "n".repeat(32),
+      previous_session_id: SID,
+    });
     const wrapper = mountPanel();
     await flushPromises();
     expect(wrapper.text()).toContain("Old answer");
 
-    wrapper.vm.clearChat();
+    await wrapper.vm.newThread();
     await flushPromises();
+
+    expect(m.copilot.startThread).toHaveBeenCalledWith("acme", { mode: "quick" });
     expect(wrapper.text()).not.toContain("Old answer");
     expect(wrapper.text()).toContain("Ask Warren about Acme Corp");
+  });
 
-    unmountPanel(wrapper);
-    const again = mountPanel();
+  it("does not hide a thread behind a stale local marker", async () => {
+    // An older release hid turns per browser, which is exactly what the
+    // desk complained about: two people, two different conversations.
+    window.localStorage.setItem(
+      "bsh.warren.cleared",
+      JSON.stringify({ acme: { sid: SID, count: 2 } }),
+    );
+    m.console.getTurns.mockResolvedValue([
+      { id: "t1", role: "user", text: "Old question", ts: "2026-01-01T00:00:00Z" },
+      { id: "t1", role: "assistant", text: "Old answer", ts: "2026-01-01T00:00:01Z" },
+    ]);
+
+    const wrapper = mountPanel();
     await flushPromises();
-    expect(again.text()).not.toContain("Old answer");
+
+    expect(wrapper.text()).toContain("Old answer");
+    expect(window.localStorage.getItem("bsh.warren.cleared")).toBeNull();
   });
 
   it("puts a handed-over question in the composer without sending it", async () => {
@@ -478,5 +502,195 @@ describe("CopilotPanel — Ask Warren", () => {
       .map((answer) => answer.find('[data-testid="warren-engine-note"]'));
     expect(notes[0].exists()).toBe(false);
     expect(notes[1].text()).toBe("Answered by Gemini 3.8 Flash");
+  });
+});
+
+describe("CopilotPanel — editing a question you already sent", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streams.length = 0;
+    copilotMode.value = "quick";
+    copilotSelection.value = null;
+    copilotAttention.value = null;
+    copilotDraftPrompt.value = "";
+    window.localStorage.clear();
+    m.copilot.context.mockResolvedValue(contextPayload());
+    m.copilot.ask.mockResolvedValue({ session_id: SID, turn_id: "turn-2" });
+    m.console.getTurns.mockResolvedValue([
+      { id: "turn-1", role: "user", text: "whats the mote", ts: "2026-09-23T12:00:00Z" },
+      { id: "turn-1", role: "assistant", text: "A moat is…", ts: "2026-09-23T12:00:04Z" },
+    ]);
+  });
+
+  afterEach(() => {
+    for (const wrapper of [...mounted]) unmountPanel(wrapper);
+  });
+
+  async function openEditor(wrapper) {
+    const edit = wrapper
+      .findAll("button")
+      .find((b) => b.text().trim() === "Edit");
+    await edit.trigger("click");
+    await flushPromises();
+    return wrapper.find(".ask-edit-input");
+  }
+
+  it("re-asks the corrected question and drops the pair it replaces", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    expect(wrapper.text()).toContain("whats the mote");
+
+    const box = await openEditor(wrapper);
+    expect(box.element.value).toBe("whats the mote");
+    await box.setValue("what is the moat?");
+    await wrapper.find(".ask-edit").trigger("submit");
+    await flushPromises();
+
+    expect(m.copilot.ask).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ prompt: "what is the moat?", edits: "turn-1" }),
+    );
+    // The old question and the answer it drew are gone straight away,
+    // without waiting for the next poll.
+    expect(wrapper.text()).not.toContain("whats the mote");
+    expect(wrapper.text()).not.toContain("A moat is…");
+    expect(wrapper.text()).toContain("what is the moat?");
+  });
+
+  it("leaves the question alone on Escape", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const box = await openEditor(wrapper);
+    await box.setValue("something else");
+    await box.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+
+    expect(m.copilot.ask).not.toHaveBeenCalled();
+    expect(wrapper.find(".ask-edit-input").exists()).toBe(false);
+    expect(wrapper.text()).toContain("whats the mote");
+  });
+
+  it("keeps the old question if the edit never lands", async () => {
+    m.copilot.ask.mockRejectedValue(new Error("HTTP 500"));
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const box = await openEditor(wrapper);
+    await box.setValue("what is the moat?");
+    await wrapper.find(".ask-edit").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("whats the mote");
+  });
+
+  it("signs a question somebody else asked", async () => {
+    m.console.getTurns.mockResolvedValue([
+      {
+        id: "turn-9",
+        role: "user",
+        text: "Why the write-down?",
+        author: { email: "sam@bshventures.com", name: "Sam Ortiz" },
+        ts: "2026-09-23T12:00:00Z",
+      },
+    ]);
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.find(".warren-byline").text()).toContain("Sam Ortiz");
+  });
+
+  it("says when a question has been rewritten", async () => {
+    m.console.getTurns.mockResolvedValue([
+      {
+        id: "turn-9",
+        role: "user",
+        text: "What is the moat?",
+        edits: "turn-1",
+        ts: "2026-09-23T12:00:00Z",
+      },
+    ]);
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.find(".warren-byline").text()).toContain("edited");
+  });
+});
+
+describe("CopilotPanel — the thread history the team shares", () => {
+  const OLD_SID = "o".repeat(32);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streams.length = 0;
+    copilotMode.value = "quick";
+    copilotSelection.value = null;
+    copilotAttention.value = null;
+    copilotDraftPrompt.value = "";
+    window.localStorage.clear();
+    m.copilot.context.mockResolvedValue(contextPayload());
+    m.console.getTurns.mockResolvedValue([]);
+    m.copilot.threads.mockResolvedValue([
+      {
+        id: SID,
+        active: true,
+        question_count: 1,
+        opening_question: "What is the moat?",
+        askers: ["You"],
+        last_at: "2026-09-23T12:00:00Z",
+      },
+      {
+        id: OLD_SID,
+        active: false,
+        question_count: 3,
+        opening_question: "Why the write-down?",
+        askers: ["Sam Ortiz", "Dana Lee"],
+        last_at: "2026-09-19T09:00:00Z",
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    for (const wrapper of [...mounted]) unmountPanel(wrapper);
+  });
+
+  it("lists earlier threads with who asked in them", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await wrapper.vm.toggleHistory();
+    await flushPromises();
+
+    expect(m.copilot.threads).toHaveBeenCalledWith("acme", "quick");
+    const rows = wrapper.findAll(".warren-thread");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].attributes("data-current")).toBe("true");
+    expect(rows[1].text()).toContain("Why the write-down?");
+    expect(rows[1].text()).toContain("Sam Ortiz, Dana Lee");
+    expect(rows[1].text()).toContain("3 questions");
+  });
+
+  it("opens an earlier thread read-only, with the way back", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    await wrapper.vm.toggleHistory();
+    await flushPromises();
+
+    m.console.getTurns.mockResolvedValue([
+      { id: "t7", role: "user", text: "Why the write-down?", ts: "2026-09-19T09:00:00Z" },
+      { id: "t7", role: "assistant", text: "Goodwill from the 2024 deal.", ts: "2026-09-19T09:00:03Z" },
+    ]);
+    await wrapper.findAll(".warren-thread")[1].trigger("click");
+    await flushPromises();
+
+    expect(m.console.getTurns).toHaveBeenCalledWith("acme", OLD_SID);
+    expect(wrapper.text()).toContain("Goodwill from the 2024 deal.");
+    // No composer while reading history — you cannot add to a closed thread.
+    expect(wrapper.find(".ask-composer").exists()).toBe(false);
+    expect(wrapper.find(".warren-viewing").text()).toContain("Reading an earlier thread");
+
+    await wrapper.find(".warren-viewing button").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".ask-composer").exists()).toBe(true);
   });
 });
