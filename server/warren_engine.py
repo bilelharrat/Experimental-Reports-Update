@@ -42,6 +42,13 @@ CATCH_UP_EXCHANGES = 6
 CATCH_UP_CHARS = 8_000
 MAX_SOURCES = 5
 
+# Said after a failed turn that carried files, because the usual advice —
+# wait for the stand-in — does not apply: Gemini was never asked.
+ATTACHED_FILES_NOTE = (
+    "Warren needs Claude's eyes for an image or a scan, so this question did "
+    "not fall back to Gemini. Ask again in a few minutes, or remove the file."
+)
+
 GEMINI_NOTE = (
     "\n\n## Tools in this session\n\n"
     "You cannot open the staged session files here, so the instructions about "
@@ -287,6 +294,7 @@ def answer(
     run_claude: Callable[[Any], dict],
     run_gemini: Callable[[Any], dict],
     progress,
+    require_claude: bool = False,
 ) -> dict:
     """Answer one Warren question, the second engine standing in for the first.
 
@@ -295,12 +303,19 @@ def answer(
     plus ``engine``, ``model`` and, when the first engine failed,
     ``fallback_reason``. A Stop ends the turn wherever it lands; the other
     engine is never asked to answer a question the analyst withdrew.
+
+    ``require_claude`` is for a question carrying files: only Claude opens
+    what is staged beside it, so Gemini is not asked. An answer about a
+    document it cannot see reads like any other answer, which is the one
+    failure worth refusing outright.
     """
     first = chosen()
     order = ["claude", "gemini"] if first == "claude" else ["gemini", "claude"]
     failures: list[tuple[str, str]] = []
     resting = claude_resting()
-    if first == "claude" and resting and gemini_runner.is_available():
+    if require_claude:
+        order = ["claude"]
+    elif first == "claude" and resting and gemini_runner.is_available():
         # Straight to Gemini: another CLI spawn would fail the same way.
         order = ["gemini", "claude"]
         failures.append(("claude", resting))
@@ -352,6 +367,8 @@ def answer(
         error = str(outcome.get("error") or "Interrupted (user_cancelled)")
     else:
         error = _combined_error(failures) if failures else "No answer came back"
+        if require_claude:
+            error = f"{error} {ATTACHED_FILES_NOTE}"
     outcome["error"] = error
     progress.emit("error", error=error, interrupt_reason=outcome.get("interrupt_reason"))
     return outcome

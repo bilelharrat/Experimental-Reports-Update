@@ -73,6 +73,66 @@ def test_ensure_quick_session_reuses_existing(tmp_path, monkeypatch):
     assert meta.get("hydration_status") == "skipped"
 
 
+def test_staged_attachment_lands_in_the_session_warren_asks_from(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+
+    record = copilot.stage_attachment(
+        company_id, filename="term-sheet.pdf", data=b"%PDF-1.7 term sheet"
+    )
+
+    # The session the next quick ask will use, not a new one.
+    assert record["session_id"] == copilot.ensure_quick_session(company_id)["id"]
+    assert record["name"] == "term-sheet.pdf"
+    assert record["stored_name"].endswith(".pdf")
+    # Written where Claude can Read it (`--add-dir workdir`), not only in the
+    # canonical store.
+    work = console_store.workdir_attachments(company_id, record["session_id"])
+    assert (work / record["stored_name"]).read_bytes() == b"%PDF-1.7 term sheet"
+
+
+def test_a_staged_file_rides_along_with_the_question(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    submitted = {}
+
+    def fake_submit(**kwargs):
+        submitted.update(kwargs)
+        return {"turn_id": "t1", "queue_position": 0}
+
+    monkeypatch.setattr(copilot.console_session, "submit_ask", fake_submit)
+
+    out = copilot.submit_quick_ask(
+        company_id=company_id,
+        prompt="What is unusual in this term sheet?",
+        attachments=["abc123.pdf"],
+    )
+
+    assert submitted["attachments"] == ["abc123.pdf"]
+    assert out["turn_id"] == "t1"
+
+
+def test_a_question_without_files_sends_none(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    submitted = {}
+
+    def fake_submit(**kwargs):
+        submitted.update(kwargs)
+        return {"turn_id": "t1", "queue_position": 0}
+
+    monkeypatch.setattr(copilot.console_session, "submit_ask", fake_submit)
+
+    copilot.submit_quick_ask(company_id="zainar-inc", prompt="How is the moat?")
+
+    assert submitted["attachments"] == []
+
+
 def test_needs_hydration_skips_workspace_only_questions():
     client = {"surface": "tracking", "attention": {"kind": "memo_failed"}}
     assert copilot.needs_hydration("Diagnose the failed memo run", client) is False

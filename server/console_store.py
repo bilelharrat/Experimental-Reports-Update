@@ -37,24 +37,65 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import attachment_text
 from .files_store import DATA_DIR
 
 
 # ---- Caps (see §10 of docs/console-feature.md) --------------------------
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
-ALLOWED_ATTACHMENT_TYPES: frozenset[str] = frozenset(
-    {
-        # Images — Claude reads these directly.
-        "image/png",
-        "image/jpeg",
-        "image/webp",
-        # Documents — Claude reads PDFs natively; .doc/.docx are accepted
-        # but Claude may need to convert before extracting text.
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
+
+# Canonical extension -> MIME for everything an analyst may attach. The
+# stored file keeps the canonical extension, so this table also drives
+# ``_EXT_FOR_MIME``. Office documents, HTML and RTF are converted to text
+# at save time (see ``attachment_text``) because Claude's Read tool
+# reports them as binary; images and PDFs it opens itself.
+ATTACHMENT_TYPE_BY_EXT: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument."
+        "wordprocessingml.document"
+    ),
+    ".xlsx": (
+        "application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet"
+    ),
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument."
+        "presentationml.presentation"
+    ),
+    ".rtf": "application/rtf",
+    ".txt": "text/plain",
+    ".log": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
+    ".json": "application/json",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".html": "text/html",
+    ".htm": "text/html",
+}
+ALLOWED_ATTACHMENT_TYPES: frozenset[str] = frozenset(ATTACHMENT_TYPE_BY_EXT.values())
+
+# Formats the model takes in with its own eyes. Everything else has to
+# come back from ``attachment_text`` as text, or it is not worth staging:
+# a file nobody can read only produces an apology two minutes later.
+NATIVE_READ_TYPES: frozenset[str] = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
+)
+
+ATTACHMENT_TYPE_MESSAGE = (
+    "Attach an image (PNG, JPEG, GIF, WebP), a document (PDF, Word, "
+    "PowerPoint, Excel, RTF) or a text file (TXT, Markdown, CSV, TSV, "
+    "JSON, YAML, HTML)"
 )
 MAX_ACTIVE_SESSIONS_PER_COMPANY = 6
 
@@ -478,10 +519,33 @@ def stage_docs(
 _UNAMBIGUOUS_MAGIC: tuple[tuple[bytes, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
     (b"%PDF-", "application/pdf"),
+    (b"{\\rtf", "application/rtf"),
 )
 _OLE2_MAGIC = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"  # .doc (and .xls/.ppt — extension disambiguates)
-_ZIP_MAGIC = b"PK\x03\x04"                          # .docx (and .xlsx/.pptx — extension disambiguates)
+_ZIP_MAGIC = b"PK\x03\x04"                          # .docx/.xlsx/.pptx — extension disambiguates
+_ZIP_OFFICE_EXTS = frozenset({".docx", ".xlsx", ".pptx"})
+# Plain-text formats have no magic; the extension names them and the
+# bytes have to back it up (see ``_looks_like_text``).
+_TEXT_EXTS = frozenset(
+    {".txt", ".log", ".md", ".markdown", ".csv", ".tsv", ".json",
+     ".yaml", ".yml", ".html", ".htm"}
+)
+
+
+def _looks_like_text(data: bytes) -> bool:
+    """A cheap "is this prose or a binary blob" check, encoding-agnostic:
+    no NUL bytes and almost everything printable in the first 8 KB.
+    """
+    head = data[:8192]
+    if head.startswith((b"\xff\xfe", b"\xfe\xff")):  # UTF-16 BOM
+        return True
+    if b"\x00" in head:
+        return False
+    printable = sum(1 for byte in head if byte >= 32 or byte in (9, 10, 13))
+    return printable / max(len(head), 1) > 0.9
 
 
 def detect_attachment_type(
@@ -502,13 +566,13 @@ def detect_attachment_type(
     if len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
     lower_name = (filename or "").lower()
-    if data.startswith(_OLE2_MAGIC) and lower_name.endswith(".doc"):
+    ext = "." + lower_name.rsplit(".", 1)[1] if "." in lower_name else ""
+    if data.startswith(_OLE2_MAGIC) and ext == ".doc":
         return "application/msword"
-    if data.startswith(_ZIP_MAGIC) and lower_name.endswith(".docx"):
-        return (
-            "application/vnd.openxmlformats-officedocument."
-            "wordprocessingml.document"
-        )
+    if data.startswith(_ZIP_MAGIC) and ext in _ZIP_OFFICE_EXTS:
+        return ATTACHMENT_TYPE_BY_EXT[ext]
+    if ext in _TEXT_EXTS and _looks_like_text(data):
+        return ATTACHMENT_TYPE_BY_EXT[ext]
     return None
 
 
@@ -518,14 +582,10 @@ MAX_IMAGE_BYTES = MAX_ATTACHMENT_BYTES
 ALLOWED_IMAGE_TYPES = ALLOWED_ATTACHMENT_TYPES
 
 
-_EXT_FOR_MIME = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "application/pdf": ".pdf",
-    "application/msword": ".doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-}
+# First extension wins: .jpg over .jpeg, .md over .markdown.
+_EXT_FOR_MIME: dict[str, str] = {}
+for _ext, _mime in ATTACHMENT_TYPE_BY_EXT.items():
+    _EXT_FOR_MIME.setdefault(_mime, _ext)
 
 
 class AttachmentTooLarge(Exception):
@@ -534,6 +594,13 @@ class AttachmentTooLarge(Exception):
 
 class AttachmentTypeNotAllowed(Exception):
     """Upload's sniffed MIME isn't one of ``ALLOWED_ATTACHMENT_TYPES``."""
+
+
+class AttachmentUnreadable(Exception):
+    """An allowed format that yielded no text and that the model cannot
+    open itself — better refused at the composer than apologized for two
+    minutes into the answer.
+    """
 
 
 class SessionLimitReached(Exception):
@@ -555,7 +622,9 @@ def save_attachment(
 
     The same bytes are written to both ``attachments/<sha>.<ext>`` (the
     canonical store) AND to ``workdir/attachments/<sha>.<ext>`` (so Claude
-    can Read them via ``--add-dir workdir``).
+    can Read them via ``--add-dir workdir``). Anything that isn't an image
+    or a PDF is also converted to text beside it, because Read reports a
+    .docx as binary; the ask inlines that text into the prompt.
     """
     if len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentTooLarge(
@@ -563,8 +632,12 @@ def save_attachment(
         )
     mime = detect_attachment_type(data, filename)
     if mime is None or mime not in ALLOWED_ATTACHMENT_TYPES:
-        raise AttachmentTypeNotAllowed(
-            "Attachment is not a recognized PNG/JPEG/WebP image or PDF/DOC/DOCX document"
+        raise AttachmentTypeNotAllowed(ATTACHMENT_TYPE_MESSAGE)
+    text = attachment_text.extract(data, mime, filename=filename)
+    if not text and mime not in NATIVE_READ_TYPES:
+        raise AttachmentUnreadable(
+            f"No text could be read out of {filename}. If it is a scan, "
+            "attach it as a PDF or an image instead."
         )
     sha = hashlib.sha256(data).hexdigest()
     ext = _EXT_FOR_MIME[mime]
@@ -584,12 +657,26 @@ def save_attachment(
         except OSError:
             shutil.copy2(canonical, work)
 
+    stored_name = f"{sha}{ext}"
+    chars = attachment_text.write_text(
+        canonical.parent, stored_name, text, display_name=filename
+    )
+    if chars:
+        sidecar = attachment_text.text_path(canonical.parent, stored_name)
+        mirror = attachment_text.text_path(work.parent, stored_name)
+        if not mirror.exists():
+            try:
+                os.link(sidecar, mirror)
+            except OSError:
+                shutil.copy2(sidecar, mirror)
+
     return {
         "id": sha,
         "name": filename,
         "mime": mime,
         "size_bytes": len(data),
-        "stored_name": f"{sha}{ext}",
+        "stored_name": stored_name,
+        "text_chars": chars,
     }
 
 
@@ -645,6 +732,10 @@ def session_exists(company_id: str, session_id: str) -> bool:
 __all__ = [
     "MAX_ATTACHMENT_BYTES",
     "ALLOWED_ATTACHMENT_TYPES",
+    "ATTACHMENT_TYPE_BY_EXT",
+    "ATTACHMENT_TYPE_MESSAGE",
+    "NATIVE_READ_TYPES",
+    "AttachmentUnreadable",
     # Backwards-compat aliases kept for one release; remove once external
     # callers (none in-tree as of 2026-05-13) have migrated.
     "MAX_IMAGE_BYTES",

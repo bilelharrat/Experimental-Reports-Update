@@ -9,21 +9,39 @@ export const WARNING_THRESHOLD = 0.75;
 export const LOCK_THRESHOLD = 0.90;
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
-// Images Claude reads natively + document formats we'll accept and let
-// Claude open via its Read tool. Keep in sync with
-// ``server/console_store.py``'s ``ALLOWED_ATTACHMENT_TYPES``.
+// Images and PDFs the model reads itself; every other format is turned
+// into text on the server when it is staged (see
+// ``server/attachment_text.py``). Keep in sync with
+// ``server/console_store.py``'s ``ATTACHMENT_TYPE_BY_EXT``.
 export const ATTACHMENT_ALLOWED_MIME = new Set([
   "image/png",
   "image/jpeg",
+  "image/gif",
   "image/webp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/rtf",
+  "text/rtf",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "application/json",
+  "application/yaml",
+  "text/yaml",
+  "text/html",
 ]);
 export const ATTACHMENT_ALLOWED_EXT = new Set([
-  ".png", ".jpg", ".jpeg", ".webp",
-  ".pdf", ".doc", ".docx",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp",
+  ".pdf", ".doc", ".docx", ".xlsx", ".pptx", ".rtf",
+  ".txt", ".log", ".md", ".markdown", ".csv", ".tsv",
+  ".json", ".yaml", ".yml", ".html", ".htm",
 ]);
+// What the file picker offers. Same list, as a string.
+export const ATTACHMENT_ACCEPT = Array.from(ATTACHMENT_ALLOWED_EXT).join(",");
 
 /**
  * Translate one turn's `usage` blob into the meter view-model.

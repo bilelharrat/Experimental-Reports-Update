@@ -152,15 +152,26 @@ describe("validateAttachment", () => {
     ).toBeNull();
   });
 
+  it("accepts the document types the server turns into text", () => {
+    // Everything here is extracted server-side (server/attachment_text.py),
+    // which is what lets Warren answer about a .docx at all.
+    for (const name of [
+      "deck.pptx", "cap-table.xlsx", "model.csv", "notes.md",
+      "readme.txt", "config.yaml", "page.html", "memo.rtf", "chart.gif",
+    ]) {
+      expect(validateAttachment({ name, type: "", size: 100 })).toBeNull();
+    }
+  });
+
   it("rejects unsupported types", () => {
-    expect(
-      validateAttachment({ name: "a.gif", type: "image/gif", size: 100 }).code,
-    ).toBe("attachment_type_not_allowed");
     expect(
       validateAttachment({ name: "a.svg", type: "image/svg+xml", size: 100 }).code,
     ).toBe("attachment_type_not_allowed");
     expect(
-      validateAttachment({ name: "a.xlsx", type: "application/vnd.ms-excel", size: 100 }).code,
+      validateAttachment({ name: "bundle.zip", type: "application/zip", size: 100 }).code,
+    ).toBe("attachment_type_not_allowed");
+    expect(
+      validateAttachment({ name: "clip.mp4", type: "video/mp4", size: 100 }).code,
     ).toBe("attachment_type_not_allowed");
   });
 });

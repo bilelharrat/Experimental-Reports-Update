@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from server import console_store
+from server import attachment_text, console_store
 
 
 COMPANY = "test_company_id"
@@ -273,8 +273,11 @@ def test_save_doc_attachment_requires_extension(tmp_consoles, doc_bytes):
         )
 
 
-def test_save_docx_attachment_requires_extension(tmp_consoles, docx_bytes):
-    """ZIP magic is shared with .xlsx/.pptx; we accept only .docx."""
+def test_save_docx_attachment_requires_extension(
+    tmp_consoles, docx_bytes, real_docx_bytes,
+):
+    """ZIP magic is shared with .xlsx/.pptx, so the extension names which
+    one it is; a generic .zip stays out."""
     meta = console_store.create_session(
         company_id=COMPANY, include_background_docs=False,
         include_library_docs=False, included_files=[],
@@ -282,15 +285,101 @@ def test_save_docx_attachment_requires_extension(tmp_consoles, docx_bytes):
     sid = meta["id"]
     record = console_store.save_attachment(
         company_id=COMPANY, session_id=sid,
-        filename="memo.docx", data=docx_bytes,
+        filename="memo.docx", data=real_docx_bytes,
     )
     assert record["mime"].endswith("wordprocessingml.document")
-    # Same magic but generic .zip is rejected.
     with pytest.raises(console_store.AttachmentTypeNotAllowed):
         console_store.save_attachment(
             company_id=COMPANY, session_id=sid,
             filename="bundle.zip", data=docx_bytes,
         )
+
+
+def test_a_word_file_is_staged_with_its_text_beside_it(
+    tmp_consoles, real_docx_bytes,
+):
+    """The fix for "I wasn't able to open that .docx": Read sees a .docx
+    as binary, so the text is pulled out once, here."""
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="term-sheet.docx", data=real_docx_bytes,
+    )
+    assert record["text_chars"] > 0
+    workdir = console_store.workdir_attachments(COMPANY, sid)
+    name, text = attachment_text.read_text(workdir, record["stored_name"])
+    assert name == "term-sheet.docx"
+    assert "Pre-money valuation of $42M." in text
+    # Tables keep their rows, which is where a term sheet keeps numbers.
+    assert "Liquidation pref | 1x non-participating" in text
+    assert not attachment_text.needs_native_read(workdir, [record["stored_name"]])
+
+
+@pytest.mark.parametrize(
+    "filename,fixture,expected",
+    [
+        ("deck.pptx", "real_pptx_bytes", "ARR $4.2M"),
+        ("cap-table.xlsx", "real_xlsx_bytes", "Ada Lovelace"),
+        ("notes.md", None, "option pool"),
+    ],
+)
+def test_the_other_document_types_land_as_text_too(
+    tmp_consoles, request, filename, fixture, expected,
+):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    data = (
+        request.getfixturevalue(fixture) if fixture
+        else b"# Notes\n\nThe option pool refreshes pre-close.\n"
+    )
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid, filename=filename, data=data,
+    )
+    _, text = attachment_text.read_text(
+        console_store.workdir_attachments(COMPANY, sid), record["stored_name"]
+    )
+    assert expected in text
+
+
+def test_a_document_with_no_readable_text_is_refused(
+    tmp_consoles, empty_docx_bytes,
+):
+    """Refused at the composer, where the analyst can still do something
+    about it, rather than two minutes into an answer."""
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    with pytest.raises(console_store.AttachmentUnreadable):
+        console_store.save_attachment(
+            company_id=COMPANY, session_id=meta["id"],
+            filename="scan.docx", data=empty_docx_bytes,
+        )
+
+
+def test_an_image_needs_no_text_to_be_staged(tmp_consoles, png_bytes):
+    """Images (and PDFs) are read by the model itself, so they are staged
+    with no text beside them — and those asks have to go to Claude."""
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="chart.png", data=png_bytes,
+    )
+    assert record["text_chars"] == 0
+    assert attachment_text.needs_native_read(
+        console_store.workdir_attachments(COMPANY, sid), [record["stored_name"]]
+    )
 
 
 def test_save_attachment_wrong_type(tmp_consoles):
@@ -317,10 +406,19 @@ def test_detect_attachment_type_sniffing(
     assert detect(pdf_bytes) == "application/pdf"
     assert detect(doc_bytes, "x.doc") == "application/msword"
     assert detect(docx_bytes, "x.docx").endswith("wordprocessingml.document")
-    # Ambiguous magics without the right extension fall back to None.
+    # The ZIP magic is shared, so the extension picks the Office format.
+    assert detect(docx_bytes, "x.xlsx").endswith("spreadsheetml.sheet")
+    assert detect(docx_bytes, "x.pptx").endswith("presentationml.presentation")
+    # Ambiguous magics without a known extension fall back to None.
     assert detect(doc_bytes, "x.xls") is None
-    assert detect(docx_bytes, "x.xlsx") is None
+    assert detect(docx_bytes, "x.zip") is None
     assert detect(b"\x00\x00\x00\x00") is None
+    # Text formats have no magic: the extension names them and the bytes
+    # have to look like text.
+    assert detect(b"name,shares\nAda,100\n", "cap.csv") == "text/csv"
+    assert detect(b"# Notes", "notes.md") == "text/markdown"
+    assert detect(b"<p>hi</p>", "page.html") == "text/html"
+    assert detect(b"\x00\x01\x02binary", "fake.txt") is None
 
 
 # ---- Workdir staging ----------------------------------------------------

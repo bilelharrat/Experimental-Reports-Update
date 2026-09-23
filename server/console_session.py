@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (
+    attachment_text,
     claude_runner,
     console_store,
     files_store,
@@ -304,16 +305,29 @@ class _SessionDispatcher:
                     meta.get("output_language"),
                     lean_language_directive=bool(ask_opts.get("lean_language_directive")),
                 )
+                attachments_dir = console_store.workdir_attachments(
+                    self.company_id, self.session_id
+                )
+                # Documents were turned into text when they were staged,
+                # so Gemini can answer from the same words Claude sees.
+                # Only a file that has to be looked at — an image, a
+                # scanned PDF — pins the question to Claude.
+                gemini_question = ask_prompt + attachment_text.prompt_block(
+                    attachments_dir, attachments
+                )
                 outcome = warren_engine.answer(
                     run_claude=lambda sink: run_claude(sink, catch_up + ask_prompt),
                     run_gemini=lambda sink: warren_engine.ask_gemini(
                         system_prompt=system_prompt,
                         turns=turns,
-                        question=ask_prompt,
+                        question=gemini_question,
                         progress=sink,
                         cancel_event=cancel_event,
                     ),
                     progress=progress,
+                    require_claude=attachment_text.needs_native_read(
+                        attachments_dir, attachments
+                    ),
                 )
             else:
                 outcome = run_claude(progress)
@@ -694,12 +708,19 @@ def submit_ask(
     prompt: str,
     attachments: list[str],
     runtime_prompt: str | None = None,
+    attachment_names: dict[str, str] | None = None,
 ) -> dict:
     """Append a user turn and enqueue the ask. Returns ``{turn_id,
     queue_position}``. Returns 0 for position if running immediately.
 
+    ``attachments`` are stored names (``<sha>.pdf``), which is what the
+    runner hands the model. ``attachment_names`` maps those back to the
+    filenames the analyst picked, so a transcript read later still names
+    the file they attached rather than its hash.
+
     Raises ``ValueError`` if the session is not active.
     """
+    display = attachment_names or {}
     meta = console_store.load_meta(company_id, session_id)
     if meta is None:
         raise ValueError("session_not_found")
@@ -713,7 +734,8 @@ def submit_ask(
         "role": "user",
         "text": prompt,
         "attachments": [
-            {"id": _strip_ext(name), "name": name} for name in attachments
+            {"id": _strip_ext(name), "name": display.get(name, name)}
+            for name in attachments
         ],
     }
     if runtime_prompt and runtime_prompt != prompt:

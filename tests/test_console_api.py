@@ -10,7 +10,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server import claude_runner, console_store
+from server import attachment_text, claude_runner, console_store
 from server.main import app
 
 
@@ -98,7 +98,7 @@ def test_list_sessions(tmp_consoles, stubbed_claude, client):
 
 def test_list_sessions_hides_copilot(tmp_consoles, stubbed_claude, client):
     user = _create(client)
-    from server import console_session, console_store
+    from server import attachment_text, console_session, console_store
 
     copilot = console_session.create_session(
         company_id=COMPANY,
@@ -258,6 +258,109 @@ def test_attachment_wrong_type_400(tmp_consoles, stubbed_claude, client):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "attachment_type_not_allowed"
+
+
+# ---- Warren's own attachments (POST /copilot/attachments) --------------
+
+
+@pytest.fixture
+def warren_company():
+    """A company record, which the copilot routes check for (the console
+    routes key off the session instead)."""
+    from server import storage
+
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    return "zainar-inc"
+
+
+def test_warren_attachment_is_staged_for_the_next_question(
+    tmp_consoles, stubbed_claude, client, warren_company, pdf_bytes
+):
+    resp = client.post(
+        f"/api/companies/{warren_company}/copilot/attachments",
+        files=[("file", ("term-sheet.pdf", pdf_bytes, "application/pdf"))],
+    )
+    assert resp.status_code == 201, resp.text
+    record = resp.json()
+    assert record["name"] == "term-sheet.pdf"
+    assert record["stored_name"].endswith(".pdf")
+
+    # The ask carries it, and it reaches the turn Warren answers.
+    ask = client.post(
+        f"/api/companies/{warren_company}/copilot/ask",
+        json={
+            "prompt": "What is unusual in this term sheet?",
+            "attachments": [record["stored_name"]],
+            "attachment_names": {record["stored_name"]: record["name"]},
+        },
+    )
+    assert ask.status_code == 200, ask.text
+    sid = ask.json()["session_id"]
+    assert sid == record["session_id"]
+    user_turn = next(
+        t
+        for t in console_store.read_turns(warren_company, sid)
+        if t["role"] == "user" and t["id"] == ask.json()["turn_id"]
+    )
+    assert [a["name"] for a in user_turn["attachments"]] == ["term-sheet.pdf"]
+
+
+def test_warren_attachment_too_large_400(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    huge = b"%PDF-1.4\n" + b"\x00" * (console_store.MAX_ATTACHMENT_BYTES + 1)
+    resp = client.post(
+        f"/api/companies/{warren_company}/copilot/attachments",
+        files=[("file", ("big.pdf", huge, "application/pdf"))],
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "attachment_too_large"
+
+
+def test_warren_attachment_wrong_type_400(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    resp = client.post(
+        f"/api/companies/{warren_company}/copilot/attachments",
+        files=[("file", ("models.zip", b"PK\x03\x04nope", "application/zip"))],
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "attachment_type_not_allowed"
+
+
+def test_warren_attachment_unreadable_400(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    """An allowed extension whose bytes hold no text is refused here,
+    rather than answered with an apology two minutes later."""
+    resp = client.post(
+        f"/api/companies/{warren_company}/copilot/attachments",
+        files=[("file", ("sheet.xlsx", b"PK\x03\x04nope", "application/vnd.ms-excel"))],
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "attachment_unreadable"
+
+
+def test_warren_reads_a_word_file(
+    tmp_consoles, stubbed_claude, client, warren_company, real_docx_bytes
+):
+    """The .docx that used to come back as "I wasn't able to open that"."""
+    resp = client.post(
+        f"/api/companies/{warren_company}/copilot/attachments",
+        files=[(
+            "file",
+            ("term-sheet.docx", real_docx_bytes, "application/octet-stream"),
+        )],
+    )
+    assert resp.status_code == 201, resp.text
+    record = resp.json()
+    assert record["text_chars"] > 0
+    _, text = attachment_text.read_text(
+        console_store.workdir_attachments(warren_company, record["session_id"]),
+        record["stored_name"],
+    )
+    assert "Pre-money valuation of $42M." in text
 
 
 def test_attachment_round_trip(tmp_consoles, stubbed_claude, client, png_bytes):

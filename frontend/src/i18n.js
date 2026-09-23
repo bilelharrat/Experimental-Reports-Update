@@ -800,6 +800,16 @@ const messages = {
     "copilot.mode_quick_hint": "A fast answer from this company’s files and memo",
     "copilot.mode_deep_hint": "A longer research session with full document access",
     "copilot.enter_hint": "Enter to send · Shift+Enter for a new line",
+    "copilot.attach": "Attach a file",
+    "copilot.attach_hint":
+      "Attach a document, spreadsheet, deck or image (or drop it here)",
+    "copilot.attach_needs_company": "Pick a company before attaching a file.",
+    "copilot.attach_failed": "Could not attach that file.",
+    "copilot.save_to_files": "Save to Files",
+    "copilot.save_to_files_hint":
+      "Also file it under this company, where a memo run can read it",
+    "copilot.saved_to_files": "In Files",
+    "copilot.remove_attachment": "Remove this file",
     "copilot.show_more": "Show more",
     "copilot.show_less": "Show less",
     "copilot.clear_chat": "Clear chat",
@@ -2735,7 +2745,10 @@ const messages = {
     "console.error_attachment_too_large":
       "Attachment too large. Maximum 10 MB per upload.",
     "console.error_attachment_type":
-      "Only PNG / JPEG / WebP images or PDF / DOC / DOCX documents are accepted.",
+      "Attach an image (PNG, JPEG, GIF, WebP), a document (PDF, Word, PowerPoint, " +
+      "Excel, RTF) or a text file (TXT, Markdown, CSV, TSV, JSON, YAML, HTML).",
+    "console.error_attachment_unreadable":
+      "No text could be read out of that file. If it is a scan, attach it as a PDF or an image.",
     "console.error_attachment_missing": "No image selected.",
     "console.cancelled": "Stopped",
     "console.failed": "Failed",
@@ -3766,6 +3779,14 @@ const messages = {
     "copilot.mode_quick_hint": "基于公司资料与备忘录快速作答",
     "copilot.mode_deep_hint": "可完整读取文档的深度研究会话",
     "copilot.enter_hint": "回车发送 · Shift+回车换行",
+    "copilot.attach": "添加文件",
+    "copilot.attach_hint": "添加文档、表格、演示文稿或图片（也可拖放到此处）",
+    "copilot.attach_needs_company": "请先选择公司，再添加文件。",
+    "copilot.attach_failed": "无法添加该文件。",
+    "copilot.save_to_files": "存入文件",
+    "copilot.saved_to_files": "已存入文件",
+    "copilot.save_to_files_hint": "同时归档到该公司，备忘录运行时可读取",
+    "copilot.remove_attachment": "移除此文件",
     "copilot.show_more": "展开",
     "copilot.show_less": "收起",
     "copilot.clear_chat": "清空对话",
@@ -5678,7 +5699,10 @@ const messages = {
     "console.no_session_yet": "暂无活跃会话。",
     "console.error_attachment_too_large": "附件过大，单次上传最多 10 MB。",
     "console.error_attachment_type":
-      "仅接受 PNG / JPEG / WebP 图片或 PDF / DOC / DOCX 文档。",
+      "可附加图片（PNG、JPEG、GIF、WebP）、文档（PDF、Word、PowerPoint、Excel、RTF）" +
+      "或文本文件（TXT、Markdown、CSV、TSV、JSON、YAML、HTML）。",
+    "console.error_attachment_unreadable":
+      "无法从该文件中读取任何文字。如果是扫描件，请改为附加 PDF 或图片。",
     "console.error_attachment_missing": "未选择图片。",
     "console.cancelled": "已停止",
     "console.failed": "失败",

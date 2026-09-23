@@ -3922,6 +3922,60 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-accent) / 0.15);
 }
 
+/* A file attached to a question: staged in the composer, then shown under
+   the question it went with. */
+.warren-file {
+  @apply inline-flex max-w-full items-center gap-1 rounded-pill px-2 py-0.5 text-caption2 text-ink-secondary;
+  background-color: rgb(var(--color-text-primary) / 0.06);
+}
+
+.warren-file[data-tone="warning"] {
+  background-color: rgb(var(--color-warning) / 0.12);
+  color: rgb(var(--color-warning-ink));
+}
+
+.warren-file-action {
+  @apply -mr-0.5 inline-flex items-center gap-0.5 rounded-pill px-1.5 py-px font-medium text-accent-ink;
+  background-color: rgb(var(--color-accent) / 0.1);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-file-action:hover:not(:disabled) {
+  background-color: rgb(var(--color-accent) / 0.2);
+}
+
+.warren-file-action:disabled {
+  @apply opacity-50;
+}
+
+.warren-file-clear {
+  @apply -mr-1 grid h-4 w-4 shrink-0 place-items-center rounded-full text-ink-subtle;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-file-clear:hover {
+  background-color: rgb(var(--color-text-primary) / 0.1);
+}
+
+/* The paperclip sits left of the text, as the send button sits right. */
+.ask-attach {
+  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.ask-attach:hover {
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  @apply text-ink-primary;
+}
+
+/* Dropping a file anywhere over the composer block attaches it. */
+[data-file-drag="true"] .ask-composer {
+  border-color: rgb(var(--color-accent) / 0.5);
+  box-shadow: 0 0 0 3px rgb(var(--color-accent-glow) / 0.25);
+}
+
 /* What Warren can see: the tab or the memo point handed to him. */
 .warren-context {
   @apply inline-flex min-w-0 max-w-full items-center gap-1 rounded-pill py-0.5 pl-2 pr-2 text-caption1 font-medium text-accent-ink;

@@ -1402,6 +1402,21 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    // Stage a file beside Warren's session. Uploaded when it is picked, so
+    // one he cannot read is refused before the question is sent; the ask
+    // carries the returned `stored_name` back.
+    attach: async (companyId, file, mode = "quick") => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      const res = await ensureOk(
+        await apiFetch(`/api/companies/${companyId}/copilot/attachments`, {
+          method: "POST",
+          body: fd,
+        }),
+      );
+      return res.json();
+    },
     createTask: (companyId, body) =>
       request(`/api/companies/${companyId}/copilot/tasks`, {
         method: "POST",

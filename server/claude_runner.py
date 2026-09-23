@@ -34,7 +34,8 @@ from typing import Any
 
 import yaml
 
-from . import job_progress, memo_engine, memo_prompts, memo_structure, source_cache
+from . import attachment_text, job_progress, memo_engine, memo_prompts, memo_structure
+from . import source_cache
 from . import memo_flags
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
@@ -17927,10 +17928,11 @@ def run_console_ask(
 
     final_prompt = user_prompt.rstrip()
     if attachments:
-        names = ", ".join(f"`attachments/{n}`" for n in attachments)
-        final_prompt += (
-            "\n\n(Attached: " + names + ". Use the Read tool to view "
-            "each one.)"
+        # Text was pulled out of documents when they were staged, so the
+        # prompt carries it: Read reports a .docx as binary, and quick
+        # asks may be running with no tools at all.
+        final_prompt += attachment_text.prompt_block(
+            work_dir / "attachments", attachments
         )
 
     session_args = (

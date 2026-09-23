@@ -92,9 +92,9 @@ def _warren_session(kind="copilot_quick"):
     return meta["id"]
 
 
-def _ask(sid, prompt="why did chip stocks soar today"):
+def _ask(sid, prompt="why did chip stocks soar today", attachments=()):
     info = console_session.submit_ask(
-        company_id=COMPANY, session_id=sid, prompt=prompt, attachments=[],
+        company_id=COMPANY, session_id=sid, prompt=prompt, attachments=list(attachments),
     )
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
@@ -216,6 +216,42 @@ def test_both_engines_failing_names_both(tmp_consoles, monkeypatch, gemini_key):
     assert turn["error"] == f"Claude: {LIMIT} · Gemini: gemini HTTP 429 — quota"
     errors = [e for e in _events(sid, turn_id) if e["type"] == "error"]
     assert len(errors) == 1
+
+
+def test_a_question_carrying_a_file_is_never_handed_to_gemini(
+    tmp_consoles, monkeypatch, gemini_key
+):
+    # Gemini cannot open what is staged beside the question, and an answer
+    # about a document it cannot see reads like any other answer.
+    claude_calls, gemini_calls = [], []
+    monkeypatch.setattr(
+        claude_runner, "run_console_ask", _claude(claude_calls, ok=False, error=LIMIT)
+    )
+    monkeypatch.setattr(gemini_runner, "run_chat", _gemini(gemini_calls))
+    sid = _warren_session()
+
+    _turn_id, turn = _ask(
+        sid, "what is unusual in this term sheet", attachments=["abc123.pdf"]
+    )
+
+    assert gemini_calls == []
+    assert len(claude_calls) == 1
+    assert claude_calls[0]["attachments"] == ["abc123.pdf"]
+    # The failure says why nothing stood in, and what to do about it.
+    assert turn["error"].startswith(LIMIT)
+    assert "remove the file" in turn["error"]
+
+
+def test_the_same_question_without_a_file_still_falls_back(
+    tmp_consoles, monkeypatch, gemini_key
+):
+    monkeypatch.setattr(claude_runner, "run_console_ask", _claude([], ok=False, error=LIMIT))
+    monkeypatch.setattr(gemini_runner, "run_chat", _gemini([]))
+    sid = _warren_session()
+
+    _turn_id, turn = _ask(sid, "what is unusual in this term sheet")
+
+    assert turn["engine"] == "gemini"
 
 
 def test_gemini_setting_asks_gemini_first(tmp_consoles, monkeypatch, gemini_key):

@@ -8,10 +8,12 @@ const m = vi.hoisted(() => ({
   copilot: {
     context: vi.fn(),
     ask: vi.fn(),
+    attach: vi.fn(),
     createTask: vi.fn(),
     applyEdit: vi.fn(),
     recordEvent: vi.fn(() => Promise.resolve()),
   },
+  uploadResearchFile: vi.fn(),
   console: {
     getTurns: vi.fn(),
     cancelAsk: vi.fn(() => Promise.resolve(true)),
@@ -102,6 +104,12 @@ describe("CopilotPanel — Ask Warren", () => {
     m.copilot.context.mockResolvedValue(contextPayload());
     m.console.getTurns.mockResolvedValue([]);
     m.copilot.ask.mockResolvedValue({ session_id: SID, turn_id: "turn-1" });
+    m.copilot.attach.mockResolvedValue({
+      session_id: SID,
+      name: "term-sheet.pdf",
+      stored_name: "abc123.pdf",
+    });
+    m.uploadResearchFile.mockResolvedValue({ id: "file-9" });
   });
 
   afterEach(() => {
@@ -346,6 +354,113 @@ describe("CopilotPanel — Ask Warren", () => {
       `Gemini 3.8 Flash answered · Claude couldn't: ${limit}`,
     );
     expect(answer.find(".warren-error").exists()).toBe(false);
+  });
+
+  // A document handed to Warren: staged as it is picked, sent with the
+  // question, and kept under the company only when asked.
+  async function attachFile(wrapper, file) {
+    const input = wrapper.find('input[type="file"]');
+    Object.defineProperty(input.element, "files", { value: [file], configurable: true });
+    await input.trigger("change");
+    await flushPromises();
+  }
+
+  const pdf = (name = "term-sheet.pdf") =>
+    new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
+
+  it("stages a picked file and sends it with the question", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const file = pdf();
+    await attachFile(wrapper, file);
+
+    expect(m.copilot.attach).toHaveBeenCalledWith("acme", file, "quick");
+    const chip = wrapper.find(".warren-file");
+    expect(chip.text()).toContain("term-sheet.pdf");
+
+    await wrapper.find("textarea").setValue("What is unusual in this term sheet?");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(m.copilot.ask).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({
+        prompt: "What is unusual in this term sheet?",
+        attachments: ["abc123.pdf"],
+        attachment_names: { "abc123.pdf": "term-sheet.pdf" },
+      }),
+    );
+    // The question carries it now, so the composer is clear...
+    expect(wrapper.findAll(".warren-file").length).toBe(1);
+    // ...and the file shows under the question it went with.
+    expect(wrapper.find('[data-turn-role="user"] .warren-file').text()).toContain(
+      "term-sheet.pdf",
+    );
+  });
+
+  it("refuses a file Warren cannot read, before the question is sent", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await attachFile(
+      wrapper,
+      new File(["PK"], "models.zip", { type: "application/zip" }),
+    );
+
+    expect(m.copilot.attach).not.toHaveBeenCalled();
+    expect(wrapper.find(".warren-file").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Attach an image");
+  });
+
+  it("says so when staging fails, and leaves the file out of the question", async () => {
+    m.copilot.attach.mockRejectedValue(
+      Object.assign(new Error("HTTP 400"), {
+        detail: { detail: { code: "attachment_too_large" } },
+      }),
+    );
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await attachFile(wrapper, pdf("huge.pdf"));
+
+    const chip = wrapper.find(".warren-file");
+    expect(chip.attributes("data-tone")).toBe("warning");
+
+    await wrapper.find("textarea").setValue("Read this");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(m.copilot.ask).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ attachments: [] }),
+    );
+  });
+
+  it("files an attachment under the company on Save to Files", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    const file = pdf();
+    await attachFile(wrapper, file);
+
+    const save = wrapper.find(".warren-file-action");
+    expect(save.text()).toContain("Save to Files");
+    await save.trigger("click");
+    await flushPromises();
+
+    expect(m.uploadResearchFile).toHaveBeenCalledWith("acme", file);
+    expect(wrapper.find(".warren-file").text()).toContain("In Files");
+    expect(wrapper.find(".warren-file-action").exists()).toBe(false);
+  });
+
+  it("drops a file from the composer again", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    await attachFile(wrapper, pdf());
+
+    await wrapper.find(".warren-file-clear").trigger("click");
+
+    expect(wrapper.find(".warren-file").exists()).toBe(false);
   });
 
   it("names a chosen Gemini, and says nothing under a Claude answer", async () => {

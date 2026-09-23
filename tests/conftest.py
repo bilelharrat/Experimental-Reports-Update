@@ -321,3 +321,101 @@ def docx_bytes() -> bytes:
     """ZIP local-file header — same magic shared with .xlsx/.pptx; the
     sniffer relies on the .docx extension to disambiguate."""
     return b"PK\x03\x04" + b"\x00" * 32
+
+
+@pytest.fixture
+def real_docx_bytes() -> bytes:
+    """An actual Word file, table and all. The sniffer is happy with the
+    header fixtures above, but anything that reaches
+    ``console_store.save_attachment`` now has its text extracted, so a
+    document has to really be one."""
+    import io
+
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("Pre-money valuation of $42M.")
+    table = doc.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Liquidation pref"
+    table.rows[0].cells[1].text = "1x non-participating"
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def empty_docx_bytes() -> bytes:
+    """A real .docx with nothing in it — the "no text came back" case."""
+    import io
+
+    from docx import Document
+
+    buf = io.BytesIO()
+    Document().save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def real_pptx_bytes() -> bytes:
+    import io
+
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Series B"
+    slide.placeholders[1].text = "ARR $4.2M"
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def real_xlsx_bytes() -> bytes:
+    """A minimal workbook in the layout Excel writes: shared strings,
+    a relationship id per sheet, ``t="s"`` cells pointing into the table.
+    openpyxl isn't a dependency, so the fixture spells the parts out."""
+    import io
+    import zipfile
+
+    def sheet(rows):
+        body = "".join(
+            "<row r=\"{}\">{}</row>".format(
+                i,
+                "".join(
+                    '<c r="{}{}" t="s"><v>{}</v></c>'.format(chr(65 + j), i, v)
+                    for j, v in enumerate(row)
+                ),
+            )
+            for i, row in enumerate(rows, start=1)
+        )
+        return (
+            '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org'
+            '/spreadsheetml/2006/main"><sheetData>' + body + "</sheetData></worksheet>"
+        )
+
+    strings = ["Holder", "Shares", "Ada Lovelace", "1,000,000"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as bundle:
+        bundle.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org'
+            '/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org'
+            '/officeDocument/2006/relationships"><sheets>'
+            '<sheet name="Cap table" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        )
+        bundle.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats'
+            '.org/package/2006/relationships"><Relationship Id="rId1" Target'
+            '="worksheets/sheet1.xml"/></Relationships>',
+        )
+        bundle.writestr(
+            "xl/sharedStrings.xml",
+            '<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org'
+            '/spreadsheetml/2006/main">'
+            + "".join(f"<si><t>{s}</t></si>" for s in strings)
+            + "</sst>",
+        )
+        bundle.writestr("xl/worksheets/sheet1.xml", sheet([(0, 1), (2, 3)]))
+    return buf.getvalue()

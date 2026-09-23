@@ -1002,12 +1002,43 @@ def _maybe_hydrate_quick_session(
     )
 
 
+def stage_attachment(
+    company_id: str,
+    *,
+    filename: str,
+    data: bytes,
+    mode: str = "quick",
+    output_language: str = "en",
+) -> dict:
+    """Save a file beside Warren's session so the next question can open it.
+
+    Staged on pick rather than on send, so a file he cannot read is refused
+    while the analyst is still looking at the composer. Returns the record
+    ``console_store.save_attachment`` writes, plus the session it landed in;
+    the ask carries the ``stored_name`` back.
+    """
+    meta = (
+        ensure_deep_session(company_id, output_language=output_language)
+        if mode == "deep"
+        else ensure_quick_session(company_id, output_language=output_language)
+    )
+    record = console_store.save_attachment(
+        company_id=company_id,
+        session_id=meta["id"],
+        filename=filename,
+        data=data,
+    )
+    return {"session_id": meta["id"], **record}
+
+
 def submit_quick_ask(
     *,
     company_id: str,
     prompt: str,
     client_context: dict[str, Any] | None = None,
     output_language: str = "en",
+    attachments: list[str] | None = None,
+    attachment_names: dict[str, str] | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
@@ -1035,8 +1066,9 @@ def submit_quick_ask(
         company_id=company_id,
         session_id=meta["id"],
         prompt=prompt.strip(),
-        attachments=[],
+        attachments=list(attachments or []),
         runtime_prompt=runtime_prompt,
+        attachment_names=attachment_names or {},
     )
     return {
         "session_id": meta["id"],
@@ -1061,6 +1093,8 @@ def submit_deep_ask(
     prompt: str,
     client_context: dict[str, Any] | None = None,
     output_language: str = "en",
+    attachments: list[str] | None = None,
+    attachment_names: dict[str, str] | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
@@ -1071,8 +1105,9 @@ def submit_deep_ask(
         company_id=company_id,
         session_id=meta["id"],
         prompt=prompt.strip(),
-        attachments=[],
+        attachments=list(attachments or []),
         runtime_prompt=runtime_prompt,
+        attachment_names=attachment_names or {},
     )
     return {
         "session_id": meta["id"],

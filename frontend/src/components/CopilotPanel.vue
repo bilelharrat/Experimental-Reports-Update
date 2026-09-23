@@ -9,7 +9,10 @@ import {
   Copy,
   Crosshair,
   FileText,
+  FolderInput,
+  Loader2,
   MessageSquareText,
+  Paperclip,
   RotateCcw,
   ScrollText,
   Sparkles,
@@ -42,6 +45,7 @@ import {
   copilotTab,
 } from "../copilotContext.js";
 import CompanyConsole from "./CompanyConsole.vue";
+import { ATTACHMENT_ACCEPT, validateAttachment } from "../console.js";
 import { renderMarkdown } from "../markdown.js";
 import { formatModelName } from "../formatters.js";
 import { appLanguage } from "../state.js";
@@ -98,6 +102,15 @@ const editSaving = ref(false);
 const editApplied = ref(false);
 const transcriptEl = ref(null);
 const composerEl = ref(null);
+
+// Files going with the next question. Each is staged beside Warren's session
+// as it is picked, so one he cannot open is refused while the analyst is
+// still at the composer rather than after they press send.
+const attachments = ref([]);
+const attachInput = ref(null);
+const attachError = ref("");
+const fileDragOver = ref(false);
+let attachSeq = 0;
 
 let askEventSource = null;
 let hydrateEventSource = null;
@@ -236,7 +249,14 @@ function viewTurn(turn, index) {
   const key = `${role}-${turn.id || "row"}-${index}`;
   if (role === "user") {
     const text = String(turn.text || "");
-    return { key, role, id: turn.id, text, long: text.length > 320 || text.split("\n").length > 6 };
+    return {
+      key,
+      role,
+      id: turn.id,
+      text,
+      files: (turn.attachments || []).map((item) => String(item?.name || "")).filter(Boolean),
+      long: text.length > 320 || text.split("\n").length > 6,
+    };
   }
   const stopped = turn.interrupt_reason === "user_cancelled";
   let error = turn.error ? String(turn.error) : "";
@@ -265,7 +285,17 @@ const visibleTurns = computed(() => {
   const question = pendingQuestion.value;
   const recorded =
     question?.turnId && rows.some((row) => row.role === "user" && row.id === question.turnId);
-  const extra = question && !recorded ? [{ role: "user", id: "pending", text: question.text }] : [];
+  const extra =
+    question && !recorded
+      ? [
+          {
+            role: "user",
+            id: "pending",
+            text: question.text,
+            attachments: (question.files || []).map((name) => ({ name })),
+          },
+        ]
+      : [];
   return [...rows, ...localRows.value, ...extra].map(viewTurn);
 });
 
@@ -613,9 +643,109 @@ function autoGrow() {
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
 }
 
+// ---- Files attached to a question --------------------------------------
+
+// Ready to send: staged on the server and not refused.
+const readyAttachments = computed(() =>
+  attachments.value.filter((item) => item.storedName && !item.error),
+);
+const attachBusy = computed(() => attachments.value.some((item) => item.staging));
+
+function attachMessage(error) {
+  const code = error?.detail?.detail?.code;
+  if (code === "attachment_too_large") return t("console.error_attachment_too_large");
+  if (code === "attachment_type_not_allowed") return t("console.error_attachment_type");
+  if (code === "attachment_unreadable")
+    return error?.detail?.detail?.message || t("console.error_attachment_unreadable");
+  return error?.message || t("copilot.attach_failed");
+}
+
+function pickFiles() {
+  attachError.value = "";
+  attachInput.value?.click();
+}
+
+function onFilesPicked(event) {
+  const files = Array.from(event.target?.files || []);
+  if (event.target) event.target.value = "";
+  for (const file of files) stageFile(file);
+}
+
+async function stageFile(file) {
+  if (!props.companyId) {
+    attachError.value = t("copilot.attach_needs_company");
+    return;
+  }
+  const problem = validateAttachment(file);
+  if (problem) {
+    attachError.value = t(problem.key);
+    return;
+  }
+  attachError.value = "";
+  attachments.value.push({
+    key: `attachment-${++attachSeq}`,
+    name: file.name,
+    file,
+    storedName: "",
+    staging: true,
+    saving: false,
+    savedId: "",
+    error: "",
+  });
+  // Through the array, so mutations below reach the template.
+  const entry = attachments.value[attachments.value.length - 1];
+  const companyId = props.companyId;
+  try {
+    const record = await api.copilot.attach(companyId, file, mode.value);
+    if (companyId !== props.companyId) return;
+    entry.storedName = record.stored_name;
+  } catch (e) {
+    entry.error = attachMessage(e);
+  } finally {
+    entry.staging = false;
+  }
+}
+
+function removeAttachment(key) {
+  attachments.value = attachments.value.filter((item) => item.key !== key);
+  attachError.value = "";
+}
+
+// The chat copy is Warren's to read for this session. Saving files it under
+// the company, where the Files tab lists it and a memo run can read it.
+async function saveAttachmentToFiles(entry) {
+  if (!props.companyId || entry.saving || entry.savedId) return;
+  entry.saving = true;
+  entry.error = "";
+  try {
+    const record = await api.uploadResearchFile(props.companyId, entry.file);
+    entry.savedId = String(record?.id || "saved");
+    recordEvent("copilot_attachment_saved", { name: entry.name });
+  } catch (e) {
+    entry.error = attachMessage(e);
+  } finally {
+    entry.saving = false;
+  }
+}
+
+function onComposerDragOver(event) {
+  // Only for files; the drag-tell lens carries its own MIME.
+  if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return;
+  event.preventDefault();
+  fileDragOver.value = true;
+}
+
+function onComposerDrop(event) {
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  event.preventDefault();
+  fileDragOver.value = false;
+  for (const file of files) stageFile(file);
+}
+
 async function sendPrompt(text) {
   const value = String(text || prompt.value || "").trim();
-  if (!value || !props.companyId || busy.value) return;
+  if (!value || !props.companyId || busy.value || attachBusy.value) return;
   const companyId = props.companyId;
   const selection = buildClientContext().selection || {};
   if (selection.target_kind) {
@@ -630,7 +760,9 @@ async function sendPrompt(text) {
   localRows.value = [];
   if (!text || value === prompt.value.trim()) prompt.value = "";
   nextTick(autoGrow);
-  pendingQuestion.value = { text: value, turnId: null };
+  const files = readyAttachments.value;
+  const fileNames = files.map((item) => item.name);
+  pendingQuestion.value = { text: value, turnId: null, files: fileNames };
   scrollToBottom({ force: true });
   try {
     const payload = await api.copilot.ask(companyId, {
@@ -638,10 +770,17 @@ async function sendPrompt(text) {
       context: buildClientContext(),
       output_language: appLanguage.value === "zh" ? "zh" : "en",
       mode: mode.value,
+      attachments: files.map((item) => item.storedName),
+      attachment_names: Object.fromEntries(
+        files.map((item) => [item.storedName, item.name]),
+      ),
     });
     if (companyId !== props.companyId) return;
+    // The turn carries them now; the composer starts clean.
+    attachments.value = [];
+    attachError.value = "";
     sessionId.value = payload.session_id;
-    pendingQuestion.value = { text: value, turnId: payload.turn_id };
+    pendingQuestion.value = { text: value, turnId: payload.turn_id, files: fileNames };
     if (payload.hydrate_stream_url && payload.hydration_status === "in_progress") {
       openHydrateStream(payload.session_id);
     }
@@ -1161,6 +1300,12 @@ defineExpose({
               <div class="ask-bubble">
                 <!-- Clamp inside the padding so a cut line never peeks out. -->
                 <div :class="turn.long && !expandedKeys.has(turn.key) ? 'line-clamp-6' : ''">{{ turn.text }}</div>
+                <div v-if="turn.files?.length" class="mt-1.5 flex flex-wrap justify-end gap-1">
+                  <span v-for="name in turn.files" :key="name" class="warren-file" :title="name">
+                    <Paperclip class="h-2.5 w-2.5 shrink-0" />
+                    <span class="truncate">{{ name }}</span>
+                  </span>
+                </div>
               </div>
               <button
                 v-if="turn.long"
@@ -1335,7 +1480,13 @@ defineExpose({
           </div>
         </div>
 
-        <div class="shrink-0 pt-2.5">
+        <div
+          class="shrink-0 pt-2.5"
+          :data-file-drag="fileDragOver ? 'true' : 'false'"
+          @dragover="onComposerDragOver"
+          @dragleave="fileDragOver = false"
+          @drop="onComposerDrop"
+        >
           <div
             v-if="seesLabel || hydrationNote"
             class="mb-2 flex min-w-0 items-center gap-2 px-0.5"
@@ -1356,7 +1507,61 @@ defineExpose({
             </span>
             <span v-if="hydrationNote" class="truncate text-caption1 text-ink-muted">{{ hydrationNote }}</span>
           </div>
+          <!-- Files going with the next question. Warren reads the chat copy;
+               Save files it under the company, where a memo run can read it. -->
+          <div v-if="attachments.length" class="mb-2 flex flex-wrap gap-1.5 px-0.5">
+            <span
+              v-for="item in attachments"
+              :key="item.key"
+              class="warren-file"
+              :data-tone="item.error ? 'warning' : null"
+              :title="item.error || item.name"
+            >
+              <Loader2 v-if="item.staging || item.saving" class="h-2.5 w-2.5 shrink-0 animate-spin" />
+              <Paperclip v-else class="h-2.5 w-2.5 shrink-0" />
+              <span class="max-w-[9rem] truncate">{{ item.name }}</span>
+              <button
+                v-if="item.storedName && !item.savedId"
+                type="button"
+                class="warren-file-action focus-ring"
+                :disabled="item.saving"
+                :title="t('copilot.save_to_files_hint')"
+                @click="saveAttachmentToFiles(item)"
+              >
+                <FolderInput class="h-2.5 w-2.5" />
+                {{ t("copilot.save_to_files") }}
+              </button>
+              <span v-else-if="item.savedId" class="text-ink-muted">{{ t("copilot.saved_to_files") }}</span>
+              <button
+                type="button"
+                class="warren-file-clear focus-ring"
+                :aria-label="t('copilot.remove_attachment')"
+                :title="t('copilot.remove_attachment')"
+                @click="removeAttachment(item.key)"
+              >
+                <X class="h-2.5 w-2.5" />
+              </button>
+            </span>
+          </div>
+          <p v-if="attachError" class="mb-1.5 px-1 text-caption1 text-danger">{{ attachError }}</p>
           <form class="ask-composer" @submit.prevent="sendPrompt()">
+            <input
+              ref="attachInput"
+              type="file"
+              multiple
+              :accept="ATTACHMENT_ACCEPT"
+              class="hidden"
+              @change="onFilesPicked"
+            />
+            <button
+              type="button"
+              class="ask-attach focus-ring"
+              :aria-label="t('copilot.attach')"
+              :title="t('copilot.attach_hint')"
+              @click="pickFiles"
+            >
+              <Paperclip class="h-4 w-4" />
+            </button>
             <textarea
               ref="composerEl"
               v-model="prompt"
@@ -1383,8 +1588,8 @@ defineExpose({
               v-else
               type="submit"
               class="ask-send focus-ring"
-              :data-ready="prompt.trim() ? 'true' : 'false'"
-              :disabled="!prompt.trim()"
+              :data-ready="prompt.trim() && !attachBusy ? 'true' : 'false'"
+              :disabled="!prompt.trim() || attachBusy"
               :aria-label="t('copilot.send')"
               :title="t('copilot.send')"
             >

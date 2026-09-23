@@ -1375,6 +1375,12 @@ class CopilotAskBody(BaseModel):
     context: CopilotContextBody = Field(default_factory=CopilotContextBody)
     output_language: str = "en"
     mode: str = "quick"
+    # `stored_name`s from POST /copilot/attachments: files already staged
+    # beside this company's Warren session, to open with this question.
+    attachments: list[str] = Field(default_factory=list)
+    # stored name -> the filename the analyst picked, so the transcript
+    # names the file rather than its hash.
+    attachment_names: dict[str, str] = Field(default_factory=dict)
 
 
 class CopilotTaskBody(BaseModel):
@@ -2243,6 +2249,8 @@ def post_copilot_ask(
                     prompt=body.prompt,
                     client_context=body.context.model_dump(),
                     output_language=body.output_language,
+                    attachments=body.attachments,
+                    attachment_names=body.attachment_names,
                 ),
             }
         return {
@@ -2252,6 +2260,8 @@ def post_copilot_ask(
                 prompt=body.prompt,
                 client_context=body.context.model_dump(),
                 output_language=body.output_language,
+                attachments=body.attachments,
+                attachment_names=body.attachment_names,
             ),
         }
     except ValueError as exc:
@@ -2261,6 +2271,78 @@ def post_copilot_ask(
         if code == "company_not_found":
             raise HTTPException(status_code=404, detail="Company not found") from exc
         raise HTTPException(status_code=400, detail=code) from exc
+
+
+@router.post("/companies/{company_id}/copilot/attachments", status_code=201)
+async def post_copilot_attachment(
+    request: Request,
+    company_id: str,
+    file: UploadFile = File(...),
+    mode: str = Form("quick"),
+) -> dict:
+    """Stage one file beside Warren's session for the next question.
+
+    Uploaded when the analyst picks it, not when they send, so a file that
+    is too large or of a kind Warren cannot open is refused while they can
+    still do something about it. The ask carries `stored_name` back.
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    if mode not in {"quick", "deep"}:
+        raise HTTPException(status_code=400, detail="Invalid copilot mode")
+    try:
+        data = await _read_upload_bounded(
+            file, max_bytes=console_store.MAX_ATTACHMENT_BYTES
+        )
+    except HTTPException as exc:
+        if exc.status_code != 400:
+            raise
+        # The error shape the composer matches on, as the console's ask does.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "attachment_too_large",
+                "limit_bytes": console_store.MAX_ATTACHMENT_BYTES,
+                "message": (
+                    "Attachment too large: exceeds "
+                    f"{console_store.MAX_ATTACHMENT_BYTES} bytes"
+                ),
+            },
+        ) from exc
+    try:
+        return copilot.stage_attachment(
+            company_id,
+            filename=file.filename or "attachment",
+            data=data,
+            mode=mode,
+        )
+    except console_store.AttachmentTooLarge as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "attachment_too_large",
+                "limit_bytes": console_store.MAX_ATTACHMENT_BYTES,
+                "message": str(exc),
+            },
+        ) from exc
+    except console_store.AttachmentTypeNotAllowed as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "attachment_type_not_allowed",
+                "allowed": sorted(console_store.ALLOWED_ATTACHMENT_TYPES),
+                "message": str(exc),
+            },
+        ) from exc
+    except console_store.AttachmentUnreadable as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "attachment_unreadable",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.post("/companies/{company_id}/copilot/apply-edit")
@@ -10966,6 +11048,14 @@ async def post_console_ask(
                 detail={
                     "code": "attachment_type_not_allowed",
                     "allowed": sorted(console_store.ALLOWED_ATTACHMENT_TYPES),
+                    "message": str(exc),
+                },
+            ) from exc
+        except console_store.AttachmentUnreadable as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "attachment_unreadable",
                     "message": str(exc),
                 },
             ) from exc
