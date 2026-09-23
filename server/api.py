@@ -1399,6 +1399,10 @@ class CopilotAskBody(BaseModel):
     # The id of a question this one rewrites. The old question and its
     # answer drop out of the thread for everyone.
     edits: str | None = None
+    # A lens the question is asked through (the Mac's Warren / Growth /
+    # Macro): instructions the model reads, kept out of the question the
+    # team sees in the thread.
+    lens_instruction: str | None = None
 
 
 class CopilotTaskBody(BaseModel):
@@ -2276,6 +2280,7 @@ def post_copilot_ask(
                     attachment_names=body.attachment_names,
                     author=_caller_identity(request),
                     edits=body.edits,
+                    lens_instruction=body.lens_instruction,
                 ),
             }
         return {
@@ -2289,6 +2294,7 @@ def post_copilot_ask(
                 attachment_names=body.attachment_names,
                 author=_caller_identity(request),
                 edits=body.edits,
+                lens_instruction=body.lens_instruction,
             ),
         }
     except ValueError as exc:

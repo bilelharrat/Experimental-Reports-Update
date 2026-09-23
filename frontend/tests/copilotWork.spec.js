@@ -40,9 +40,12 @@ describe("work Warren offers to start", () => {
   it("drops a proposal that cannot be acted on", () => {
     expect(normalizeWork(null)).toBeNull();
     expect(normalizeWork({ kind: "delete_everything" })).toBeNull();
-    // An analysis with no file, a decision with no decision.
+    // An analysis with no file; a decision without a verdict the log
+    // accepts, or without a reason.
     expect(normalizeWork({ kind: "document_analysis" })).toBeNull();
-    expect(normalizeWork({ kind: "decision", rationale: "because" })).toBeNull();
+    expect(normalizeWork({ kind: "decision", explanation: "because" })).toBeNull();
+    expect(normalizeWork({ kind: "decision", verdict: "maybe", explanation: "x" })).toBeNull();
+    expect(normalizeWork({ kind: "decision", verdict: "pass" })).toBeNull();
   });
 
   it("carries a document analysis and a decision through", () => {
@@ -56,13 +59,15 @@ describe("work Warren offers to start", () => {
       options: { file_id: "f-1", file_name: "term-sheet.pdf" },
     });
 
+    // The body the decision log takes (server/api.py DecisionCreate).
     expect(normalizeWork({
       kind: "decision",
-      decision: "Pass for now",
-      rationale: "Valuation is ahead of the traction.",
+      title: "Pass for now",
+      verdict: "Pass",
+      explanation: "Valuation is ahead of the traction.",
     })).toMatchObject({
       kind: "decision",
-      options: { decision: "Pass for now" },
+      options: { verdict: "pass", explanation: "Valuation is ahead of the traction." },
     });
   });
 

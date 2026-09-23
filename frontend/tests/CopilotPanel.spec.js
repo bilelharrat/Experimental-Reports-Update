@@ -799,6 +799,29 @@ describe("CopilotPanel — work Warren offers to start", () => {
     expect(m.analyzeResearchFile).toHaveBeenCalledWith("acme", "file-7");
   });
 
+  it("records a decision in the shape the decision log takes", async () => {
+    // server/api.py DecisionCreate: {verdict, explanation}. A mock that
+    // accepted anything once hid a card that sent {decision, rationale}.
+    m.console.getTurns.mockResolvedValue(
+      answerOffering({
+        kind: "decision",
+        title: "Watch until the next round",
+        verdict: "watch",
+        explanation: "Traction is real but the price is ahead of it.",
+      }),
+    );
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await confirmButton(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(m.decisionRecords.add).toHaveBeenCalledWith("acme", {
+      verdict: "watch",
+      explanation: "Traction is real but the price is ahead of it.",
+    });
+  });
+
   it("ignores an offer it cannot act on", async () => {
     m.console.getTurns.mockResolvedValue(
       answerOffering({ kind: "document_analysis", file_name: "mystery.pdf" }),

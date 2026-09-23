@@ -1209,8 +1209,8 @@ async function confirmWork() {
       refreshActiveJobs();
     } else if (work.kind === "decision") {
       await api.decisionRecords.add(companyId, {
-        decision: work.options.decision,
-        rationale: work.options.rationale,
+        verdict: work.options.verdict,
+        explanation: work.options.explanation,
       });
       workNote.value = t("copilot.work_decision_recorded");
     } else if (work.kind === "follow") {

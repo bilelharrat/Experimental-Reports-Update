@@ -1112,6 +1112,20 @@ def stage_attachment(
     return {"session_id": meta["id"], **record}
 
 
+def _with_lens(lens_instruction: str | None, runtime_prompt: str) -> str:
+    """Put a lens in front of what the model reads, and nowhere else.
+
+    The Mac asks through a lens (Warren, Growth, Macro) that is a paragraph
+    of instructions. It used to be glued onto the question itself, so the
+    shared thread showed every Mac question as "Adopt the perspective of
+    Warren Buffett. Emphasize moat, …" to the rest of the team.
+    """
+    lens = str(lens_instruction or "").strip()
+    if not lens:
+        return runtime_prompt
+    return f"{lens[:1000]}\n\n{runtime_prompt}"
+
+
 def submit_quick_ask(
     *,
     company_id: str,
@@ -1122,11 +1136,14 @@ def submit_quick_ask(
     attachment_names: dict[str, str] | None = None,
     author: dict | None = None,
     edits: str | None = None,
+    lens_instruction: str | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
     client_context = client_context if isinstance(client_context, dict) else {}
-    runtime_prompt = _prepare_runtime_prompt(company_id, prompt, client_context)
+    runtime_prompt = _with_lens(
+        lens_instruction, _prepare_runtime_prompt(company_id, prompt, client_context)
+    )
     hydrate_now = needs_hydration(prompt, client_context)
     ios = _is_ios_surface(client_context)
     meta = ensure_quick_session(
@@ -1182,11 +1199,14 @@ def submit_deep_ask(
     attachment_names: dict[str, str] | None = None,
     author: dict | None = None,
     edits: str | None = None,
+    lens_instruction: str | None = None,
 ) -> dict:
     if not prompt or not str(prompt).strip():
         raise ValueError("prompt_required")
     client_context = client_context if isinstance(client_context, dict) else {}
-    runtime_prompt = _prepare_runtime_prompt(company_id, prompt, client_context)
+    runtime_prompt = _with_lens(
+        lens_instruction, _prepare_runtime_prompt(company_id, prompt, client_context)
+    )
     meta = ensure_deep_session(company_id, output_language=output_language)
     info = console_session.submit_ask(
         company_id=company_id,

@@ -378,6 +378,26 @@ def test_an_empty_thread_is_not_history(
     assert sum(1 for t in threads if not t["question_count"] and not t["active"]) == 0
 
 
+def test_a_lens_reaches_the_model_but_not_the_thread(
+    tmp_consoles, stubbed_claude, client, warren_company
+):
+    """The Mac asks through a lens. The team reading the thread should see
+    the question, not a paragraph of instructions in front of it."""
+    lens = "Adopt the perspective of Warren Buffett. Emphasize moat."
+    ask = client.post(
+        f"/api/companies/{warren_company}/copilot/ask",
+        json={"prompt": "What is the moat?", "lens_instruction": lens},
+    )
+    assert ask.status_code == 200, ask.text
+    user_turn = next(
+        t
+        for t in console_store.read_turns(warren_company, ask.json()["session_id"])
+        if t["role"] == "user"
+    )
+    assert user_turn["text"] == "What is the moat?"
+    assert user_turn["runtime_prompt"].startswith(lens)
+
+
 def test_warren_attachment_too_large_400(
     tmp_consoles, stubbed_claude, client, warren_company
 ):

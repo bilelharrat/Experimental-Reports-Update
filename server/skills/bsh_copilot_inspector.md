@@ -70,7 +70,7 @@ describing how. Say in one line what you would run and why, then end with:
 ```
 
 ```json
-{"run_work":{"kind":"decision","title":"...","why":"...","decision":"...","rationale":"..."}}
+{"run_work":{"kind":"decision","title":"...","why":"...","verdict":"watch","explanation":"..."}}
 ```
 
 ```json
@@ -93,6 +93,9 @@ Rules:
   what you mean.
 - `document_analysis` needs the real `file_id` from the staged files in
   your context. Without it the offer is dropped.
+- A `decision` records a verdict on the company's decision log: `verdict`
+  is exactly invest, watch or pass, and `explanation` says why in a
+  sentence or two. Without both the offer is dropped.
 - Offer `follow` only when the company is not already tracked.
 
 ## Bilingual

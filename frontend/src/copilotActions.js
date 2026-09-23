@@ -164,6 +164,8 @@ const QUALITIES = ["best", "balanced", "economy"];
 const ENGINES = ["claude", "gemini"];
 const MODES = ["full", "compact"];
 const WORK_KINDS = ["report", "document_analysis", "decision", "follow"];
+// Kept in step with server/decisions_store.py's VERDICTS.
+export const DECISION_VERDICTS = ["invest", "watch", "pass"];
 
 function pick(value, allowed, fallback) {
   const text = String(value || "").trim();
@@ -209,15 +211,16 @@ export function normalizeWork(work) {
     };
   }
   if (kind === "decision") {
-    const decision = String(work.decision || "").trim();
-    if (!decision) return null;
+    // The decision log takes one of three verdicts and why
+    // (server/decisions_store.py); anything else would be refused.
+    const verdict = String(work.verdict || "").trim().toLowerCase();
+    if (!DECISION_VERDICTS.includes(verdict)) return null;
+    const explanation = String(work.explanation || "").trim().slice(0, 2000);
+    if (!explanation) return null;
     return {
       ...base,
-      title: base.title || decision,
-      options: {
-        decision,
-        rationale: String(work.rationale || "").trim().slice(0, 2000),
-      },
+      title: base.title || verdict,
+      options: { verdict, explanation },
     };
   }
   return { ...base, options: {} };
