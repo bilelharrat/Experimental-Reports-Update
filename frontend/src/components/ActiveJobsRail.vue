@@ -418,7 +418,7 @@ const visible = computed(() => jobs.value.length > 0);
       v-if="visible"
       :class="[
         'fixed top-[60px] z-20 w-[22rem] max-w-[92vw] flex flex-col transition-[right] duration-200 ease-out',
-        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-3',
+        props.copilotOpen ? 'max-xl:hidden rail-beside-copilot' : 'right-3',
       ]"
     >
       <div class="glass-panel glass-popover relative flex max-h-[min(32rem,calc(100vh-5rem))] flex-col rounded-[18px]">

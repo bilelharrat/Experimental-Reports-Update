@@ -166,7 +166,8 @@ describe("ActiveJobsRail", () => {
     await flushPromises();
 
     const rail = wrapper.find("aside");
-    expect(rail.classes()).toContain("xl:right-[26rem]");
+    // Beside whatever width Warren was dragged to (--copilot-w).
+    expect(rail.classes()).toContain("rail-beside-copilot");
     expect(rail.classes()).toContain("max-xl:hidden");
   });
 });

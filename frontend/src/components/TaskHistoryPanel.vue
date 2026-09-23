@@ -142,7 +142,7 @@ function open(row) {
     <aside
       :class="[
         'fixed top-[60px] z-30 flex w-[22rem] max-w-[92vw] flex-col transition-[right] duration-200 ease-out',
-        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-3',
+        props.copilotOpen ? 'max-xl:hidden rail-beside-copilot' : 'right-3',
       ]"
       :aria-label="t('jobs.history_title')"
     >

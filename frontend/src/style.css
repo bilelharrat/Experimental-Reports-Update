@@ -3664,6 +3664,9 @@ select.yf-range-item:hover {
 
 /* Composer: one rounded well holding the text and a send button that lights
    up once there is something to send. */
+/* Bottom-aligned so the buttons stay on the last line as the question
+   grows; each button is lifted half the difference between its 32px
+   circle and the 36px input row, so on one line it reads as centred. */
 .ask-composer {
   @apply flex items-end gap-2 rounded-[20px] py-1.5 pl-3.5 pr-1.5;
   background-color: rgb(var(--color-surface));
@@ -3689,7 +3692,7 @@ select.yf-range-item:hover {
 }
 
 .ask-send {
-  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
+  @apply mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
   background-color: rgb(var(--color-text-primary) / 0.06);
   transition:
     background-color var(--duration-fast) var(--ease-standard),
@@ -3922,6 +3925,48 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-accent) / 0.15);
 }
 
+/* Warren's rail is dragged by its left edge, like the Mac app's side
+   panel (MacRootView.swift). The width lives on the document element so
+   the jobs rail and task history can sit beside whatever it is now. */
+@media (min-width: 1280px) {
+  .copilot-sheet {
+    width: var(--copilot-w, 392px);
+    max-width: var(--copilot-w, 392px);
+  }
+
+  .rail-beside-copilot {
+    right: calc(var(--copilot-w, 392px) + 1.5rem);
+  }
+}
+
+.copilot-resize {
+  @apply absolute inset-y-0 -left-1.5 z-10 hidden w-3 cursor-col-resize xl:block;
+}
+
+/* The grab line only shows when it is being pointed at or dragged. */
+.copilot-resize::after {
+  content: "";
+  @apply absolute inset-y-8 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-transparent transition-colors duration-150;
+}
+
+.copilot-resize:hover::after,
+.copilot-resize:focus-visible::after {
+  @apply bg-ink-primary/20;
+}
+
+.copilot-resize:focus-visible {
+  @apply outline-none;
+}
+
+body.is-resizing-copilot {
+  @apply select-none;
+  cursor: col-resize;
+}
+
+body.is-resizing-copilot .copilot-resize::after {
+  @apply bg-ink-primary/30;
+}
+
 /* A file attached to a question: staged in the composer, then shown under
    the question it went with. */
 .warren-file {
@@ -3959,7 +4004,7 @@ select.yf-range-item:hover {
 
 /* The paperclip sits left of the text, as the send button sits right. */
 .ask-attach {
-  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
+  @apply mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);

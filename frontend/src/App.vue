@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, nextTick } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
+  ChevronsLeft,
+  ChevronsRight,
   Command,
   History,
   Loader2,
@@ -17,6 +19,16 @@ import {
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "./api.js";
+import {
+  COPILOT_DEFAULT_WIDTH,
+  COPILOT_MAX_WIDTH,
+  COPILOT_MIN_WIDTH,
+  COPILOT_WIDE_WIDTH,
+  clampCopilotWidth,
+  fitCopilotWidth,
+  readCopilotWidth,
+  writeCopilotWidth,
+} from "./copilotWidth.js";
 import { currentLanguage, useT } from "./i18n.js";
 import AiMark from "./components/AiMark.vue";
 import Monogram from "./components/Monogram.vue";
@@ -433,6 +445,9 @@ let uninstallGlassMotion = () => {};
 
 onMounted(() => {
   autoTitleTimer = setTimeout(() => autoObserveLargeTitle(viewRef.value), 450);
+  copilotPreferredWidth.value = readCopilotWidth();
+  viewportWidth.value = window.innerWidth;
+  window.addEventListener("resize", onWindowResize);
   document.addEventListener("pointerdown", onDocPointerDown);
   document.addEventListener("keydown", onChromeKeydown);
   window.addEventListener("scroll", onWindowScroll, { passive: true });
@@ -450,6 +465,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(autoTitleTimer);
+  window.removeEventListener("resize", onWindowResize);
   stopPolling();
   document.removeEventListener("pointerdown", onDocPointerDown);
   document.removeEventListener("keydown", onChromeKeydown);
@@ -629,6 +645,81 @@ function chooseCopilotCompany(id) {
 
 function onCopilotState(state) {
   copilotState.value = { ...copilotState.value, ...state };
+}
+
+// ---- The rail's width ---------------------------------------------------
+// The width lives on the document element, not the panel, because the
+// jobs rail and the task history sit beside it and have to move too.
+//
+// What the analyst chose and what this window can give it are kept
+// apart: a narrow window shows a narrower rail without forgetting the
+// choice, so widening the window brings it back.
+const copilotPreferredWidth = ref(COPILOT_DEFAULT_WIDTH);
+const viewportWidth = ref(1440);
+const copilotWidth = computed(() =>
+  fitCopilotWidth(copilotPreferredWidth.value, viewportWidth.value),
+);
+const copilotWide = computed(() => copilotWidth.value >= COPILOT_WIDE_WIDTH);
+let widthBeforeWide = COPILOT_DEFAULT_WIDTH;
+let copilotDrag = null;
+
+watch(
+  copilotWidth,
+  (width) => {
+    document.documentElement.style.setProperty("--copilot-w", `${width}px`);
+  },
+  { immediate: true },
+);
+
+function setCopilotWidth(value, { persist = true } = {}) {
+  copilotPreferredWidth.value = clampCopilotWidth(value);
+  if (persist) writeCopilotWidth(copilotPreferredWidth.value);
+}
+
+function toggleCopilotWide() {
+  if (copilotWide.value) {
+    setCopilotWidth(widthBeforeWide || COPILOT_DEFAULT_WIDTH);
+    return;
+  }
+  widthBeforeWide = copilotPreferredWidth.value;
+  setCopilotWidth(COPILOT_WIDE_WIDTH);
+}
+
+function onCopilotResizeStart(event) {
+  if (event.button) return;
+  copilotDrag = { x: event.clientX, width: copilotWidth.value };
+  event.preventDefault();
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("is-resizing-copilot");
+}
+
+function onCopilotResizeMove(event) {
+  if (!copilotDrag) return;
+  // The rail is on the right, so dragging left widens it.
+  setCopilotWidth(copilotDrag.width + (copilotDrag.x - event.clientX), {
+    persist: false,
+  });
+}
+
+function onCopilotResizeEnd(event) {
+  if (!copilotDrag) return;
+  copilotDrag = null;
+  event.currentTarget?.releasePointerCapture?.(event.pointerId);
+  document.body.classList.remove("is-resizing-copilot");
+  writeCopilotWidth(copilotPreferredWidth.value);
+}
+
+function onCopilotResizeKey(event) {
+  const step = event.shiftKey ? 48 : 16;
+  if (event.key === "ArrowLeft") setCopilotWidth(copilotWidth.value + step);
+  else if (event.key === "ArrowRight") setCopilotWidth(copilotWidth.value - step);
+  else if (event.key === "Home") setCopilotWidth(COPILOT_DEFAULT_WIDTH);
+  else return;
+  event.preventDefault();
+}
+
+function onWindowResize() {
+  viewportWidth.value = window.innerWidth;
 }
 
 function setCopilotOpen(open) {
@@ -1037,9 +1128,26 @@ provide("copilotNavigate", onCopilotNavigate);
     <Transition name="copilot-drawer">
       <aside
         v-if="copilotOpen && copilotReady"
-        class="copilot-sheet glass-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[22px] xl:sticky xl:inset-auto xl:top-2 xl:z-20 xl:my-2 xl:mr-2 xl:h-[calc(100vh-1rem)] xl:max-h-none xl:w-[392px] xl:max-w-[392px] xl:shrink-0 xl:rounded-[20px]"
+        class="copilot-sheet glass-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[22px] xl:sticky xl:inset-auto xl:top-2 xl:z-20 xl:my-2 xl:mr-2 xl:h-[calc(100vh-1rem)] xl:max-h-none xl:shrink-0 xl:rounded-[20px]"
         :aria-label="t('copilot.title')"
       >
+        <div
+          class="copilot-resize"
+          role="separator"
+          aria-orientation="vertical"
+          tabindex="0"
+          :aria-label="t('copilot.resize')"
+          :aria-valuenow="copilotWidth"
+          :aria-valuemin="COPILOT_MIN_WIDTH"
+          :aria-valuemax="COPILOT_MAX_WIDTH"
+          :title="t('copilot.resize')"
+          @pointerdown="onCopilotResizeStart"
+          @pointermove="onCopilotResizeMove"
+          @pointerup="onCopilotResizeEnd"
+          @pointercancel="onCopilotResizeEnd"
+          @dblclick="setCopilotWidth(COPILOT_DEFAULT_WIDTH)"
+          @keydown="onCopilotResizeKey"
+        />
         <div
           class="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ink-primary/15 xl:hidden"
           aria-hidden="true"
@@ -1071,6 +1179,16 @@ provide("copilotNavigate", onCopilotNavigate);
             @click="copilotPanelRef?.clearChat()"
           >
             <SquarePen class="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            class="icon-btn max-xl:hidden"
+            :aria-label="copilotWide ? t('copilot.restore') : t('copilot.expand')"
+            :title="copilotWide ? t('copilot.restore') : t('copilot.expand')"
+            @click="toggleCopilotWide"
+          >
+            <ChevronsRight v-if="copilotWide" class="h-4 w-4" />
+            <ChevronsLeft v-else class="h-4 w-4" />
           </button>
           <button
             type="button"
