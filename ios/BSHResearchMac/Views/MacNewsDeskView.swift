@@ -211,12 +211,25 @@ struct MacNewsDeskView: View {
         .onChange(of: store.newsFocusId) { _, _ in
             adoptFocus()
         }
+        .onChange(of: store.newsCompanyFocus?.id) { _, _ in
+            adoptCompanyFocus()
+        }
         .task {
             adoptFocus()
+            adoptCompanyFocus()
             if let item = effectiveSelection {
                 await detailModel.load(item: item, lang: language)
             }
         }
+    }
+
+    /// One company's headlines, as the sidebar's News page asks for them.
+    private func adoptCompanyFocus() {
+        guard let company = store.newsCompanyFocus else { return }
+        store.newsCompanyFocus = nil
+        scope = .company
+        let ticker = (company.ticker ?? "").trimmingCharacters(in: .whitespaces)
+        newsSearch = ticker.isEmpty ? (company.name ?? company.id) : ticker
     }
 
     private func adoptFocus() {

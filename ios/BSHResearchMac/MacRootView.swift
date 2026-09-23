@@ -219,6 +219,8 @@ struct MacRootView: View {
                 Section("System") {
                     sidebarRow(.settings)
                 }
+
+                MacSidebarCompaniesSection()
             }
             .listStyle(.sidebar)
 
@@ -554,5 +556,311 @@ extension MacAppStore {
         case .attention, .home:
             return MacConfig.baseURL
         }
+    }
+}
+
+// MARK: - Sidebar companies
+
+/// How the sidebar orders companies — the website's sort menu (Sidebar.vue). The
+/// company payload carries no creation date, so, as on the web, "newest" and "oldest"
+/// read the list's own order; "recently viewed" stands in for the web's view count,
+/// since what the Mac keeps is when each company was last opened.
+enum MacCompanySort: String, CaseIterable, Identifiable {
+    case az, za, newest, oldest, viewed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .az: return "Name, A to Z"
+        case .za: return "Name, Z to A"
+        case .newest: return "Newest first"
+        case .oldest: return "Oldest first"
+        case .viewed: return "Recently viewed"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .az: return "A–Z"
+        case .za: return "Z–A"
+        case .newest: return "Newest"
+        case .oldest: return "Oldest"
+        case .viewed: return "Viewed"
+        }
+    }
+
+    /// Followed companies first, then the chosen order — the web's favorites-first rule.
+    static func apply(
+        _ sort: MacCompanySort,
+        to companies: [MacCompany],
+        followed: Set<String>,
+        visits: [String: Date]
+    ) -> [MacCompany] {
+        let rows = companies.enumerated().map { (index: $0.offset, company: $0.element) }
+        func name(_ c: MacCompany) -> String { c.name ?? c.id }
+        return rows.sorted { a, b in
+            let fa = followed.contains(a.company.id), fb = followed.contains(b.company.id)
+            if fa != fb { return fa }
+            switch sort {
+            case .az:
+                return name(a.company).localizedStandardCompare(name(b.company)) == .orderedAscending
+            case .za:
+                return name(a.company).localizedStandardCompare(name(b.company)) == .orderedDescending
+            case .newest:
+                return a.index > b.index
+            case .oldest:
+                return a.index < b.index
+            case .viewed:
+                let va = visits[a.company.id] ?? .distantPast, vb = visits[b.company.id] ?? .distantPast
+                if va != vb { return va > vb }
+                return name(a.company).localizedStandardCompare(name(b.company)) == .orderedAscending
+            }
+        }
+        .map(\.company)
+    }
+}
+
+/// The website's sidebar company list, on the Mac: every company, sortable and
+/// filterable, with the open one's pages under it like a folder. As on the web,
+/// opening a company only opens its folder; its pages — Reports, News, Research
+/// Desk, Market — are what go somewhere. This list is the Research desk's directory
+/// now, the way the web moved the desk's own column into its sidebar.
+struct MacSidebarCompaniesSection: View {
+    @EnvironmentObject private var store: MacAppStore
+    @AppStorage("bsh.sidebar.companySort") private var sortRaw = MacCompanySort.az.rawValue
+    @State private var filter = ""
+    @State private var sector = Self.allSectors
+    @State private var diffsOnly = false
+    @State private var openCompanyId: String?
+
+    private static let allSectors = "All sectors"
+    /// A filter field earns its place once the list outgrows a glance (web: > 8).
+    private static let filterThreshold = 8
+
+    private var sort: MacCompanySort { MacCompanySort(rawValue: sortRaw) ?? .az }
+
+    private var sectors: [String] {
+        let found = Set(store.companies.compactMap(\.sector).filter { !$0.isEmpty })
+        return [Self.allSectors] + found.sorted()
+    }
+
+    private var visible: [MacCompany] {
+        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MacCompanySort.apply(
+            sort,
+            to: store.companies,
+            followed: Set(store.followedCompanyIds),
+            visits: store.visitedCompanyTimestamps
+        )
+        .filter { company in
+            if diffsOnly && !store.isCompanyModified(company.id) { return false }
+            if sector != Self.allSectors && company.sector != sector { return false }
+            guard !query.isEmpty else { return true }
+            return (company.name ?? "").localizedCaseInsensitiveContains(query)
+                || (company.ticker ?? "").localizedCaseInsensitiveContains(query)
+                || company.id.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        Section {
+            if store.companies.count > Self.filterThreshold {
+                filterField
+            }
+            if !store.companies.isEmpty {
+                filterRow
+            }
+            if store.companies.isEmpty {
+                Text("No companies yet")
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+            } else if visible.isEmpty {
+                Text(filter.isEmpty ? "Nothing changed since you last looked" : "No company matches")
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(visible) { company in
+                    companyRow(company)
+                    if openCompanyId == company.id {
+                        pages(for: company)
+                    }
+                }
+            }
+        } header: {
+            header
+        }
+        // However a company was reached — the ⌘K palette, a link, another desk — its
+        // folder opens here too, as on the web.
+        .onChange(of: store.selectedCompany?.id, initial: true) { _, id in
+            if let id { openCompanyId = id }
+        }
+    }
+
+    // MARK: Header, filter, sector
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("Companies")
+            Spacer(minLength: 4)
+            Text("\(store.companies.count)")
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+            Menu {
+                Picker("Sort", selection: $sortRaw) {
+                    ForEach(MacCompanySort.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Label(sort.shortTitle, systemImage: "arrow.up.arrow.down")
+                    .labelStyle(.titleAndIcon)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort companies")
+        }
+    }
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.tertiary)
+            TextField("Filter companies", text: $filter)
+                .textFieldStyle(.plain)
+                .onExitCommand { filter = "" }
+            if !filter.isEmpty {
+                Button {
+                    filter = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+                .help("Clear the filter")
+            }
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    /// Sector and Diffs: the two filters the Research desk's directory carried.
+    private var filterRow: some View {
+        HStack(spacing: 6) {
+            // Hidden when every company shares one sector: a one-item menu says nothing.
+            if sectors.count > 2 {
+                Picker("Sector", selection: $sector) {
+                    ForEach(sectors, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+            }
+            Spacer(minLength: 0)
+            Button {
+                diffsOnly.toggle()
+            } label: {
+                Label("Diffs", systemImage: diffsOnly ? "sparkle" : "sparkles")
+                    .font(.caption2.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .tint(diffsOnly ? .accentColor : .secondary)
+            .help("Only companies with updates or new memos since you last looked")
+        }
+    }
+
+    // MARK: Rows
+
+    private func companyRow(_ company: MacCompany) -> some View {
+        let open = openCompanyId == company.id
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) {
+                openCompanyId = open ? nil : company.id
+            }
+        } label: {
+            HStack(spacing: 4) {
+                CompanyListRow(company: company)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 0 : -90))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .glassListRow(isSelected: isShowing(company), cornerRadius: 10)
+        .help(company.name ?? company.id)
+        .contextMenu {
+            Button("Open Research Desk") { go(company, to: .research) }
+            Button(store.isFollowed(company.id) ? "Unfollow" : "Follow") {
+                Task { await store.toggleFollow(company.id) }
+            }
+        }
+    }
+
+    /// The company is what the current desk is showing.
+    private func isShowing(_ company: MacCompany) -> Bool {
+        guard store.selectedCompany?.id == company.id else { return false }
+        return store.selectedTab == .research
+    }
+
+    @ViewBuilder
+    private func pages(for company: MacCompany) -> some View {
+        let reports = store.reports.filter { $0.companyId == company.id }.count
+        pageRow("Reports", systemImage: "doc.text", count: reports) {
+            store.documentsCompanyFilter = company.id
+            go(company, to: .documents)
+        }
+        pageRow("News", systemImage: "newspaper", count: nil) {
+            store.newsCompanyFocus = company
+            go(company, to: .news)
+        }
+        pageRow("Research Desk", systemImage: "building.columns", count: nil) {
+            go(company, to: .research)
+        }
+        if let ticker = company.ticker, !ticker.isEmpty {
+            pageRow("Market", systemImage: "chart.line.uptrend.xyaxis", count: nil) {
+                go(company, to: .market)
+            }
+        }
+    }
+
+    private func pageRow(
+        _ title: String,
+        systemImage: String,
+        count: Int?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .frame(width: 16)
+                    .foregroundStyle(.secondary)
+                Text(title)
+                Spacer(minLength: 4)
+                if let count {
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.system(size: 12))
+            .padding(.leading, 30)
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Select the company (so every desk and Ask Warren follow it), then open the page.
+    private func go(_ company: MacCompany, to tab: MacTab) {
+        store.selectCompany(company)
+        store.selectedTab = tab
     }
 }

@@ -34,16 +34,15 @@ struct MacResearchDeskView: View {
 
     var body: some View {
         #if os(macOS)
-        HSplitView {
-            directoryPane
-                .frame(minWidth: 230, idealWidth: 270, maxWidth: 380)
-                .layoutPriority(0)
-
+        // The company comes from the sidebar's list, as on the web, where the desk's
+        // directory column moved into the sidebar. The deck drop that sat under the
+        // column stays on the desk.
+        VStack(spacing: 0) {
             detailPane
                 .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
+            Divider()
+            MacPitchDeckDropBanner()
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search companies or tickers…")
         .sheet(isPresented: $store.showNewReportSheet) {
             if let company = store.newReportCompany {
                 MacReportCustomizerSheet(company: company, onGenerate: { rep in
@@ -219,11 +218,19 @@ struct MacResearchDeskView: View {
                 store.requestNewReport(for: company)
             })
         } else {
+            #if os(macOS)
+            ContentUnavailableView(
+                "No Company Selected",
+                systemImage: "building.2",
+                description: Text("Open a company in the sidebar, then its Research Desk, to review its dossier and memos.")
+            )
+            #else
             ContentUnavailableView(
                 "No Company Selected",
                 systemImage: "building.2",
                 description: Text("Select an enterprise from the directory to review research dossiers and investment memos.")
             )
+            #endif
         }
     }
 }

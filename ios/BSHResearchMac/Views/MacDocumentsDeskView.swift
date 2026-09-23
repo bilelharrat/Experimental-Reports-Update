@@ -64,6 +64,13 @@ struct MacDocumentsDeskView: View {
             .onChange(of: store.transcriptToOpen, initial: true) { _, id in
             if id != nil { mode = "transcripts" }
         }
+            // The sidebar's Reports page: this company's files and memos.
+            .onChange(of: store.documentsCompanyFilter, initial: true) { _, id in
+                guard let id else { return }
+                mode = "files"
+                selectedCompanyFilter = id
+                store.documentsCompanyFilter = nil
+            }
     }
 
     private var filesBody: some View {

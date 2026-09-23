@@ -111,6 +111,11 @@ final class MacAppStore: ObservableObject {
     @Published private(set) var news: [MacNewsItem] = []
     /// A news item the News desk should scroll to and highlight on its next appearance.
     @Published var newsFocusId: String?
+    /// A company whose headlines the News desk should open on, set by the sidebar's
+    /// company pages (the web's `?company=` on the News desk). The desk adopts and clears it.
+    @Published var newsCompanyFocus: MacCompany?
+    /// A company the Documents desk should open filtered to, from the same place.
+    @Published var documentsCompanyFilter: String?
     @Published private(set) var activeJobs: [MacActiveJob] = []
     @Published private(set) var jobHistory: [MacJobHistoryRow] = []
     @Published private(set) var jobLogs: [String: [String]] = [:]
