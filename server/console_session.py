@@ -895,8 +895,11 @@ def _write_error_assistant_turn(
 
     Called from the recovery sweep and from the worker's crash handler.
     """
-    # Avoid double-writing if some assistant record already exists.
-    for t in console_store.read_turns(company_id, session_id):
+    # Avoid double-writing if some assistant record already exists. The
+    # whole log, superseded turns included: an edited question's answer
+    # is hidden from the thread but still on disk, and writing a second
+    # one for it would be a duplicate.
+    for t in console_store.read_turns(company_id, session_id, include_superseded=True):
         if t.get("id") == turn_id and t.get("role") == "assistant":
             return
     console_store.append_turn(
