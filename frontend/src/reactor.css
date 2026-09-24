@@ -1425,11 +1425,14 @@
   text-shadow: 0 0 10px rgb(var(--reactor-cyan) / 0.6);
 }
 
-:root[data-design="reactor"] .home-hero-title {
+/* Michroma is wide (about 0.9em a capital): at 25px the title is ~335px,
+   inside the tick ring's 364px. Same specificity as the page-title rule
+   above, and later, so it wins. */
+:root[data-design="reactor"] .home-hero-title:not(.tabular, .mono-data) {
   margin-top: 0.75rem;
-  font-size: clamp(1.625rem, 2.6vw, 2.25rem);
-  line-height: 1.15;
-  letter-spacing: 0.08em;
+  font-size: 1.5625rem;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
   background-image: none;
   -webkit-background-clip: border-box;
   background-clip: border-box;
