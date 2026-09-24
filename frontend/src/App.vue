@@ -846,7 +846,7 @@ provide("copilotNavigate", onCopilotNavigate);
     <main class="min-w-0 flex-1">
       <header
         ref="headerRef"
-        class="material-bar sticky top-0 z-30"
+        class="app-toolbar material-bar sticky top-0 z-30"
         :data-scrolled="scrolled ? 'true' : 'false'"
         :style="chromeLeftInset ? { paddingLeft: `${chromeLeftInset}px` } : null"
       >
@@ -1141,7 +1141,7 @@ provide("copilotNavigate", onCopilotNavigate);
     <Transition name="copilot-drawer">
       <aside
         v-if="copilotOpen && copilotReady"
-        class="copilot-sheet glass-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[22px] xl:sticky xl:inset-auto xl:top-2 xl:z-20 xl:my-2 xl:mr-2 xl:h-[calc(100vh-1rem)] xl:max-h-none xl:shrink-0 xl:rounded-[20px]"
+        class="app-inspector copilot-sheet glass-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[22px] xl:sticky xl:inset-auto xl:top-2 xl:z-20 xl:my-2 xl:mr-2 xl:h-[calc(100vh-1rem)] xl:max-h-none xl:shrink-0 xl:rounded-[20px]"
         :aria-label="t('copilot.title')"
       >
         <div

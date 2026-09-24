@@ -653,7 +653,7 @@ const refreshLabel = computed(() => {
         </div>
       </div>
 
-      <div class="news-brief-panel border-t border-border-subtle/70 px-3.5 py-4 sm:px-4">
+      <div class="news-brief-panel border-t border-subtle/70 px-3.5 py-4 sm:px-4">
         <div v-if="brief" class="space-y-5">
           <p v-if="brief.kind === 'basic'" class="text-footnote text-ink-muted">
             {{ t("news.basic_brief_note") }}

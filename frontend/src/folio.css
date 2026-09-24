@@ -1,0 +1,1277 @@
+/* ===========================================================================
+   Folio — paper and ink.
+
+   The design the app wears by default (src/design.js). Summit Glass, in
+   style.css, stays underneath: every rule here is scoped under
+   :root[data-design="folio"], so switching back in Settings drops this whole
+   file and nothing else changes.
+
+   Four ideas, used everywhere:
+
+   - Paper, not glass. The page is warm paper; a card is a fresher sheet laid
+     on it, drawn with a rule rather than lifted by a shadow. Nothing blurs.
+   - Ink marks where you are. Selection (the desk you are on, the chosen
+     segment, the open row) is set solid in ink with the label knocked out of
+     it, and it snaps rather than glides, as a key does when you press it.
+   - Blue ink is for acting. Links, focus and the few tinted actions are an
+     ultramarine pen stroke; primary buttons are ink. Green and red belong to
+     prices alone.
+   - Type carries the hierarchy. Titles are set in a book serif, labels are
+     small tracked capitals, figures are tabular. Serif never touches a
+     number or a control.
+
+   Colors stay RGB triplets so Tailwind's <alpha-value> keeps working; this
+   file only redefines what the tokens resolve to, plus the shapes.
+=========================================================================== */
+
+:root[data-design="folio"] {
+  /* Paper: the page, a fresh sheet, and the shade between them. */
+  --color-canvas: 244 242 237;
+  --color-surface: 251 250 247;
+  --color-surface-muted: 239 237 231;
+  --color-surface-raised: 253 252 250;
+
+  --color-border-subtle: 224 220 212;
+  --color-border-strong: 196 191 181;
+
+  /* Ink, warm rather than blue-black, and its lighter strokes. */
+  --color-text-primary: 26 25 22;
+  --color-text-secondary: 77 74 67;
+  --color-text-muted: 110 106 98;
+  --color-text-subtle: 156 151 141;
+
+  --color-fill: 226 223 215;
+  --color-fill-secondary: 232 229 222;
+  --color-fill-tertiary: 238 235 229;
+
+  /* Ultramarine: a fountain-pen blue that still reads as ink on paper. */
+  --color-accent: 38 60 212;
+  --color-accent-hover: 28 46 184;
+  --color-accent-soft: 229 231 246;
+  --color-accent-ink: 32 50 190;
+  --color-accent-glow: 84 104 236;
+
+  /* Semantic hues, pressed a little flatter so they sit on paper. */
+  --color-success: 26 140 76;
+  --color-success-soft: 225 238 226;
+  --color-success-ink: 20 112 60;
+  --color-warning: 214 120 0;
+  --color-warning-soft: 246 233 210;
+  --color-warning-ink: 156 80 0;
+  --color-danger: 205 48 36;
+  --color-danger-soft: 247 227 221;
+  --color-danger-ink: 176 34 26;
+  --color-info: 92 84 196;
+  --color-info-soft: 234 231 244;
+  --color-info-ink: 70 60 170;
+  --color-notice: 222 170 0;
+  --color-notice-soft: 247 238 208;
+  --color-notice-ink: 136 96 0;
+  --color-teal: 24 140 156;
+  --color-teal-soft: 223 238 237;
+  --color-teal-ink: 14 104 118;
+  --color-purple: 150 70 190;
+  --color-purple-soft: 239 230 243;
+  --color-purple-ink: 116 44 156;
+
+  /* Selection: solid ink, and the paper that shows through it. */
+  --folio-ink: 26 25 22;
+  --folio-on-ink: 250 248 243;
+
+  /* A book face for titles. Iowan Old Style ships with macOS and iOS;
+     Charter and Palatino stand in elsewhere, Songti for Chinese. Nothing is
+     downloaded. */
+  --font-folio-serif: "Iowan Old Style", Charter, "Palatino Linotype", Palatino, Georgia,
+    "Songti SC", "STSong", serif;
+
+  /* Glass tokens, resolved to paper. Shadows stay valid lists (no `none`),
+     because style.css composes several of them into one box-shadow. */
+  --glass-fill: rgb(var(--color-canvas));
+  --glass-fill-strong: rgb(var(--color-surface));
+  --glass-pill: rgb(var(--folio-ink));
+  --glass-blur: none;
+  --glass-blur-soft: none;
+  --glass-rim: 0 0 0 0 transparent;
+  --glass-edge: 0 0 0 1px rgb(var(--color-border-subtle));
+  --glass-shadow: 0 0 0 0 transparent;
+  --pill-shadow: 0 0 0 0 transparent;
+  --scrim: rgba(26, 25, 22, 0.3);
+
+  --material-bar: rgb(var(--color-canvas));
+  --material-sidebar: rgb(var(--color-canvas));
+  --material-menu: rgb(var(--color-surface-raised));
+  --material-blur: none;
+  --glass-card: rgb(var(--color-surface));
+
+  /* A card is drawn with a rule. Depth is kept for things that sit over the
+     page — menus, sheets — and even there it is short and close. */
+  --shadow: 0 0 0 1px rgb(var(--color-border-subtle));
+  --shadow-hover: 0 0 0 1px rgb(var(--color-border-strong));
+  --shadow-sheet: 0 0 0 1px rgb(var(--color-text-primary) / 0.13),
+    0 22px 48px -24px rgb(26 25 22 / 0.34), 0 3px 8px -4px rgb(26 25 22 / 0.1);
+  --shadow-control: 0 0 0 1px rgb(var(--color-border-strong));
+
+  --tiffany: rgb(84, 104, 236);
+  --tiffany-dark: rgb(38, 60, 212);
+}
+
+:root[data-design="folio"].dark {
+  /* Ink paper: a warm charcoal page, the same paper-white for type. */
+  --color-canvas: 22 21 19;
+  --color-surface: 30 29 26;
+  --color-surface-muted: 36 35 31;
+  --color-surface-raised: 40 39 35;
+
+  --color-border-subtle: 54 52 47;
+  --color-border-strong: 78 75 69;
+
+  --color-text-primary: 238 235 227;
+  --color-text-secondary: 194 190 181;
+  --color-text-muted: 150 145 136;
+  --color-text-subtle: 110 106 98;
+
+  --color-fill: 58 56 51;
+  --color-fill-secondary: 49 47 43;
+  --color-fill-tertiary: 41 40 36;
+
+  --color-accent: 84 100 232;
+  --color-accent-hover: 104 120 242;
+  --color-accent-soft: 34 38 74;
+  --color-accent-ink: 164 176 255;
+  --color-accent-glow: 118 134 255;
+
+  --color-success: 72 196 120;
+  --color-success-soft: 22 48 32;
+  --color-success-ink: 134 222 162;
+  --color-warning: 240 160 40;
+  --color-warning-soft: 58 42 14;
+  --color-warning-ink: 250 204 140;
+  --color-danger: 240 96 80;
+  --color-danger-soft: 62 26 22;
+  --color-danger-ink: 255 172 162;
+  --color-info: 150 140 250;
+  --color-info-soft: 36 34 66;
+  --color-info-ink: 188 182 255;
+  --color-notice: 240 200 60;
+  --color-notice-soft: 56 48 14;
+  --color-notice-ink: 250 222 140;
+  --color-teal: 80 196 210;
+  --color-teal-soft: 18 48 52;
+  --color-teal-ink: 140 222 232;
+  --color-purple: 196 130 240;
+  --color-purple-soft: 50 30 62;
+  --color-purple-ink: 222 184 255;
+
+  --folio-ink: 238 235 227;
+  --folio-on-ink: 22 21 19;
+
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow: 0 0 0 1px rgb(var(--color-border-subtle));
+  --shadow-hover: 0 0 0 1px rgb(var(--color-border-strong));
+  --shadow-sheet: 0 0 0 1px rgb(255 255 255 / 0.1), 0 24px 56px -20px rgb(0 0 0 / 0.72);
+  --shadow-control: 0 0 0 1px rgb(var(--color-border-strong));
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+
+/* A border drawn without a color (a bare `border` utility) is a paper rule
+   in both appearances, rather than Tailwind's cool gray that glares on the
+   dark page. Zero specificity, so any border color a view sets still wins. */
+:where([data-design="folio"]) *,
+:where([data-design="folio"]) ::before,
+:where([data-design="folio"]) ::after {
+  border-color: rgb(var(--color-border-subtle));
+}
+
+/* Text selection is a highlighter stroke, not a blue wash. */
+:root[data-design="folio"] ::selection {
+  background-color: rgb(255 214 10 / 0.42);
+  color: rgb(var(--color-text-primary));
+}
+
+:root[data-design="folio"].dark ::selection {
+  background-color: rgb(255 214 10 / 0.3);
+}
+
+/* No summit light: the page is paper, with just enough tooth to feel like it.
+   The grain is one fixed layer, so it never repaints while scrolling. */
+:root[data-design="folio"] .canvas-wash::before {
+  background: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.09 0 0 0 0 0.08 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  opacity: 0.16;
+}
+
+:root[data-design="folio"].dark .canvas-wash::before {
+  background: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.97 0 0 0 0 0.9 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  opacity: 0.07;
+}
+
+:root[data-design="folio"] * {
+  scrollbar-color: rgb(var(--color-text-primary) / 0.22) transparent;
+}
+
+:root[data-design="folio"] *::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-text-primary) / 0.18);
+}
+
+/* ---------------------------------------------------------------------------
+   Type
+--------------------------------------------------------------------------- */
+
+/* Titles in the book face. Only headings: a figure set with `tabular` (a
+   ticker, a count) keeps the interface face even at title sizes. */
+:root[data-design="folio"] :is(.page-title, .text-large-title, .text-title1, .mac-t-title, .home-hero-title):not(.tabular, .mono-data),
+:root[data-design="folio"] :is(h1, h2, h3, summary):is(.text-title2, .text-title3):not(.tabular, .mono-data),
+:root[data-design="folio"] .font-display:is(.text-title2, .text-xl):not(.tabular, .mono-data) {
+  font-family: var(--font-folio-serif);
+  font-weight: 400;
+  font-variant-numeric: lining-nums;
+  letter-spacing: -0.012em;
+}
+
+:root[data-design="folio"] :is(.page-title, .text-large-title):not(.tabular, .mono-data) {
+  font-size: 2.125rem;
+  line-height: 2.5rem;
+  letter-spacing: -0.018em;
+}
+
+:root[data-design="folio"] .text-title1:not(.tabular, .mono-data) {
+  font-size: 2rem;
+  line-height: 2.375rem;
+}
+
+:root[data-design="folio"] :is(h1, h2, h3, summary).text-title3:not(.tabular, .mono-data) {
+  font-size: 1.1875rem;
+  line-height: 1.5rem;
+}
+
+/* Section labels are the kickers of the page: small tracked capitals. */
+:root[data-design="folio"] :is(.vogue-label, .section-label) {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: rgb(var(--color-text-muted));
+}
+
+:root[data-design="folio"] .kbd {
+  border-radius: 4px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.16);
+}
+
+/* ---------------------------------------------------------------------------
+   Materials: every glass becomes paper
+--------------------------------------------------------------------------- */
+
+:root[data-design="folio"] :is(.glass-panel, .glass-capsule)::before,
+:root[data-design="folio"] :is(.material-sidebar, .rail-gradient, .material-menu, .glass-pill),
+:root[data-design="folio"] .material-bar::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="folio"] .glass-panel::before {
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
+}
+
+/* Popovers over content are sheets laid over the page. */
+:root[data-design="folio"] .glass-panel.glass-popover::before {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: var(--shadow-sheet);
+}
+
+/* A toolbar group is just its buttons: no capsule. */
+:root[data-design="folio"] .glass-capsule::before {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .glass-capsule-divider {
+  background-color: rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="folio"] .glass-pill {
+  background-color: rgb(var(--folio-ink));
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .material-bar::before {
+  background-color: rgb(var(--color-canvas));
+  box-shadow: 0 1px 0 rgb(var(--color-border-subtle));
+}
+
+:root[data-design="folio"] :is(.material-menu, .toolbar-menu) {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="folio"] .toolbar-menu {
+  border-radius: 8px;
+  padding: 4px;
+}
+
+:root[data-design="folio"] .toolbar-menu-item {
+  border-radius: 5px;
+}
+
+/* A menu row highlights in ink, as selection does everywhere else. */
+:root[data-design="folio"] .toolbar-menu-item:hover:not(:disabled),
+:root[data-design="folio"] .toolbar-menu-item:focus-visible {
+  background-color: rgb(var(--folio-ink));
+  color: rgb(var(--folio-on-ink));
+}
+
+:root[data-design="folio"] .toolbar-menu-item:hover:not(:disabled) :is(svg, [class*="text-ink"], [class*="text-accent"], [class*="text-danger"]),
+:root[data-design="folio"] .toolbar-menu-item:focus-visible :is(svg, [class*="text-ink"], [class*="text-accent"], [class*="text-danger"]) {
+  color: rgb(var(--folio-on-ink) / 0.8);
+}
+
+/* The Home search plate: a sheet with a firm rule that turns to ink when
+   it is listening. */
+:root[data-design="folio"] .material-glass {
+  background-color: rgb(var(--color-surface));
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.16);
+}
+
+:root[data-design="folio"] .material-glass:focus-within {
+  background-color: rgb(var(--color-surface));
+  box-shadow: 0 0 0 1.5px rgb(var(--color-text-primary));
+}
+
+/* Hairlines are rules: a touch firmer than Summit's whisper. */
+:root[data-design="folio"] .hairline-b {
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle));
+}
+
+/* ---------------------------------------------------------------------------
+   Controls
+--------------------------------------------------------------------------- */
+
+:root[data-design="folio"] .focus-ring:focus-visible {
+  --tw-ring-color: rgb(var(--color-accent) / 0.5);
+}
+
+/* Buttons are cut rectangles. Primary is a flat stroke of blue ink, so an
+   action never reads as a selection; secondary is a ruled outline. They
+   press in rather than shrink. */
+:root[data-design="folio"] :is(.btn-filled, .btn-tinted, .btn-bordered, .btn-plain) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .btn-filled {
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .btn-tinted {
+  background-color: rgb(var(--color-accent) / 0.1);
+}
+
+:root[data-design="folio"] .btn-bordered,
+:root[data-design="folio"].dark .btn-bordered {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.2);
+}
+
+:root[data-design="folio"] .btn-bordered:hover:not(:disabled),
+:root[data-design="folio"].dark .btn-bordered:hover:not(:disabled) {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.4);
+}
+
+:root[data-design="folio"] :is(.btn-filled, .btn-tinted, .btn-bordered, .btn-plain, .pill-button):active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+:root[data-design="folio"] .pill-button {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .icon-btn {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .icon-btn:active:not(:disabled) {
+  transform: none;
+  background-color: rgb(var(--color-text-primary) / 0.1);
+}
+
+:root[data-design="folio"] .progress-fill {
+  background-color: rgb(var(--color-text-primary));
+}
+
+/* Fields: a sheet with a rule, ink when focused. */
+:root[data-design="folio"] .field,
+:root[data-design="folio"].dark .field {
+  border-radius: 6px;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.15);
+}
+
+:root[data-design="folio"] .field:hover:not(:disabled):not(:focus) {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.3);
+}
+
+:root[data-design="folio"] .field:focus,
+:root[data-design="folio"].dark .field:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.14);
+}
+
+:root[data-design="folio"] .field-sm {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"].dark :is(select.field, select.field-sm) {
+  background-color: rgb(var(--color-surface));
+}
+
+/* Chips are labels on a file folder: small, square-cornered. */
+:root[data-design="folio"] .chip {
+  border-radius: 3px;
+  letter-spacing: 0.01em;
+}
+
+:root[data-design="folio"] :is(.banner-warning, .banner-notice, .banner-info, .banner-danger) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .switch,
+:root[data-design="folio"].dark .switch {
+  background-color: rgb(var(--color-text-primary) / 0.18);
+}
+
+:root[data-design="folio"] .switch:checked,
+:root[data-design="folio"].dark .switch:checked {
+  background-color: rgb(var(--folio-ink));
+}
+
+:root[data-design="folio"] .switch::before {
+  background: rgb(var(--color-surface-raised));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+
+:root[data-design="folio"].dark .switch:checked::before {
+  background: rgb(var(--folio-on-ink));
+}
+
+:root[data-design="folio"] .memo-checkbox {
+  border-radius: 4px;
+}
+
+:root[data-design="folio"] .memo-checkbox:checked,
+:root[data-design="folio"].dark .memo-checkbox:checked {
+  background: rgb(var(--folio-ink));
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .memo-checkbox::before {
+  color: rgb(var(--folio-on-ink));
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces and shapes
+--------------------------------------------------------------------------- */
+
+/* Paper corners: every radius the app uses comes down to a cut edge. */
+:root[data-design="folio"] :is(.group-card, .desk-card, .glass-card, .morning-brief),
+:root[data-design="folio"] :is(.rounded-card, .rounded-row, .rounded-xl, .rounded-lg) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] :is(.rounded-subbox, .rounded-md) {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] .rounded-chip {
+  border-radius: 3px;
+}
+
+:root[data-design="folio"] :is(.rounded-glass, .rounded-sheet, .rounded-2xl, .rounded-3xl) {
+  border-radius: 10px;
+}
+
+:root[data-design="folio"] :is(.rounded-\[10px\], .rounded-\[11px\], .rounded-\[12px\], .rounded-\[13px\]) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] :is(.rounded-\[18px\], .rounded-\[20px\]) {
+  border-radius: 10px;
+}
+
+/* The same cut applied to the components that bake their radius in. */
+:root[data-design="folio"] :is(
+    .stat-tile,
+    .yf-index-card,
+    .yf-rrg-svg,
+    .yf-breadth,
+    .ticker-tape,
+    .doc-row,
+    .job-row,
+    .news-grouped,
+    .news-brief-status,
+    .news-follow-chip,
+    .warren-error,
+    .warren-card,
+    .warren-thread,
+    .warren-viewing,
+    .ask-edit,
+    .welcome-tour-tip,
+    .welcome-tour-row-icon,
+    .welcome-tour-glyph
+  ) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] :is(.yf-heat-cell, .yf-week-day, .yf-cmd-item, .news-thumb, .ask-edit-input) {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] :is(.news-lead, .yf-search-menu) {
+  border-radius: 8px;
+}
+
+:root[data-design="folio"] :is(.yf-cmd-panel, .yf-kb-help-card, .login-tile, .welcome-tour-callout, .welcome-tour-hero-tile) {
+  border-radius: 10px;
+}
+
+:root[data-design="folio"] aside[data-collapsed="true"] .company-pages {
+  border-radius: 6px;
+}
+
+/* Soft utility shadows turn into the card rule. */
+:root[data-design="folio"] .shadow-sm {
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-design="folio"] .glass-card:hover {
+  transform: none;
+}
+
+/* Tables: ruled, with the header set as a kicker. */
+:root[data-design="folio"] .inset-table thead {
+  background-color: transparent;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-text-primary) / 0.5);
+  font-size: 0.6875rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------------------
+   Selection: ink, and it snaps
+--------------------------------------------------------------------------- */
+
+/* Segmented control: a ruled track; the chosen segment is set in ink. */
+:root[data-design="folio"] .segmented,
+:root[data-design="folio"].dark .segmented {
+  border-radius: 7px;
+  padding: 2px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.16);
+}
+
+:root[data-design="folio"] .segmented-item {
+  border-radius: 5px;
+  color: rgb(var(--color-text-primary) / 0.66);
+}
+
+:root[data-design="folio"] .segmented-item::before {
+  background-color: rgb(var(--folio-ink));
+  box-shadow: none;
+  transition: none;
+}
+
+:root[data-design="folio"] .segmented-item:is([aria-selected="true"], [data-selected="true"], [aria-checked="true"], .router-link-active, .router-link-exact-active) {
+  color: rgb(var(--folio-on-ink));
+}
+
+:root[data-design="folio"] .segmented-item:is([aria-selected="true"], [data-selected="true"], [aria-checked="true"], .router-link-active, .router-link-exact-active) :is(svg, [class*="text-ink"], [class*="text-accent"]) {
+  color: inherit;
+}
+
+/* Ink can't glide under a label that is already knocked out, so it snaps. */
+:root[data-design="folio"] .segmented-item[data-glide="true"]::before {
+  animation: none;
+}
+
+:root[data-design="folio"] .workspace-tab[aria-selected="true"]::after {
+  height: 2px;
+  border-radius: 0;
+  background: rgb(var(--color-text-primary));
+}
+
+/* Source list (sidebar): rows are index entries; the one you are on is
+   set in ink. The gliding pill retires. */
+:root[data-design="folio"] .nav-glider {
+  display: none;
+}
+
+:root[data-design="folio"] .source-row {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .source-row:hover {
+  background-color: rgb(var(--color-text-primary) / 0.055);
+}
+
+:root[data-design="folio"] .source-row:is(.router-link-active, .router-link-exact-active) {
+  color: rgb(var(--folio-on-ink));
+  background-color: rgb(var(--folio-ink));
+  box-shadow: none;
+  animation: none;
+}
+
+:root[data-design="folio"] .source-row:is(.router-link-active, .router-link-exact-active) :is(.source-row-icon, .company-page-icon, [class*="text-ink"], .company-disclosure) {
+  color: rgb(var(--folio-on-ink) / 0.78);
+}
+
+/* Views that mark a choice by hand (`bg-accent text-white`: a language
+   toggle, a template option, the viewer's fit button) follow the rule too. */
+:root[data-design="folio"] .bg-accent.text-white {
+  color: rgb(var(--folio-on-ink));
+  background-color: rgb(var(--folio-ink));
+  border-color: rgb(var(--folio-ink));
+}
+
+/* Rich rows (a report with its chips) can't be knocked out of ink, so the
+   open one takes a bookmark instead: a shaded sheet with an ink ribbon down
+   its edge. */
+:root[data-design="folio"] .doc-row[data-selected="true"] {
+  background-color: rgb(var(--color-text-primary) / 0.055);
+  box-shadow: inset 3px 0 0 rgb(var(--color-text-primary));
+}
+
+/* Home intake buttons (Link / File / Note) select the same way. */
+:root[data-design="folio"] .home-action[data-selected="true"] {
+  color: rgb(var(--folio-on-ink));
+  background-color: rgb(var(--folio-ink));
+  box-shadow: none;
+  animation: none;
+}
+
+:root[data-design="folio"] .home-action[data-selected="true"] svg {
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   The shell: an index on the left, the page, Warren in the margin
+--------------------------------------------------------------------------- */
+
+@media (min-width: 1024px) {
+  /* The sidebar stops floating: it is the page's index column, ruled off
+     from the text. */
+  :root[data-design="folio"] .app-sidebar {
+    padding: 0;
+  }
+
+  :root[data-design="folio"] .app-sidebar-panel {
+    border-radius: 0;
+  }
+
+  :root[data-design="folio"] .app-sidebar-panel::before {
+    background-color: rgb(var(--color-canvas) / 0.55);
+    box-shadow: inset -1px 0 0 rgb(var(--color-border-subtle));
+  }
+}
+
+/* Below lg the sidebar is a drawer: an opaque sheet over the page. */
+@media (max-width: 1023px) {
+  :root[data-design="folio"] .app-sidebar-panel {
+    border-radius: 0 10px 10px 0;
+  }
+
+  :root[data-design="folio"] .app-sidebar-panel::before {
+    background-color: rgb(var(--color-surface));
+    box-shadow: var(--shadow-sheet);
+  }
+}
+
+/* The masthead: the house in tracked capitals over the product in the
+   serif, and the summit mark bare, without its glass tile. */
+:root[data-design="folio"] .brand-tile,
+:root[data-design="folio"].dark .brand-tile {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .brand-name {
+  font-family: var(--font-folio-serif);
+  font-size: 1.0625rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  letter-spacing: -0.005em;
+}
+
+:root[data-design="folio"] .brand-house {
+  font-size: 0.59375rem;
+  font-weight: 600;
+  line-height: 0.875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Generate report: the standing action, a ruled blue-ink button — never ink,
+   which would read as the desk you are on. */
+:root[data-design="folio"] .sidebar-generate {
+  border-color: transparent;
+  border-radius: 6px;
+  color: rgb(var(--color-accent-ink));
+  background-color: rgb(var(--color-accent) / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.32);
+}
+
+:root[data-design="folio"] .sidebar-generate:hover {
+  background-color: rgb(var(--color-accent) / 0.12);
+}
+
+:root[data-design="folio"] .sidebar-filter {
+  border-radius: 6px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.13);
+}
+
+:root[data-design="folio"] .sidebar-filter:focus {
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.14);
+}
+
+:root[data-design="folio"] .account-row {
+  border-radius: 6px;
+}
+
+/* A company's pages hang from a ruled guide. */
+:root[data-design="folio"] .company-pages::before {
+  background-color: rgb(var(--color-text-primary) / 0.2);
+}
+
+/* The toolbar. Transparent at rest; once the page slides under it, paper
+   with a rule. Controls sit on it bare. */
+:root[data-design="folio"] .toolbar-search {
+  border-radius: 6px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="folio"] .toolbar-search:focus {
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.14);
+}
+
+:root[data-design="folio"] .app-toolbar .glass-capsule {
+  border-radius: 6px;
+}
+
+/* Ask Warren: the portrait and his name, ruled like a secondary button;
+   open, the rule turns blue. */
+:root[data-design="folio"] .copilot-toolbar-btn {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.18);
+}
+
+:root[data-design="folio"] .copilot-toolbar-btn:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+:root[data-design="folio"] .copilot-toolbar-btn:active {
+  transform: translateY(0.5px);
+}
+
+:root[data-design="folio"] .copilot-toolbar-btn[aria-pressed="true"] {
+  background-color: rgb(var(--color-accent) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.55);
+}
+
+:root[data-design="folio"] .sync-status {
+  border-radius: 4px;
+}
+
+/* Warren docks in the margin: a full-height column ruled off from the page,
+   not a floating panel. */
+@media (min-width: 1280px) {
+  :root[data-design="folio"] .app-inspector {
+    top: 0;
+    margin: 0;
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  :root[data-design="folio"] .app-inspector::before {
+    background-color: rgb(var(--color-surface));
+    box-shadow: inset 1px 0 0 rgb(var(--color-border-subtle));
+  }
+}
+
+@media (max-width: 1279px) {
+  :root[data-design="folio"] .app-inspector {
+    border-radius: 10px 10px 0 0;
+  }
+
+  :root[data-design="folio"] .app-inspector::before {
+    background-color: rgb(var(--color-surface));
+    box-shadow: var(--shadow-sheet);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Page anatomy
+--------------------------------------------------------------------------- */
+
+/* A desk's title sits on a rule, like a section opening in a journal. */
+:root[data-design="folio"] .page-header {
+  padding-bottom: 1rem;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="folio"] .page-subtitle {
+  color: rgb(var(--color-text-muted));
+}
+
+/* ---------------------------------------------------------------------------
+   Home
+--------------------------------------------------------------------------- */
+
+:root[data-design="folio"] .home-hero-glow {
+  display: none;
+}
+
+/* The dateline is a kicker in ink. */
+:root[data-design="folio"] .home-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--color-text-secondary));
+}
+
+/* The title is the paper's front page: the book face, large, in plain ink. */
+:root[data-design="folio"] .home-hero-title {
+  margin-top: 0.75rem;
+  font-size: clamp(2.75rem, 6vw, 4.25rem);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  background-image: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-fill-color: currentColor;
+}
+
+:root[data-design="folio"] .home-search-plate {
+  border-radius: 10px;
+}
+
+:root[data-design="folio"] .home-search-field {
+  border-radius: 8px;
+}
+
+:root[data-design="folio"] .home-search-submit {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .home-search-submit[data-ready="true"] {
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .home-intake {
+  margin: 0.375rem 0.25rem 0;
+  padding-top: 0.375rem;
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+}
+
+:root[data-design="folio"] .home-action {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] .home-suggestion {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .home-suggestion:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+/* ---------------------------------------------------------------------------
+   Ask Warren
+--------------------------------------------------------------------------- */
+
+/* The analyst's question: a note in blue ink, ruled on its left edge. */
+:root[data-design="folio"] .ask-bubble {
+  border-radius: 6px;
+  background-color: rgb(var(--color-accent) / 0.07);
+  box-shadow: inset 2px 0 0 rgb(var(--color-accent));
+}
+
+:root[data-design="folio"] :is(.ask-suggestion, .ask-chip) {
+  border-radius: 6px;
+  background-color: transparent;
+}
+
+:root[data-design="folio"] .ask-composer,
+:root[data-design="folio"].dark .ask-composer {
+  border-radius: 10px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.18);
+}
+
+:root[data-design="folio"] .ask-composer:focus-within {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.12);
+}
+
+:root[data-design="folio"] .ask-send {
+  border-radius: 6px;
+}
+
+
+/* Warren's answers read as a letter: the book face at a reading size. */
+:root[data-design="folio"] .warren-md {
+  font-family: var(--font-folio-serif);
+  font-size: 0.90625rem;
+  line-height: 1.55;
+}
+
+:root[data-design="folio"] .warren-md :is(code, pre, table, .md-table) {
+  font-family: var(--font-sans);
+}
+
+:root[data-design="folio"] .warren-md :is(pre, code) {
+  font-family: var(--font-mono);
+}
+
+/* Company marks: a square tile, not a squircle; initials on a flat tint. */
+:root[data-design="folio"] .monogram {
+  border-radius: calc(var(--mono-size, 28px) * 0.18);
+}
+
+:root[data-design="folio"] .monogram[data-tint] {
+  background: rgb(var(--mono-tint));
+  box-shadow: none;
+  text-shadow: none;
+}
+
+:root[data-design="folio"] .monogram.monogram-has-logo,
+:root[data-design="folio"].dark .monogram.monogram-has-logo {
+  box-shadow: inset 0 0 0 1px rgb(26 25 22 / 0.1) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Pills become labels
+--------------------------------------------------------------------------- */
+
+/* Capsules are glass's shape. On paper a tag is a cut label; only dots,
+   avatars, switches and progress bars stay round. */
+:root[data-design="folio"] :is(
+    .rounded-pill,
+    .news-lead-badge,
+    .quote-chip,
+    .warren-cite,
+    .warren-file,
+    .warren-file-action,
+    .warren-context,
+    .mac-status-pill,
+    .mac-status-tag
+  ) {
+  border-radius: 4px;
+}
+
+:root[data-design="folio"] :is(.news-search-field, .yf-search-input, .yf-range-item, .yf-toast, .ask-attach, .copilot-drop-inspect) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] :is(.news-search-field, .yf-search-input) {
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.15);
+}
+
+:root[data-design="folio"] :is(.news-search-field, .yf-search-input):focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.14);
+}
+
+/* ---------------------------------------------------------------------------
+   Market desk
+--------------------------------------------------------------------------- */
+
+:root[data-design="folio"] .yf-range-item[data-selected="true"] {
+  color: rgb(var(--folio-on-ink));
+  background-color: rgb(var(--folio-ink));
+  box-shadow: none;
+}
+
+/* The index card you are charting is ruled in ink, not haloed. */
+:root[data-design="folio"] .yf-index-card[data-selected="true"] {
+  box-shadow: 0 0 0 1.5px rgb(var(--color-text-primary));
+}
+
+/* ---------------------------------------------------------------------------
+   Research Desk (the .mac-desk family)
+--------------------------------------------------------------------------- */
+
+/* The desk's own tokens re-pointed at paper: ruled buttons, ink selection,
+   paper menus. Its type scale and layout stay the Mac's. */
+:root[data-design="folio"] .mac-desk {
+  --mac-btn-bg: transparent;
+  --mac-btn-hover: rgb(var(--color-text-primary) / 0.05);
+  --mac-btn-edge: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.2);
+  --mac-field-bg: rgb(var(--color-surface));
+  --mac-menu-bg: rgb(var(--color-surface-raised));
+  --mac-menu-rim: transparent;
+  --mac-bar: rgb(var(--color-canvas));
+  --mac-pill-fill: rgb(var(--folio-ink));
+  --mac-pill-rim: 0 0 0 0 transparent;
+  --mac-pill-contact: 0 0 0 0 transparent;
+  --mac-pill-drop: 0 0 0 0 transparent;
+  --mac-thumb-drop: 0 0 0 0 transparent;
+}
+
+:root[data-design="folio"] .mac-card {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .mac-card.is-interactive:hover {
+  border-color: rgb(var(--color-border-strong));
+}
+
+:root[data-design="folio"] :is(.mac-tile, .mac-tile-tint, .mac-stattile) {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] .mac-bar-material {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="folio"] :is(.mac-btn, .mac-popup select) {
+  border-radius: 6px;
+}
+
+:root[data-design="folio"] .mac-btn--prominent {
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .mac-btn--prominent:hover:not(:disabled) {
+  background: rgb(var(--color-accent-hover));
+}
+
+:root[data-design="folio"] .mac-btn--plain {
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .mac-search {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.15);
+}
+
+:root[data-design="folio"] .mac-search:focus-within {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary)), 0 0 0 3px rgb(var(--color-accent) / 0.14);
+}
+
+:root[data-design="folio"] .mac-field {
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.15);
+}
+
+:root[data-design="folio"] .mac-menu {
+  border-radius: 8px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="folio"] .mac-menu-item {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] .mac-menu-item:hover:not(:disabled) {
+  color: rgb(var(--folio-on-ink));
+  background: rgb(var(--folio-ink));
+}
+
+:root[data-design="folio"] .mac-menu-item:hover:not(:disabled) .mac-menu-icon {
+  color: rgb(var(--folio-on-ink) / 0.8);
+}
+
+/* A selected row is set in ink. Its labels are drawn from the desk's own
+   label tokens, so re-pointing those inside the row knocks every line out
+   of the ink at once. */
+:root[data-design="folio"] .mac-row::before {
+  border-radius: 5px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: none;
+  transition: opacity 0.12s ease;
+}
+
+:root[data-design="folio"] .mac-row.is-selected {
+  --mac-label: rgb(var(--folio-on-ink));
+  --mac-secondary: rgb(var(--folio-on-ink) / 0.72);
+  --mac-tertiary: rgb(var(--folio-on-ink) / 0.56);
+  --mac-accent: rgb(var(--folio-on-ink));
+  --mac-blue: rgb(var(--folio-on-ink));
+  color: var(--mac-label);
+}
+
+:root[data-design="folio"] .mac-row.is-selected :is([class*="text-ink"], [class*="text-accent"]) {
+  color: rgb(var(--folio-on-ink) / 0.72);
+}
+
+:root[data-design="folio"] .mac-segmented {
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.16);
+}
+
+:root[data-design="folio"] .mac-segment {
+  border-radius: 5px;
+}
+
+:root[data-design="folio"] .mac-segment.is-selected {
+  color: rgb(var(--folio-on-ink));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="folio"] .mac-tab-underline {
+  background: rgb(var(--color-text-primary));
+}
+
+:root[data-design="folio"] .mac-cardheader-icon {
+  color: rgb(var(--color-text-secondary));
+}
+
+/* The directory stops floating: a column ruled off from the dossier, like
+   the index beside it. */
+@media (min-width: 768px) {
+  :root[data-design="folio"] .mac-desk .glass-panel:has(> .mac-directory-pane) {
+    margin: 0;
+    border-radius: 0;
+  }
+
+  :root[data-design="folio"] .mac-desk .glass-panel:has(> .mac-directory-pane)::before {
+    background-color: transparent;
+    box-shadow: inset -1px 0 0 rgb(var(--color-border-subtle));
+  }
+
+  :root[data-design="folio"] .mac-directory-pane {
+    border-radius: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Sheets, scrims and the command palette
+--------------------------------------------------------------------------- */
+
+/* A sheet dims the page; it doesn't frost it. */
+:root[data-design="folio"] :is(.sheet-scrim, .yf-cmd-backdrop::before, .yf-kb-help, .backdrop-blur-sm) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="folio"] .yf-cmd-panel {
+  background-color: rgb(var(--color-surface-raised));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="folio"] .yf-cmd-input {
+  font-family: var(--font-folio-serif);
+  letter-spacing: -0.01em;
+}
+
+:root[data-design="folio"] .yf-cmd-item[data-active="true"] {
+  background-color: rgb(var(--folio-ink));
+}
+
+:root[data-design="folio"] .yf-cmd-item[data-active="true"] :is(.text-ink-primary, .text-ink-secondary, svg) {
+  color: rgb(var(--folio-on-ink));
+}
+
+:root[data-design="folio"] .yf-cmd-item[data-active="true"] .text-ink-muted {
+  color: rgb(var(--folio-on-ink) / 0.72);
+}
+
+/* A chosen option in a form (the Generate dialog's cards) is ruled in ink. */
+:root[data-design="folio"] .border-accent.ring-accent {
+  border-color: rgb(var(--color-text-primary));
+  --tw-ring-color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-text-primary) / 0.035);
+}
+
+/* ---------------------------------------------------------------------------
+   News desk: a front page
+--------------------------------------------------------------------------- */
+
+/* The lead is a headline set in the book face under its ticker, on the
+   paper — not a colored banner. */
+:root[data-design="folio"] .news-lead-banner {
+  min-height: 0;
+  background: none;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle));
+}
+
+:root[data-design="folio"] .news-lead-glyph {
+  display: none;
+}
+
+:root[data-design="folio"] .news-lead-badge {
+  padding: 0;
+  color: rgb(var(--color-text-secondary));
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  letter-spacing: 0.1em;
+}
+
+:root[data-design="folio"] .news-lead-title {
+  font-family: var(--font-folio-serif);
+  font-size: 1.75rem;
+  line-height: 2.125rem;
+  font-weight: 400;
+  letter-spacing: -0.012em;
+  color: rgb(var(--color-text-primary));
+  text-shadow: none;
+  text-wrap: pretty;
+}
+
+:root[data-design="folio"] .news-hero-title {
+  font-family: var(--font-folio-serif);
+  font-weight: 400;
+  letter-spacing: -0.018em;
+}
+
+/* Story thumbnails: the category glyph in its hue on a flat wash. */
+:root[data-design="folio"] .news-thumb {
+  background: rgb(var(--news-tone) / 0.12);
+  box-shadow: none;
+}
+
+:root[data-design="folio"] .news-thumb svg {
+  color: rgb(var(--news-tone));
+}
+
+/* The briefing reads like the morning brief: prose in the book face. */
+:root[data-design="folio"] .news-brief-body {
+  font-family: var(--font-folio-serif);
+}
+
+:root[data-design="folio"] .news-brief-dot {
+  border-radius: 0;
+  background: rgb(var(--color-text-primary));
+}
+
+/* The icon rail: the open company's logo is circled in ink rather than set
+   on an ink row, which would swallow the tile. */
+:root[data-design="folio"] aside[data-collapsed="true"] .company-rail-link:is(.router-link-active, .router-link-exact-active) {
+  background-color: transparent;
+}
+
+:root[data-design="folio"] aside[data-collapsed="true"] .company-rail-link:is(.router-link-active, .router-link-exact-active) .company-rail-mark {
+  outline: 1.5px solid rgb(var(--color-text-primary));
+  outline-offset: 2px;
+}

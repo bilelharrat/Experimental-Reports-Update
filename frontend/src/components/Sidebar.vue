@@ -532,7 +532,7 @@ onBeforeUnmount(() => {
 
 <template>
   <aside
-    class="fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:max-w-none lg:translate-x-0"
+    class="app-sidebar fixed inset-y-0 left-0 z-50 flex w-[292px] max-w-[88vw] p-2 transition-[transform,width] duration-300 ease-emphasized lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:max-w-none lg:translate-x-0"
     :class="[
       collapsed ? 'lg:w-[76px]' : 'lg:w-[268px]',
       mobileOpen ? 'translate-x-0' : '-translate-x-[108%]',
@@ -540,7 +540,7 @@ onBeforeUnmount(() => {
     :data-collapsed="collapsed ? 'true' : 'false'"
     :inert="(!isDesktop && !mobileOpen) || undefined"
   >
-    <div class="glass-panel relative flex h-full w-full min-w-0 flex-col rounded-[20px]">
+    <div class="app-sidebar-panel glass-panel relative flex h-full w-full min-w-0 flex-col rounded-[20px]">
       <!-- Brand -->
       <div
         class="flex shrink-0 items-center gap-1.5"
@@ -557,10 +557,10 @@ onBeforeUnmount(() => {
             <BrandMark :size="19" />
           </span>
           <span v-if="!collapsed" class="min-w-0 leading-tight">
-            <span class="block truncate text-[13px] font-semibold tracking-[-0.01em] text-ink-primary">
+            <span class="brand-name block truncate text-[13px] font-semibold tracking-[-0.01em] text-ink-primary">
               {{ t("nav.brand_product") }}
             </span>
-            <span class="block truncate text-caption1 text-ink-muted">Berkeley Summit House</span>
+            <span class="brand-house block truncate text-caption1 text-ink-muted">Berkeley Summit House</span>
           </span>
         </RouterLink>
         <button
@@ -593,7 +593,7 @@ onBeforeUnmount(() => {
         <button
           v-if="!collapsed"
           type="button"
-          class="focus-ring flex w-full items-center gap-2 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent-ink hover:bg-accent/15 transition-all active:scale-[0.98] shadow-sm"
+          class="sidebar-generate focus-ring flex w-full items-center gap-2 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent-ink hover:bg-accent/15 transition-all active:scale-[0.98] shadow-sm"
           :title="`${t('memo.generate_report')} (⌘N)`"
           @click="onGenerateReport"
         >
@@ -604,7 +604,7 @@ onBeforeUnmount(() => {
         <button
           v-else
           type="button"
-          class="icon-btn !h-9 !w-9 rounded-xl border border-accent/20 bg-accent/10 text-accent hover:bg-accent/20 focus-ring"
+          class="sidebar-generate icon-btn !h-9 !w-9 rounded-xl border border-accent/20 bg-accent/10 text-accent hover:bg-accent/20 focus-ring"
           :aria-label="`${t('memo.generate_report')} (⌘N)`"
           :title="`${t('memo.generate_report')} (⌘N)`"
           @click="onGenerateReport"

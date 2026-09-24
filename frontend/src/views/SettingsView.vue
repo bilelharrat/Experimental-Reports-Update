@@ -6,6 +6,7 @@ import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
+import { DESIGNS, design, setDesign } from "../design.js";
 import { isSignedIn, signInRoute } from "../auth.js";
 import {
   applyDeskState,
@@ -415,6 +416,10 @@ function appearanceIcon(value) {
   return SunMoon;
 }
 
+function designLabel(value) {
+  return value === "glass" ? t("settings.design_glass") : t("settings.design_folio");
+}
+
 async function exportDeskState() {
   deskBusy.value = true;
   deskError.value = "";
@@ -594,6 +599,27 @@ async function importDeskState(event) {
               {{ appearanceLabel(option) }}
             </button>
           </div>
+        </div>
+        <div class="mt-5">
+          <div class="vogue-label mb-2">{{ t("settings.design") }}</div>
+          <div
+            class="segmented"
+            role="group"
+            :aria-label="t('settings.design')"
+          >
+            <button
+              v-for="option in DESIGNS"
+              :key="option"
+              type="button"
+              class="segmented-item focus-ring"
+              :data-selected="design === option"
+              :data-testid="`settings-design-${option}`"
+              @click="setDesign(option)"
+            >
+              {{ designLabel(option) }}
+            </button>
+          </div>
+          <p class="mt-1.5 text-footnote text-ink-muted">{{ t("settings.design_help") }}</p>
         </div>
         <div class="mt-5 flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
           <div class="min-w-0">

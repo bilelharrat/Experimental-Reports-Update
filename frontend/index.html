@@ -6,8 +6,8 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <title>BSH Research Center</title>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f6" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111113" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f2ed" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#161513" />
     <!-- Appearance is resolved before first paint so there is no flash.
          Follows the system unless Settings chose Light or Dark. Mirrors
          the logic in src/appearance.js. -->
@@ -27,6 +27,15 @@
           }
         }
         if (dark) document.documentElement.classList.add("dark");
+        // The design (Folio unless Settings chose Summit Glass). Mirrors
+        // src/design.js.
+        var design = "folio";
+        try {
+          if (localStorage.getItem("bsh.research.design") === "glass") design = "glass";
+        } catch (e) {
+          /* storage disabled — the default design */
+        }
+        document.documentElement.setAttribute("data-design", design);
       })();
     </script>
   </head>

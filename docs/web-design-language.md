@@ -1,4 +1,64 @@
-# Web design language — Summit Glass
+# Web design language
+
+The web app has two designs. **Folio** (paper and ink) is the default.
+**Summit Glass**, the Mac twin described in the rest of this document, stays
+one click away in Settings → Preferences → Design. The choice is kept per
+browser (`bsh.research.design`) and set as `data-design` on `<html>` before
+first paint (`index.html`, `src/design.js`).
+
+## Folio
+
+Everything Folio changes lives in `frontend/src/folio.css`, scoped under
+`:root[data-design="folio"]`. It redefines what the tokens resolve to and
+recuts the shapes; views don't know which design is on. Four rules:
+
+- **Paper, not glass.** The canvas is warm paper (`244 242 237`) with a faint
+  grain on the fixed `.canvas-wash` layer; a card is a fresher sheet
+  (`surface`) drawn with a 1px rule, never lifted by a shadow. Nothing blurs:
+  `--glass-blur` is `none`, and sheets, menus and the command palette are
+  opaque paper with a short, close shadow (`--shadow-sheet`). Only menus and
+  sheets that sit over the page get a shadow at all.
+- **Ink marks where you are.** Selection is solid ink (`--folio-ink`) with
+  the label knocked out (`--folio-on-ink`): the sidebar row, the chosen
+  segment, the Market ranges, a Research Desk row, a menu row under the
+  pointer, the command palette's active line and views' hand-made
+  `bg-accent text-white` choices. It snaps instead of gliding (a knocked-out
+  label can't wait for its ink to arrive), so the sidebar's glider is hidden.
+  Rows too rich to knock out (a report with its chips, `.doc-row`) take a
+  bookmark: a shaded sheet with a 3px ink ribbon down the left edge. A chosen
+  option card in a form is ruled in ink.
+- **Blue ink is for acting.** The accent is ultramarine (`38 60 212`):
+  primary buttons (`.btn-filled`, `.mac-btn--prominent`), links, focus rings,
+  Generate report and Warren. It is never a selection, so an action and the
+  place you are never look alike. Green and red belong to prices.
+- **Type carries the hierarchy.** Titles (`.page-title`, `text-large-title`,
+  `text-title1`, headings set in `text-title2`/`text-title3`, the Home title,
+  a company's name, the News lead, the brand) are set in a book serif,
+  `--font-folio-serif`: Iowan Old Style, then Charter, Palatino, Georgia and
+  Songti SC. Nothing is downloaded. The serif never touches a figure
+  (`.tabular` and `.mono-data` keep SF) or a control. Section labels
+  (`.vogue-label`) are small tracked capitals. Reading surfaces (Warren's
+  answers, the News briefing, the Pulse brief) are set in the serif too:
+  Warren writes letters.
+
+Shapes: buttons, fields and icon buttons are cut rectangles (6px); cards 6px,
+sheets 10px, chips and tags 3–4px. Only dots, avatars, switches, spinners and
+progress bars stay round. Text selection is a highlighter stroke. The browser
+chrome takes the paper color (`theme-color`).
+
+The shell changes shape as well as color: the sidebar stops floating and
+becomes a full-height index column ruled off from the page; Warren docks as
+a full-height margin column; the toolbar's capsules dissolve into bare
+buttons; the Research Desk's directory becomes a ruled column. The hook
+classes are `.app-sidebar`, `.app-sidebar-panel`, `.app-toolbar`,
+`.app-inspector` and `.sidebar-generate` (Summit ignores them).
+
+When you build something new, style it in `style.css` as usual. If it uses
+glass, a capsule, a glass-pill selection or a baked-in radius above 8px,
+add its Folio cut to `folio.css`, and check it in both designs and both
+appearances.
+
+## Summit Glass
 
 The web app is the sibling of the Mac terminal
 (`ios/BSHResearchMac/Views/MacDesign.swift`, `MacGlassStyles.swift`).
