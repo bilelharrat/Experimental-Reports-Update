@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, onTestFinished } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import ResearchDeskView from "../src/views/ResearchDeskView.vue";
@@ -144,6 +144,34 @@ describe("ResearchDeskView", () => {
     // Dossier view for selected company should be present
     expect(wrapper.findComponent(CompanyDossierView).exists()).toBe(true);
     expect(wrapper.text()).toContain("Acme Corp");
+  });
+
+  it("collapses the directory to a rail of logos, as the Reports list does", async () => {
+    window.localStorage.setItem("bsh.researchDirectoryCollapsed", "1");
+    onTestFinished(() => window.localStorage.removeItem("bsh.researchDirectoryCollapsed"));
+    const wrapper = mount(ResearchDeskView, {
+      props: { companies: mockCompanies, companyId: "acme-corp" },
+      global: { plugins: [router], stubs: { Monogram: true, CompanyFollowButton: true } },
+    });
+    await flushPromises();
+
+    const marks = wrapper.findAll('[data-testid="research-directory-rail"] .reports-rail-mark');
+    expect(marks.map((m) => m.attributes("aria-label"))).toEqual([
+      "Acme Corp",
+      "Globex Corporation",
+      "Initech",
+    ]);
+    // The open company's logo sits lifted.
+    expect(marks[0].attributes("data-selected")).toBe("true");
+
+    // Each logo opens its company's dossier.
+    await marks[1].trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.params.companyId).toBe("globex");
+
+    // And the button at the top brings the full directory back.
+    await wrapper.find('[data-testid="research-directory-expand"]').trigger("click");
+    expect(wrapper.find('[data-testid="research-directory-rail"]').exists()).toBe(false);
   });
 
   it("filters companies by search query and sector", async () => {

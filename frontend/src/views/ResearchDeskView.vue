@@ -27,6 +27,7 @@ import {
   PanelLeftOpen,
 } from "lucide-vue-next";
 import MacMonogram from "../components/research/MacMonogram.vue";
+import Monogram from "../components/Monogram.vue";
 import CompanyDossierView from "../components/research/CompanyDossierView.vue";
 import { api } from "../api.js";
 import { sortCompanies } from "../companyLists.js";
@@ -459,19 +460,41 @@ function onDeckDrop(e) {
         <div
           class="mac-directory-pane flex min-h-0 w-full flex-1 flex-col md:w-[var(--pane-w)] md:overflow-hidden md:rounded-[18px]"
         >
-          <!-- Collapsed: a rail whose only job is to come back. -->
-          <button
+          <!-- Collapsed: a rail of the companies' logos, as the Reports list
+               collapses to its own. The open company's logo sits lifted;
+               each opens its dossier; the button at the top brings the
+               directory back. -->
+          <div
             v-if="directoryCollapsed"
-            type="button"
-            class="mac-directory-rail focus-ring"
-            :aria-label="t('research_desk.expand_directory')"
-            :title="t('research_desk.expand_directory')"
-            :aria-expanded="false"
-            data-testid="research-directory-expand"
-            @click="toggleDirectory"
+            class="flex h-full w-full flex-col items-center gap-1 py-2"
           >
-            <PanelLeftOpen class="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              class="icon-btn !h-7 !w-7 shrink-0"
+              :aria-label="t('research_desk.expand_directory')"
+              :title="t('research_desk.expand_directory')"
+              :aria-expanded="false"
+              data-testid="research-directory-expand"
+              @click="toggleDirectory"
+            >
+              <PanelLeftOpen class="h-4 w-4" />
+            </button>
+            <div class="reports-rail" data-testid="research-directory-rail">
+              <button
+                v-for="company in filteredCompanies"
+                :key="company.id"
+                type="button"
+                class="reports-rail-mark focus-ring"
+                :data-selected="company.id === selectedCompanyId ? 'true' : 'false'"
+                :title="company.name || company.id"
+                :aria-label="company.name || company.id"
+                :aria-current="company.id === selectedCompanyId ? 'true' : undefined"
+                @click="selectCompany(company)"
+              >
+                <Monogram :company="company" :size="26" tinted aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
           <template v-else>
           <!-- directoryToolbar: sector popup · spacer · Diffs · count -->
