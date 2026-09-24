@@ -16,8 +16,8 @@
 // inherits, so no account ever starts from someone else's.
 //
 // A few keys belong to the device, not the person, and never move: the
-// session itself, the theme, the UI language and the sidebar's collapsed
-// state.
+// session itself, the theme, the UI language, the sidebar's collapsed state
+// and Bureau's company index (open or folded to a rail).
 
 const OWNER_KEY = "bsh.profile.owner";
 const STASH_PREFIX = "bsh.profile.stash.";
@@ -29,6 +29,7 @@ export const DEVICE_KEYS = new Set([
   "bsh.research.appearance",
   "bsh.appLanguage",
   "bsh.sidebarCollapsed",
+  "bsh.companyIndexOpen",
 ]);
 
 function _storage() {

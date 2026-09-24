@@ -191,11 +191,11 @@ async function onSubmit() {
   <main class="canvas-wash login-stage relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-8 select-none">
     <!-- Ambient outer lights -->
     <div
-      class="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-sky-500/10 blur-[100px] dark:bg-sky-500/15"
+      class="login-glow pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-sky-500/10 blur-[100px] dark:bg-sky-500/15"
       aria-hidden="true"
     />
     <div
-      class="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-indigo-500/10 blur-[100px] dark:bg-indigo-500/15"
+      class="login-glow pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-indigo-500/10 blur-[100px] dark:bg-indigo-500/15"
       aria-hidden="true"
     />
 
@@ -207,17 +207,17 @@ async function onSubmit() {
     <!-- The macOS sheet at its own metrics: 480x560 inside 36pt horizontal
          and 28pt vertical padding (MacLoginView's .frame and .padding). -->
     <div
-      class="relative z-10 h-[560px] w-[480px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[20px] border border-black/[0.08] bg-white/70 px-9 py-7 shadow-2xl shadow-black/15 backdrop-blur-2xl dark:border-white/[0.12] dark:bg-[#18191d]/85 dark:shadow-black/70"
+      class="login-sheet relative z-10 h-[560px] w-[480px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[20px] border border-black/[0.08] bg-white/70 px-9 py-7 shadow-2xl shadow-black/15 backdrop-blur-2xl dark:border-white/[0.12] dark:bg-[#18191d]/85 dark:shadow-black/70"
     >
       <!-- The two lighting circles the Mac view sets behind the glass, at its
            sizes and blurs, placed where its offsets put them relative to the
            sheet's centre. -->
       <div
-        class="pointer-events-none absolute left-[-40px] top-[-40px] h-[320px] w-[320px] rounded-full bg-[#38A8E8]/[0.14] blur-[65px] dark:bg-[#38A8E8]/[0.22]"
+        class="login-glow pointer-events-none absolute left-[-40px] top-[-40px] h-[320px] w-[320px] rounded-full bg-[#38A8E8]/[0.14] blur-[65px] dark:bg-[#38A8E8]/[0.22]"
         aria-hidden="true"
       />
       <div
-        class="pointer-events-none absolute bottom-[-30px] right-[-40px] h-[300px] w-[300px] rounded-full bg-[#735AF2]/[0.10] blur-[60px] dark:bg-[#735AF2]/[0.16]"
+        class="login-glow pointer-events-none absolute bottom-[-30px] right-[-40px] h-[300px] w-[300px] rounded-full bg-[#735AF2]/[0.10] blur-[60px] dark:bg-[#735AF2]/[0.16]"
         aria-hidden="true"
       />
 

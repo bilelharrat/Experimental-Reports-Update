@@ -1,22 +1,26 @@
 /**
- * Design: Folio (paper and ink) or Summit Glass.
+ * Design: Bureau (the page on the desk), Folio (paper and ink) or Summit
+ * Glass.
  *
- * Folio is the default. Summit Glass, the Mac twin the app shipped with,
- * stays one click away in Settings while Folio is new, so the two can be
- * compared on the same data. The choice is kept per browser.
+ * Bureau is the default. Folio and Summit Glass, the Mac twin the app
+ * shipped with, stay one click away in Settings so the three can be compared
+ * on the same data. The choice is kept per browser.
  *
- * The design is an attribute on <html> (`data-design`), and folio.css
- * scopes everything it changes under it. Nothing else in the app reads the
- * choice: every view picks the design up from the stylesheet.
+ * The design is an attribute on <html> (`data-design`), and bureau.css and
+ * folio.css scope everything they change under it. Views don't read the
+ * choice: they pick the design up from the stylesheet. The shell is the one
+ * exception — a design in DESK_TAB_DESIGNS (Bureau) sets the desks as tabs
+ * across the masthead (Sidebar.vue, App.vue) and folds the company list to a
+ * rail (`companyIndexOpen` in state.js).
  *
  * NOTE: index.html applies the stored choice before first paint so the page
- * never flashes the other design. Keep the two in sync.
+ * never flashes another design. Keep the two in sync.
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
 const STORAGE_KEY = "bsh.research.design";
-export const DESIGNS = ["folio", "glass"];
-export const DEFAULT_DESIGN = "folio";
+export const DESIGNS = ["bureau", "folio", "glass"];
+export const DEFAULT_DESIGN = "bureau";
 
 function readStored() {
   try {
@@ -30,9 +34,18 @@ function readStored() {
 
 export const design = ref(readStored());
 
+/** Designs whose shell carries the desks as tabs across the masthead and
+ *  keeps the company list as a rail of logos. */
+export const DESK_TAB_DESIGNS = ["bureau"];
+
+/** True while such a design is on: the shell reads this to rearrange itself. */
+export const desksAsTabs = computed(() => DESK_TAB_DESIGNS.includes(design.value));
+
 // The browser chrome (Safari's bar, a phone's status area) takes the page's
-// ground: paper for Folio, Summit's neutral otherwise. Mirrors index.html.
+// ground: Bureau's green desk, Folio's paper, Summit's neutral. Mirrors
+// index.html.
 const THEME_COLORS = {
+  bureau: { light: "#0f1f1a", dark: "#080d0b" },
   folio: { light: "#f4f2ed", dark: "#161513" },
   glass: { light: "#f4f4f6", dark: "#111113" },
 };

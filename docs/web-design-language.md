@@ -1,10 +1,90 @@
 # Web design language
 
-The web app has two designs. **Folio** (paper and ink) is the default.
-**Summit Glass**, the Mac twin described in the rest of this document, stays
-one click away in Settings → Preferences → Design. The choice is kept per
-browser (`bsh.research.design`) and set as `data-design` on `<html>` before
-first paint (`index.html`, `src/design.js`).
+The web app has three designs. **Bureau** (the page on the desk) is the
+default. **Folio** (paper and ink) and **Summit Glass**, the Mac twin
+described in the rest of this document, stay one click away in Settings →
+Preferences → Design. The choice is kept per browser (`bsh.research.design`)
+and set as `data-design` on `<html>` before first paint (`index.html`,
+`src/design.js`), which also gives the browser chrome the design's ground.
+
+## Bureau
+
+Everything Bureau changes lives in `frontend/src/bureau.css`, scoped under
+`:root[data-design="bureau"]`. Four rules:
+
+- **A page on a desk.** The window is a bottle-green desk (`--bureau-frame`,
+  `15 31 26`) with a faint grain and a warm lamp glow in its top-left corner;
+  the work is one ivory sheet (`--bureau-sheet`, `247 244 236`) laid on it
+  (`.app-sheet`, the routed view's wrapper in `App.vue`). Chrome lives on the
+  desk: the masthead, the company rail, the drawer. Inside the sheet a group
+  is a tray pressed a shade into the paper (`surface`, drawn with an inset
+  edge, never lifted); only what sits over the page — menus, dialogs, the
+  command palette, fields and chosen chips — is fresh paper
+  (`surface-raised`) with a shadow. Nothing blurs.
+- **Where you are is cut from the page.** The desks are index tabs along the
+  top edge of the sheet and the companies a rail of logos down its left edge.
+  The one you are on is made of the sheet itself (`--bureau-sheet`) and its
+  corners flare into it, so tab and page read as one piece of paper; a small
+  brass notch sits over the tab's label. On the rail, a company whose folder
+  is open becomes a single tab holding its logo and page glyphs, with the
+  page on screen picked out in brass — the rail never shows two tabs. Inside
+  the sheet, a chosen segment or row is a slip of fresh paper lifted from it
+  (`.segmented`, `.doc-row`, `.mac-row`, Market ranges).
+- **Brass is for acting.** The accent is brass (`148 112 47`), deep enough
+  that white type on it passes AA, so a view's own `bg-accent text-white`
+  stays legible: primary buttons, links (`accent-ink`), focus rings
+  (`accent-glow`, a brighter brass) and Generate report. Switches and checks
+  that are on take the desk's green. Green and red belong to prices.
+- **Type carries the hierarchy.** Titles are set in Instrument Serif (page
+  titles, headings in `text-title2`/`text-title3`, the Home title, a
+  company's name, the News lead, the brand); the interface in Instrument
+  Sans, which has true tabular figures for `.tabular`/`.mono-data`. Both are
+  bundled with the app (`@fontsource`, imported in `main.js`), never fetched
+  from a third party; Songti and PingFang set Chinese. Section labels
+  (`.vogue-label`) are italic serif kickers in sentence case.
+
+Dark mode keeps the idea: the desk goes almost black, the sheet a deep green
+slate, and the ink turns to the ivory the desk is written in.
+
+**The desk re-points the tokens.** `.app-toolbar` and `.app-sidebar`
+redefine the `--color-*` tokens to ivory-on-green, so every control inside
+them — rows, icon buttons, filters, the sort and account menus, the `+`
+menu — is written on the desk without knowing where it is. Reach the
+page's own colors from there through `--bureau-sheet` and `--bureau-ink`,
+which the desk leaves alone.
+
+**The shell changes shape.** `DESK_TAB_DESIGNS` in `src/design.js` lists the
+designs whose shell works this way (`desksAsTabs`):
+
+- The sidebar's desk rows are carried into the masthead
+  (`<Teleport to="#masthead-desk-tabs">` in `Sidebar.vue`), so the tabs keep
+  the rows' links, selection rule (none while a company's page holds it),
+  counts and welcome-tour anchors. Below lg they stay in the drawer.
+- The company list starts as a rail of logos. Its toggle opens the named
+  index (sort, filter, sectors, Diffs, folders) and folds it back; the choice
+  is `companyIndexOpen` (`bsh.companyIndexOpen`, a device key), kept apart
+  from the list sidebar's `sidebarCollapsed`.
+- Generate report moves beside Warren as a brass pill (`.masthead-generate`);
+  the sidebar's own button stays in the drawer.
+- The masthead gives way by its own width, through a container query
+  (`container-name: masthead`), because the open index and Warren both
+  narrow it: the jump field goes first (⌘K still opens the palette), then
+  Generate's label, Warren's name, and last the tab labels (their glyphs
+  stay, named on hover).
+- Warren docks as a second sheet beside the page. Desks sized to the window
+  under the 52px toolbar (`h-[calc(100vh-52px)]`, the Research Desk's
+  `-mt-[52px]` band) are refitted to the sheet's gutter.
+
+Hook classes: `.app-sheet`, `.app-toolbar-row`, `.masthead-desk-tabs`,
+`.masthead-generate`, `.toolbar-jump`, `.copilot-toolbar-label`,
+`.sidebar-brand`, `.sidebar-generate-wrap`, `.sidebar-desks`,
+`.sidebar-desks-rule`, `.sidebar-companies`, `.sidebar-account`, and the
+sign-in sheet's `.login-sheet` / `.login-glow` (Summit and Folio ignore them).
+When you build something new, style it in `style.css` as usual; if it floats
+over the page, give it `surface-raised` and `--shadow-sheet`, and check it in
+all three designs and both appearances. A pseudo-element can't go inside
+`:is()` — the whole argument is dropped silently — so give
+`.foo::before` a rule of its own.
 
 ## Folio
 

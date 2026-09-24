@@ -61,6 +61,7 @@ describe("per-account browser state", () => {
     localStorage.setItem("bsh.research.appearance", "dark");
     localStorage.setItem("bsh.appLanguage", "zh");
     localStorage.setItem("bsh.sidebarCollapsed", "1");
+    localStorage.setItem("bsh.companyIndexOpen", "1");
     localStorage.setItem("not-ours", "x");
     ensureProfileFor("two@example.com");
     for (const key of DEVICE_KEYS) expect(localStorage.getItem(key)).not.toBeNull();

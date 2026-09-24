@@ -17,6 +17,7 @@ vi.mock("../src/api.js", async (importOriginal) => {
 
 import { api } from "../src/api.js";
 import Sidebar from "../src/components/Sidebar.vue";
+import { setDesign } from "../src/design.js";
 import { setSidebarCollapsed } from "../src/state.js";
 
 // Clicking a company in the sidebar opens it in place, like a folder: its
@@ -101,6 +102,14 @@ async function toggle(id) {
   await companyRow(id).trigger("click", { button: 0 });
   await flushPromises();
 }
+
+
+// These specs exercise the named list sidebar that Folio and Summit Glass
+// wear. Bureau folds it to a rail and carries the desks into the masthead;
+// BureauShell.spec.js covers that.
+beforeEach(() => {
+  setDesign("folio");
+});
 
 describe("Sidebar company pages", () => {
   beforeEach(() => {

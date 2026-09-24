@@ -40,7 +40,7 @@ describe("Settings design switch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setAppLanguage("en");
-    setDesign("folio");
+    setDesign("bureau");
     apiMock.userCenter.mockResolvedValue({ account: { email: "qa@bsh.org" } });
     apiMock.workspaceSettings.mockResolvedValue({ account: {}, preferences: {} });
     apiMock.getFundPolicy.mockResolvedValue({ set: false, stages: {}, context: {} });
@@ -48,27 +48,39 @@ describe("Settings design switch", () => {
   });
 
   afterEach(() => {
-    setDesign("folio");
+    setDesign("bureau");
     window.localStorage.removeItem("bsh.research.design");
     setAppLanguage("en");
   });
 
-  it("offers Folio and Summit Glass, with Folio chosen", async () => {
+  it("offers Bureau, Folio and Summit Glass, with Bureau chosen", async () => {
     const wrapper = await mountSettings();
+    const bureau = wrapper.get('[data-testid="settings-design-bureau"]');
     const folio = wrapper.get('[data-testid="settings-design-folio"]');
     const glass = wrapper.get('[data-testid="settings-design-glass"]');
+    expect(bureau.text()).toBe("Bureau");
     expect(folio.text()).toBe("Folio");
     expect(glass.text()).toBe("Summit Glass");
-    expect(folio.attributes("data-selected")).toBe("true");
+    expect(bureau.attributes("data-selected")).toBe("true");
+    expect(folio.attributes("data-selected")).toBe("false");
     expect(glass.attributes("data-selected")).toBe("false");
   });
 
-  it("switches the whole app to Summit Glass and back", async () => {
+  it("switches the whole app between the three designs", async () => {
     const wrapper = await mountSettings();
     await wrapper.get('[data-testid="settings-design-glass"]').trigger("click");
     expect(document.documentElement.dataset.design).toBe("glass");
     expect(wrapper.get('[data-testid="settings-design-glass"]').attributes("data-selected")).toBe("true");
     await wrapper.get('[data-testid="settings-design-folio"]').trigger("click");
     expect(document.documentElement.dataset.design).toBe("folio");
+    await wrapper.get('[data-testid="settings-design-bureau"]').trigger("click");
+    expect(document.documentElement.dataset.design).toBe("bureau");
+    expect(wrapper.get('[data-testid="settings-design-bureau"]').attributes("data-selected")).toBe("true");
+  });
+
+  it("names Bureau in Chinese too", async () => {
+    setAppLanguage("zh");
+    const wrapper = await mountSettings();
+    expect(wrapper.get('[data-testid="settings-design-bureau"]').text()).toBe("Bureau 书案");
   });
 });

@@ -36,6 +36,7 @@ import {
   signOut,
 } from "../auth.js";
 import { useMediaQuery } from "../chrome.js";
+import { desksAsTabs } from "../design.js";
 import { prefersReducedMotion, useGlider } from "../glassMotion.js";
 import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
@@ -53,7 +54,9 @@ import {
   toggleDeskDiffsOnly,
   companyViews,
   setCompanySort,
+  companyIndexOpen,
   sidebarCollapsed,
+  toggleCompanyIndex,
   toggleSidebar,
   trackedCompanyIds,
 } from "../state.js";
@@ -110,7 +113,23 @@ const route = useRoute();
 
 const isDesktop = useMediaQuery("(min-width: 1024px)");
 // The icon rail is a desktop affordance; the mobile drawer always shows labels.
-const collapsed = computed(() => sidebarCollapsed.value && isDesktop.value);
+// A design that sets the desks as tabs (Bureau) keeps its own choice and
+// starts as the rail: the company index sits at the page's edge as a column
+// of logos until it is opened.
+const collapsed = computed(() => {
+  if (!isDesktop.value) return false;
+  return desksAsTabs.value ? !companyIndexOpen.value : sidebarCollapsed.value;
+});
+
+// Such a design sets the desks as tabs along the top of the page. The rows are
+// the same links — same selection rule, counts and tour anchors — carried into
+// the masthead (App.vue's #masthead-desk-tabs); the drawer below lg keeps them.
+const desksInMasthead = computed(() => desksAsTabs.value && isDesktop.value);
+
+function toggleCollapsed() {
+  if (desksAsTabs.value) toggleCompanyIndex();
+  else toggleSidebar();
+}
 
 // chart.line.uptrend.xyaxis, the Mac Market Radar symbol.
 const MarketIcon = (iconProps) =>
@@ -234,9 +253,12 @@ const visibleCompanies = computed(() => {
   });
 });
 
-const collapseLabel = computed(() =>
-  collapsed.value ? t("sidebar.expand") : t("sidebar.collapse"),
-);
+const collapseLabel = computed(() => {
+  if (desksAsTabs.value) {
+    return collapsed.value ? t("sidebar.index_open") : t("sidebar.index_close");
+  }
+  return collapsed.value ? t("sidebar.expand") : t("sidebar.collapse");
+});
 
 const accountLabel = computed(
   () => sessionName.value?.trim() || sessionEmail.value?.trim() || t("toolbar.account"),
@@ -543,7 +565,7 @@ onBeforeUnmount(() => {
     <div class="app-sidebar-panel glass-panel relative flex h-full w-full min-w-0 flex-col rounded-[20px]">
       <!-- Brand -->
       <div
-        class="flex shrink-0 items-center gap-1.5"
+        class="sidebar-brand flex shrink-0 items-center gap-1.5"
         :class="collapsed ? 'flex-col px-2 pb-1 pt-3' : 'px-2.5 pb-2 pt-2.5'"
       >
         <RouterLink
@@ -569,7 +591,8 @@ onBeforeUnmount(() => {
           :aria-label="collapseLabel"
           :title="collapseLabel"
           :aria-expanded="!collapsed"
-          @click="toggleSidebar"
+          data-testid="sidebar-collapse-toggle"
+          @click="toggleCollapsed"
         >
           <PanelLeft v-if="collapsed" class="h-[18px] w-[18px]" />
           <PanelLeftClose v-else class="h-[18px] w-[18px]" />
@@ -587,7 +610,7 @@ onBeforeUnmount(() => {
 
       <!-- Quick Action: Generate Report -->
       <div
-        class="shrink-0"
+        class="sidebar-generate-wrap shrink-0"
         :class="collapsed ? 'flex justify-center px-2 py-1' : 'px-2.5 py-1'"
       >
         <button
@@ -613,9 +636,15 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <!-- Desks -->
-      <nav class="shrink-0 px-2" :aria-label="t('sidebar.desks')">
-        <div v-if="!collapsed" class="vogue-label px-2.5 pb-1 pt-1">
+      <!-- Desks. Under Bureau on a desktop they are the tabs along the top of
+           the page, so the same links move into the masthead. -->
+      <Teleport defer to="#masthead-desk-tabs" :disabled="!desksInMasthead">
+      <nav
+        class="sidebar-desks shrink-0 px-2"
+        :aria-label="t('sidebar.desks')"
+        :data-masthead="desksInMasthead ? 'true' : 'false'"
+      >
+        <div v-if="!collapsed && !desksInMasthead" class="vogue-label px-2.5 pb-1 pt-1">
           {{ t("sidebar.desks") }}
         </div>
         <div
@@ -642,22 +671,26 @@ onBeforeUnmount(() => {
             @click="onNavRowClick"
           >
             <component :is="item.icon" :size="18" class="source-row-icon shrink-0" />
-            <span v-if="!collapsed" class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+            <span v-if="!collapsed || desksInMasthead" class="source-row-label min-w-0 flex-1 truncate">{{ item.label }}</span>
             <span
-              v-if="!collapsed && item.count"
-              class="mono-data text-caption1 text-ink-subtle"
+              v-if="(!collapsed || desksInMasthead) && item.count"
+              class="source-row-count mono-data text-caption1 text-ink-subtle"
             >
               {{ item.count }}
             </span>
           </RouterLink>
         </div>
       </nav>
+      </Teleport>
 
-      <div class="mx-4 my-2.5 h-px shrink-0 bg-ink-primary/[0.07]" aria-hidden="true" />
+      <div
+        class="sidebar-desks-rule mx-4 my-2.5 h-px shrink-0 bg-ink-primary/[0.07]"
+        aria-hidden="true"
+      />
 
       <!-- Companies -->
       <section
-        class="flex min-h-0 flex-1 flex-col"
+        class="sidebar-companies flex min-h-0 flex-1 flex-col"
         data-tour="companies"
         @dragover.prevent="onDeckDragOver"
         @dragleave="onDeckDragLeave"
@@ -900,7 +933,7 @@ onBeforeUnmount(() => {
 </section>
 
       <!-- Account -->
-      <div ref="accountAnchor" class="relative shrink-0 px-2 pb-2">
+      <div ref="accountAnchor" class="sidebar-account relative shrink-0 px-2 pb-2">
         <div class="mx-2 mb-1.5 h-px bg-ink-primary/[0.07]" aria-hidden="true" />
         <button
           type="button"

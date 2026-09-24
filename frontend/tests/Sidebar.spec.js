@@ -3,6 +3,7 @@ import { nextTick } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import Sidebar from "../src/components/Sidebar.vue";
+import { setDesign } from "../src/design.js";
 import { session } from "../src/auth.js";
 import {
   ALL_SECTORS,
@@ -69,6 +70,14 @@ function nameOrder(wrapper) {
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name);
 }
+
+
+// These specs exercise the named list sidebar that Folio and Summit Glass
+// wear. Bureau folds it to a rail and carries the desks into the masthead;
+// BureauShell.spec.js covers that.
+beforeEach(() => {
+  setDesign("folio");
+});
 
 describe("Sidebar", () => {
   beforeEach(() => {

@@ -81,6 +81,38 @@ export function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
 }
 
+// The company index of a design that sets the desks as tabs (Bureau): a rail
+// of logos at the page's edge by default, opened to the named list on
+// demand. Kept apart from the list sidebar's collapsed state so switching
+// designs never flips the other one's choice.
+const COMPANY_INDEX_KEY = "bsh.companyIndexOpen";
+
+function _initialCompanyIndexOpen() {
+  try {
+    return window.localStorage.getItem(COMPANY_INDEX_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export const companyIndexOpen = ref(_initialCompanyIndexOpen());
+
+watch(companyIndexOpen, (open) => {
+  try {
+    window.localStorage.setItem(COMPANY_INDEX_KEY, open ? "1" : "0");
+  } catch {
+    // ignore
+  }
+});
+
+export function setCompanyIndexOpen(open) {
+  companyIndexOpen.value = Boolean(open);
+}
+
+export function toggleCompanyIndex() {
+  companyIndexOpen.value = !companyIndexOpen.value;
+}
+
 // Last company workspace. Used after login so the app opens to the work,
 // not the brochure Home screen. Clicking Home still goes to search/add.
 const LAST_COMPANY_KEY = "bsh.lastCompanyId";

@@ -1,0 +1,1759 @@
+/* ===========================================================================
+   Bureau — the page on the desk.
+
+   The design the app wears by default (src/design.js). Folio and Summit
+   Glass stay underneath: every rule here is scoped under
+   :root[data-design="bureau"], so switching in Settings drops this whole
+   file and nothing else changes.
+
+   Four ideas, used everywhere:
+
+   - A page on a desk. The window is a bottle-green desk with a little grain
+     and the warmth of a lamp in its top corner; the work is one ivory sheet
+     laid on it. Chrome lives on the desk (the masthead, the company rail,
+     the drawer), content lives on the sheet. There are no floating cards on
+     gray: inside the sheet a group is a tray pressed into the paper, and
+     only what sits over the page (menus, dialogs) lifts off it.
+   - Where you are is cut from the page. The desks are index tabs along the
+     top edge of the sheet and the companies a rail of logos down its left
+     edge. The one you are on is made of the sheet itself and flares into
+     it, so the tab and the page read as one piece of paper. Inside the
+     sheet a chosen segment or row is a slip of fresh paper lifted from it.
+   - Brass is for acting. Primary buttons, links, focus and Generate report
+     are brass; the accent is deep enough to carry white type. Green and red
+     belong to prices, so the desk's green never marks a number.
+   - Type carries the hierarchy. Titles are set in Instrument Serif, the
+     interface in Instrument Sans (both bundled, nothing fetched from a
+     third party; Songti and PingFang set Chinese). Section labels are
+     italic serif kickers, figures stay tabular.
+
+   Colors stay RGB triplets so Tailwind's <alpha-value> keeps working.
+=========================================================================== */
+
+:root[data-design="bureau"] {
+  /* The desk, and what is drawn on it. */
+  --bureau-frame: 15 31 26;
+  --bureau-frame-2: 25 45 39;
+  --bureau-frame-3: 33 56 49;
+  --bureau-on-frame: 238 232 216;
+  --bureau-brass: 208 172 100;
+  --bureau-brass-deep: 176 138 66;
+
+  /* The sheet and its ink, named apart from the tokens so the desk (which
+     re-points the tokens at itself) can still reach the page's colors. */
+  --bureau-sheet: 247 244 236;
+  --bureau-ink: 24 30 27;
+
+  --bureau-gutter: 10px;
+  --bureau-radius: 18px;
+  --bureau-tab-radius: 12px;
+
+  --bureau-serif: "Instrument Serif", "Songti SC", "STSong", "Source Han Serif SC",
+    "Noto Serif SC", Georgia, serif;
+  --bureau-sans: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI",
+    sans-serif;
+
+  /* Grain for the desk: one tile of ivory specks, low enough to feel rather
+     than see. The lamp is a warm pool in the top-left corner. */
+  --bureau-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.93 0 0 0 0 0.9 0 0 0 0 0.8 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --bureau-lamp: radial-gradient(74rem 38rem at 8% -14rem, rgb(214 178 104 / 0.13), transparent 70%);
+
+  /* The sheet: vellum. A group is a tray pressed a shade into it; menus,
+     fields and chosen chips are fresh paper lifted off it. */
+  --color-canvas: var(--bureau-sheet);
+  --color-surface: 240 236 226;
+  --color-surface-muted: 233 228 216;
+  --color-surface-raised: 255 253 248;
+
+  --color-border-subtle: 222 215 200;
+  --color-border-strong: 196 187 168;
+
+  /* Ink with green in it, and its lighter strokes. */
+  --color-text-primary: var(--bureau-ink);
+  --color-text-secondary: 62 70 65;
+  --color-text-muted: 96 102 95;
+  --color-text-subtle: 146 148 138;
+
+  --color-fill: 226 220 206;
+  --color-fill-secondary: 232 227 214;
+  --color-fill-tertiary: 238 234 223;
+
+  /* Brass: deep enough that white type on it passes AA. */
+  --color-accent: 148 112 47;
+  --color-accent-hover: 128 95 36;
+  --color-accent-soft: 242 233 212;
+  --color-accent-ink: 122 90 31;
+  --color-accent-glow: 208 172 100;
+
+  --color-success: 31 128 80;
+  --color-success-soft: 223 237 226;
+  --color-success-ink: 22 104 63;
+  --color-warning: 196 118 18;
+  --color-warning-soft: 246 232 208;
+  --color-warning-ink: 150 84 6;
+  --color-danger: 192 57 43;
+  --color-danger-soft: 246 225 219;
+  --color-danger-ink: 162 42 30;
+  --color-info: 70 88 170;
+  --color-info-soft: 229 232 244;
+  --color-info-ink: 52 68 150;
+  --color-notice: 204 160 20;
+  --color-notice-soft: 246 236 205;
+  --color-notice-ink: 128 94 0;
+  --color-teal: 26 128 136;
+  --color-teal-soft: 220 236 234;
+  --color-teal-ink: 16 98 106;
+  --color-purple: 124 78 170;
+  --color-purple-soft: 237 229 243;
+  --color-purple-ink: 100 56 146;
+
+  /* Glass tokens, resolved to paper. Shadows stay valid lists (no `none`),
+     because style.css composes several of them into one box-shadow. */
+  --glass-fill: rgb(var(--color-surface-raised));
+  --glass-fill-strong: rgb(var(--color-surface-raised));
+  --glass-pill: rgb(var(--color-surface-raised));
+  --glass-blur: none;
+  --glass-blur-soft: none;
+  --glass-rim: 0 0 0 0 transparent;
+  --glass-edge: 0 0 0 1px rgb(var(--color-text-primary) / 0.08);
+  --glass-shadow: 0 18px 44px -24px rgb(15 31 26 / 0.38);
+  --pill-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.07), 0 1px 2px rgb(15 31 26 / 0.12);
+  --scrim: rgba(8, 16, 13, 0.22);
+
+  --material-bar: rgb(var(--bureau-frame));
+  --material-sidebar: transparent;
+  --material-menu: rgb(var(--color-surface-raised));
+  --material-blur: none;
+  --glass-card: rgb(var(--color-surface));
+
+  /* A tray is pressed in, not lifted: a faint inner edge instead of a drop
+     shadow. Depth is kept for things over the page. */
+  --shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.035), inset 0 1px 2px rgb(15 31 26 / 0.04);
+  --shadow-hover: inset 0 0 0 1px rgb(var(--color-accent) / 0.38), inset 0 1px 2px rgb(15 31 26 / 0.04);
+  --shadow-sheet: 0 0 0 1px rgb(var(--color-text-primary) / 0.08),
+    0 26px 60px -26px rgb(15 31 26 / 0.5), 0 6px 16px -8px rgb(15 31 26 / 0.18);
+  --shadow-control: 0 0 0 1px rgb(var(--color-text-primary) / 0.12), 0 1px 2px rgb(15 31 26 / 0.06);
+
+  --font-sans: var(--bureau-sans);
+
+  --tiffany: rgb(208, 172, 100);
+  --tiffany-dark: rgb(148, 112, 47);
+}
+
+:root[data-design="bureau"].dark {
+  /* Night: the desk goes almost black, the sheet a deep green slate, and
+     the ink turns to the same ivory the desk is written in. */
+  --bureau-frame: 7 11 9;
+  --bureau-frame-2: 17 26 22;
+  --bureau-frame-3: 24 35 31;
+  --bureau-on-frame: 230 225 210;
+  --bureau-sheet: 21 29 26;
+  --bureau-ink: 234 229 214;
+  --bureau-lamp: radial-gradient(74rem 38rem at 8% -14rem, rgb(214 178 104 / 0.08), transparent 70%);
+
+  --color-surface: 14 20 17;
+  --color-surface-muted: 11 16 14;
+  --color-surface-raised: 30 39 35;
+
+  --color-border-subtle: 40 50 45;
+  --color-border-strong: 62 74 68;
+
+  --color-text-secondary: 194 190 176;
+  --color-text-muted: 148 148 136;
+  --color-text-subtle: 106 110 101;
+
+  --color-fill: 44 54 49;
+  --color-fill-secondary: 36 46 41;
+  --color-fill-tertiary: 29 38 34;
+
+  --color-accent: 158 120 52;
+  --color-accent-hover: 178 138 66;
+  --color-accent-soft: 46 40 24;
+  --color-accent-ink: 222 189 122;
+  --color-accent-glow: 214 178 104;
+
+  --color-success: 76 180 118;
+  --color-success-soft: 20 44 31;
+  --color-success-ink: 132 214 162;
+  --color-warning: 232 158 60;
+  --color-warning-soft: 55 40 16;
+  --color-warning-ink: 244 200 138;
+  --color-danger: 232 100 82;
+  --color-danger-soft: 58 26 21;
+  --color-danger-ink: 248 166 152;
+  --color-info: 140 152 240;
+  --color-info-soft: 32 36 64;
+  --color-info-ink: 184 192 255;
+  --color-notice: 232 196 72;
+  --color-notice-soft: 52 45 16;
+  --color-notice-ink: 246 220 140;
+  --color-teal: 80 190 196;
+  --color-teal-soft: 16 44 46;
+  --color-teal-ink: 140 220 226;
+  --color-purple: 190 140 236;
+  --color-purple-soft: 46 30 60;
+  --color-purple-ink: 218 186 250;
+
+  --glass-edge: 0 0 0 1px rgb(255 255 255 / 0.07);
+  --glass-shadow: 0 18px 44px -20px rgb(0 0 0 / 0.7);
+  --pill-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.5);
+  --scrim: rgba(0, 0, 0, 0.32);
+
+  --shadow: inset 0 0 0 1px rgb(255 255 255 / 0.03), inset 0 1px 3px rgb(0 0 0 / 0.35);
+  --shadow-hover: inset 0 0 0 1px rgb(var(--color-accent-glow) / 0.35), inset 0 1px 3px rgb(0 0 0 / 0.35);
+  --shadow-sheet: 0 0 0 1px rgb(255 255 255 / 0.08), 0 26px 60px -22px rgb(0 0 0 / 0.8);
+  --shadow-control: 0 0 0 1px rgb(255 255 255 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
+
+  --tiffany: rgb(214, 178, 104);
+  --tiffany-dark: rgb(158, 120, 52);
+}
+
+/* ---------------------------------------------------------------------------
+   The desk: everything that is chrome re-points the tokens at the green, so
+   the controls inside it (rows, icon buttons, filters, menus, logos) are
+   written in ivory without knowing where they are.
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] :is(.app-toolbar, .app-sidebar) {
+  color-scheme: dark;
+  --color-canvas: var(--bureau-frame);
+  --color-surface: var(--bureau-frame-2);
+  --color-surface-muted: var(--bureau-frame-2);
+  --color-surface-raised: var(--bureau-frame-3);
+
+  --color-border-subtle: 50 70 62;
+  --color-border-strong: 74 96 87;
+
+  --color-text-primary: var(--bureau-on-frame);
+  --color-text-secondary: 204 200 186;
+  --color-text-muted: 156 162 149;
+  --color-text-subtle: 118 128 117;
+
+  --color-fill: 44 64 57;
+  --color-fill-secondary: 36 56 49;
+  --color-fill-tertiary: 30 49 43;
+
+  --color-accent: var(--bureau-brass);
+  --color-accent-hover: 222 190 124;
+  --color-accent-soft: 54 52 34;
+  --color-accent-ink: 222 190 124;
+  --color-accent-glow: var(--bureau-brass);
+
+  --color-success-ink: 132 214 162;
+  --color-warning-ink: 244 200 138;
+  --color-danger-ink: 248 166 152;
+  --color-info-ink: 184 192 255;
+
+  --glass-fill: rgb(var(--bureau-frame-3));
+  --glass-fill-strong: rgb(var(--bureau-frame-2));
+  --glass-pill: rgb(var(--bureau-frame-3));
+  --glass-edge: 0 0 0 1px rgb(var(--bureau-on-frame) / 0.1);
+  --glass-shadow: 0 18px 44px -20px rgb(0 0 0 / 0.6);
+  --pill-shadow: 0 0 0 1px rgb(var(--bureau-on-frame) / 0.08);
+  --material-menu: rgb(var(--bureau-frame-3));
+  --shadow-sheet: 0 0 0 1px rgb(var(--bureau-on-frame) / 0.1), 0 24px 56px -20px rgb(0 0 0 / 0.7);
+  --shadow-control: 0 0 0 1px rgb(var(--bureau-on-frame) / 0.14);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"],
+:root[data-design="bureau"] body {
+  background-color: rgb(var(--bureau-frame));
+}
+
+:root[data-design="bureau"] body {
+  font-family: var(--bureau-sans);
+  font-feature-settings: "kern", "calt";
+}
+
+/* Tailwind's two named stacks (SF Display and SF Text) both become the
+   interface face; titles opt into the serif below. */
+:root[data-design="bureau"] :is(.font-display, .font-body) {
+  font-family: var(--bureau-sans);
+}
+
+/* A border drawn without a color (a bare `border` utility) is a pencil rule
+   on the sheet rather than Tailwind's cool gray. Zero specificity, so any
+   border color a view sets still wins. */
+:where([data-design="bureau"]) *,
+:where([data-design="bureau"]) ::before,
+:where([data-design="bureau"]) ::after {
+  border-color: rgb(var(--color-border-subtle));
+}
+
+:root[data-design="bureau"] ::selection {
+  background-color: rgb(var(--color-accent-glow) / 0.34);
+  color: rgb(var(--color-text-primary));
+}
+
+/* The desk under everything: grain and lamplight on one fixed layer, so it
+   never repaints while the sheet scrolls over it. */
+:root[data-design="bureau"] .canvas-wash::before {
+  background: var(--bureau-lamp), var(--bureau-grain), rgb(var(--bureau-frame));
+  background-size: auto, 220px 220px, auto;
+  opacity: 1;
+}
+
+:root[data-design="bureau"] * {
+  scrollbar-color: rgb(var(--color-text-primary) / 0.22) transparent;
+}
+
+:root[data-design="bureau"] *::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-text-primary) / 0.2);
+}
+
+/* ---------------------------------------------------------------------------
+   The sheet
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .app-sheet {
+  position: relative;
+  min-height: calc(100vh - 52px - var(--bureau-gutter));
+  margin: 0 var(--bureau-gutter) var(--bureau-gutter) 0;
+  border-radius: var(--bureau-radius);
+  background-color: rgb(var(--bureau-sheet));
+  color: rgb(var(--bureau-ink));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 0 0 1px rgb(0 0 0 / 0.18),
+    0 30px 70px -40px rgb(0 0 0 / 0.65);
+}
+
+:root[data-design="bureau"].dark .app-sheet {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 0 0 1px rgb(255 255 255 / 0.05),
+    0 30px 70px -40px rgb(0 0 0 / 0.9);
+}
+
+@media (max-width: 1023px) {
+  :root[data-design="bureau"] .app-sheet {
+    margin: 0 6px 6px;
+    border-radius: 16px;
+    min-height: calc(100vh - 52px - 6px);
+  }
+}
+
+/* Desks sized to the window under a 52px toolbar lose the sheet's gutter. */
+:root[data-design="bureau"] .h-\[calc\(100vh-52px\)\] {
+  height: calc(100vh - 52px - var(--bureau-gutter));
+}
+
+/* ---------------------------------------------------------------------------
+   Type
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] :is(.page-title, .text-large-title, .text-title1, .mac-t-title, .home-hero-title):not(.tabular, .mono-data),
+:root[data-design="bureau"] :is(h1, h2, h3, summary):is(.text-title2, .text-title3):not(.tabular, .mono-data),
+:root[data-design="bureau"] .font-display:is(.text-title2, .text-xl):not(.tabular, .mono-data) {
+  font-family: var(--bureau-serif);
+  font-weight: 400;
+  font-variant-numeric: lining-nums;
+  letter-spacing: -0.01em;
+}
+
+:root[data-design="bureau"] :is(.page-title, .text-large-title):not(.tabular, .mono-data) {
+  font-size: 2.875rem;
+  line-height: 3rem;
+  letter-spacing: -0.012em;
+}
+
+:root[data-design="bureau"] .text-title1:not(.tabular, .mono-data) {
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+}
+
+:root[data-design="bureau"] :is(h1, h2, h3, summary).text-title2:not(.tabular, .mono-data) {
+  font-size: 1.75rem;
+  line-height: 2.125rem;
+}
+
+:root[data-design="bureau"] :is(h1, h2, h3, summary).text-title3:not(.tabular, .mono-data) {
+  font-size: 1.4375rem;
+  line-height: 1.75rem;
+}
+
+/* Section labels are kickers set in the serif's italic, in sentence case. */
+:root[data-design="bureau"] :is(.vogue-label, .section-label) {
+  font-family: var(--bureau-serif);
+  font-style: italic;
+  font-size: 0.96875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(var(--color-text-secondary));
+}
+
+:root[data-design="bureau"] .kbd {
+  border-radius: 5px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14), 0 1px 0 rgb(var(--color-text-primary) / 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+   Materials: glass becomes paper
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] :is(.glass-panel, .glass-capsule)::before,
+:root[data-design="bureau"] :is(.material-sidebar, .rail-gradient, .material-menu, .glass-pill, .material-glass),
+:root[data-design="bureau"] .material-bar::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="bureau"] .glass-panel::before {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: var(--shadow-sheet);
+}
+
+/* A toolbar group is just its buttons: no capsule. */
+:root[data-design="bureau"] .glass-capsule::before {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-design="bureau"] .glass-capsule-divider {
+  background-color: rgb(var(--color-text-primary) / 0.16);
+}
+
+:root[data-design="bureau"] :is(.material-menu, .toolbar-menu) {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="bureau"] .toolbar-menu {
+  border-radius: 14px;
+  padding: 5px;
+}
+
+:root[data-design="bureau"] .toolbar-menu-item {
+  border-radius: 9px;
+}
+
+:root[data-design="bureau"] .toolbar-menu-item:hover:not(:disabled),
+:root[data-design="bureau"] .toolbar-menu-item:focus-visible {
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-text-primary) / 0.07);
+}
+
+:root[data-design="bureau"] .toolbar-menu-item:hover:not(:disabled) :is(svg, [class*="text-ink"]),
+:root[data-design="bureau"] .toolbar-menu-item:focus-visible :is(svg, [class*="text-ink"]) {
+  color: rgb(var(--color-text-primary));
+}
+
+:root[data-design="bureau"] .hairline-b {
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle));
+}
+
+/* ---------------------------------------------------------------------------
+   Controls
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .focus-ring:focus-visible {
+  --tw-ring-color: rgb(var(--color-accent-glow) / 0.75);
+}
+
+/* Buttons are pills. Primary is brass with a little light across its top,
+   so it reads as metal rather than paint; it presses in, it doesn't shrink. */
+:root[data-design="bureau"] .btn-filled {
+  color: rgb(255 253 246);
+  background-color: rgb(var(--color-accent));
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 60%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 0 0 1px rgb(var(--color-accent-hover) / 0.55),
+    0 1px 2px rgb(15 31 26 / 0.18);
+}
+
+:root[data-design="bureau"] .btn-filled:hover:not(:disabled) {
+  background-color: rgb(var(--color-accent-hover));
+}
+
+:root[data-design="bureau"] .btn-tinted {
+  color: rgb(var(--color-accent-ink));
+  background-color: rgb(var(--color-accent-soft));
+}
+
+:root[data-design="bureau"] .btn-bordered,
+:root[data-design="bureau"].dark .btn-bordered {
+  color: rgb(var(--color-text-primary));
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.2);
+}
+
+:root[data-design="bureau"] .btn-bordered:hover:not(:disabled),
+:root[data-design="bureau"].dark .btn-bordered:hover:not(:disabled) {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.36);
+}
+
+:root[data-design="bureau"] .btn-plain {
+  color: rgb(var(--color-accent-ink));
+}
+
+:root[data-design="bureau"] .btn-plain:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+:root[data-design="bureau"] :is(.btn-filled, .btn-tinted, .btn-bordered, .btn-plain, .pill-button):active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+:root[data-design="bureau"] .icon-btn:hover:not(:disabled) {
+  background-color: rgb(var(--color-text-primary) / 0.07);
+}
+
+:root[data-design="bureau"] .icon-btn:active:not(:disabled) {
+  transform: none;
+  background-color: rgb(var(--color-text-primary) / 0.12);
+}
+
+:root[data-design="bureau"] .progress-fill {
+  background-color: rgb(var(--color-accent-glow));
+}
+
+/* Fields are fresh paper on the sheet; focus draws a brass edge. */
+:root[data-design="bureau"] .field,
+:root[data-design="bureau"].dark .field {
+  border-radius: 10px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="bureau"] .field:hover:not(:disabled):not(:focus) {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.28);
+}
+
+:root[data-design="bureau"] .field:focus,
+:root[data-design="bureau"].dark .field:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.28);
+}
+
+:root[data-design="bureau"].dark :is(select.field, select.field-sm) {
+  background-color: rgb(var(--color-surface-raised));
+}
+
+:root[data-design="bureau"] :is(.news-search-field, .yf-search-input, .toolbar-search) {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="bureau"] :is(.news-search-field, .yf-search-input, .toolbar-search):focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.28);
+}
+
+/* Switches and checks are set in the desk's green: the one place the desk
+   reaches into the page, for a thing that is on. */
+:root[data-design="bureau"] .switch,
+:root[data-design="bureau"].dark .switch {
+  background-color: rgb(var(--color-text-primary) / 0.16);
+}
+
+:root[data-design="bureau"] .switch:checked {
+  background-color: rgb(26 62 51);
+}
+
+:root[data-design="bureau"].dark .switch:checked {
+  background-color: rgb(var(--color-accent));
+}
+
+:root[data-design="bureau"] .switch::before {
+  background: rgb(255 253 248);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.22), 0 0 0 0.5px rgb(0 0 0 / 0.06);
+}
+
+:root[data-design="bureau"] .memo-checkbox:checked,
+:root[data-design="bureau"].dark .memo-checkbox:checked {
+  background: rgb(26 62 51);
+  box-shadow: none;
+}
+
+:root[data-design="bureau"].dark .memo-checkbox:checked {
+  background: rgb(var(--color-accent));
+}
+
+/* ---------------------------------------------------------------------------
+   Selection inside the sheet: a slip of fresh paper, lifted
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .segmented,
+:root[data-design="bureau"].dark .segmented {
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  box-shadow: inset 0 1px 2px rgb(15 31 26 / 0.06);
+}
+
+:root[data-design="bureau"] .segmented-item {
+  color: rgb(var(--color-text-primary) / 0.62);
+}
+
+:root[data-design="bureau"] .segmented-item:hover {
+  color: rgb(var(--color-text-primary));
+}
+
+:root[data-design="bureau"] .segmented-item::before {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(15 31 26 / 0.14);
+}
+
+:root[data-design="bureau"] .segmented-item:is([aria-selected="true"], [data-selected="true"], [aria-checked="true"], .router-link-active, .router-link-exact-active) {
+  color: rgb(var(--color-text-primary));
+  font-weight: 600;
+}
+
+:root[data-design="bureau"] .workspace-tab[aria-selected="true"]::after {
+  height: 2px;
+  background: rgb(var(--color-accent-glow));
+}
+
+/* Rich rows (a report with its chips) are chosen the same way, with a brass
+   ribbon down the edge they were pulled out by. */
+:root[data-design="bureau"] .doc-row[data-selected="true"] {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 3px 0 0 rgb(var(--color-accent-glow)), 0 0 0 1px rgb(var(--color-text-primary) / 0.06),
+    0 1px 3px rgb(15 31 26 / 0.08);
+}
+
+:root[data-design="bureau"] .home-action[data-selected="true"] {
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(15 31 26 / 0.12);
+  animation: none;
+}
+
+:root[data-design="bureau"] .yf-range-item[data-selected="true"] {
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 1px 3px rgb(15 31 26 / 0.12);
+}
+
+:root[data-design="bureau"] .yf-index-card[data-selected="true"] {
+  box-shadow: 0 0 0 1.5px rgb(var(--color-accent-glow)), 0 8px 22px -14px rgb(15 31 26 / 0.4);
+}
+
+/* A chosen option card in a form (the Generate dialog) is edged in brass. */
+:root[data-design="bureau"] .border-accent.ring-accent {
+  border-color: rgb(var(--color-accent));
+  --tw-ring-color: rgb(var(--color-accent-glow));
+  background-color: rgb(var(--color-accent-soft) / 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .shadow-sm {
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-design="bureau"] .glass-card:hover {
+  transform: none;
+  background-color: rgb(var(--color-surface-raised) / 0.55);
+}
+
+:root[data-design="bureau"] .inset-table thead {
+  background-color: transparent;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-text-primary) / 0.22);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root[data-design="bureau"] .monogram[data-tint] {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  text-shadow: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The masthead: the desks as tabs cut from the top of the sheet
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .app-toolbar {
+  color: rgb(var(--bureau-on-frame));
+}
+
+/* Always the desk (with its grain), so the sheet can slide under it. */
+:root[data-design="bureau"] .app-toolbar.material-bar::before {
+  opacity: 1;
+  background: var(--bureau-lamp), var(--bureau-grain), rgb(var(--bureau-frame));
+  background-size: auto, 220px 220px, auto;
+  background-attachment: fixed;
+  box-shadow: none;
+}
+
+:root[data-design="bureau"] .masthead-desk-tabs {
+  display: none;
+}
+
+:root[data-design="bureau"] .masthead-generate {
+  display: none;
+}
+
+:root[data-design="bureau"] .app-toolbar .glass-capsule {
+  gap: 2px;
+}
+
+:root[data-design="bureau"] .app-toolbar .icon-btn {
+  color: rgb(var(--bureau-on-frame) / 0.66);
+}
+
+:root[data-design="bureau"] .app-toolbar .icon-btn:hover:not(:disabled),
+:root[data-design="bureau"] .app-toolbar .icon-btn[aria-pressed="true"],
+:root[data-design="bureau"] .app-toolbar .icon-btn[aria-expanded="true"] {
+  color: rgb(var(--bureau-on-frame));
+  background-color: rgb(var(--bureau-on-frame) / 0.09);
+}
+
+/* The small title (below lg, where there are no tabs) is set in the serif. */
+:root[data-design="bureau"] .toolbar-title > :first-child {
+  font-family: var(--bureau-serif);
+  font-size: 1.25rem;
+  line-height: 1.5rem;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+
+:root[data-design="bureau"] .toolbar-search {
+  border-radius: 999px;
+  color: rgb(var(--bureau-on-frame));
+  background-color: rgb(var(--bureau-on-frame) / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-on-frame) / 0.12);
+}
+
+:root[data-design="bureau"] .toolbar-search::placeholder {
+  color: rgb(var(--bureau-on-frame) / 0.5);
+}
+
+:root[data-design="bureau"] .toolbar-search:focus {
+  background-color: rgb(var(--bureau-on-frame) / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-brass) / 0.8), 0 0 0 3px rgb(var(--bureau-brass) / 0.22);
+}
+
+:root[data-design="bureau"] .app-toolbar .kbd {
+  color: rgb(var(--bureau-on-frame) / 0.7);
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-on-frame) / 0.2);
+}
+
+/* Ask Warren: his portrait and name, ruled in ivory; open, in brass. */
+:root[data-design="bureau"] .copilot-toolbar-btn {
+  color: rgb(var(--bureau-on-frame));
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-on-frame) / 0.2);
+}
+
+:root[data-design="bureau"] .copilot-toolbar-btn:hover {
+  background-color: rgb(var(--bureau-on-frame) / 0.08);
+}
+
+:root[data-design="bureau"] .copilot-toolbar-btn:active {
+  transform: translateY(0.5px);
+}
+
+:root[data-design="bureau"] .copilot-toolbar-btn[aria-pressed="true"] {
+  color: rgb(var(--bureau-brass));
+  background-color: rgb(var(--bureau-brass) / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-brass) / 0.6);
+}
+
+:root[data-design="bureau"] .sync-status {
+  color: rgb(var(--bureau-on-frame) / 0.55);
+}
+
+@media (min-width: 1024px) {
+  /* The controls sit a little low, level with the tab labels. */
+  :root[data-design="bureau"] .app-toolbar-row {
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    padding-left: 24px;
+    padding-right: calc(var(--bureau-gutter) + 2px);
+  }
+
+  /* The tabs replace the small title; the page's own title is on the sheet. */
+  :root[data-design="bureau"] .app-toolbar .toolbar-title {
+    display: none;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs {
+    display: flex;
+    flex: 1 1 auto;
+    align-self: stretch;
+    align-items: flex-end;
+    min-width: 0;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .sidebar-desks {
+    display: flex;
+    align-items: flex-end;
+    padding: 0;
+    height: 100%;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .sidebar-desks > div {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 100%;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .sidebar-desks > div > * + * {
+    margin-top: 0;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .nav-glider {
+    display: none;
+  }
+
+  /* A tab at rest is a label written on the desk. */
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row {
+    height: 40px;
+    gap: 7px;
+    padding: 0 15px;
+    margin-bottom: 0;
+    border-radius: var(--bureau-tab-radius) var(--bureau-tab-radius) 0 0;
+    font-size: 0.84375rem;
+    font-weight: 500;
+    letter-spacing: 0.004em;
+    color: rgb(var(--bureau-on-frame) / 0.64);
+    background-color: transparent;
+    box-shadow: none;
+    animation: none;
+    white-space: nowrap;
+    transition:
+      color 140ms var(--ease-standard),
+      background-color 140ms var(--ease-standard);
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row-icon {
+    display: none;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row-label {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row-count {
+    min-width: 1.25rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    text-align: center;
+    color: rgb(var(--bureau-frame));
+    background-color: rgb(var(--bureau-brass) / 0.85);
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row:hover {
+    color: rgb(var(--bureau-on-frame));
+    background-color: rgb(var(--bureau-on-frame) / 0.07);
+  }
+
+  /* The desk you are on is the page's own paper: same color, no seam, and
+     its foot flares into the sheet's top edge. */
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active {
+    color: rgb(var(--bureau-ink));
+    font-weight: 600;
+    background-color: rgb(var(--bureau-sheet));
+    background-image: linear-gradient(rgb(var(--bureau-brass-deep)), rgb(var(--bureau-brass-deep)));
+    background-repeat: no-repeat;
+    background-position: center 6px;
+    background-size: 14px 2px;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active::before,
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: var(--bureau-tab-radius);
+    height: var(--bureau-tab-radius);
+    pointer-events: none;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active::before {
+    left: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 0 0, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active::after {
+    right: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 100% 0, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active .source-row-count {
+    color: rgb(255 253 246);
+    background-color: rgb(var(--color-accent, 148 112 47));
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row:focus-visible {
+    outline: 2px solid rgb(var(--bureau-brass));
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+
+  /* Generate report: the standing action, a brass pill on the desk. */
+  :root[data-design="bureau"] .masthead-generate {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 14px 0 10px;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    color: rgb(var(--bureau-frame));
+    background-color: rgb(var(--bureau-brass));
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.28), rgb(255 255 255 / 0) 55%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 0 0 1px rgb(0 0 0 / 0.25), 0 4px 14px -6px rgb(0 0 0 / 0.5);
+    transition:
+      background-color 140ms var(--ease-standard),
+      transform 140ms var(--ease-standard);
+  }
+
+  :root[data-design="bureau"] .masthead-generate:hover {
+    background-color: rgb(224 192 126);
+  }
+
+  :root[data-design="bureau"] .masthead-generate:active {
+    transform: translateY(0.5px);
+    background-color: rgb(var(--bureau-brass-deep));
+  }
+
+  /* Warren's orb, struck in the button's own metal. */
+  :root[data-design="bureau"] .masthead-generate img {
+    filter: grayscale(1) contrast(1.2) brightness(1.08);
+    mix-blend-mode: multiply;
+  }
+
+  :root[data-design="bureau"] .sync-status,
+  :root[data-design="bureau"] .toolbar-jump {
+    display: none;
+  }
+}
+
+/* The masthead gives way by its own width, not the window's: the company
+   index and Warren both narrow it. In order, it drops the jump field (⌘K
+   still opens the palette), Generate's label, Warren's name and some tab
+   padding, and last the tab labels (their glyphs stay, named on hover). */
+@media (min-width: 1024px) {
+  :root[data-design="bureau"] .app-toolbar {
+    container-type: inline-size;
+    container-name: masthead;
+  }
+}
+
+@container masthead (min-width: 1320px) {
+  :root[data-design="bureau"] .toolbar-jump {
+    display: block;
+    width: 17.5rem;
+  }
+}
+
+@container masthead (min-width: 1580px) {
+  :root[data-design="bureau"] .sync-status {
+    display: inline-flex;
+  }
+}
+
+@container masthead (max-width: 1039px) {
+  :root[data-design="bureau"] .masthead-generate {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  :root[data-design="bureau"] .masthead-generate-label {
+    display: none;
+  }
+}
+
+@container masthead (max-width: 919px) {
+  :root[data-design="bureau"] .copilot-toolbar-btn {
+    padding-right: 0.375rem;
+  }
+
+  :root[data-design="bureau"] .copilot-toolbar-label {
+    display: none;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row {
+    padding: 0 11px;
+  }
+}
+
+@container masthead (max-width: 799px) {
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row {
+    padding: 0 12px;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row-icon {
+    display: block;
+    width: 17px;
+    height: 17px;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs :is(.source-row-label, .source-row-count) {
+    display: none;
+  }
+
+  :root[data-design="bureau"] .masthead-desk-tabs .source-row.router-link-exact-active .source-row-icon {
+    color: rgb(var(--bureau-ink));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The company rail: logos down the left edge of the sheet
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .app-sidebar {
+  color: rgb(var(--bureau-on-frame));
+}
+
+:root[data-design="bureau"] .nav-glider {
+  display: none;
+}
+
+:root[data-design="bureau"] .brand-tile,
+:root[data-design="bureau"].dark .brand-tile {
+  color: rgb(var(--bureau-brass));
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-design="bureau"] .brand-name {
+  font-family: var(--bureau-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.375rem;
+  letter-spacing: 0;
+  color: rgb(var(--bureau-on-frame));
+}
+
+:root[data-design="bureau"] .brand-house {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 0.875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(var(--bureau-on-frame) / 0.5);
+}
+
+:root[data-design="bureau"] .app-sidebar .vogue-label {
+  color: rgb(var(--bureau-on-frame) / 0.6);
+}
+
+:root[data-design="bureau"] .sidebar-filter {
+  border-radius: 999px;
+  color: rgb(var(--bureau-on-frame));
+  background-color: rgb(var(--bureau-on-frame) / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-on-frame) / 0.1);
+}
+
+:root[data-design="bureau"] .sidebar-filter:focus {
+  background-color: rgb(var(--bureau-on-frame) / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-brass) / 0.8), 0 0 0 3px rgb(var(--bureau-brass) / 0.2);
+}
+
+:root[data-design="bureau"] .account-row:hover,
+:root[data-design="bureau"] .account-row[aria-expanded="true"] {
+  background-color: rgb(var(--bureau-on-frame) / 0.07);
+}
+
+:root[data-design="bureau"] .company-pages::before {
+  background-color: rgb(var(--bureau-on-frame) / 0.18);
+}
+
+/* The Generate button that stays in the drawer is brass on the desk. */
+:root[data-design="bureau"] .sidebar-generate {
+  color: rgb(var(--bureau-frame));
+  border-color: transparent;
+  background-color: rgb(var(--bureau-brass));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+:root[data-design="bureau"] .sidebar-generate:hover {
+  background-color: rgb(224 192 126);
+}
+
+:root[data-design="bureau"] .sidebar-generate kbd {
+  color: rgb(var(--bureau-frame) / 0.6);
+}
+
+:root[data-design="bureau"] .sidebar-generate img {
+  filter: grayscale(1) contrast(1.2) brightness(1.08);
+  mix-blend-mode: multiply;
+}
+
+/* Who is signed in: an ivory seal rather than a hashed color. */
+:root[data-design="bureau"] .sidebar-account .monogram {
+  color: rgb(var(--bureau-on-frame));
+  background: rgb(var(--bureau-on-frame) / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(var(--bureau-on-frame) / 0.28);
+  text-shadow: none;
+}
+
+/* Rows written on the desk: ivory, with a whisper of light on hover. */
+:root[data-design="bureau"] .app-sidebar .source-row {
+  color: rgb(var(--bureau-on-frame) / 0.72);
+}
+
+:root[data-design="bureau"] .app-sidebar .source-row:hover {
+  color: rgb(var(--bureau-on-frame));
+  background-color: rgb(var(--bureau-on-frame) / 0.07);
+}
+
+@media (min-width: 1024px) {
+  :root[data-design="bureau"] .app-sidebar {
+    padding: 0;
+  }
+
+  :root[data-design="bureau"] .app-sidebar[data-collapsed="true"] {
+    width: 68px;
+  }
+
+  :root[data-design="bureau"] .app-sidebar-panel {
+    border-radius: 0;
+  }
+
+  :root[data-design="bureau"] .app-sidebar-panel::before {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* The desks are in the masthead, and Generate beside Warren. */
+  :root[data-design="bureau"] .app-sidebar :is(.sidebar-generate-wrap, .sidebar-desks-rule) {
+    display: none;
+  }
+
+  :root[data-design="bureau"] .sidebar-brand {
+    min-height: 52px;
+  }
+
+  :root[data-design="bureau"] .app-sidebar[data-collapsed="true"] .sidebar-brand {
+    padding-top: 10px;
+    padding-bottom: 6px;
+    gap: 8px;
+  }
+
+  :root[data-design="bureau"] .app-sidebar[data-collapsed="false"] .sidebar-brand {
+    padding: 8px 10px 10px 14px;
+  }
+
+  :root[data-design="bureau"] .sidebar-companies {
+    padding-top: 6px;
+  }
+
+  /* Rows run to the sheet's edge, so the chosen one can join it. */
+  :root[data-design="bureau"] .sidebar-companies .overflow-y-auto {
+    padding-right: 0;
+    padding-left: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row {
+    border-radius: var(--bureau-tab-radius) 0 0 var(--bureau-tab-radius);
+  }
+
+  :root[data-design="bureau"] .app-sidebar[data-collapsed="true"] .company-rail-link {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  :root[data-design="bureau"] .app-sidebar[data-collapsed="true"] .company-rail-link:hover {
+    background-color: rgb(var(--bureau-on-frame) / 0.07);
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] .company-rail-link:hover .company-rail-mark {
+    transform: none;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] .company-rail-link:is(.router-link-active, .router-link-exact-active) .company-rail-mark {
+    box-shadow: none;
+  }
+
+  /* The company (or its page) on screen is the sheet's paper, flared into
+     the sheet at both corners. */
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active),
+  :root[data-design="bureau"] aside[data-collapsed="true"] .sidebar-companies .company-rail-link:is(.router-link-active, .router-link-exact-active) {
+    color: rgb(var(--bureau-ink));
+    background-color: rgb(var(--bureau-sheet));
+    box-shadow: none;
+    animation: none;
+  }
+
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active) :is(.source-row-icon, .company-page-icon, [class*="text-ink"], .company-disclosure) {
+    color: rgb(var(--bureau-ink) / 0.62);
+  }
+
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active)::before,
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active)::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    width: var(--bureau-tab-radius);
+    height: var(--bureau-tab-radius);
+    pointer-events: none;
+  }
+
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active)::before {
+    top: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 0 0, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  :root[data-design="bureau"] .app-sidebar .sidebar-companies .source-row:is(.router-link-active, .router-link-exact-active)::after {
+    bottom: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  /* An open company's pages: indented under it; on the rail, glyphs on a
+     tray that also reaches the sheet. */
+  :root[data-design="bureau"] aside[data-collapsed="true"] .company-pages {
+    margin: 2px 0 6px 6px;
+    padding: 3px 0;
+    border-radius: 10px 0 0 10px;
+    background-color: rgb(var(--bureau-on-frame) / 0.05);
+  }
+
+  /* On the rail, the company on screen with its folder open is a single
+     tab — logo and page glyphs together, one piece of the sheet — and the
+     page you are on is picked out in brass inside it, so the rail never
+     shows two tabs at once. */
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) {
+    position: relative;
+    margin: 4px 0;
+    padding-bottom: 4px;
+    border-radius: var(--bureau-tab-radius) 0 0 var(--bureau-tab-radius);
+    background-color: rgb(var(--bureau-sheet));
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active)::before,
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active)::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    width: var(--bureau-tab-radius);
+    height: var(--bureau-tab-radius);
+    pointer-events: none;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active)::before {
+    top: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 0 0, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active)::after {
+    bottom: calc(var(--bureau-tab-radius) * -1);
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--bureau-tab-radius) - 0.5px), rgb(var(--bureau-sheet)) var(--bureau-tab-radius));
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .source-row,
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .source-row:hover {
+    background-color: transparent;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .source-row::before,
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .source-row::after {
+    content: none;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-pages {
+    margin: 0 8px 0 4px;
+    padding: 0;
+    background: transparent;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-page-row {
+    border-radius: 8px;
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-page-icon {
+    color: rgb(var(--bureau-ink) / 0.5);
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-page-row:hover .company-page-icon {
+    color: rgb(var(--bureau-ink));
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-page-row:is(.router-link-active, .router-link-exact-active) {
+    background-color: rgb(var(--color-accent-glow, 208 172 100) / 0.2);
+  }
+
+  :root[data-design="bureau"] aside[data-collapsed="true"] [data-tour="company-folder"]:has(.company-rail-link.router-link-active) .company-page-row:is(.router-link-active, .router-link-exact-active) .company-page-icon {
+    color: rgb(var(--bureau-brass-deep));
+  }
+
+  :root[data-design="bureau"] .account-row {
+    border-radius: 12px;
+  }
+
+  :root[data-design="bureau"] .sidebar-account > div:first-child {
+    background-color: rgb(var(--bureau-on-frame) / 0.1);
+  }
+}
+
+/* Below lg the rail is a drawer: a strip of the desk over the page. */
+@media (max-width: 1023px) {
+  :root[data-design="bureau"] .app-sidebar-panel {
+    border-radius: 0 18px 18px 0;
+  }
+
+  :root[data-design="bureau"] .app-sidebar-panel::before {
+    background: var(--bureau-lamp), var(--bureau-grain), rgb(var(--bureau-frame));
+    background-size: auto, 220px 220px, auto;
+    box-shadow: none;
+  }
+
+  /* Only an open drawer casts a shadow; a shut one would stain the page's
+     edge from off screen. */
+  :root[data-design="bureau"] .app-sidebar:not([inert]) .app-sidebar-panel::before {
+    box-shadow: 0 30px 70px -20px rgb(0 0 0 / 0.6);
+  }
+
+  :root[data-design="bureau"] .app-sidebar .source-row:is(.router-link-active, .router-link-exact-active) {
+    color: rgb(var(--bureau-ink));
+    background-color: rgb(var(--bureau-sheet));
+    box-shadow: none;
+    animation: none;
+  }
+
+  :root[data-design="bureau"] .app-sidebar .source-row:is(.router-link-active, .router-link-exact-active) :is(.source-row-icon, .company-page-icon, [class*="text-ink"]) {
+    color: rgb(var(--bureau-ink) / 0.7);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Warren: a second sheet beside the page
+--------------------------------------------------------------------------- */
+
+@media (min-width: 1280px) {
+  :root[data-design="bureau"] .app-inspector {
+    top: 52px;
+    margin: 0 var(--bureau-gutter) var(--bureau-gutter) 0;
+    height: calc(100vh - 52px - var(--bureau-gutter));
+    border-radius: var(--bureau-radius);
+  }
+
+  :root[data-design="bureau"] .app-inspector::before {
+    background-color: rgb(var(--bureau-sheet));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 0 0 1px rgb(0 0 0 / 0.18),
+      0 30px 70px -40px rgb(0 0 0 / 0.65);
+  }
+
+  :root[data-design="bureau"].dark .app-inspector::before {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 0 0 1px rgb(255 255 255 / 0.05);
+  }
+}
+
+@media (max-width: 1279px) {
+  :root[data-design="bureau"] .app-inspector {
+    border-radius: 20px 20px 0 0;
+  }
+
+  :root[data-design="bureau"] .app-inspector::before {
+    background-color: rgb(var(--bureau-sheet));
+    box-shadow: var(--shadow-sheet);
+  }
+}
+
+:root[data-design="bureau"] .app-inspector header .text-headline {
+  font-family: var(--bureau-serif);
+  font-size: 1.375rem;
+  line-height: 1.625rem;
+  font-weight: 400;
+}
+
+:root[data-design="bureau"] .ask-bubble {
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 2px 0 0 rgb(var(--color-accent-glow));
+}
+
+:root[data-design="bureau"] :is(.ask-suggestion, .ask-chip) {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="bureau"] :is(.ask-suggestion, .ask-chip):hover {
+  background-color: rgb(var(--color-surface-raised));
+}
+
+:root[data-design="bureau"] .ask-composer,
+:root[data-design="bureau"].dark .ask-composer {
+  border-radius: 16px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14), 0 6px 18px -12px rgb(15 31 26 / 0.35);
+}
+
+:root[data-design="bureau"] .ask-composer:focus-within {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.24);
+}
+
+:root[data-design="bureau"] .warren-md :is(h1, h2, h3) {
+  font-family: var(--bureau-serif);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Page anatomy
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .page-subtitle {
+  color: rgb(var(--color-text-muted));
+}
+
+/* ---------------------------------------------------------------------------
+   Home: a title page
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .home-hero-glow {
+  display: none;
+}
+
+/* The dateline, in brass capitals. */
+:root[data-design="bureau"] .home-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(var(--color-accent-ink));
+}
+
+:root[data-design="bureau"] .home-hero-title {
+  margin-top: 0.5rem;
+  font-size: clamp(3.25rem, 7vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.018em;
+  background-image: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-fill-color: currentColor;
+}
+
+:root[data-design="bureau"] .material-glass {
+  border-radius: 20px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 18px 40px -26px rgb(15 31 26 / 0.45);
+}
+
+:root[data-design="bureau"] .material-glass:focus-within {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: 0 0 0 1px rgb(var(--color-accent)), 0 0 0 4px rgb(var(--color-accent-glow) / 0.2),
+    0 18px 40px -26px rgb(15 31 26 / 0.45);
+}
+
+:root[data-design="bureau"] .home-intake {
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+}
+
+:root[data-design="bureau"] .home-suggestion:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+/* ---------------------------------------------------------------------------
+   Research Desk (the .mac-desk family)
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .mac-desk {
+  --mac-btn-bg: transparent;
+  --mac-btn-hover: rgb(var(--color-text-primary) / 0.05);
+  --mac-btn-edge: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.2);
+  --mac-field-bg: rgb(var(--color-surface-raised));
+  --mac-menu-bg: rgb(var(--color-surface-raised));
+  --mac-menu-rim: transparent;
+  --mac-bar: rgb(var(--bureau-sheet));
+  --mac-pill-fill: rgb(var(--color-surface-raised));
+  --mac-pill-rim: 0 0 0 0 transparent;
+  --mac-pill-contact: 0 0 0 1px rgb(var(--color-text-primary) / 0.08);
+  --mac-pill-drop: 0 1px 3px rgb(15 31 26 / 0.14);
+  --mac-thumb-drop: 0 1px 3px rgb(15 31 26 / 0.14);
+  background: transparent;
+}
+
+/* The desk sits on the sheet under the masthead, not up in the toolbar's
+   band as it does in the other designs. */
+@media (min-width: 768px) {
+  :root[data-design="bureau"] .mac-desk {
+    margin-top: 0;
+    height: calc(100vh - 52px - var(--bureau-gutter));
+  }
+
+  :root[data-design="bureau"] .mac-desk .md\:pt-\[52px\] {
+    padding-top: 0;
+    scroll-padding-top: 0;
+  }
+}
+
+:root[data-design="bureau"] .mac-bar-material {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="bureau"] .mac-btn--prominent {
+  color: rgb(255 253 246);
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 60%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 0 0 1px rgb(var(--color-accent-hover) / 0.55);
+}
+
+:root[data-design="bureau"] .mac-btn--prominent:hover:not(:disabled) {
+  background-color: rgb(var(--color-accent-hover));
+}
+
+:root[data-design="bureau"] .mac-search {
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="bureau"] .mac-search:focus-within {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.26);
+}
+
+:root[data-design="bureau"] .mac-menu {
+  border-radius: 14px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="bureau"] .mac-menu-item:hover:not(:disabled) {
+  color: rgb(var(--color-text-primary));
+  background: rgb(var(--color-text-primary) / 0.07);
+}
+
+:root[data-design="bureau"] .mac-row::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="bureau"] .mac-segmented {
+  background: rgb(var(--color-text-primary) / 0.06);
+  box-shadow: inset 0 1px 2px rgb(15 31 26 / 0.06);
+}
+
+:root[data-design="bureau"] .mac-segment.is-selected {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="bureau"] .mac-tab-underline {
+  background: rgb(var(--color-accent-glow));
+}
+
+/* The directory rests in a tray on the sheet rather than floating. */
+@media (min-width: 768px) {
+  :root[data-design="bureau"] .mac-desk .glass-panel:has(> .mac-directory-pane)::before {
+    background-color: rgb(var(--color-surface));
+    box-shadow: var(--shadow);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Sheets, scrims and the command palette
+--------------------------------------------------------------------------- */
+
+/* A dialog dims the desk lightly; it doesn't frost it, so the page you are
+   working on stays legible behind it. (A pseudo-element can't sit inside
+   :is(), so the palette's backdrop has a rule of its own.) */
+:root[data-design="bureau"] :is(.sheet-scrim, .yf-kb-help, .backdrop-blur-sm),
+:root[data-design="bureau"] .yf-cmd-backdrop::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-design="bureau"] .yf-cmd-panel {
+  border-radius: 20px;
+  background-color: rgb(var(--color-surface-raised));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-sheet);
+}
+
+:root[data-design="bureau"] .yf-cmd-input {
+  font-size: 1.125rem;
+  letter-spacing: 0;
+}
+
+/* The line under the cursor is lifted paper with a brass edge; its labels
+   stay in ink rather than knocking out to white. */
+:root[data-design="bureau"] .yf-cmd-item[data-active="true"] {
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  box-shadow: inset 2px 0 0 rgb(var(--color-accent-glow));
+}
+
+:root[data-design="bureau"] .yf-cmd-item[data-active="true"] :is(.text-ink-primary, .text-ink-secondary, svg) {
+  color: rgb(var(--color-text-primary));
+}
+
+:root[data-design="bureau"] .yf-cmd-item[data-active="true"] .text-ink-muted {
+  color: rgb(var(--color-text-muted));
+}
+
+:root[data-design="bureau"] .yf-cmd-item[data-active="true"] .yf-cmd-glyph {
+  color: rgb(var(--color-accent-ink));
+  background-color: rgb(var(--color-accent-glow) / 0.22);
+}
+
+/* ---------------------------------------------------------------------------
+   News desk: a front page
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .news-lead-banner {
+  min-height: 0;
+  background: none;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle));
+}
+
+:root[data-design="bureau"] .news-lead-glyph {
+  display: none;
+}
+
+:root[data-design="bureau"] .news-lead-badge {
+  padding: 0;
+  color: rgb(var(--color-accent-ink));
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  letter-spacing: 0.14em;
+}
+
+:root[data-design="bureau"] .news-lead-title {
+  font-family: var(--bureau-serif);
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: rgb(var(--color-text-primary));
+  text-shadow: none;
+  text-wrap: pretty;
+}
+
+:root[data-design="bureau"] .news-hero-title {
+  font-family: var(--bureau-serif);
+  font-weight: 400;
+  letter-spacing: -0.012em;
+}
+
+:root[data-design="bureau"] .news-thumb {
+  background: rgb(var(--news-tone) / 0.12);
+  box-shadow: none;
+}
+
+:root[data-design="bureau"] .news-thumb svg {
+  color: rgb(var(--news-tone));
+}
+
+:root[data-design="bureau"] .news-brief-dot {
+  background: rgb(var(--color-accent-glow));
+}
+
+/* ---------------------------------------------------------------------------
+   Sign in: one sheet on the desk
+--------------------------------------------------------------------------- */
+
+:root[data-design="bureau"] .login-glow {
+  display: none;
+}
+
+:root[data-design="bureau"] .login-summit,
+:root[data-design="bureau"].dark .login-summit {
+  color: rgb(var(--bureau-on-frame) / 0.035);
+}
+
+:root[data-design="bureau"] .login-sheet {
+  color: rgb(var(--bureau-ink));
+  border-color: transparent;
+  border-radius: 22px;
+  background-color: rgb(var(--bureau-sheet));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 0 0 1px rgb(0 0 0 / 0.2),
+    0 40px 90px -40px rgb(0 0 0 / 0.8);
+}
+
+:root[data-design="bureau"].dark .login-sheet {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 0 0 1px rgb(255 255 255 / 0.06),
+    0 40px 90px -40px rgb(0 0 0 / 0.9);
+}
+
+:root[data-design="bureau"] .login-sheet h1 {
+  font-family: var(--bureau-serif);
+  font-size: 2.125rem;
+  line-height: 2.375rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* The house seal: the summit in brass on a square of the desk's green. */
+:root[data-design="bureau"] .login-tile,
+:root[data-design="bureau"].dark .login-tile {
+  color: rgb(var(--bureau-brass));
+  background: rgb(var(--bureau-frame));
+  background-image: var(--bureau-lamp), var(--bureau-grain);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 10px 24px -12px rgb(0 0 0 / 0.6);
+}
+
+:root[data-design="bureau"] .login-tile svg {
+  color: rgb(var(--bureau-brass));
+  filter: none;
+}
+
+:root[data-design="bureau"] .login-pill,
+:root[data-design="bureau"].dark .login-pill {
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.06);
+}
+
+:root[data-design="bureau"] .login-field,
+:root[data-design="bureau"].dark .login-field {
+  border-radius: 12px;
+  background-color: rgb(var(--color-surface-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14);
+}
+
+:root[data-design="bureau"] .login-field:hover:not(.login-field--focused) {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.28);
+}
+
+:root[data-design="bureau"] .login-field--focused,
+:root[data-design="bureau"].dark .login-field--focused {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.28);
+}
+
+:root[data-design="bureau"] .login-field--focused svg {
+  color: rgb(var(--color-accent-ink));
+}
+
+:root[data-design="bureau"] .login-submit {
+  border-radius: 999px;
+  background-color: rgb(var(--color-accent));
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 60%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 0 0 1px rgb(var(--color-accent-hover) / 0.55),
+    0 6px 16px -8px rgb(15 31 26 / 0.5);
+}
+
+:root[data-design="bureau"] .login-submit::after {
+  display: none;
+}
+
+:root[data-design="bureau"] .login-submit:disabled {
+  background-color: rgb(var(--color-accent) / 0.45);
+  background-image: none;
+  box-shadow: none;
+}

@@ -66,6 +66,7 @@ import {
 import { hydrateTrackingWatchlist } from "./trackingWatchlist.js";
 import { initDeskSync } from "./deskSync.js";
 import { autoObserveLargeTitle, chromeLeftInset, largeTitleVisible } from "./chrome.js";
+import { desksAsTabs } from "./design.js";
 import { installGlassMotion } from "./glassMotion.js";
 import {
   activeSummaryTarget,
@@ -848,9 +849,9 @@ provide("copilotNavigate", onCopilotNavigate);
         ref="headerRef"
         class="app-toolbar material-bar sticky top-0 z-30"
         :data-scrolled="scrolled ? 'true' : 'false'"
-        :style="chromeLeftInset ? { paddingLeft: `${chromeLeftInset}px` } : null"
+        :style="chromeLeftInset && !desksAsTabs ? { paddingLeft: `${chromeLeftInset}px` } : null"
       >
-        <div class="flex h-[52px] items-center gap-2 px-3 md:px-5">
+        <div class="app-toolbar-row flex h-[52px] items-center gap-2 px-3 md:px-5">
           <button
             type="button"
             class="icon-btn -ml-1 lg:hidden"
@@ -861,6 +862,15 @@ provide("copilotNavigate", onCopilotNavigate);
           >
             <PanelLeft class="h-[18px] w-[18px]" />
           </button>
+
+          <!-- Bureau: the desks, as tabs along the top edge of the page. The
+               sidebar carries its own rows here (Sidebar.vue); elsewhere
+               this stays empty and hidden. -->
+          <div
+            id="masthead-desk-tabs"
+            class="masthead-desk-tabs"
+            :class="desksAsTabs ? '' : 'hidden'"
+          />
 
           <div
             class="toolbar-title min-w-0 flex-1 leading-tight"
@@ -887,7 +897,7 @@ provide("copilotNavigate", onCopilotNavigate);
 
           <div
             v-if="route.name !== 'home'"
-            class="relative hidden w-[15.5rem] shrink md:block lg:w-[18rem]"
+            class="toolbar-jump relative hidden w-[15.5rem] shrink md:block lg:w-[18rem]"
           >
             <Search
               class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted"
@@ -1098,6 +1108,21 @@ provide("copilotNavigate", onCopilotNavigate);
             </button>
           </div>
 
+          <!-- Bureau: the standing action sits on the desk, in brass, beside
+               Warren (the sidebar's own button stays in the drawer). -->
+          <button
+            v-if="desksAsTabs"
+            type="button"
+            class="masthead-generate focus-ring"
+            data-testid="masthead-generate"
+            :title="`${t('memo.generate_report')} (⌘N)`"
+            :aria-label="t('memo.generate_report')"
+            @click="openReportCustomizer()"
+          >
+            <AiMark class="h-4 w-4 shrink-0" />
+            <span class="masthead-generate-label">{{ t("memo.generate_report") }}</span>
+          </button>
+
           <!-- Ask gets its own capsule: the one AI entry point everywhere. -->
           <div class="glass-capsule relative h-9 shrink-0 px-[3px]">
             <button
@@ -1110,13 +1135,13 @@ provide("copilotNavigate", onCopilotNavigate);
               @click="setCopilotOpen(!copilotOpen)"
             >
               <WarrenMark :size="22" :busy="copilotState.busy" />
-              <span class="max-sm:hidden">{{ t("copilot.ask") }}</span>
+              <span class="copilot-toolbar-label max-sm:hidden">{{ t("copilot.ask") }}</span>
             </button>
           </div>
         </div>
       </header>
 
-      <div ref="viewRef">
+      <div ref="viewRef" class="app-sheet">
         <RouterView v-slot="{ Component }">
           <Transition name="view-fade" mode="out-in">
             <component

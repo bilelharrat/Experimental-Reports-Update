@@ -417,7 +417,9 @@ function appearanceIcon(value) {
 }
 
 function designLabel(value) {
-  return value === "glass" ? t("settings.design_glass") : t("settings.design_folio");
+  if (value === "glass") return t("settings.design_glass");
+  if (value === "folio") return t("settings.design_folio");
+  return t("settings.design_bureau");
 }
 
 async function exportDeskState() {
