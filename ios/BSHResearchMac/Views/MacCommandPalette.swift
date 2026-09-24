@@ -94,7 +94,7 @@ struct MacCommandPalette: View {
             HStack(spacing: 10) {
                 Image(systemName: "terminal")
                     .font(.title3)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
                 TextField("Company or ticker — add a code: MEMO · DES · GP · N · NEW · ASK · FIRM · HOLD", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
@@ -116,7 +116,7 @@ struct MacCommandPalette: View {
                         .font(.caption.monospaced().weight(.bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                        .background(Color.dsAccent.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
                         .help(code.help)
                 }
             }
@@ -162,7 +162,7 @@ struct MacCommandPalette: View {
                         HStack(spacing: 5) {
                             Text(code.rawValue)
                                 .font(.caption2.monospaced().weight(.bold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                             Text(code.help)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -289,7 +289,7 @@ struct MacCommandPalette: View {
             }
         case .hit(let hit):
             HStack(spacing: 10) {
-                Image(systemName: "plus.circle").foregroundStyle(Color.accentColor).frame(width: 26)
+                Image(systemName: "plus.circle").foregroundStyle(Color.dsAccent).frame(width: 26)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(hit.displayTitle).font(.body.weight(.medium))
                     Text(hit.displaySubtitle).font(.caption).foregroundStyle(.secondary)

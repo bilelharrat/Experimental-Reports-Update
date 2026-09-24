@@ -10,7 +10,7 @@ struct MacShortcutOverlay: View {
                 HStack(spacing: 8) {
                     Image(systemName: "command")
                         .font(.title2.weight(.bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                     Text("Terminal Keyboard Shortcuts")
                         .font(.title3.weight(.bold))
                 }
@@ -102,7 +102,7 @@ private struct ShortcutSection<Content: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
                 Text(title.uppercased())
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)

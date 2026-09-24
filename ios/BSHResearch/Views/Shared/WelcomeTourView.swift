@@ -78,10 +78,10 @@ struct WelcomeTourOverlay: View {
                 dim
                 if let halo {
                     RoundedRectangle(cornerRadius: min(22, halo.height / 2), style: .continuous)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .strokeBorder(Color.dsAccent, lineWidth: 2)
                         .frame(width: halo.width, height: halo.height)
                         .position(x: halo.midX, y: halo.midY)
-                        .shadow(color: Color.accentColor.opacity(0.5), radius: 10)
+                        .shadow(color: Color.dsAccent.opacity(0.5), radius: 10)
                         .allowsHitTesting(false)
                 }
 
@@ -167,7 +167,7 @@ struct WelcomeTourOverlay: View {
         .padding(isHero ? 22 : 16)
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.regularMaterial)
+                .fill(BSHDesign.active.isPaper ? AnyShapeStyle(Color.dsRaised) : AnyShapeStyle(.regularMaterial))
                 .overlay {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
@@ -233,7 +233,7 @@ struct WelcomeTourOverlay: View {
                         HStack(spacing: 10) {
                             Image(systemName: tip.symbol ?? "circle.fill")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                                 .frame(width: 18)
                             Text(language.t(tip.textKey))
                                 .font(.caption)
@@ -257,7 +257,7 @@ struct WelcomeTourOverlay: View {
             HStack(spacing: 6) {
                 ForEach(tour.pages.indices, id: \.self) { index in
                     Circle()
-                        .fill(index == tour.stepIndex ? Color.accentColor : Color.primary.opacity(0.18))
+                        .fill(index == tour.stepIndex ? Color.dsAccent : Color.primary.opacity(0.18))
                         .frame(width: 6, height: 6)
                 }
             }
@@ -273,7 +273,7 @@ struct WelcomeTourOverlay: View {
                     Button(language.t("welcome.back")) { tour.back() }
                         .font(.subheadline)
                         .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                         .accessibilityIdentifier("welcome-tour-back")
                 } else if !tour.isLastStep {
                     Button(language.t("welcome.close")) { tour.complete() }
@@ -321,10 +321,10 @@ struct WelcomeTourOverlay: View {
         } else {
             Image(systemName: page.symbol ?? "sparkles")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
                 .frame(width: 40, height: 40)
                 .background(
-                    Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.12),
+                    Color.dsAccent.opacity(colorScheme == .dark ? 0.18 : 0.12),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous)
                 )
                 .accessibilityHidden(true)
@@ -343,10 +343,10 @@ struct WelcomeTourOverlay: View {
         } else {
             Image(systemName: row.symbol ?? "circle")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
                 .frame(width: 34, height: 34)
                 .background(
-                    Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.12),
+                    Color.dsAccent.opacity(colorScheme == .dark ? 0.18 : 0.12),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
                 .accessibilityHidden(true)

@@ -18,48 +18,52 @@ struct GenerateReportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Text(company.displayName(lang: language.language))
-                        .font(.headline)
-                    if let ticker = company.ticker, !ticker.isEmpty {
-                        Text(ticker).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Group {
+                    Section {
+                        Text(company.displayName(lang: language.language))
+                            .font(.headline)
+                        if let ticker = company.ticker, !ticker.isEmpty {
+                            Text(ticker).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
                     }
-                }
 
-                if loadingOptions {
-                    Section {
-                        ProgressView(language.t("common.loading"))
+                    if loadingOptions {
+                        Section {
+                            ProgressView(language.t("common.loading"))
+                        }
+                    } else if let options {
+                        Section {
+                            Picker(language.t("research.report_type"), selection: $reportType) {
+                                ForEach(options.reportTypes, id: \.self) { type in
+                                    Text(type).tag(type)
+                                }
+                            }
+                            Picker(language.t("research.audience"), selection: $audience) {
+                                ForEach(options.audiences, id: \.self) { a in
+                                    Text(a).tag(a)
+                                }
+                            }
+                            Picker(language.t("research.language"), selection: $reportLanguage) {
+                                ForEach(options.languages) { lang in
+                                    Text(lang.label ?? lang.code.uppercased()).tag(lang.code)
+                                }
+                            }
+                        } header: {
+                            BSHSectionTitle(language.t("research.options"))
+                        } footer: {
+                            Text(language.t("research.generate_hint"))
+                        }
                     }
-                } else if let options {
-                    Section {
-                        Picker(language.t("research.report_type"), selection: $reportType) {
-                            ForEach(options.reportTypes, id: \.self) { type in
-                                Text(type).tag(type)
-                            }
-                        }
-                        Picker(language.t("research.audience"), selection: $audience) {
-                            ForEach(options.audiences, id: \.self) { a in
-                                Text(a).tag(a)
-                            }
-                        }
-                        Picker(language.t("research.language"), selection: $reportLanguage) {
-                            ForEach(options.languages) { lang in
-                                Text(lang.label ?? lang.code.uppercased()).tag(lang.code)
-                            }
-                        }
-                    } header: {
-                        Text(language.t("research.options"))
-                    } footer: {
-                        Text(language.t("research.generate_hint"))
-                    }
-                }
 
-                if let error {
-                    Section {
-                        Text(error).foregroundStyle(.red).font(.footnote)
+                    if let error {
+                        Section {
+                            Text(error).foregroundStyle(.red).font(.footnote)
+                        }
                     }
                 }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(language.t("research.generate"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

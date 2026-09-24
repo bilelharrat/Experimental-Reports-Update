@@ -191,7 +191,7 @@ struct PaperDeskReader: View {
                     )
                     .id(askSessionID)
                     .frame(width: askPanelWidth(for: geo.size.width))
-                    .background(Color(.systemBackground))
+                    .background(Color.dsPage)
                     .overlay(alignment: .leading) {
                         Divider()
                     }
@@ -312,7 +312,7 @@ struct PaperDeskReader: View {
                 .frame(width: 42, height: 42)
                 .background {
                     Circle()
-                        .fill(.ultraThinMaterial)
+                        .fill(.dsFloating)
                         .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                 }
                 .contentShape(Circle())
@@ -329,7 +329,7 @@ struct PaperDeskReader: View {
                         .frame(width: 42, height: 42)
                         .background {
                             Circle()
-                                .fill(.ultraThinMaterial)
+                                .fill(.dsFloating)
                                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .contentShape(Circle())
@@ -450,7 +450,7 @@ struct PaperDeskReader: View {
                 .frame(height: 36)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isAnnotating ? Color.accentColor : Color.primary.opacity(0.08))
+                        .fill(isAnnotating ? Color.dsAccent : Color.primary.opacity(0.08))
                 )
                 .foregroundStyle(isAnnotating ? Color.white : Color.primary)
             }
@@ -460,7 +460,7 @@ struct PaperDeskReader: View {
         .padding(5)
         .background {
             Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(.dsFloating)
                 .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
         }
         .fixedSize()

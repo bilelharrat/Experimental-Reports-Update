@@ -1,42 +1,48 @@
 import SwiftUI
 
-// One calm surface system for every desk: white cards on the window canvas, a hairline
-// instead of shadows, SF Pro everywhere, numbers in tabular figures.
+// One calm surface system for every desk: cards on the window canvas, a hairline
+// instead of shadows, numbers in tabular figures. The colors and title faces follow the
+// chosen design (BSHDesign: Bureau, Folio or Summit Glass); sizes and anatomy don't.
 
 enum MacDS {
     static let page: CGFloat = 20
     static let card: CGFloat = 16
     static let gap: CGFloat = 12
     static let section: CGFloat = 20
-    static let cardRadius: CGFloat = 12
     static let tileRadius: CGFloat = 8
+
+    /// Bureau's trays are soft, Folio's cards are cut, Summit's are the Mac's own.
+    static var cardRadius: CGFloat {
+        switch BSHDesign.active {
+        case .bureau: return 12
+        case .folio: return 6
+        case .glass: return 12
+        }
+    }
 }
 
-#if os(macOS)
 extension Color {
-    static let dsCanvas = Color(nsColor: .windowBackgroundColor)
-    static let dsCard = Color(nsColor: .controlBackgroundColor)
-    static let dsTile = Color.primary.opacity(0.045)
-    static let dsHairline = Color.primary.opacity(0.09)
-    static let dsPositive = Color.green
-    static let dsNegative = Color.red
-    static let dsWarning = Color.orange
+    static var dsCanvas: Color { BSHPalette.canvas }
+    static var dsCard: Color { BSHPalette.card }
+    static var dsRaised: Color { BSHPalette.raised }
+    static var dsTile: Color { BSHPalette.tile }
+    static var dsHairline: Color { BSHPalette.hairline }
+    static var dsPositive: Color { BSHPalette.positive }
+    static var dsNegative: Color { BSHPalette.negative }
+    static var dsWarning: Color { BSHPalette.warning }
+    /// The design's color for acting. Use it wherever the app used `Color.accentColor`.
+    static var dsAccent: Color { BSHPalette.accent }
+    /// The page's ink (the system's label color under Summit Glass).
+    static var dsInk: Color { BSHPalette.ink ?? .primary }
 }
-#else
-extension Color {
-    static let dsCanvas = Color(uiColor: .systemGroupedBackground)
-    static let dsCard = Color(uiColor: .secondarySystemGroupedBackground)
-    static let dsTile = Color.primary.opacity(0.045)
-    static let dsHairline = Color.primary.opacity(0.09)
-    static let dsPositive = Color.green
-    static let dsNegative = Color.red
-    static let dsWarning = Color.orange
+
+extension ShapeStyle where Self == Color {
+    static var dsAccent: Color { BSHPalette.accent }
 }
-#endif
 
 extension Font {
-    static let dsTitle = Font.system(size: 22, weight: .bold)
-    static let dsHeadline = Font.system(size: 15, weight: .semibold)
+    static var dsTitle: Font { BSHType.title(22) }
+    static var dsHeadline: Font { BSHType.heading(15) }
     static let dsSubhead = Font.system(size: 13, weight: .medium)
     static let dsBody = Font.system(size: 13)
     static let dsLabel = Font.system(size: 11, weight: .medium)
@@ -87,14 +93,19 @@ extension MacCardHeader where Trailing == EmptyView {
     }
 }
 
-/// Secondary label above a group of controls or rows.
+/// Secondary label above a group of controls or rows: Bureau's italic serif kicker,
+/// Folio's small tracked capitals, Summit's plain label.
 struct MacSectionLabel: View {
     let text: String
     var trailing: String? = nil
     init(_ text: String, trailing: String? = nil) { self.text = text; self.trailing = trailing }
     var body: some View {
         HStack {
-            Text(text).font(.dsLabel).foregroundStyle(.secondary)
+            Text(text)
+                .font(BSHType.kicker(11))
+                .tracking(BSHType.kickerIsCapitals ? 0.8 : 0)
+                .textCase(BSHType.kickerIsCapitals ? .uppercase : nil)
+                .foregroundStyle(.secondary)
             Spacer()
             if let trailing { Text(trailing).font(.dsCaption.monospacedDigit()).foregroundStyle(.tertiary) }
         }
@@ -175,14 +186,14 @@ struct MacTabBar<Item: Hashable>: View {
                     VStack(spacing: 6) {
                         Text(label)
                             .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
-                            .foregroundStyle(selection == item ? Color.primary : Color.secondary)
+                            .foregroundStyle(selection == item ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                             .lineLimit(1)
                             .fixedSize()
                         ZStack {
                             Rectangle().fill(Color.clear).frame(height: 2)
                             if selection == item {
                                 Rectangle()
-                                    .fill(Color.accentColor)
+                                    .fill(Self.underlineColor)
                                     .frame(height: 2)
                                     .matchedGeometryEffect(id: "underline", in: underline)
                             }
@@ -195,8 +206,17 @@ struct MacTabBar<Item: Hashable>: View {
                         Spacer()
                     }
                     }
-                    .overlay(alignment: .bottom) { Divider() }
+                    .overlay(alignment: .bottom) { Rectangle().fill(Color.dsHairline).frame(height: 1) }
                 }
+
+    /// Folio underlines in ink, Bureau in brass, Summit in its blue.
+    private static var underlineColor: Color {
+        switch BSHDesign.active {
+        case .bureau: return BSHPalette.bureauBrassDeep
+        case .folio: return BSHPalette.folioInk
+        case .glass: return .dsAccent
+        }
+    }
 }
 
 /// Rounded-square initials avatar used for companies everywhere.
@@ -263,8 +283,16 @@ extension View {
     }
 
     /// Slim material toolbar strip at the top of a pane.
+    @ViewBuilder
     func dsToolbarStrip() -> some View {
-        self.padding(.horizontal, 12).padding(.vertical, 7).background(.bar)
+        if BSHDesign.active.isPaper {
+            // On paper a strip is the page itself, ruled off below; nothing frosts.
+            self.padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Color.dsCanvas)
+                .overlay(alignment: .bottom) { Rectangle().fill(Color.dsHairline).frame(height: 1) }
+        } else {
+            self.padding(.horizontal, 12).padding(.vertical, 7).background(.bar)
+        }
     }
 }
 

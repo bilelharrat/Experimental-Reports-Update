@@ -93,6 +93,8 @@ private struct ReadableContentWidthModifier: ViewModifier {
             content
                 .frame(maxWidth: maxWidth)
                 .frame(maxWidth: .infinity)
+                // On paper the margins beside the capped column are the page too.
+                .background(BSHDesign.active.isPaper ? Color.dsCanvas : nil)
         } else {
             content
         }

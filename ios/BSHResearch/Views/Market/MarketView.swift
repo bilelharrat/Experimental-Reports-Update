@@ -157,117 +157,131 @@ struct MarketView: View {
     @ViewBuilder
     private func marketList(selectionMode: Bool) -> some View {
         List(selection: selectionMode ? $selectedTicker : .constant(nil)) {
-            if model.loading && model.quotes.isEmpty {
-                ProgressView(language.t("common.loading"))
-                    .frame(maxWidth: .infinity, alignment: .center)
+            Group {
+                if model.loading && model.quotes.isEmpty {
+                    ProgressView(language.t("common.loading"))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .listRowSeparator(.hidden)
+                } else if let err = model.error, model.quotes.isEmpty {
+                    ContentUnavailableView {
+                        Label(language.t("common.error"), systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(err)
+                    } actions: {
+                        Button(language.t("common.retry")) { Task { await model.load() } }
+                    }
                     .listRowSeparator(.hidden)
-            } else if let err = model.error, model.quotes.isEmpty {
-                ContentUnavailableView {
-                    Label(language.t("common.error"), systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(err)
-                } actions: {
-                    Button(language.t("common.retry")) { Task { await model.load() } }
-                }
-                .listRowSeparator(.hidden)
-            } else {
-                if !model.searchTicker.isEmpty, model.searchTicker.count <= 10 {
-                    Section {
-                        if selectionMode {
-                            Label(
-                                language.t("market.open_ticker").replacingOccurrences(of: "{t}", with: model.searchTicker),
-                                systemImage: "magnifyingglass"
-                            )
-                            .tag(model.searchTicker)
-                        } else {
-                            NavigationLink(value: model.searchTicker) {
+                } else {
+                    if !model.searchTicker.isEmpty, model.searchTicker.count <= 10 {
+                        Section {
+                            if selectionMode {
                                 Label(
                                     language.t("market.open_ticker").replacingOccurrences(of: "{t}", with: model.searchTicker),
                                     systemImage: "magnifyingglass"
                                 )
+                                .tag(model.searchTicker)
+                            } else {
+                                NavigationLink(value: model.searchTicker) {
+                                    Label(
+                                        language.t("market.open_ticker").replacingOccurrences(of: "{t}", with: model.searchTicker),
+                                        systemImage: "magnifyingglass"
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                Section(language.t("market.indexes")) {
-                    ForEach(model.quotes) { quote in
-                        if selectionMode {
-                            QuoteRow(quote: quote)
-                                .tag(quote.ticker)
-                        } else {
-                            NavigationLink(value: quote.ticker) {
+                    Section {
+                        ForEach(model.quotes) { quote in
+                            if selectionMode {
                                 QuoteRow(quote: quote)
+                                    .tag(quote.ticker)
+                            } else {
+                                NavigationLink(value: quote.ticker) {
+                                    QuoteRow(quote: quote)
+                                }
                             }
                         }
+                    } header: {
+                        BSHSectionTitle(language.t("market.indexes"))
                     }
-                }
 
-                if !model.calendarEvents.isEmpty {
-                    Section(language.t("market.calendar")) {
-                        ForEach(model.calendarEvents.prefix(12)) { event in
-                            if let ticker = event.ticker, !ticker.isEmpty {
-                                if selectionMode {
-                                    calendarRow(event)
-                                        .tag(ticker)
-                                } else {
-                                    NavigationLink(value: ticker) {
+                    if !model.calendarEvents.isEmpty {
+                        Section {
+                            ForEach(model.calendarEvents.prefix(12)) { event in
+                                if let ticker = event.ticker, !ticker.isEmpty {
+                                    if selectionMode {
                                         calendarRow(event)
+                                            .tag(ticker)
+                                    } else {
+                                        NavigationLink(value: ticker) {
+                                            calendarRow(event)
+                                        }
+                                    }
+                                } else {
+                                    calendarRow(event)
+                                }
+                            }
+                        } header: {
+                            BSHSectionTitle(language.t("market.calendar"))
+                        }
+                    }
+
+                    if !model.gainers.isEmpty {
+                        Section {
+                            ForEach(model.gainers) { row in
+                                if selectionMode {
+                                    ScreenerRowView(row: row)
+                                        .tag(row.ticker)
+                                } else {
+                                    NavigationLink(value: row.ticker) {
+                                        ScreenerRowView(row: row)
                                     }
                                 }
-                            } else {
-                                calendarRow(event)
                             }
+                        } header: {
+                            BSHSectionTitle(language.t("pulse.gainers"))
                         }
                     }
-                }
 
-                if !model.gainers.isEmpty {
-                    Section(language.t("pulse.gainers")) {
-                        ForEach(model.gainers) { row in
-                            if selectionMode {
-                                ScreenerRowView(row: row)
-                                    .tag(row.ticker)
-                            } else {
-                                NavigationLink(value: row.ticker) {
+                    if !model.losers.isEmpty {
+                        Section {
+                            ForEach(model.losers) { row in
+                                if selectionMode {
                                     ScreenerRowView(row: row)
+                                        .tag(row.ticker)
+                                } else {
+                                    NavigationLink(value: row.ticker) {
+                                        ScreenerRowView(row: row)
+                                    }
                                 }
                             }
+                        } header: {
+                            BSHSectionTitle(language.t("pulse.losers"))
                         }
                     }
-                }
 
-                if !model.losers.isEmpty {
-                    Section(language.t("pulse.losers")) {
-                        ForEach(model.losers) { row in
-                            if selectionMode {
-                                ScreenerRowView(row: row)
-                                    .tag(row.ticker)
-                            } else {
-                                NavigationLink(value: row.ticker) {
+                    if !model.actives.isEmpty {
+                        Section {
+                            ForEach(model.actives) { row in
+                                if selectionMode {
                                     ScreenerRowView(row: row)
+                                        .tag(row.ticker)
+                                } else {
+                                    NavigationLink(value: row.ticker) {
+                                        ScreenerRowView(row: row)
+                                    }
                                 }
                             }
-                        }
-                    }
-                }
-
-                if !model.actives.isEmpty {
-                    Section(language.t("market.actives")) {
-                        ForEach(model.actives) { row in
-                            if selectionMode {
-                                ScreenerRowView(row: row)
-                                    .tag(row.ticker)
-                            } else {
-                                NavigationLink(value: row.ticker) {
-                                    ScreenerRowView(row: row)
-                                }
-                            }
+                        } header: {
+                            BSHSectionTitle(language.t("market.actives"))
                         }
                     }
                 }
             }
+            .bshListRows()
         }
+        .bshListSurface()
         .listStyle(.insetGrouped)
         .headerProminence(.increased)
         .compactRootChrome(
@@ -375,10 +389,11 @@ struct QuoteRow: View {
         return String(format: "%+.1f%%", rounded)
     }
 
+    /// Up in green, down in red: the design's own (the system's under Summit Glass).
     static func tone(_ value: Double?) -> Color {
         guard let value else { return .secondary }
-        if value > 0 { return .green }
-        if value < 0 { return .red }
+        if value > 0 { return .dsPositive }
+        if value < 0 { return .dsNegative }
         return .secondary
     }
 }

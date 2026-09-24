@@ -183,7 +183,7 @@ public struct MacCapTableSimulatorView: View {
                                 Text("\(moic, specifier: "%.1f")x")
                                     .font(.caption.monospacedDigit().weight(.bold))
                                     .frame(width: 55, alignment: .trailing)
-                                    .foregroundStyle(moic >= 10.0 ? Color.green : (moic >= 3.0 ? Color.accentColor : Color.primary))
+                                    .foregroundStyle(moic >= 10.0 ? Color.green : (moic >= 3.0 ? Color.dsAccent : Color.primary))
                                 if isFundReturner {
                                     MacStatusPill(text: "Returns fund", color: .green)
                                 }

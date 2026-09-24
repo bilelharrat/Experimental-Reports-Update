@@ -206,9 +206,9 @@ public struct ResearchReportCustomizerSheet: View {
                 MacMonogram(company: company, size: isCompact ? 36 : 42)
             } else {
                 Circle()
-                    .fill(Color.accentColor.opacity(0.15))
+                    .fill(Color.dsAccent.opacity(0.15))
                     .frame(width: 36, height: 36)
-                    .overlay(Image(systemName: "building.2").font(.system(size: 14)).foregroundStyle(Color.accentColor))
+                    .overlay(Image(systemName: "building.2").font(.system(size: 14)).foregroundStyle(Color.dsAccent))
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -254,8 +254,8 @@ public struct ResearchReportCustomizerSheet: View {
                             .font(.system(size: 10, weight: .bold).monospaced())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12))
-                            .foregroundStyle(Color.accentColor)
+                            .background(Color.dsAccent.opacity(0.12))
+                            .foregroundStyle(Color.dsAccent)
                             .clipShape(Capsule())
                     }
 
@@ -312,12 +312,12 @@ public struct ResearchReportCustomizerSheet: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(activeTab == tab ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.03))
-                        .foregroundStyle(activeTab == tab ? Color.accentColor : Color.secondary)
+                        .background(activeTab == tab ? Color.dsAccent.opacity(0.14) : Color.primary.opacity(0.03))
+                        .foregroundStyle(activeTab == tab ? Color.dsAccent : Color.secondary)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(activeTab == tab ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                                .stroke(activeTab == tab ? Color.dsAccent.opacity(0.3) : Color.clear, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -415,7 +415,7 @@ public struct ResearchReportCustomizerSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: option.icon)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -427,7 +427,7 @@ public struct ResearchReportCustomizerSheet: View {
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 14))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         }
                     }
                     Text(option.subtitle)
@@ -438,10 +438,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -456,7 +456,7 @@ public struct ResearchReportCustomizerSheet: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -468,7 +468,7 @@ public struct ResearchReportCustomizerSheet: View {
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 13))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         }
                     }
                     Text(description)
@@ -479,10 +479,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -498,14 +498,14 @@ public struct ResearchReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(label)
                         .font(.dsSubhead.weight(.semibold))
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
                 Text(desc)
@@ -515,10 +515,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -537,10 +537,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.12) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -638,19 +638,19 @@ public struct ResearchReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.06))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                         .clipShape(Capsule())
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 15))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
 
@@ -665,10 +665,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: isCompact ? nil : 130, alignment: .topLeading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -684,19 +684,19 @@ public struct ResearchReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.06))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                         .clipShape(Capsule())
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
 
@@ -710,10 +710,10 @@ public struct ResearchReportCustomizerSheet: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: isCompact ? nil : 110, alignment: .topLeading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -789,7 +789,7 @@ public struct ResearchReportCustomizerSheet: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                                 Text(pillar)
                                     .font(.dsCaption.weight(.medium))
                                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
@@ -797,11 +797,11 @@ public struct ResearchReportCustomizerSheet: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+                            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.dsHairline, lineWidth: 1)
+                                    .stroke(isSelected ? Color.dsAccent.opacity(0.5) : Color.dsHairline, lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -866,9 +866,9 @@ public struct ResearchReportCustomizerSheet: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                                 Image(systemName: "doc.text.fill")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(Color.dsAccent)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(rep.displayTitle)
                                         .font(.dsSubhead)
@@ -883,17 +883,17 @@ public struct ResearchReportCustomizerSheet: View {
                                         .font(.system(size: 9, weight: .bold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.15))
-                                        .foregroundStyle(Color.accentColor)
+                                        .background(Color.dsAccent.opacity(0.15))
+                                        .foregroundStyle(Color.dsAccent)
                                         .clipShape(Capsule())
                                 }
                             }
                             .padding(10)
-                            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.dsCard)
+                            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.dsCard)
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: 1)
+                                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)

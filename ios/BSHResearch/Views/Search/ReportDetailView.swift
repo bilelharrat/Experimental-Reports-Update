@@ -250,31 +250,37 @@ struct ReportDetailView: View {
 
     var body: some View {
         List {
-            if model.loading && model.report == nil {
-                ProgressView(language.t("common.loading"))
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else if let err = model.error, model.report == nil {
-                Text(err).foregroundStyle(.red)
-            } else if let report = model.report {
-                statusSection(report)
-                openMemoSection(report)
-                actionsSection(report)
-                if let actionError = model.actionError {
-                    Section {
-                        Text(actionError).foregroundStyle(.red).font(.footnote)
-                    }
-                }
-                analysisSection(report)
-                if !model.liveLog.isEmpty {
-                    Section(language.t("research.live_log")) {
-                        ForEach(Array(model.liveLog.suffix(12).enumerated()), id: \.offset) { _, line in
-                            Text(line).font(.caption.monospaced())
+            Group {
+                if model.loading && model.report == nil {
+                    ProgressView(language.t("common.loading"))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else if let err = model.error, model.report == nil {
+                    Text(err).foregroundStyle(.red)
+                } else if let report = model.report {
+                    statusSection(report)
+                    openMemoSection(report)
+                    actionsSection(report)
+                    if let actionError = model.actionError {
+                        Section {
+                            Text(actionError).foregroundStyle(.red).font(.footnote)
                         }
                     }
+                    analysisSection(report)
+                    if !model.liveLog.isEmpty {
+                        Section {
+                            ForEach(Array(model.liveLog.suffix(12).enumerated()), id: \.offset) { _, line in
+                                Text(line).font(.caption.monospaced())
+                            }
+                        } header: {
+                            BSHSectionTitle(language.t("research.live_log"))
+                        }
+                    }
+                    bodySection(report)
                 }
-                bodySection(report)
             }
+            .bshListRows()
         }
+        .bshListSurface()
         .listStyle(.insetGrouped)
         .readableContentWidth()
         .navigationTitle(language.t("research.report"))
@@ -445,7 +451,7 @@ struct ReportDetailView: View {
 
     @ViewBuilder
     private func actionsSection(_ report: ReportDetail) -> some View {
-        Section(language.t("research.actions")) {
+        Section {
             if report.summary.isRunning {
                 Button(role: .destructive) {
                     Task { await model.cancel() }
@@ -475,6 +481,8 @@ struct ReportDetailView: View {
             } label: {
                 Label(language.t("common.retry"), systemImage: "arrow.clockwise.circle")
             }
+        } header: {
+            BSHSectionTitle(language.t("research.actions"))
         }
     }
 
@@ -488,11 +496,11 @@ struct ReportDetailView: View {
                         HStack(spacing: 12) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.12))
+                                    .fill(Color.dsAccent.opacity(0.12))
                                     .frame(width: 40, height: 40)
                                 Image(systemName: "doc.richtext.fill")
                                     .font(.title3)
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(Color.dsAccent)
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Investment Diligence Memo")
@@ -580,7 +588,7 @@ struct ReportDetailView: View {
                     }
                     .padding(.vertical, 4)
                 } header: {
-                    Text(language.t("research.memo_files"))
+                    BSHSectionTitle(language.t("research.memo_files"))
                 } footer: {
                     Text(language.t("research.memo_files_hint"))
                 }
@@ -623,7 +631,7 @@ struct ReportDetailView: View {
                     }
                 }
             } header: {
-                Text(language.t("research.analysis"))
+                BSHSectionTitle(language.t("research.analysis"))
             } footer: {
                 Text(language.t("research.analysis_hint"))
             }
@@ -647,7 +655,7 @@ struct ReportDetailView: View {
                     .font(.body)
                     .textSelection(.enabled)
             } header: {
-                Text(language.t("research.body"))
+                BSHSectionTitle(language.t("research.body"))
             }
         }
     }

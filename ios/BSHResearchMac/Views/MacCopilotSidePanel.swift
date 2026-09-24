@@ -153,15 +153,15 @@ struct MacCopilotSidePanel: View {
                         Text(activeCompany != nil ? (activeCompany!.ticker ?? activeCompany!.name ?? activeCompany!.title) : "Choose a company")
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
+                    .background(Color.dsAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
             }
@@ -257,7 +257,7 @@ struct MacCopilotSidePanel: View {
                         HStack(spacing: 8) {
                             Image(systemName: "text.bubble")
                                 .font(.caption2)
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
 
                             Text(prompt)
                                 .font(.caption)
@@ -380,11 +380,11 @@ struct MacCopilotSidePanel: View {
 
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(Color.accentColor)
+                        .fill(Color.dsAccent)
                         .frame(width: 5, height: 5)
                     Text("Buffetting…")
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                 }
 
                 Spacer()
@@ -430,7 +430,7 @@ struct MacCopilotSidePanel: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
                         .foregroundStyle(
-                            canSubmit ? Color.accentColor : Color.secondary.opacity(0.35)
+                            canSubmit ? Color.dsAccent : Color.secondary.opacity(0.35)
                         )
                 }
                 .buttonStyle(.plain)
@@ -441,7 +441,7 @@ struct MacCopilotSidePanel: View {
             .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(fileDropTargeted ? Color.accentColor : Color.primary.opacity(0.12),
+                    .stroke(fileDropTargeted ? Color.dsAccent : Color.primary.opacity(0.12),
                             lineWidth: fileDropTargeted ? 2 : 1)
             )
             }

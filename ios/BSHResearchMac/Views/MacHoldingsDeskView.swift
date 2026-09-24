@@ -425,8 +425,8 @@ struct MacHoldingDetailView: View {
             Chart {
                 ForEach(Array(points.enumerated()), id: \.offset) { _, p in
                     LineMark(x: .value("Date", p.0), y: .value("USD", p.1), series: .value("Series", p.2))
-                        .foregroundStyle(Color.accentColor)
-                    PointMark(x: .value("Date", p.0), y: .value("USD", p.1)).foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
+                    PointMark(x: .value("Date", p.0), y: .value("USD", p.1)).foregroundStyle(Color.dsAccent)
                 }
                 ForEach(Array(burn.enumerated()), id: \.offset) { _, p in
                     LineMark(x: .value("Date", p.0), y: .value("USD", p.1), series: .value("Series", "Burn"))
@@ -496,7 +496,7 @@ struct MacHoldingDetailView: View {
                                     Text("\(f.label) \(f.display)")
                                         .font(.caption2.monospacedDigit())
                                         .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.1), in: Capsule())
+                                        .background(Color.dsAccent.opacity(0.1), in: Capsule())
                                         .help(f.excerpt ?? "")
                                 }
                             }
@@ -824,7 +824,7 @@ struct MacReservesPlannerSheet: View {
                     }
                     if let pool = plan.reservePoolUsd, pool > 0 {
                         ProgressView(value: min(plan.plannedFollowOnUsd / pool, 1.0))
-                            .tint(plan.plannedFollowOnUsd > pool ? .red : .accentColor)
+                            .tint(plan.plannedFollowOnUsd > pool ? .red : .dsAccent)
                     }
                     VStack(spacing: 0) {
                         HStack {

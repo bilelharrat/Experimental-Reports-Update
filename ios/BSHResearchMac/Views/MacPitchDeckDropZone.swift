@@ -16,10 +16,10 @@ struct MacPitchDeckDropBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: isTargeted ? "arrow.down.doc.fill" : (notice == nil ? "doc.badge.plus" : "exclamationmark.triangle"))
-                .foregroundStyle(isTargeted ? Color.accentColor : (notice == nil ? Color.secondary : Color.orange))
+                .foregroundStyle(isTargeted ? Color.dsAccent : (notice == nil ? Color.secondary : Color.orange))
             Text(isTargeted ? "Drop the deck to file it" : (notice ?? "Drop a pitch deck (PDF or PPTX) to file and extract it"))
                 .font(.dsCaption)
-                .foregroundStyle(isTargeted ? Color.accentColor : (notice == nil ? Color.secondary : Color.orange))
+                .foregroundStyle(isTargeted ? Color.dsAccent : (notice == nil ? Color.secondary : Color.orange))
                 .lineLimit(1)
             Spacer(minLength: 4)
             Button("Browse…") { selectDeckViaPicker() }
@@ -28,9 +28,9 @@ struct MacPitchDeckDropBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(isTargeted ? Color.accentColor.opacity(0.10) : Color.clear)
+        .background(isTargeted ? Color.dsAccent.opacity(0.10) : Color.clear)
         .overlay(alignment: .top) {
-            if isTargeted { Rectangle().fill(Color.accentColor).frame(height: 2) }
+            if isTargeted { Rectangle().fill(Color.dsAccent).frame(height: 2) }
         }
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             handleDrop(providers: providers)
@@ -135,7 +135,7 @@ struct MacPitchDeckIntakeSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.badge.arrow.up")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                     Text(result == nil ? "Pitch Deck Intake" : "Deck filed")
                         .font(.headline)
                 }
@@ -261,7 +261,7 @@ struct MacPitchDeckIntakeSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)
-            .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .background(Color.dsAccent.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
 
             if let error {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -307,7 +307,7 @@ struct MacPitchDeckIntakeSheet: View {
                                 .frame(width: 90, alignment: .leading)
                             VStack(alignment: .leading, spacing: 1) {
                                 if let page = field.page {
-                                    Text("p. \(page)").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
+                                    Text("p. \(page)").font(.caption2.weight(.semibold)).foregroundStyle(Color.dsAccent)
                                 }
                                 if let excerpt = field.excerpt {
                                     Text(excerpt).font(.caption2).foregroundStyle(.secondary).lineLimit(2)

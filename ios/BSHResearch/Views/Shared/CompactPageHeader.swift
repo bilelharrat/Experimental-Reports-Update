@@ -23,7 +23,9 @@ struct CompactPageHeader<Trailing: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(.largeTitle.weight(.bold))
+                    .font(Self.titleFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 trailing()
             }
@@ -47,14 +49,34 @@ struct CompactPageHeader<Trailing: View>: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: Self.fieldRadius, style: .continuous))
+                .overlay {
+                    if BSHDesign.active.isPaper {
+                        RoundedRectangle(cornerRadius: Self.fieldRadius, style: .continuous)
+                            .strokeBorder(Color.dsHairline, lineWidth: 1)
+                    }
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 8)
-        .background(Color(.systemGroupedBackground))
+        .background(Color.dsCanvas)
     }
+
+    /// The desk's name: set in the design's serif on paper, the system's bold large
+    /// title (with Dynamic Type) under Summit Glass.
+    private static var titleFont: Font {
+        BSHDesign.active.isPaper ? BSHType.title(34) : .largeTitle.weight(.bold)
+    }
+
+    /// On paper the search field is a slip of fresh paper, ruled; under Summit it is
+    /// the system's filled field.
+    private static var fieldFill: Color {
+        BSHDesign.active.isPaper ? .dsRaised : Color(.tertiarySystemFill)
+    }
+
+    private static var fieldRadius: CGFloat { BSHDesign.active == .folio ? 6 : 12 }
 }
 
 extension View {

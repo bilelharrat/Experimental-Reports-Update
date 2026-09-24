@@ -119,7 +119,7 @@ struct MacDealPipelineView: View {
                             HStack(spacing: 6) {
                                 ZStack {
                                     Circle()
-                                        .fill(isCurrent ? Color.accentColor : (isPast ? Color.green : Color.secondary.opacity(0.2)))
+                                        .fill(isCurrent ? Color.dsAccent : (isPast ? Color.green : Color.secondary.opacity(0.2)))
                                         .frame(width: 16, height: 16)
                                     if isPast {
                                         Image(systemName: "checkmark")
@@ -134,12 +134,12 @@ struct MacDealPipelineView: View {
 
                                 Text(stage)
                                     .font(.system(size: 11, weight: isCurrent ? .bold : .medium))
-                                    .foregroundStyle(isCurrent ? Color.accentColor : (isPast ? Color.primary : Color.secondary))
+                                    .foregroundStyle(isCurrent ? Color.dsAccent : (isPast ? Color.primary : Color.secondary))
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity)
-                            .appleGlassTile(cornerRadius: 8, tint: isCurrent ? Color.accentColor : (isPast ? Color.green : nil))
+                            .appleGlassTile(cornerRadius: 8, tint: isCurrent ? Color.dsAccent : (isPast ? Color.green : nil))
                         }
                         .buttonStyle(.plain)
                         .disabled(!store.canWriteDesk || saving || isCurrent)
@@ -214,7 +214,7 @@ struct MacDealPipelineView: View {
     private func tile(_ field: PipelineField) -> some View {
         let isNext = field == .nextStep
         let overdue = isNext && pipeline?.nextStepOverdue == true
-        let tint: Color? = isNext ? (overdue ? Color.dsNegative : Color.accentColor) : nil
+        let tint: Color? = isNext ? (overdue ? Color.dsNegative : Color.dsAccent) : nil
         VStack(alignment: .leading, spacing: 6) {
             Label(field.title, systemImage: field.icon)
                 .font(.dsLabel)

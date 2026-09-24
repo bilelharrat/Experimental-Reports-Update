@@ -96,7 +96,7 @@ struct MacMemoStudioView: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
@@ -106,8 +106,8 @@ struct MacMemoStudioView: View {
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.12))
-                        .foregroundStyle(Color.accentColor)
+                        .background(Color.dsAccent.opacity(0.12))
+                        .foregroundStyle(Color.dsAccent)
                         .clipShape(Capsule())
                 }
                 Text("Direct analyst curation of AI thesis spine, dilemma weights, and readiness gates prior to synthesis")
@@ -268,8 +268,8 @@ struct MacMemoStudioView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(activeTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
-                    .foregroundStyle(activeTab == tab ? Color.accentColor : Color.secondary)
+                    .background(activeTab == tab ? Color.dsAccent.opacity(0.12) : Color.clear)
+                    .foregroundStyle(activeTab == tab ? Color.dsAccent : Color.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -286,8 +286,8 @@ struct MacMemoStudioView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.1))
-                .foregroundStyle(Color.accentColor)
+                .background(Color.dsAccent.opacity(0.1))
+                .foregroundStyle(Color.dsAccent)
                 .clipShape(Capsule())
             }
         }
@@ -361,7 +361,7 @@ struct MacMemoStudioView: View {
                 } label: {
                     Image(systemName: card.isCardIncluded ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 15))
-                        .foregroundStyle(card.isCardIncluded ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(card.isCardIncluded ? Color.dsAccent : Color.secondary)
                 }
                 .buttonStyle(.plain)
 
@@ -536,7 +536,7 @@ struct MacMemoStudioView: View {
                 } label: {
                     Image(systemName: card.isCardIncluded ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 15))
-                        .foregroundStyle(card.isCardIncluded ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(card.isCardIncluded ? Color.dsAccent : Color.secondary)
                 }
                 .buttonStyle(.plain)
 
@@ -577,8 +577,8 @@ struct MacMemoStudioView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(isRefining ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
-                .foregroundStyle(isRefining ? Color.accentColor : Color.secondary)
+                .background(isRefining ? Color.dsAccent.opacity(0.12) : Color.primary.opacity(0.05))
+                .foregroundStyle(isRefining ? Color.dsAccent : Color.secondary)
                 .clipShape(Capsule())
             }
 
@@ -787,7 +787,7 @@ struct MacMemoStudioView: View {
                                 HStack(alignment: .top, spacing: 6) {
                                     Image(systemName: "doc.text")
                                         .font(.system(size: 10))
-                                        .foregroundStyle(Color.accentColor)
+                                        .foregroundStyle(Color.dsAccent)
                                     if let exc = entry.excerpt {
                                         Text(exc)
                                             .font(.dsCaption)

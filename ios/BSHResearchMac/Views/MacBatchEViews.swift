@@ -227,7 +227,7 @@ struct MacEarningsFilingsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Next earnings", systemImage: "calendar.badge.clock")
                 .font(.dsLabel)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
             if let date = earnings?.nextDate {
                 Text(date).font(.headline.monospacedDigit())
                 Text([whenText(earnings?.daysToNext), earnings?.nextEstimated == true ? "estimated" : nil]
@@ -239,7 +239,7 @@ struct MacEarningsFilingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .appleGlassTile(cornerRadius: 10, tint: Color.accentColor)
+        .appleGlassTile(cornerRadius: 10, tint: Color.dsAccent)
     }
 
     private func quartersTile(_ quarters: [MacCompanyEarningsFilings.Quarter]) -> some View {
@@ -491,7 +491,7 @@ struct MacNumberLintView: View {
                                 if !f.section.isEmpty {
                                     if let findText {
                                         Button { findText.wrappedValue = MacFindRequest(text: f.number) } label: { Text("§ \(f.section)").font(.caption2) }
-                                            .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                                            .buttonStyle(.plain).foregroundStyle(Color.dsAccent)
                                             .help("Find this figure in the memo")
                                     } else {
                                         Text("§ \(f.section)").font(.caption2).foregroundStyle(.secondary)

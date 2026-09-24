@@ -268,12 +268,20 @@ struct NewsView: View {
         Group {
             if selectionMode {
                 List(selection: $selectedItem) {
-                    newsListSections(selectionMode: true)
+                    Group {
+                        newsListSections(selectionMode: true)
+                    }
+                    .bshListRows()
                 }
+                .bshListSurface()
             } else {
                 List {
-                    newsListSections(selectionMode: false)
+                    Group {
+                        newsListSections(selectionMode: false)
+                    }
+                    .bshListRows()
                 }
+                .bshListSurface()
             }
         }
         .listStyle(.insetGrouped)
@@ -343,7 +351,7 @@ struct NewsView: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 } header: {
-                    Text(language.t("news.top_story"))
+                    BSHSectionTitle(language.t("news.top_story"))
                 }
             }
 
@@ -371,7 +379,7 @@ struct NewsView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 } header: {
-                    Text(language.t("news.top_story"))
+                    BSHSectionTitle(language.t("news.top_story"))
                 }
             }
 
@@ -427,7 +435,7 @@ struct NewsLeadCard: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .background(.ultraThinMaterial, in: Capsule())
+                            .background(.dsFloating, in: Capsule())
                     }
                     Text(item.title)
                         .font(.title3.weight(.bold))
@@ -459,7 +467,7 @@ struct NewsLeadCard: View {
             }
             .padding(14)
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Color.dsCard)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -493,11 +501,11 @@ struct NewsStoryRow: View {
                         if let ticker = item.ticker, !ticker.isEmpty {
                             Text(ticker)
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         } else if let company = item.companyName, !company.isEmpty {
                             Text(company)
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                                 .lineLimit(1)
                         }
                         if let source = item.source, !source.isEmpty, source != item.companyName {
@@ -672,7 +680,7 @@ struct NewsDetailView: View {
             .padding(.vertical, 16)
             .readableContentWidth()
         }
-        .background(Color(.systemBackground))
+        .background(Color.dsPage)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -719,7 +727,7 @@ struct NewsDetailView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(Color.accentColor, in: Capsule())
+                        .background(Color.dsAccent, in: Capsule())
                 }
                 if let category = item.category, !category.isEmpty {
                     Text(category.uppercased())
@@ -759,7 +767,7 @@ struct NewsDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var expandCallout: some View {
@@ -789,7 +797,7 @@ struct NewsDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     @ViewBuilder
@@ -872,7 +880,7 @@ struct NewsDetailView: View {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                         HStack(alignment: .top, spacing: 10) {
                             Circle()
-                                .fill(Color.accentColor)
+                                .fill(Color.dsAccent)
                                 .frame(width: 5, height: 5)
                                 .padding(.top, 7)
                             Text(row)

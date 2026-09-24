@@ -58,46 +58,54 @@ struct ConsoleSessionsView: View {
 
     var body: some View {
         List {
-            Section {
-                Button {
-                    Task {
-                        if let session = await model.create(language: language.language.rawValue) {
-                            opened = session
+            Group {
+                Section {
+                    Button {
+                        Task {
+                            if let session = await model.create(language: language.language.rawValue) {
+                                opened = session
+                            }
                         }
+                    } label: {
+                        Label(
+                            model.creating ? language.t("common.loading") : language.t("console.new"),
+                            systemImage: "plus.bubble"
+                        )
                     }
-                } label: {
-                    Label(
-                        model.creating ? language.t("common.loading") : language.t("console.new"),
-                        systemImage: "plus.bubble"
-                    )
+                    .disabled(model.creating)
+                    if let err = model.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                 }
-                .disabled(model.creating)
-                if let err = model.error {
-                    Text(err).font(.caption).foregroundStyle(.red)
-                }
-            }
 
-            let active = model.sessions.filter { !$0.isArchived }
-            let archived = model.sessions.filter(\.isArchived)
+                let active = model.sessions.filter { !$0.isArchived }
+                let archived = model.sessions.filter(\.isArchived)
 
-            if !active.isEmpty {
-                Section(language.t("console.active")) {
-                    ForEach(active) { session in
-                        sessionRow(session)
+                if !active.isEmpty {
+                    Section {
+                        ForEach(active) { session in
+                            sessionRow(session)
+                        }
+                    } header: {
+                        BSHSectionTitle(language.t("console.active"))
                     }
                 }
-            }
-            if !archived.isEmpty {
-                Section(language.t("console.archived")) {
-                    ForEach(archived) { session in
-                        sessionRow(session)
+                if !archived.isEmpty {
+                    Section {
+                        ForEach(archived) { session in
+                            sessionRow(session)
+                        }
+                    } header: {
+                        BSHSectionTitle(language.t("console.archived"))
                     }
                 }
+                if model.sessions.isEmpty && !model.loading {
+                    Text(language.t("console.none")).foregroundStyle(.secondary)
+                }
             }
-            if model.sessions.isEmpty && !model.loading {
-                Text(language.t("console.none")).foregroundStyle(.secondary)
-            }
+            .bshListRows()
         }
+        .bshListSurface()
         .navigationTitle(language.t("console.title"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load() }
@@ -271,7 +279,7 @@ struct ConsoleTranscriptView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color.dsCanvas)
             .onChange(of: model.turns.count) { _, _ in
                 if let last = model.turns.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -351,7 +359,7 @@ struct ConsoleTranscriptView: View {
             }
         }
         .padding(10)
-        .background(.bar)
+        .background(.dsBar)
     }
 
     @ViewBuilder
@@ -379,7 +387,7 @@ struct ConsoleTranscriptView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .background(
-                isUser ? Color.accentColor : Color(.secondarySystemGroupedBackground),
+                isUser ? Color.dsAccent : Color.dsCard,
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
             )
             .frame(maxWidth: 300, alignment: isUser ? .trailing : .leading)

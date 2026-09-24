@@ -73,7 +73,7 @@ private struct MacInsightCard<Content: View, Trailing: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 if let systemImage {
-                    Image(systemName: systemImage).foregroundStyle(Color.accentColor)
+                    Image(systemName: systemImage).foregroundStyle(Color.dsAccent)
                 }
                 Text(title).font(.dsHeadline)
                 Spacer()
@@ -718,7 +718,7 @@ struct MacQuoteCalendarCard: View {
                             Text(event.date).font(.caption.monospacedDigit()).frame(width: 84, alignment: .leading)
                             Text(event.kind.capitalized)
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(event.kind == "earnings" ? .orange : (event.kind == "macro" ? .secondary : .accentColor))
+                                .foregroundStyle(event.kind == "earnings" ? .orange : (event.kind == "macro" ? .secondary : .dsAccent))
                                 .frame(width: 70, alignment: .leading)
                             Text(event.title).font(.caption).lineLimit(1)
                             Spacer()

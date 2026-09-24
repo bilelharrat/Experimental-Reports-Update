@@ -88,8 +88,8 @@ public struct MacMemoStudioView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(activeTab == tab ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08), in: Capsule())
-                            .foregroundStyle(activeTab == tab ? Color.accentColor : Color.primary)
+                            .background(activeTab == tab ? Color.dsAccent.opacity(0.15) : Color.secondary.opacity(0.08), in: Capsule())
+                            .foregroundStyle(activeTab == tab ? Color.dsAccent : Color.primary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -122,7 +122,7 @@ public struct MacMemoStudioView: View {
                 ForEach(Array(pillars.enumerated()), id: \.offset) { idx, pillar in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Pillar \(idx + 1)").font(.dsLabel).foregroundStyle(Color.accentColor)
+                            Text("Pillar \(idx + 1)").font(.dsLabel).foregroundStyle(Color.dsAccent)
                             Spacer()
                             if let conf = pillar.confidence {
                                 MacStatusPill(text: "\(Int(conf * 100))% confidence", color: conf >= 0.7 ? .green : .orange)

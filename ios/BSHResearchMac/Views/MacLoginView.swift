@@ -73,7 +73,7 @@ struct MacLoginView: View {
 
             // Notices & Warnings
             if let notice = store.sessionNotice {
-                noticeBanner(notice, icon: "info.circle.fill", color: .accentColor)
+                noticeBanner(notice, icon: "info.circle.fill", color: .dsAccent)
             }
 
             if let storedError = MacConfig.storedBaseURLError {
@@ -144,7 +144,7 @@ struct MacLoginView: View {
 
                 // Ambient lighting glow circles
                 Circle()
-                    .fill(Color.accentColor.opacity(isDark ? 0.22 : 0.14))
+                    .fill(Color.dsAccent.opacity(isDark ? 0.22 : 0.14))
                     .frame(width: 320, height: 320)
                     .blur(radius: 65)
                     .offset(x: -120, y: -160)
@@ -176,7 +176,7 @@ struct MacLoginView: View {
         HStack(spacing: 10) {
             Image(systemName: "envelope.fill")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(focus == .email ? Color.accentColor : Color.secondary.opacity(0.8))
+                .foregroundStyle(focus == .email ? Color.dsAccent : Color.secondary.opacity(0.8))
                 .frame(width: 18)
 
             TextField("Institutional Email", text: $email)
@@ -208,12 +208,12 @@ struct MacLoginView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
                     focus == .email
-                        ? Color.accentColor
+                        ? Color.dsAccent
                         : Color.primary.opacity(isDark ? 0.12 : 0.08),
                     lineWidth: focus == .email ? 1.5 : 1
                 )
                 .shadow(
-                    color: focus == .email ? Color.accentColor.opacity(0.35) : .clear,
+                    color: focus == .email ? Color.dsAccent.opacity(0.35) : .clear,
                     radius: 4
                 )
         )
@@ -223,7 +223,7 @@ struct MacLoginView: View {
         HStack(spacing: 10) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(focus == .password ? Color.accentColor : Color.secondary.opacity(0.8))
+                .foregroundStyle(focus == .password ? Color.dsAccent : Color.secondary.opacity(0.8))
                 .frame(width: 18)
 
             if isPasswordVisible {
@@ -247,7 +247,7 @@ struct MacLoginView: View {
             } label: {
                 Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(isPasswordVisible ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isPasswordVisible ? Color.dsAccent : Color.secondary)
             }
             .buttonStyle(.plain)
             .help(isPasswordVisible ? "Hide password" : "Show password")
@@ -263,12 +263,12 @@ struct MacLoginView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
                     focus == .password
-                        ? Color.accentColor
+                        ? Color.dsAccent
                         : Color.primary.opacity(isDark ? 0.12 : 0.08),
                     lineWidth: focus == .password ? 1.5 : 1
                 )
                 .shadow(
-                    color: focus == .password ? Color.accentColor.opacity(0.35) : .clear,
+                    color: focus == .password ? Color.dsAccent.opacity(0.35) : .clear,
                     radius: 4
                 )
         )
@@ -306,9 +306,9 @@ struct MacLoginView: View {
                     .fill(
                         LinearGradient(
                             colors: isDisabled
-                                ? [Color.accentColor.opacity(0.35), Color.accentColor.opacity(0.25)]
+                                ? [Color.dsAccent.opacity(0.35), Color.dsAccent.opacity(0.25)]
                                 : [
-                                    Color.accentColor,
+                                    Color.dsAccent,
                                     Color(red: 0.03, green: 0.44, blue: 0.76)
                                   ],
                             startPoint: .top,
@@ -331,7 +331,7 @@ struct MacLoginView: View {
                     )
             )
             .shadow(
-                color: isDisabled ? .clear : Color.accentColor.opacity(0.35),
+                color: isDisabled ? .clear : Color.dsAccent.opacity(0.35),
                 radius: 8,
                 y: 3
             )

@@ -429,7 +429,7 @@ struct ReportsDeskView: View {
                                 MonogramAvatar(name: comp.name, companyId: comp.id, size: 24)
                                 Text(comp.name)
                                     .lineLimit(1)
-                                    .foregroundStyle(model.selectedCompanyId == comp.id ? Color.accentColor : Color.primary)
+                                    .foregroundStyle(model.selectedCompanyId == comp.id ? Color.dsAccent : Color.primary)
                                 Spacer()
                                 Text("\(comp.count)")
                                     .font(.caption)
@@ -449,7 +449,7 @@ struct ReportsDeskView: View {
                             HStack {
                                 Text(item.type)
                                     .lineLimit(1)
-                                    .foregroundStyle(model.selectedReportType == item.type ? Color.accentColor : Color.primary)
+                                    .foregroundStyle(model.selectedReportType == item.type ? Color.dsAccent : Color.primary)
                                 Spacer()
                                 Text("\(item.count)")
                                     .font(.caption)
@@ -460,6 +460,7 @@ struct ReportsDeskView: View {
                 }
             }
         }
+        .bshListSurface()
         .listStyle(.sidebar)
         .navigationTitle(language.t("tab.reports"))
         .toolbar {
@@ -498,7 +499,7 @@ struct ReportsDeskView: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(isSelected ? Color.accentColor : Color(.secondarySystemFill))
+                            .background(isSelected ? Color.dsAccent : Color(.secondarySystemFill))
                             .foregroundStyle(isSelected ? Color.white : Color.primary)
                             .clipShape(Capsule())
                         }
@@ -508,7 +509,7 @@ struct ReportsDeskView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemBackground))
+            .background(Color.dsPage)
 
             // Active Filters Banner (if company or type is filtered)
             if model.selectedCompanyId != nil || model.selectedReportType != nil {
@@ -526,7 +527,7 @@ struct ReportsDeskView: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.15))
+                        .background(Color.dsAccent.opacity(0.15))
                         .clipShape(Capsule())
                     }
 
@@ -542,7 +543,7 @@ struct ReportsDeskView: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.15))
+                        .background(Color.dsAccent.opacity(0.15))
                         .clipShape(Capsule())
                     }
                     Spacer()
@@ -562,21 +563,45 @@ struct ReportsDeskView: View {
                 emptyListView
             } else if isSplit {
                 List(selection: $selectedReportId) {
-                    ForEach(model.filteredReports) { report in
-                        ReportCardRow(report: report, isSelected: selectedReportId == report.id)
-                            .tag(report.id)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedReportId = report.id
-                                if columnVisibility != .detailOnly {
-                                    columnVisibility = .all
+                    Group {
+                        ForEach(model.filteredReports) { report in
+                            ReportCardRow(report: report, isSelected: selectedReportId == report.id)
+                                .tag(report.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedReportId = report.id
+                                    if columnVisibility != .detailOnly {
+                                        columnVisibility = .all
+                                    }
                                 }
+                                .listRowBackground(
+                                    selectedReportId == report.id
+                                        ? Color.dsAccent.opacity(0.12)
+                                        : Color.dsCard
+                                )
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        Task { await model.deleteReport(id: report.id) }
+                                    } label: {
+                                        Label(language.t("research.delete"), systemImage: "trash")
+                                    }
+                                }
+                                .contextMenu {
+                                    reportContextMenu(report)
+                                }
+                        }
+                    }
+                    .bshListRows()
+                }
+                .bshListSurface()
+                .listStyle(.insetGrouped)
+            } else {
+                List {
+                    Group {
+                        ForEach(model.filteredReports) { report in
+                            NavigationLink(value: report.id) {
+                                ReportCardRow(report: report, isSelected: false)
                             }
-                            .listRowBackground(
-                                selectedReportId == report.id
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color(.secondarySystemGroupedBackground)
-                            )
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Task { await model.deleteReport(id: report.id) }
@@ -587,27 +612,11 @@ struct ReportsDeskView: View {
                             .contextMenu {
                                 reportContextMenu(report)
                             }
-                    }
-                }
-                .listStyle(.insetGrouped)
-            } else {
-                List {
-                    ForEach(model.filteredReports) { report in
-                        NavigationLink(value: report.id) {
-                            ReportCardRow(report: report, isSelected: false)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                Task { await model.deleteReport(id: report.id) }
-                            } label: {
-                                Label(language.t("research.delete"), systemImage: "trash")
-                            }
-                        }
-                        .contextMenu {
-                            reportContextMenu(report)
                         }
                     }
+                    .bshListRows()
                 }
+                .bshListSurface()
                 .listStyle(.insetGrouped)
             }
         }
@@ -695,6 +704,8 @@ struct ReportsDeskView: View {
             }
             .buttonStyle(.borderedProminent)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.dsPage)
     }
 
     // MARK: - Detail Pane
@@ -748,6 +759,8 @@ struct ReportsDeskView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.dsPage)
         }
     }
 }

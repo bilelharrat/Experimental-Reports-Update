@@ -185,10 +185,10 @@ struct MacHomeDeskView: View {
                                 if let ticker = hit.ticker, !ticker.isEmpty {
                                     Text(ticker.uppercased())
                                         .font(.caption.monospacedDigit().weight(.bold))
-                                        .foregroundStyle(Color.accentColor)
+                                        .foregroundStyle(Color.dsAccent)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
-                                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                                        .background(Color.dsAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
                                 }
 
                                 VStack(alignment: .leading, spacing: 2) {
@@ -261,7 +261,7 @@ struct MacHomeDeskView: View {
                         if let prog = report.progress {
                             Text("\(prog)%")
                                 .font(.caption.monospacedDigit().weight(.bold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         }
 
                         Button("Follow") {
@@ -705,10 +705,10 @@ struct MacHomeDeskView: View {
                             if let ticker = item.ticker, !ticker.isEmpty {
                                 Text(ticker.uppercased())
                                     .font(.caption2.monospacedDigit().weight(.bold))
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(Color.dsAccent)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                    .background(Color.dsAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                             }
 
                             Text(item.title)

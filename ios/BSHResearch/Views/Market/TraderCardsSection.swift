@@ -65,7 +65,7 @@ struct TraderCardsSection: View {
                     .foregroundStyle(.secondary)
             }
         } header: {
-            Text(language.t("trader.title"))
+            BSHSectionTitle(language.t("trader.title"))
         } footer: {
             if let at = snapshot?.refreshedAt {
                 Text(language.t("trader.refreshed_at").replacingOccurrences(of: "{t}", with: String(at.prefix(16)).replacingOccurrences(of: "T", with: " ")))

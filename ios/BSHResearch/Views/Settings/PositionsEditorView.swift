@@ -10,57 +10,65 @@ struct PositionsEditorView: View {
 
     var body: some View {
         Form {
-            if !session.canWriteDesk {
+            Group {
+                if !session.canWriteDesk {
+                    Section {
+                        Text(language.t("roles.read_only_hint"))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section {
-                    Text(language.t("roles.read_only_hint"))
-                        .foregroundStyle(.secondary)
+                    TextField("Ticker", text: $ticker)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .disabled(!session.canWriteDesk)
+                    TextField(language.t("positions.shares"), text: $shares)
+                        .keyboardType(.decimalPad)
+                        .disabled(!session.canWriteDesk)
+                    TextField(language.t("positions.cost"), text: $cost)
+                        .keyboardType(.decimalPad)
+                        .disabled(!session.canWriteDesk)
+                    Button(language.t("common.add")) {
+                        Task { await addLot() }
+                    }
+                    .disabled(!session.canWriteDesk || ticker.isEmpty || Double(shares) == nil)
+                } header: {
+                    BSHSectionTitle(language.t("positions.add"))
                 }
-            }
 
-            Section(language.t("positions.add")) {
-                TextField("Ticker", text: $ticker)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .disabled(!session.canWriteDesk)
-                TextField(language.t("positions.shares"), text: $shares)
-                    .keyboardType(.decimalPad)
-                    .disabled(!session.canWriteDesk)
-                TextField(language.t("positions.cost"), text: $cost)
-                    .keyboardType(.decimalPad)
-                    .disabled(!session.canWriteDesk)
-                Button(language.t("common.add")) {
-                    Task { await addLot() }
-                }
-                .disabled(!session.canWriteDesk || ticker.isEmpty || Double(shares) == nil)
-            }
-
-            Section(language.t("positions.title")) {
-                if desk.bookLots.isEmpty {
-                    Text(language.t("positions.empty")).foregroundStyle(.secondary)
-                } else {
-                    ForEach(desk.bookLots) { lot in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(lot.ticker).font(.headline)
-                                Text("\(format(lot.shares)) sh @ \(format(lot.costBasis))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                Section {
+                    if desk.bookLots.isEmpty {
+                        Text(language.t("positions.empty")).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(desk.bookLots) { lot in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(lot.ticker).font(.headline)
+                                    Text("\(format(lot.shares)) sh @ \(format(lot.costBasis))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
                             }
-                            Spacer()
-                        }
-                        .swipeActions {
-                            if session.canWriteDesk {
-                                Button(role: .destructive) {
-                                    Task { await desk.removeLot(id: lot.id) }
-                                } label: {
-                                    Label(language.t("common.remove"), systemImage: "trash")
+                            .swipeActions {
+                                if session.canWriteDesk {
+                                    Button(role: .destructive) {
+                                        Task { await desk.removeLot(id: lot.id) }
+                                    } label: {
+                                        Label(language.t("common.remove"), systemImage: "trash")
+                                    }
                                 }
                             }
                         }
                     }
+                } header: {
+                    BSHSectionTitle(language.t("positions.title"))
                 }
             }
+            .bshListRows()
         }
+        .bshListSurface()
         .navigationTitle(language.t("positions.title"))
         .task { await desk.loadIfNeeded() }
     }

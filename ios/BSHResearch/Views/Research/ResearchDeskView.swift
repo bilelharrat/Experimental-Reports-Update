@@ -128,8 +128,8 @@ public struct MacResearchDeskView: View {
                     .font(.caption2.weight(.medium))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(showOnlyModified ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
-                    .overlay(Capsule().strokeBorder(showOnlyModified ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1))
+                    .background(showOnlyModified ? Color.dsAccent.opacity(0.18) : Color.clear, in: Capsule())
+                    .overlay(Capsule().strokeBorder(showOnlyModified ? Color.dsAccent : Color.secondary.opacity(0.3), lineWidth: 1))
                 }
 
                 Text("\(filteredCompanies.count)")
@@ -143,11 +143,15 @@ public struct MacResearchDeskView: View {
             Divider()
 
             List(filteredCompanies, selection: $store.selectedCompany) { company in
-                NavigationLink(value: company) {
-                    CompanyListRow(company: company)
+                Group {
+                    NavigationLink(value: company) {
+                        CompanyListRow(company: company)
+                    }
+                    .tag(company)
                 }
-                .tag(company)
+                .bshListRows(.bare)
             }
+            .bshListSurface()
             .listStyle(.plain)
             .searchable(text: $searchText, prompt: "Search companies or tickers…")
             .navigationDestination(for: MacCompany.self) { comp in
@@ -181,6 +185,8 @@ public struct MacResearchDeskView: View {
                 systemImage: "building.2",
                 description: Text("Select an enterprise from the directory to review research dossiers and investment memos.")
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.dsPage)
         }
     }
 }
@@ -210,7 +216,7 @@ public struct CompanyListRow: View {
             MacMonogram(company: company, size: 36)
                 .overlay(alignment: .topTrailing) {
                     if store.isCompanyModified(company.id) {
-                        Circle().fill(Color.accentColor).frame(width: 8, height: 8)
+                        Circle().fill(Color.dsAccent).frame(width: 8, height: 8)
                             .overlay(Circle().stroke(Color.dsCard, lineWidth: 1.5))
                             .offset(x: 3, y: -3)
                     }
@@ -294,7 +300,7 @@ public struct CompanyDossierView: View {
                                 .font(.title3.weight(.bold))
                                 .lineLimit(1)
                             if !isListed, let stage = store.dealPipelines[company.id]?.stage {
-                                MacStatusPill(text: stage, color: .accentColor)
+                                MacStatusPill(text: stage, color: .dsAccent)
                             }
                         }
                         Text(headerLine.isEmpty ? company.subtitle : headerLine)
@@ -330,6 +336,8 @@ public struct CompanyDossierView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                    // The actions keep their size; the name gives way first.
+                    .fixedSize()
                 }
                 .padding(.bottom, 2)
 
@@ -453,6 +461,7 @@ public struct CompanyDossierView: View {
             }
             .padding(16)
         }
+        .background(Color.dsPage)
         .task(id: company.id) {
             store.markCompanyVisited(company.id)
             await store.fetchReports(for: company.id)
@@ -487,7 +496,7 @@ public struct MemoRowView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(Color.accentColor, in: Capsule())
+                            .background(Color.dsAccent, in: Capsule())
                     }
 
                     if let lang = report.language {

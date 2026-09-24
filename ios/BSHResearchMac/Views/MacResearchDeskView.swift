@@ -174,7 +174,7 @@ struct MacResearchDeskView: View {
                 .font(.caption2.weight(.medium))
             }
             .buttonStyle(.bordered)
-            .tint(showOnlyModified ? .accentColor : .secondary)
+            .tint(showOnlyModified ? .dsAccent : .secondary)
             .controlSize(.mini)
             .help("Show only companies with updates or new memos since last visit")
 
@@ -268,7 +268,7 @@ struct CompanyListRow: View {
             MacMonogram(company: company, size: 30)
                 .overlay(alignment: .topTrailing) {
                     if store.isCompanyModified(company.id) {
-                        Circle().fill(Color.accentColor).frame(width: 8, height: 8)
+                        Circle().fill(Color.dsAccent).frame(width: 8, height: 8)
                             .overlay(Circle().stroke(Color.dsCard, lineWidth: 1.5))
                             .offset(x: 3, y: -3)
                     }
@@ -379,7 +379,7 @@ struct CompanyDossierView: View {
                                 .font(.dsTitle)
                                 .lineLimit(1)
                             if !isListed, let stage = store.dealPipelines[company.id]?.stage {
-                                MacStatusPill(text: stage, color: .accentColor)
+                                MacStatusPill(text: stage, color: .dsAccent)
                             }
                             if store.isFollowed(company.id) {
                                 Image(systemName: "star.fill").font(.caption).foregroundStyle(Color.yellow).help("Followed on the Pipeline board")
@@ -647,7 +647,7 @@ struct MemoRowView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1.5)
-                            .background(Color.accentColor, in: Capsule())
+                            .background(Color.dsAccent, in: Capsule())
                     }
 
                     if let lang = report.language {

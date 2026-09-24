@@ -41,7 +41,7 @@ struct MacInspectorView: View {
                                 .font(.subheadline.monospacedDigit().weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                .background(Color.dsAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                         }
 
                         Text(company.subtitle)

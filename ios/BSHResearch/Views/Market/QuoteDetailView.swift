@@ -149,15 +149,19 @@ struct QuoteDetailView: View {
 
     var body: some View {
         List {
-            headerSection
-            rangeSection
-            chartSection
-            statsSection
-            askInviteSection
-            tabPickerSection
-            workspaceSections
-                .id(model.tab)
+            Group {
+                headerSection
+                rangeSection
+                chartSection
+                statsSection
+                askInviteSection
+                tabPickerSection
+                workspaceSections
+                    .id(model.tab)
+            }
+            .bshListRows()
         }
+        .bshListSurface()
         .listStyle(.insetGrouped)
         .navigationTitle(model.ticker)
         .navigationBarTitleDisplayMode(.inline)
@@ -181,7 +185,7 @@ struct QuoteDetailView: View {
                     Task { await desk.toggleWatch(model.ticker) }
                 } label: {
                     Image(systemName: desk.isWatched(model.ticker) ? "star.fill" : "star")
-                        .foregroundStyle(desk.isWatched(model.ticker) ? .yellow : .accentColor)
+                        .foregroundStyle(desk.isWatched(model.ticker) ? .yellow : .dsAccent)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -354,7 +358,7 @@ struct QuoteDetailView: View {
     // MARK: - Stats
 
     private var statsSection: some View {
-        Section(language.t("market.stats")) {
+        Section {
             let stats = collectStats()
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible())],
@@ -379,6 +383,8 @@ struct QuoteDetailView: View {
                 }
             }
             .listRowSeparator(.hidden)
+        } header: {
+            BSHSectionTitle(language.t("market.stats"))
         }
     }
 
@@ -485,23 +491,29 @@ struct QuoteDetailView: View {
     @ViewBuilder
     private var overviewBlocks: some View {
         if let desc = model.workspace?.profile?.description, !desc.isEmpty {
-            Section("About") {
+            Section {
                 Text(desc).font(.body).foregroundStyle(.secondary)
+            } header: {
+                BSHSectionTitle("About")
             }
         }
         if let profile = model.workspace?.profile {
-            Section("Identity") {
+            Section {
                 if let sector = profile.sector { LabeledContent("Sector", value: sector) }
                 if let industry = profile.industry { LabeledContent("Industry", value: industry) }
                 if let region = profile.region { LabeledContent("Region", value: region) }
                 if let website = profile.website, let url = URL(string: website) {
                     Link(website, destination: url)
                 }
+            } header: {
+                BSHSectionTitle("Identity")
             }
         }
         if let next = model.workspace?.earnings?.nextDate {
-            Section("Next earnings") {
+            Section {
                 LabeledContent("Date", value: next)
+            } header: {
+                BSHSectionTitle("Next earnings")
             }
         }
     }
@@ -509,17 +521,21 @@ struct QuoteDetailView: View {
     @ViewBuilder
     private var profileBlocks: some View {
         if let profile = model.workspace?.profile {
-            Section("Profile") {
+            Section {
                 if let sector = profile.sector { LabeledContent("Sector", value: sector) }
                 if let industry = profile.industry { LabeledContent("Industry", value: industry) }
                 if let region = profile.region { LabeledContent("Region", value: region) }
                 if let website = profile.website, let url = URL(string: website) {
                     Link(website, destination: url)
                 }
+            } header: {
+                BSHSectionTitle("Profile")
             }
             if let desc = profile.description, !desc.isEmpty {
-                Section("Description") {
+                Section {
                     Text(desc).font(.body)
+                } header: {
+                    BSHSectionTitle("Description")
                 }
             }
         } else {
@@ -530,11 +546,13 @@ struct QuoteDetailView: View {
     @ViewBuilder
     private var analysisBlocks: some View {
         if let analysis = model.workspace?.analysis {
-            Section("Street") {
+            Section {
                 if let t = analysis.target { LabeledContent("Target", value: String(format: "%.2f", t)) }
                 if let lo = analysis.targetLow { LabeledContent("Low", value: String(format: "%.2f", lo)) }
                 if let hi = analysis.targetHigh { LabeledContent("High", value: String(format: "%.2f", hi)) }
                 LabeledContent("Buy / Hold / Sell", value: "\(analysis.buy ?? 0) / \(analysis.hold ?? 0) / \(analysis.sell ?? 0)")
+            } header: {
+                BSHSectionTitle("Street")
             }
         } else {
             Section { Text(language.t("market.workspace_empty")).foregroundStyle(.secondary) }
@@ -544,7 +562,7 @@ struct QuoteDetailView: View {
     @ViewBuilder
     private var holdersBlocks: some View {
         if let holders = model.workspace?.holders {
-            Section("Ownership") {
+            Section {
                 if let pct = holders.ownershipPct {
                     LabeledContent("Inst. ownership", value: pct.display)
                 }
@@ -554,9 +572,11 @@ struct QuoteDetailView: View {
                 if let value = holders.holdingsValue {
                     LabeledContent("Holdings value", value: value.display)
                 }
+            } header: {
+                BSHSectionTitle("Ownership")
             }
             if let rows = holders.holders, !rows.isEmpty {
-                Section("Top holders") {
+                Section {
                     ForEach(rows.prefix(12)) { row in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.displayName).font(.subheadline.weight(.semibold))
@@ -567,6 +587,8 @@ struct QuoteDetailView: View {
                             }
                         }
                     }
+                } header: {
+                    BSHSectionTitle("Top holders")
                 }
             }
         } else {
@@ -580,7 +602,7 @@ struct QuoteDetailView: View {
             if let last = options.lastTrade {
                 Section { LabeledContent("Last trade", value: last) }
             }
-            Section("Chain (near ATM)") {
+            Section {
                 ForEach(rows.prefix(20)) { row in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
@@ -600,6 +622,8 @@ struct QuoteDetailView: View {
                         }
                     }
                 }
+            } header: {
+                BSHSectionTitle("Chain (near ATM)")
             }
         } else {
             Section { Text(language.t("market.workspace_empty")).foregroundStyle(.secondary) }
@@ -609,11 +633,13 @@ struct QuoteDetailView: View {
     @ViewBuilder
     private var earningsBlocks: some View {
         if let earnings = model.workspace?.earnings {
-            Section("Upcoming") {
+            Section {
                 LabeledContent("Next", value: earnings.nextDate ?? "—")
+            } header: {
+                BSHSectionTitle("Upcoming")
             }
             if let past = earnings.past, !past.isEmpty {
-                Section("Past") {
+                Section {
                     ForEach(past.prefix(8)) { row in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.period ?? row.reported ?? "—")
@@ -631,6 +657,8 @@ struct QuoteDetailView: View {
                             }
                         }
                     }
+                } header: {
+                    BSHSectionTitle("Past")
                 }
             }
         } else {

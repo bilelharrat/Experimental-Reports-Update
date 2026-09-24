@@ -17,11 +17,11 @@ struct WarrenMarkView: View {
             if isBusy {
                 Circle()
                     .stroke(
-                        Color.accentColor.opacity(breathing ? 0.95 : 0.35),
+                        Color.dsAccent.opacity(breathing ? 0.95 : 0.35),
                         lineWidth: max(1.2, size * 0.06)
                     )
                     .frame(width: size + max(4, size * 0.18), height: size + max(4, size * 0.18))
-                    .shadow(color: Color.accentColor.opacity(0.5), radius: max(2, size * 0.15))
+                    .shadow(color: Color.dsAccent.opacity(0.5), radius: max(2, size * 0.15))
                     .scaleEffect(breathing ? 1.04 : 0.96)
                     .onAppear {
                         withAnimation(

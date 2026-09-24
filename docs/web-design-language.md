@@ -6,6 +6,9 @@ described in the rest of this document, stay one click away in Settings →
 Preferences → Design. The choice is kept per browser (`bsh.research.design`)
 and set as `data-design` on `<html>` before first paint (`index.html`,
 `src/design.js`), which also gives the browser chrome the design's ground.
+The iPhone/iPad and Mac apps offer the same three designs with the same
+colors and faces. Each device keeps its own choice. See "Designs" in
+`ios/README.md`.
 
 ## Bureau
 

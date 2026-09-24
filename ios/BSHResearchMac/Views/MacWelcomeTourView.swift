@@ -129,10 +129,10 @@ struct MacWelcomeTourView: View {
                 dim
                 if let halo {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .strokeBorder(Color.dsAccent, lineWidth: 2)
                         .frame(width: halo.width, height: halo.height)
                         .position(x: halo.midX, y: halo.midY)
-                        .shadow(color: Color.accentColor.opacity(0.5), radius: 10)
+                        .shadow(color: Color.dsAccent.opacity(0.5), radius: 10)
                         .allowsHitTesting(false)
                 }
 
@@ -286,7 +286,7 @@ struct MacWelcomeTourView: View {
                     HStack(spacing: 10) {
                         Image(systemName: tip.symbol)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                             .frame(width: 16)
                         Text(tip.text)
                             .font(.system(size: 12))
@@ -309,10 +309,10 @@ struct MacWelcomeTourView: View {
         } else {
             Image(systemName: entry.symbol)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
                 .frame(width: 42, height: 42)
                 .background(
-                    Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.12),
+                    Color.dsAccent.opacity(colorScheme == .dark ? 0.18 : 0.12),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous)
                 )
         }
@@ -325,10 +325,10 @@ struct MacWelcomeTourView: View {
         } else {
             Image(systemName: row.symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
                 .frame(width: 32, height: 32)
                 .background(
-                    Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.12),
+                    Color.dsAccent.opacity(colorScheme == .dark ? 0.18 : 0.12),
                     in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                 )
         }
@@ -341,7 +341,7 @@ struct MacWelcomeTourView: View {
             HStack(spacing: 6) {
                 ForEach(pages.indices, id: \.self) { index in
                     Circle()
-                        .fill(index == store.welcomeTourStep ? Color.accentColor : Color.primary.opacity(0.18))
+                        .fill(index == store.welcomeTourStep ? Color.dsAccent : Color.primary.opacity(0.18))
                         .frame(width: 6, height: 6)
                 }
             }
@@ -351,7 +351,7 @@ struct MacWelcomeTourView: View {
                     Button("Back") { store.welcomeTourStep -= 1 }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                         .accessibilityIdentifier("welcome-tour-back")
                 } else if !isLast {
                     Button("Skip") { store.completeWelcomeTour() }

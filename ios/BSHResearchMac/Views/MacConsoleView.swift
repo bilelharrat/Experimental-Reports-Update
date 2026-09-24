@@ -210,7 +210,7 @@ struct MacConsoleView: View {
     private func turnBubble(_ turn: MacConsoleTurn) -> some View {
         HStack(alignment: .top, spacing: 12) {
             if turn.isUser { Spacer() } else {
-                Image(systemName: "building.columns.circle.fill").font(.title2).foregroundStyle(Color.accentColor).padding(.top, 2)
+                Image(systemName: "building.columns.circle.fill").font(.title2).foregroundStyle(Color.dsAccent).padding(.top, 2)
             }
             VStack(alignment: turn.isUser ? .trailing : .leading, spacing: 4) {
                 if !turn.isUser && turn.text.isEmpty {
@@ -223,7 +223,7 @@ struct MacConsoleView: View {
                     }
                         .textSelection(.enabled)
                         .padding(12)
-                        .background(turn.isUser ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(turn.isUser ? Color.dsAccent.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 if !turn.attachments.isEmpty {
                     Text(turn.attachments.compactMap(\.name).joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
@@ -289,7 +289,7 @@ struct MacConsoleView: View {
                     }
                     Button { send(session) } label: {
                         Image(systemName: "arrow.up.circle.fill").font(.title2)
-                            .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                            .foregroundStyle(canSend ? Color.dsAccent : Color.secondary)
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend)
@@ -300,7 +300,7 @@ struct MacConsoleView: View {
             }
             .padding(12)
             .appleGlassCard()
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: dropTargeted ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(dropTargeted ? Color.dsAccent : Color.secondary.opacity(0.2), lineWidth: dropTargeted ? 2 : 1))
         }
         .padding(14)
         .background(.ultraThinMaterial)

@@ -18,13 +18,13 @@ struct LoginView: View {
                     .frame(width: 76, height: 76)
                     .background(
                         LinearGradient(
-                            colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
+                            colors: [Color.dsAccent, Color.dsAccent.opacity(0.7)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
-                    .shadow(color: Color.accentColor.opacity(0.3), radius: 12, y: 6)
+                    .shadow(color: Color.dsAccent.opacity(0.3), radius: 12, y: 6)
 
                 Text("BSH Research")
                     .font(.title.weight(.bold))
@@ -43,11 +43,11 @@ struct LoginView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(14)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 SecureField(language.t("login.password"), text: $password)
                     .textContentType(.password)
                     .padding(14)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 if let err = session.lastError {
                     Text(err)
@@ -91,6 +91,6 @@ struct LoginView: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.dsCanvas)
     }
 }

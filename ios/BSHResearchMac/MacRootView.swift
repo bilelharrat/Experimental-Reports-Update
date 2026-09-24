@@ -81,8 +81,10 @@ struct MacRootView: View {
             sidebar
         } detail: {
             detail
+                .modifier(MacDeskSheet())
         }
         .navigationSplitViewStyle(.balanced)
+        .modifier(MacWindowChrome())
         // The tour rides over the whole window so it can ring the sidebar row
         // and the toolbar button it is describing.
         .macWelcomeTourOverlay()
@@ -223,12 +225,14 @@ struct MacRootView: View {
                 MacSidebarCompaniesSection()
             }
             .listStyle(.sidebar)
+            .modifier(MacSidebarSurface())
 
-            Divider()
+            Rectangle()
+                .fill(MacSidebarSurface.rule)
+                .frame(height: 1)
             accountFooter
         }
         .navigationTitle("BSH Research")
-        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
@@ -239,6 +243,9 @@ struct MacRootView: View {
                 .help("Refresh All Desks (⌘R)")
             }
         }
+        // Outside the toolbar, so the buttons over the sidebar are drawn for its ground.
+        .modifier(MacSidebarGround())
+        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
     }
 
     private func sidebarRow(_ tab: MacTab, badge: Int = 0) -> some View {
@@ -252,6 +259,7 @@ struct MacRootView: View {
             Text(tab.title)
             Spacer()
         }
+        .modifier(MacSidebarRowInk(isSelected: store.selectedTab == tab))
         .badge(badge)
         .tag(tab)
         .glassListRow(isSelected: store.selectedTab == tab, cornerRadius: 10)
@@ -770,7 +778,7 @@ struct MacSidebarCompaniesSection: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.mini)
-            .tint(diffsOnly ? .accentColor : .secondary)
+            .tint(diffsOnly ? .dsAccent : .secondary)
             .help("Only companies with updates or new memos since you last looked")
         }
     }
@@ -791,6 +799,7 @@ struct MacSidebarCompaniesSection: View {
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(open ? 0 : -90))
             }
+            .modifier(MacSidebarRowInk(isSelected: isShowing(company)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -326,12 +326,16 @@ struct HomeView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if model.isSearching {
-                    searchResults
-                } else {
-                    deskContent
+                Group {
+                    if model.isSearching {
+                        searchResults
+                    } else {
+                        deskContent
+                    }
                 }
+                .bshListRows()
             }
+            .bshListSurface()
             .listStyle(.insetGrouped)
             .headerProminence(.increased)
             .readableContentWidth(AdaptiveLayout.wideReadableMaxWidth)
@@ -462,7 +466,7 @@ struct HomeView: View {
                     }
                 }
             } header: {
-                Text(language.t("home.reports"))
+                BSHSectionTitle(language.t("home.reports"))
             } footer: {
                 Text(language.t("home.reports_footer"))
             }
@@ -482,7 +486,7 @@ struct HomeView: View {
         let reportJobs = model.runningReports
         let otherJobs = model.activeJobs.filter { $0.reportId == nil }
         if !reportJobs.isEmpty || !otherJobs.isEmpty {
-            Section(language.t("home.jobs")) {
+            Section {
                 ForEach(reportJobs) { report in
                     NavigationLink(value: ReportNav(id: report.id)) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -516,6 +520,8 @@ struct HomeView: View {
                         }
                     }
                 }
+            } header: {
+                BSHSectionTitle(language.t("home.jobs"))
             }
         }
     }
@@ -523,7 +529,7 @@ struct HomeView: View {
     @ViewBuilder
     private var watchlistSection: some View {
         if !desk.watchlist.isEmpty {
-            Section(language.t("home.watchlist")) {
+            Section {
                 if model.watchlistQuotes.isEmpty {
                     Text(language.t("common.loading")).foregroundStyle(.secondary)
                 } else {
@@ -540,6 +546,8 @@ struct HomeView: View {
                         }
                     }
                 }
+            } header: {
+                BSHSectionTitle(language.t("home.watchlist"))
             }
         }
     }
@@ -547,11 +555,13 @@ struct HomeView: View {
     @ViewBuilder
     private var searchResults: some View {
         if !model.autocomplete.isEmpty {
-            Section(language.t("search.suggestions")) {
+            Section {
                 ForEach(model.autocomplete) { hit in
                     Button { Task { await openHit(hit) } } label: { hitRow(hit) }
                         .disabled(model.selectingId == hit.stableId)
                 }
+            } header: {
+                BSHSectionTitle(language.t("search.suggestions"))
             }
         }
 
@@ -578,14 +588,16 @@ struct HomeView: View {
         }
 
         if !model.deepMatches.isEmpty {
-            Section(language.t("search.deep_results")) {
+            Section {
                 ForEach(model.deepMatches) { hit in
                     Button { Task { await openHit(hit) } } label: { hitRow(hit) }
                 }
+            } header: {
+                BSHSectionTitle(language.t("search.deep_results"))
             }
         }
 
-        Section(language.t("search.library")) {
+        Section {
             if model.filteredLocal.isEmpty {
                 Text(language.t("search.empty")).foregroundStyle(.secondary)
             } else {
@@ -608,6 +620,8 @@ struct HomeView: View {
                     }
                 }
             }
+        } header: {
+            BSHSectionTitle(language.t("search.library"))
         }
     }
 
@@ -650,7 +664,7 @@ struct HomeView: View {
     }
 
     private var indexesSection: some View {
-        Section(language.t("home.indexes")) {
+        Section {
             if model.indexes.isEmpty {
                 Text(language.t("market.empty")).foregroundStyle(.secondary)
             } else {
@@ -679,7 +693,7 @@ struct HomeView: View {
                                 }
                                 .padding(12)
                                 .frame(width: 124, alignment: .leading)
-                                .background(Color(.secondarySystemGroupedBackground))
+                                .background(Color.dsCard)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             }
                             .buttonStyle(.plain)
@@ -691,11 +705,13 @@ struct HomeView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
+        } header: {
+            BSHSectionTitle(language.t("home.indexes"))
         }
     }
 
     private var postureSection: some View {
-        Section(language.t("home.posture")) {
+        Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text(postureLabel(model.posture))
                     .font(.title3.weight(.semibold))
@@ -715,11 +731,13 @@ struct HomeView: View {
                 }
             }
             .padding(.vertical, 4)
+        } header: {
+            BSHSectionTitle(language.t("home.posture"))
         }
     }
 
     private var moversSection: some View {
-        Section(language.t("home.movers")) {
+        Section {
             if model.movers.isEmpty {
                 Text(language.t("home.movers_empty")).foregroundStyle(.secondary)
             } else {
@@ -729,11 +747,13 @@ struct HomeView: View {
                     }
                 }
             }
+        } header: {
+            BSHSectionTitle(language.t("home.movers"))
         }
     }
 
     private var signalsSection: some View {
-        Section(language.t("home.signals")) {
+        Section {
             if model.signals.isEmpty {
                 Text(language.t("home.signals_empty")).foregroundStyle(.secondary)
             } else {
@@ -755,6 +775,8 @@ struct HomeView: View {
                     .padding(.vertical, 2)
                 }
             }
+        } header: {
+            BSHSectionTitle(language.t("home.signals"))
         }
     }
 
@@ -770,7 +792,7 @@ struct HomeView: View {
                 }
             }
         } header: {
-            Text(language.t("home.news"))
+            BSHSectionTitle(language.t("home.news"))
         } footer: {
             Text(language.t("home.news_footer"))
         }
@@ -798,7 +820,7 @@ struct NewsRowView: View {
                     if let byline, !byline.isEmpty {
                         Text(byline)
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                             .lineLimit(1)
                     }
                     // The tape often attributes a company story to itself.

@@ -363,7 +363,7 @@ public struct MacEarningsFilingsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Next earnings", systemImage: "calendar.badge.clock")
                 .font(.dsLabel)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
             if let date = earnings?.nextDate {
                 Text(date).font(.headline.monospacedDigit())
                 Text([whenText(earnings?.daysToNext), earnings?.nextEstimated == true ? "estimated" : nil]
@@ -375,7 +375,7 @@ public struct MacEarningsFilingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .appleGlassTile(cornerRadius: 10, tint: Color.accentColor)
+        .appleGlassTile(cornerRadius: 10, tint: Color.dsAccent)
     }
 
     private func quartersTile(_ quarters: [MacCompanyEarningsFilings.Quarter]) -> some View {

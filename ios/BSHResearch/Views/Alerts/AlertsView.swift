@@ -68,59 +68,65 @@ struct AlertsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Button {
-                        Task { await model.checkNow() }
-                    } label: {
-                        Label(
-                            model.checking ? language.t("common.loading") : language.t("alerts.check_now"),
-                            systemImage: "bolt.badge.clock"
-                        )
-                    }
-                    .disabled(model.checking)
-                    if let status = model.status {
-                        Text(status).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let err = model.error ?? desk.syncError {
-                        Text(err).font(.caption).foregroundStyle(.red)
-                    }
-                }
-
-                Section {
-                    Button {
-                        showAdd = true
-                    } label: {
-                        Label(language.t("alerts.add"), systemImage: "plus.circle")
-                    }
-                    if desk.alertRules.isEmpty {
-                        Text(language.t("alerts.none")).foregroundStyle(.secondary)
-                    } else {
-                        ForEach(desk.alertRules) { rule in
-                            ruleRow(rule)
+                Group {
+                    Section {
+                        Button {
+                            Task { await model.checkNow() }
+                        } label: {
+                            Label(
+                                model.checking ? language.t("common.loading") : language.t("alerts.check_now"),
+                                systemImage: "bolt.badge.clock"
+                            )
+                        }
+                        .disabled(model.checking)
+                        if let status = model.status {
+                            Text(status).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let err = model.error ?? desk.syncError {
+                            Text(err).font(.caption).foregroundStyle(.red)
                         }
                     }
-                } header: {
-                    Text(language.t("alerts.rules"))
-                }
 
-                Section(language.t("alerts.history")) {
-                    if model.events.isEmpty {
-                        Text(language.t("alerts.no_events")).foregroundStyle(.secondary)
-                    } else {
-                        ForEach(model.events) { event in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.message ?? "\(event.ticker ?? "?")")
-                                    .font(.subheadline)
-                                if let at = event.firedAt {
-                                    Text(at.replacingOccurrences(of: "T", with: " ").prefix(19))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                    Section {
+                        Button {
+                            showAdd = true
+                        } label: {
+                            Label(language.t("alerts.add"), systemImage: "plus.circle")
+                        }
+                        if desk.alertRules.isEmpty {
+                            Text(language.t("alerts.none")).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(desk.alertRules) { rule in
+                                ruleRow(rule)
+                            }
+                        }
+                    } header: {
+                        BSHSectionTitle(language.t("alerts.rules"))
+                    }
+
+                    Section {
+                        if model.events.isEmpty {
+                            Text(language.t("alerts.no_events")).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(model.events) { event in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(event.message ?? "\(event.ticker ?? "?")")
+                                        .font(.subheadline)
+                                    if let at = event.firedAt {
+                                        Text(at.replacingOccurrences(of: "T", with: " ").prefix(19))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        BSHSectionTitle(language.t("alerts.history"))
                     }
                 }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(language.t("alerts.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -179,22 +185,26 @@ struct AddAlertRuleSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField(language.t("market.search_ticker"), text: $ticker)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                Picker(language.t("alerts.kind"), selection: $kind) {
-                    Text(language.t("alerts.kind_price")).tag("price")
-                    Text(language.t("alerts.kind_pct")).tag("pct")
+                Group {
+                    TextField(language.t("market.search_ticker"), text: $ticker)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                    Picker(language.t("alerts.kind"), selection: $kind) {
+                        Text(language.t("alerts.kind_price")).tag("price")
+                        Text(language.t("alerts.kind_pct")).tag("pct")
+                    }
+                    .pickerStyle(.segmented)
+                    Picker(language.t("alerts.direction"), selection: $direction) {
+                        Text(language.t("alerts.above")).tag("above")
+                        Text(language.t("alerts.below")).tag("below")
+                    }
+                    .pickerStyle(.segmented)
+                    TextField(language.t("alerts.threshold"), text: $threshold)
+                        .keyboardType(.decimalPad)
                 }
-                .pickerStyle(.segmented)
-                Picker(language.t("alerts.direction"), selection: $direction) {
-                    Text(language.t("alerts.above")).tag("above")
-                    Text(language.t("alerts.below")).tag("below")
-                }
-                .pickerStyle(.segmented)
-                TextField(language.t("alerts.threshold"), text: $threshold)
-                    .keyboardType(.decimalPad)
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(language.t("alerts.add"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

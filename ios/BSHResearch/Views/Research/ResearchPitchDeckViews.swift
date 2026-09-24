@@ -10,7 +10,7 @@ public struct MacPitchDeckDropBanner: View {
     public var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.badge.plus")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.dsAccent)
             Text("File pitch deck (PDF/PPTX) to extract terms")
                 .font(.dsCaption)
                 .foregroundStyle(.secondary)
@@ -59,92 +59,104 @@ public struct MacPitchDeckIntakeSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
-                Section("Document") {
-                    HStack {
-                        Image(systemName: "doc.text.fill").foregroundStyle(.red)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(fileURL?.lastPathComponent ?? "Deck")
-                                .font(.subheadline.weight(.semibold))
-                            Text(fileURL.map { $0.pathExtension.uppercased() + " · uploads to the research server" } ?? "")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                if let res = result {
+                Group {
                     Section {
                         HStack {
-                            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                            Image(systemName: "doc.text.fill").foregroundStyle(.red)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(res.company.name ?? res.company.id)
+                                Text(fileURL?.lastPathComponent ?? "Deck")
                                     .font(.subheadline.weight(.semibold))
-                                Text("\(res.fileName ?? "Deck") · \(res.slideCount) slides read")
+                                Text(fileURL.map { $0.pathExtension.uppercased() + " · uploads to the research server" } ?? "")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            if let fit = res.thesis {
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(fit.score.map { "\($0)% fit" } ?? fit.label)
-                                        .font(.caption.weight(.bold).monospacedDigit())
-                                        .foregroundStyle(fitColor(fit))
-                                    Text(fit.label).font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
                         }
+                    } header: {
+                        BSHSectionTitle("Document")
                     }
 
-                    if !res.fields.isEmpty {
-                        Section("Extracted Metrics") {
-                            ForEach(res.fields) { field in
-                                HStack(alignment: .top) {
-                                    Text(field.label)
-                                        .font(.caption.weight(.semibold))
-                                        .frame(width: 100, alignment: .leading)
-                                    Text(field.display)
-                                        .font(.caption.monospacedDigit().weight(.medium))
-                                        .frame(width: 80, alignment: .leading)
-                                    if let excerpt = field.excerpt {
-                                        Text(excerpt)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
+                    if let res = result {
+                        Section {
+                            HStack {
+                                Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(res.company.name ?? res.company.id)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("\(res.fileName ?? "Deck") · \(res.slideCount) slides read")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if let fit = res.thesis {
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text(fit.score.map { "\($0)% fit" } ?? fit.label)
+                                            .font(.caption.weight(.bold).monospacedDigit())
+                                            .foregroundStyle(fitColor(fit))
+                                        Text(fit.label).font(.caption2).foregroundStyle(.secondary)
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if let questions = res.thesis?.openQuestions, !questions.isEmpty {
-                        Section("Open Questions") {
-                            ForEach(questions, id: \.self) { q in
-                                Label(q, systemImage: "questionmark.circle")
-                                    .font(.caption)
+                        if !res.fields.isEmpty {
+                            Section {
+                                ForEach(res.fields) { field in
+                                    HStack(alignment: .top) {
+                                        Text(field.label)
+                                            .font(.caption.weight(.semibold))
+                                            .frame(width: 100, alignment: .leading)
+                                        Text(field.display)
+                                            .font(.caption.monospacedDigit().weight(.medium))
+                                            .frame(width: 80, alignment: .leading)
+                                        if let excerpt = field.excerpt {
+                                            Text(excerpt)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                }
+                            } header: {
+                                BSHSectionTitle("Extracted Metrics")
                             }
                         }
-                    }
-                } else {
-                    Section("Company Link") {
-                        Picker("Attach to", selection: $attachTo) {
-                            Text("New company").tag("")
-                            ForEach(store.companies) { company in
-                                Text(company.name ?? company.id).tag(company.id)
+
+                        if let questions = res.thesis?.openQuestions, !questions.isEmpty {
+                            Section {
+                                ForEach(questions, id: \.self) { q in
+                                    Label(q, systemImage: "questionmark.circle")
+                                        .font(.caption)
+                                }
+                            } header: {
+                                BSHSectionTitle("Open Questions")
                             }
                         }
-
-                        if attachTo.isEmpty {
-                            TextField("Company name", text: $companyName)
-                        }
-                    }
-
-                    if let error {
+                    } else {
                         Section {
-                            Text(error).font(.caption).foregroundStyle(.red)
+                            Picker("Attach to", selection: $attachTo) {
+                                Text("New company").tag("")
+                                ForEach(store.companies) { company in
+                                    Text(company.name ?? company.id).tag(company.id)
+                                }
+                            }
+
+                            if attachTo.isEmpty {
+                                TextField("Company name", text: $companyName)
+                            }
+                        } header: {
+                            BSHSectionTitle("Company Link")
+                        }
+
+                        if let error {
+                            Section {
+                                Text(error).font(.caption).foregroundStyle(.red)
+                            }
                         }
                     }
                 }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(result == nil ? "Pitch Deck Intake" : "Deck Filed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

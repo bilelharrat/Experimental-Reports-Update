@@ -37,7 +37,7 @@ struct MacFirmSearchSheet: View {
                         Text(k.isEmpty ? "All" : k.replacingOccurrences(of: "_", with: " ").capitalized)
                             .font(.caption)
                             .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(kind == k ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08), in: Capsule())
+                            .background(kind == k ? Color.dsAccent.opacity(0.18) : Color.secondary.opacity(0.08), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -50,7 +50,7 @@ struct MacFirmSearchSheet: View {
                 List(r.items) { hit in
                     Button { store.open(hit: hit) } label: {
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: hit.systemImage).foregroundStyle(Color.accentColor).frame(width: 18)
+                            Image(systemName: hit.systemImage).foregroundStyle(Color.dsAccent).frame(width: 18)
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 6) {
                                     Text(hit.title).font(.callout.weight(.semibold)).lineLimit(1)
@@ -187,11 +187,11 @@ struct MacCommentsView: View {
                 if c.isResolved { Label("Resolved", systemImage: "checkmark").font(.caption2).foregroundStyle(.green) }
                 Spacer()
                 if c.parentId == nil {
-                    Button("Reply") { replyTo = c }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.accentColor)
+                    Button("Reply") { replyTo = c }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
                     Button(c.isResolved ? "Reopen" : "Resolve") {
                         Task { await store.resolveComment(companyId, commentId: c.id, resolved: !c.isResolved) }
                     }
-                    .buttonStyle(.plain).font(.caption2).foregroundStyle(Color.accentColor)
+                    .buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
                     .disabled(!store.canEditMemo)
                 }
                 if store.canEditMemo {
@@ -209,7 +209,7 @@ struct MacCommentsView: View {
     private func mentionText(_ text: String) -> Text {
         var out = Text("")
         for (i, part) in text.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
-            let piece = part.hasPrefix("@") ? Text(String(part)).foregroundColor(.accentColor).bold() : Text(String(part))
+            let piece = part.hasPrefix("@") ? Text(String(part)).foregroundColor(.dsAccent).bold() : Text(String(part))
             out = i == 0 ? piece : out + Text(" ") + piece
         }
         return out.font(.caption)
@@ -339,7 +339,7 @@ struct MacFirmChatPane: View {
                                             Text(m.authorHandle).font(.caption.weight(.semibold))
                                             Text(MacTimeFormat.relative(m.at)).font(.caption2).foregroundStyle(.tertiary)
                                             if let cid = m.companyId, let c = store.companies.first(where: { $0.id == cid }) {
-                                                Button(c.title) { store.showCompany(c) }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.accentColor)
+                                                Button(c.title) { store.showCompany(c) }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
                                             }
                                         }
                                         Text(m.text).font(.callout).textSelection(.enabled)

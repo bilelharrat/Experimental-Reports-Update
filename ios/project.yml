@@ -22,6 +22,8 @@ targets:
     platform: iOS
     sources:
       - path: BSHResearch
+      # Designs (Bureau, Folio, Summit Glass) and their bundled faces, shared with the Mac.
+      - path: BSHShared
     dependencies:
       - target: BSHResearchWidgets
       - target: BSHResearchWatch
@@ -154,6 +156,7 @@ targets:
       - path: BSHResearchMac
         excludes:
           - "**/*.md"
+      - path: BSHShared
     dependencies:
       - sdk: SwiftUI.framework
       - sdk: Charts.framework

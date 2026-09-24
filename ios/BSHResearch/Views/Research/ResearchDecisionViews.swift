@@ -26,37 +26,45 @@ public struct MacDecisionSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
-                Section("Verdict") {
-                    Picker("Verdict", selection: $verdict) {
-                        Text("Invest").tag("invest")
-                        Text("Watch").tag("watch")
-                        Text("Pass").tag("pass")
-                    }
-                    .pickerStyle(.segmented)
+                Group {
+                    Section {
+                        Picker("Verdict", selection: $verdict) {
+                            Text("Invest").tag("invest")
+                            Text("Watch").tag("watch")
+                            Text("Pass").tag("pass")
+                        }
+                        .pickerStyle(.segmented)
 
-                    DatePicker("Decided", selection: $decidedAt, displayedComponents: .date)
+                        DatePicker("Decided", selection: $decidedAt, displayedComponents: .date)
 
-                    if !reports.isEmpty {
-                        Picker("Based on memo", selection: $reportId) {
-                            Text("None").tag("")
-                            ForEach(reports) { report in
-                                Text(report.displayTitle).tag(report.id)
+                        if !reports.isEmpty {
+                            Picker("Based on memo", selection: $reportId) {
+                                Text("None").tag("")
+                                ForEach(reports) { report in
+                                    Text(report.displayTitle).tag(report.id)
+                                }
                             }
+                        }
+                    } header: {
+                        BSHSectionTitle("Verdict")
+                    }
+
+                    Section {
+                        TextEditor(text: $explanation)
+                            .frame(minHeight: 120)
+                    } header: {
+                        BSHSectionTitle("Rationale (firm record)")
+                    }
+
+                    if let error {
+                        Section {
+                            Text(error).font(.caption).foregroundStyle(.red)
                         }
                     }
                 }
-
-                Section("Rationale (firm record)") {
-                    TextEditor(text: $explanation)
-                        .frame(minHeight: 120)
-                }
-
-                if let error {
-                    Section {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
-                }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle("Record Decision")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -483,26 +483,30 @@ struct CopilotSheet: View {
             // Embedded inspector: keep a visible nav bar so Done always dismisses
             // back to the full memo (no swipe-only escape hatch).
             .toolbarBackground(embedded ? .visible : .automatic, for: .navigationBar)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.dsBar, for: .navigationBar)
             .sheet(isPresented: $showHistory) {
                 NavigationStack {
                     List(model.history) { entry in
-                        Button {
-                            model.reopen(entry)
-                            showHistory = false
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.prompt)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                                Text(entry.answer)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(3)
+                        Group {
+                            Button {
+                                model.reopen(entry)
+                                showHistory = false
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.prompt)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(2)
+                                    Text(entry.answer)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(3)
+                                }
                             }
                         }
+                        .bshListRows()
                     }
+                    .bshListSurface()
                     .navigationTitle(language.t("copilot.history"))
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -546,9 +550,9 @@ struct CopilotSheet: View {
     private var background: some View {
         LinearGradient(
             colors: [
-                Color(.systemBackground),
-                Color.accentColor.opacity(0.06),
-                Color(.systemBackground),
+                Color.dsPage,
+                Color.dsAccent.opacity(0.06),
+                Color.dsPage,
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -601,7 +605,7 @@ struct CopilotSheet: View {
                     .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.ultraThinMaterial)
+                            .fill(.dsFloating)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -651,7 +655,7 @@ struct CopilotSheet: View {
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .fill(message.role == .user
-                                  ? Color.accentColor
+                                  ? Color.dsAccent
                                   : Color(.secondarySystemBackground))
                     )
                 if message.role == .assistant, !message.sources.isEmpty {
@@ -763,14 +767,14 @@ struct CopilotSheet: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 34))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.45))
+                        .foregroundStyle(canSend ? Color.dsAccent : Color.secondary.opacity(0.45))
                 }
                 .disabled(!canSend)
                 .accessibilityLabel(language.t("copilot.send"))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(.bar)
+            .background(.dsBar)
         }
     }
 

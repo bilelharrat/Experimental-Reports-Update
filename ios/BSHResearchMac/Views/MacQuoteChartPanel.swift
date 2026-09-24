@@ -21,7 +21,7 @@ struct MacChartMarker: Identifiable {
     var color: Color {
         switch kind {
         case .split: return .red
-        case .dividend: return .accentColor
+        case .dividend: return .dsAccent
         case .signalUp: return .green
         case .signalDown: return .red
         case .earnings: return .orange

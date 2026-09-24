@@ -139,12 +139,52 @@ struct MainTabView: View {
         UITabBar.appearance().isHidden = true
     }
 
-    /// Navigation chrome for iPhone and portrait iPad.
-    ///
-    /// Renders Apple's authentic Liquid Glass floating travel bar capsule with all 6 desks
+    /// Navigation chrome for iPhone and portrait iPad, in the chosen design: Summit's
+    /// floating glass bar, Folio's ruled paper bar, or Bureau's page resting on the desk.
+    @ViewBuilder
+    private var phoneTabs: some View {
+        switch BSHDesign.active {
+        case .glass: glassPhoneTabs
+        case .folio: folioPhoneTabs
+        case .bureau: bureauPhoneTabs
+        }
+    }
+
+    /// Bureau: the desks are one page resting on the green desk; the desk bar below is
+    /// written on the green, and the chosen desk is a tab cut from the page's bottom edge.
+    private var bureauPhoneTabs: some View {
+        VStack(spacing: 0) {
+            phoneTabView
+                .bureauPage()
+
+            BureauDeskBar(selection: $selection)
+                .frame(maxWidth: 620)
+        }
+        // Like the glass bar, the desk stays put under the keyboard.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .background(BSHPalette.bureauFrame.ignoresSafeArea())
+    }
+
+    /// Folio: the desks on paper, the bar ruled off below them.
+    private var folioPhoneTabs: some View {
+        VStack(spacing: 0) {
+            phoneTabView
+
+            Rectangle()
+                .fill(Color.dsHairline)
+                .frame(height: 1)
+
+            FolioDeskBar(selection: $selection)
+                .frame(maxWidth: 620)
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .background(Color.dsCanvas.ignoresSafeArea())
+    }
+
+    /// Summit Glass: Apple's Liquid Glass floating travel bar capsule with all 6 desks
     /// (Home, Research, Reports, News, Pulse, Market) directly accessible.
     /// Eliminates the "••• More" tab on both iPadOS (vertical/portrait mode) and iOS.
-    private var phoneTabs: some View {
+    private var glassPhoneTabs: some View {
         ZStack(alignment: .bottom) {
             phoneTabView
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -269,7 +309,7 @@ private struct FloatingTravelGlassBar: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.70)
             }
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
@@ -277,10 +317,10 @@ private struct FloatingTravelGlassBar: View {
             .background {
                 if isSelected {
                     Capsule()
-                        .fill(Color.accentColor.opacity(isDark ? 0.20 : 0.12))
+                        .fill(Color.dsAccent.opacity(isDark ? 0.20 : 0.12))
                         .overlay(
                             Capsule()
-                                .strokeBorder(Color.accentColor.opacity(isDark ? 0.35 : 0.25), lineWidth: 0.5)
+                                .strokeBorder(Color.dsAccent.opacity(isDark ? 0.35 : 0.25), lineWidth: 0.5)
                         )
                         .matchedGeometryEffect(id: "activeTravelPill", in: travelBarNamespace)
                 }
@@ -294,7 +334,7 @@ private struct FloatingTravelGlassBar: View {
 
     @ViewBuilder
     private func tabIcon(_ tab: AppTab, selected: Bool) -> some View {
-        let color = selected ? Color.accentColor : Color.secondary
+        let color = selected ? Color.dsAccent : Color.secondary
         if let symbol = tab.systemImage {
             Image(systemName: symbol)
                 .font(.system(size: 16, weight: selected ? .semibold : .regular))
@@ -336,15 +376,31 @@ private struct MainSidebarChrome: View {
                 ? AdaptiveLayout.rootSidebarExpanded
                 : AdaptiveLayout.rootSidebarRail)
             .animation(.easeInOut(duration: 0.22), value: isExpanded)
+            // Bureau's chosen row reaches into the page: draw the rail over the page's
+            // shadow so the tab and the page meet cleanly.
+            .zIndex(1)
 
-            Divider()
+            // Folio's rail rules itself off; Bureau's page edge is the division.
+            if BSHDesign.active == .glass {
+                Divider()
+            }
 
             detail(for: selection)
                 .id(selection)
                 .environment(\.embeddedInRootSplit, true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .modifier(BSHPadDeskPage())
         }
-        .background(Color(.systemBackground))
+        .background(Self.ground)
+        .statusBarHidden(BSHDesign.active == .bureau)
+    }
+
+    private static var ground: Color {
+        switch BSHDesign.active {
+        case .glass: return Color(.systemBackground)
+        case .folio: return .dsCanvas
+        case .bureau: return BSHPalette.bureauFrame
+        }
     }
 
     @ViewBuilder
@@ -438,9 +494,10 @@ private struct RootSidebarRail: View {
 
             if isExpanded {
                 Text(language.t("sidebar.desks"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(Color.secondary)
+                    .font(Self.kickerFont)
+                    .tracking(BSHDesign.active == .bureau ? 0 : 0.4)
+                    .textCase(BSHType.kickerIsCapitals ? .uppercase : nil)
+                    .foregroundStyle(BSHRailInk.muted)
                     .padding(.horizontal, 10)
                     .padding(.top, 8)
                     .padding(.bottom, 2)
@@ -458,17 +515,22 @@ private struct RootSidebarRail: View {
         .padding(.top, 10)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background {
-            ZStack {
-                Color(.systemBackground).opacity(0.70)
-                Rectangle().fill(.ultraThinMaterial)
-            }
-            .ignoresSafeArea()
-        }
+        .background { BSHRailGround() }
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .bshSheetChrome()
         }
+    }
+
+    /// How far the rail's edge (where Bureau's page begins) lies past a row's edge.
+    private var railPadding: CGFloat { isExpanded ? 10 : 8 }
+
+    private static var kickerFont: Font {
+        BSHDesign.active == .glass ? .system(size: 11, weight: .semibold) : BSHType.kicker(11)
+    }
+
+    private static var titleFont: Font {
+        BSHDesign.active == .glass ? .subheadline.weight(.semibold) : BSHType.heading(15)
     }
 
     private var settingsButton: some View {
@@ -486,14 +548,14 @@ private struct RootSidebarRail: View {
                     Spacer(minLength: 0)
                 }
             }
-            .foregroundStyle(isSettingsHovered ? Color.primary : Color.secondary)
+            .foregroundStyle(isSettingsHovered ? BSHRailInk.title : BSHRailInk.muted)
             .padding(.horizontal, isExpanded ? 10 : 0)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background {
                 if isSettingsHovered {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
+                        .fill(BSHRailInk.hoverFill)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -511,8 +573,8 @@ private struct RootSidebarRail: View {
         HStack(spacing: 8) {
             if isExpanded {
                 Text(language.t("app.name"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(Self.titleFont)
+                    .foregroundStyle(BSHRailInk.title)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -526,12 +588,12 @@ private struct RootSidebarRail: View {
                       ? "rectangle.lefthalf.inset.filled"
                       : "sidebar.left")
                     .font(.body.weight(.medium))
-                    .foregroundStyle(isHeaderToggleHovered ? Color.primary : Color.secondary)
+                    .foregroundStyle(isHeaderToggleHovered ? BSHRailInk.title : BSHRailInk.muted)
                     .frame(width: 32, height: 32)
                     .background {
                         if isHeaderToggleHovered {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.primary.opacity(0.045))
+                                .fill(BSHRailInk.hoverFill)
                         }
                     }
                     .contentShape(Rectangle())
@@ -565,7 +627,7 @@ private struct RootSidebarRail: View {
                 if isExpanded {
                     Text(language.t(tab.titleKey))
                         .font(.callout.weight(selected ? .semibold : (hovered ? .medium : .regular)))
-                        .foregroundStyle(selected ? Color.primary : (hovered ? Color.primary : Color.secondary))
+                        .foregroundStyle(selected ? BSHRailInk.selectedLabel : (hovered ? BSHRailInk.title : BSHRailInk.muted))
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -575,11 +637,17 @@ private struct RootSidebarRail: View {
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background {
                 if selected {
-                    SidebarGlassPill(cornerRadius: 10)
-                        .matchedGeometryEffect(id: "activeSidebarPill", in: sidebarNamespace)
+                    Group {
+                        if BSHDesign.active == .glass {
+                            SidebarGlassPill(cornerRadius: 10)
+                        } else {
+                            BSHRailSelection(cornerRadius: 10, reachToPage: railPadding)
+                        }
+                    }
+                    .matchedGeometryEffect(id: "activeSidebarPill", in: sidebarNamespace)
                 } else if hovered {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
+                        .fill(BSHRailInk.hoverFill)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -601,7 +669,7 @@ private struct RootSidebarRail: View {
 
     @ViewBuilder
     private func tabIcon(_ tab: AppTab, selected: Bool, hovered: Bool) -> some View {
-        let iconColor: Color = selected ? Color.accentColor : (hovered ? Color.primary : Color.secondary)
+        let iconColor: Color = selected ? BSHRailInk.selectedIcon : (hovered ? BSHRailInk.title : BSHRailInk.muted)
         if let symbol = tab.systemImage {
             Image(systemName: symbol)
                 .font(.body.weight(selected ? .semibold : .regular))

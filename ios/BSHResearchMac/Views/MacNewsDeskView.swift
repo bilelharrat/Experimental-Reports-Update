@@ -289,7 +289,7 @@ struct MacNewsDeskView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Color.accentColor, in: Capsule())
+                            .background(Color.dsAccent, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .help("View quote in Market Radar")
@@ -387,7 +387,7 @@ struct MacNewsDeskView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.dsAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func briefingContent(brief: MacNewsBrief, item: MacNewsItem) -> some View {
@@ -479,7 +479,7 @@ struct MacNewsDeskView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
                     Circle()
-                        .fill(Color.accentColor)
+                        .fill(Color.dsAccent)
                         .frame(width: 5, height: 5)
                         .padding(.top, 6)
                     Text(row)
@@ -600,7 +600,7 @@ struct MacNewsStoryRow: View {
                 if let ticker = item.ticker, !ticker.isEmpty {
                     Text(ticker.uppercased())
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                 }
                 if let src = item.source, !src.isEmpty {
                     Text(src)

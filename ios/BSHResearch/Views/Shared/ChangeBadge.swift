@@ -17,8 +17,10 @@ struct ChangeBadge: View {
 
     private var tone: Color {
         guard let value else { return Color(.systemGray3) }
-        if value > 0 { return Color(.systemGreen) }
-        if value < 0 { return Color(.systemRed) }
+        // Bureau and Folio print prices in their own greens and reds.
+        let paper = BSHDesign.active.isPaper
+        if value > 0 { return paper ? .dsPositive : Color(.systemGreen) }
+        if value < 0 { return paper ? .dsNegative : Color(.systemRed) }
         return Color(.systemGray)
     }
 }

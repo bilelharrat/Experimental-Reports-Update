@@ -167,7 +167,7 @@ struct MacBlotterView: View {
             if let progress = job.progress {
                 Text("\(progress)%")
                     .font(.caption.monospacedDigit().weight(.bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
             }
             if !job.elapsedText.isEmpty {
                 Text(job.elapsedText)

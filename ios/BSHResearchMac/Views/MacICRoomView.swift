@@ -193,7 +193,7 @@ struct MacICRoomView: View {
                             Text(k.risk).font(.caption.weight(.semibold))
                             if let s = k.memoSection, !s.isEmpty {
                                 if let findText {
-                                    Button { findText.wrappedValue = MacFindRequest(text: s) } label: { Text("§ \(s)").font(.caption2) }.buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                                    Button { findText.wrappedValue = MacFindRequest(text: s) } label: { Text("§ \(s)").font(.caption2) }.buttonStyle(.plain).foregroundStyle(Color.dsAccent)
                                 } else {
                                     Text("§ \(s)").font(.caption2).foregroundStyle(.secondary)
                                 }

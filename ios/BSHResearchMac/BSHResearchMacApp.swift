@@ -46,12 +46,22 @@ struct BSHResearchMacApp: App {
     @StateObject private var store = MacAppStore()
     /// Where the welcome tour's spotlight targets are, in window coordinates.
     @StateObject private var tourAnchors = MacTourAnchorStore()
+    /// Bureau, Folio or Summit Glass. Every window rebuilds when it changes, so the
+    /// design's tokens re-resolve everywhere at once.
+    @StateObject private var design = BSHDesignStore()
+
+    init() {
+        BSHType.registerBundledFonts()
+    }
 
     var body: some Scene {
         WindowGroup("BSH Research", id: "main") {
             MacRootView()
                 .environmentObject(store)
                 .environmentObject(tourAnchors)
+                .environmentObject(design)
+                .bshDesignRoot()
+                .id(design.design)
                 .frame(minWidth: 1050, minHeight: 680)
         }
         .windowToolbarStyle(.unified)
@@ -78,7 +88,10 @@ struct BSHResearchMacApp: App {
             if let request {
                 MacMemoWindowView(request: request)
                     .environmentObject(store)
-                .environmentObject(tourAnchors)
+                    .environmentObject(tourAnchors)
+                    .environmentObject(design)
+                    .bshDesignRoot()
+                    .id(design.design)
             }
         }
         .defaultSize(width: 980, height: 840)
@@ -88,7 +101,10 @@ struct BSHResearchMacApp: App {
             if let request {
                 MacICReviewWindowView(request: request)
                     .environmentObject(store)
-                .environmentObject(tourAnchors)
+                    .environmentObject(tourAnchors)
+                    .environmentObject(design)
+                    .bshDesignRoot()
+                    .id(design.design)
             }
         }
         .defaultSize(width: 1400, height: 880)
@@ -97,6 +113,9 @@ struct BSHResearchMacApp: App {
             MacSettingsView()
                 .environmentObject(store)
                 .environmentObject(tourAnchors)
+                .environmentObject(design)
+                .bshDesignRoot()
+                .id(design.design)
         }
     }
 }

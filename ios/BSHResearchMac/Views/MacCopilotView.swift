@@ -237,7 +237,7 @@ struct MacCopilotView: View {
                     Text(p.displayName).font(.dsSubhead)
                     Spacer(minLength: 0)
                     if selected {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.dsAccent)
                     }
                 }
                 Text(p.tagline)
@@ -249,11 +249,11 @@ struct MacCopilotView: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
-            .background(selected ? Color.accentColor.opacity(0.10) : Color.dsCard,
+            .background(selected ? Color.dsAccent.opacity(0.10) : Color.dsCard,
                         in: RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(selected ? Color.accentColor.opacity(0.6) : Color.dsHairline, lineWidth: 1)
+                    .stroke(selected ? Color.dsAccent.opacity(0.6) : Color.dsHairline, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -359,7 +359,7 @@ struct MacCopilotView: View {
                         Image(systemName: "arrow.up.circle.fill").font(.system(size: 22))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.5))
+                    .foregroundStyle(canSend ? Color.dsAccent : Color.secondary.opacity(0.5))
                     .disabled(!canSend)
                     .keyboardShortcut(.return, modifiers: .command)
                     .help(askBlockedReason ?? "Send (Return)")
@@ -370,7 +370,7 @@ struct MacCopilotView: View {
             .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isInputFocused || fileDropTargeted ? Color.accentColor.opacity(0.5) : Color.dsHairline,
+                    .stroke(isInputFocused || fileDropTargeted ? Color.dsAccent.opacity(0.5) : Color.dsHairline,
                             lineWidth: fileDropTargeted ? 2 : 1)
             )
             }
@@ -423,7 +423,7 @@ struct MacCopilotView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.accentColor.opacity(0.12), in: Capsule())
+        .background(Color.dsAccent.opacity(0.12), in: Capsule())
     }
 
     // MARK: - State
@@ -468,7 +468,7 @@ private struct SuggestionRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
                     .frame(width: 16)
                 Text(text)
                     .font(.dsBody)
@@ -528,7 +528,7 @@ struct CopilotBubbleView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor, in: Circle())
+                .background(Color.dsAccent, in: Circle())
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -918,7 +918,7 @@ struct MacWarrenQuestionBubble: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.accentColor.opacity(0.14),
+        .background(Color.dsAccent.opacity(0.14),
                     in: RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous))
         .contextMenu {
             if canEdit {
@@ -952,7 +952,7 @@ struct MacWarrenQuestionBubble: View {
         }
         .padding(8)
         .frame(maxWidth: 520)
-        .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.dsAccent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func startEditing() {
@@ -979,7 +979,7 @@ struct MacWarrenWorkCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "play.circle.fill")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(work.title)
                         .font(.system(size: 13, weight: .semibold))
@@ -1030,7 +1030,7 @@ struct MacWarrenWorkCard: View {
         .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+                .stroke(Color.dsAccent.opacity(0.35), lineWidth: 1)
         )
     }
 }
@@ -1126,7 +1126,7 @@ struct MacWarrenThreadsButton: View {
                 }
                 HStack(spacing: 4) {
                     if thread.active {
-                        Text("Current").foregroundStyle(Color.accentColor)
+                        Text("Current").foregroundStyle(Color.dsAccent)
                     }
                     Text("\(thread.questionCount) question\(thread.questionCount == 1 ? "" : "s")")
                     if !thread.askers.isEmpty {
@@ -1138,7 +1138,7 @@ struct MacWarrenThreadsButton: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(thread.active ? Color.accentColor.opacity(0.08) : Color.clear,
+            .background(thread.active ? Color.dsAccent.opacity(0.08) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }

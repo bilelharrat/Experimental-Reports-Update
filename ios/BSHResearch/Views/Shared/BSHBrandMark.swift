@@ -129,7 +129,7 @@ public struct BSHBrandTile: View {
         ZStack {
             // Ambient blue/sky halo behind tile
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.accentColor.opacity(isDark ? 0.35 : 0.22))
+                .fill(Color.dsAccent.opacity(isDark ? 0.35 : 0.22))
                 .blur(radius: 14)
                 .offset(y: 4)
 
@@ -183,7 +183,7 @@ public struct BSHBrandTile: View {
                 )
                 .frame(width: markWidth, height: round(markWidth * (65.0 / 101.0)))
                 .shadow(
-                    color: isDark ? Color.black.opacity(0.5) : Color.accentColor.opacity(0.18),
+                    color: isDark ? Color.black.opacity(0.5) : Color.dsAccent.opacity(0.18),
                     radius: isDark ? 3 : 2,
                     y: 1
                 )

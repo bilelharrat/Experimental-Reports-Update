@@ -27,11 +27,17 @@ struct AppleGlassCardModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(isHovered ? Color.accentColor.opacity(0.35) : Color.dsHairline, lineWidth: 1)
+                    .strokeBorder(isHovered ? Color.dsAccent.opacity(0.35) : Self.edge, lineWidth: 1)
             )
             .onHover { hovering in
                 if isInteractive { withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering } }
             }
+    }
+
+    /// Summit and Folio draw a card with a rule; Bureau's tray is pressed into the sheet,
+    /// so its edge is only a faint line of the page's ink.
+    private static var edge: Color {
+        BSHDesign.active == .bureau ? Color.dsInk.opacity(0.04) : Color.dsHairline
     }
 }
 
@@ -41,14 +47,14 @@ struct AppleGlassTileModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background(
-            RoundedRectangle(cornerRadius: min(cornerRadius, 10), style: .continuous)
+            RoundedRectangle(cornerRadius: min(cornerRadius, BSHDesign.active == .folio ? 5 : 10), style: .continuous)
                 .fill(tint.map { $0.opacity(0.10) } ?? Color.dsTile)
         )
     }
 }
 
 struct AppleGlassPillModifier: ViewModifier {
-    var color: Color = .accentColor
+    var color: Color = .dsAccent
     func body(content: Content) -> some View {
         content.background(Capsule().fill(color.opacity(0.14)))
     }
@@ -71,7 +77,7 @@ extension View {
         modifier(AppleGlassTileModifier(cornerRadius: cornerRadius, tint: tint))
     }
 
-    func appleGlassPill(color: Color = .accentColor) -> some View {
+    func appleGlassPill(color: Color = .dsAccent) -> some View {
         modifier(AppleGlassPillModifier(color: color))
     }
 
@@ -89,13 +95,44 @@ struct GlassRowHighlight: View {
     var isSelected: Bool
     var cornerRadius: CGFloat = 8
     var inset: EdgeInsets = EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+    @Environment(\.bshOnFrame) private var onFrame
+    @Environment(\.bshPageScheme) private var pageScheme
 
     var body: some View {
         ZStack {
             if isSelected {
-                LevitatingGlassPill(cornerRadius: cornerRadius)
-                    .padding(inset)
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                switch BSHDesign.active {
+                case .glass:
+                    LevitatingGlassPill(cornerRadius: cornerRadius)
+                        .padding(inset)
+                        .transition(.scale(scale: 0.94).combined(with: .opacity))
+                case .folio:
+                    // A bookmark: a shaded slip with an ink ribbon down its edge.
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(BSHPalette.folioInk.opacity(0.07))
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(BSHPalette.folioInk).frame(width: 3)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(inset)
+                case .bureau:
+                    if onFrame {
+                        // On the desk, the chosen row is a slip of the sheet itself.
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(pageScheme.map(BSHPalette.bureauSheet(for:)) ?? BSHPalette.bureauSheet)
+                            .padding(inset)
+                    } else {
+                        // On the page, fresh paper lifted from it.
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(Color.dsRaised)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                    .strokeBorder(Color.dsInk.opacity(0.08), lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
+                            .padding(inset)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -184,7 +221,7 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
     private let segments: [Segment]
     @Environment(\.controlSize) private var controlSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var thumb
+    @Namespace private var thumbSpace
     @State private var hovered: Value?
 
     init(_ label: String, selection: Binding<Value>, segments: KeyValuePairs<Value, String>) {
@@ -208,10 +245,42 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
             }
         }
         .padding(2)
-        .background(Capsule(style: .continuous).fill(Color.primary.opacity(0.06)))
-        .overlay(Capsule(style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
+        .background(trackShape.fill(BSHDesign.active == .folio ? Color.clear : Color.dsInk.opacity(0.06)))
+        .overlay(trackShape.strokeBorder(Color.dsInk.opacity(BSHDesign.active == .folio ? 0.16 : 0.07), lineWidth: BSHDesign.active == .folio ? 1 : 0.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
+    }
+
+    /// Folio's control is a ruled, cut track; the others are capsules.
+    private var trackShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: BSHDesign.active == .folio ? 7 : 999, style: .continuous)
+    }
+
+    private var thumbShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: BSHDesign.active == .folio ? 5 : 999, style: .continuous)
+    }
+
+    /// The chosen segment: Summit's levitating glass, Folio's solid ink, Bureau's slip of
+    /// fresh paper lifted from the page.
+    @ViewBuilder
+    private var thumb: some View {
+        switch BSHDesign.active {
+        case .glass:
+            GlassPillSurface(shape: Capsule(style: .continuous), shadowRadius: 4, shadowY: 2, shadowOpacity: 0.16)
+        case .folio:
+            thumbShape.fill(BSHPalette.folioInk)
+        case .bureau:
+            thumbShape.fill(Color.dsRaised)
+                .overlay(thumbShape.strokeBorder(Color.dsInk.opacity(0.08), lineWidth: 1))
+                .shadow(color: .black.opacity(0.14), radius: 2, y: 1)
+        }
+    }
+
+    private func labelStyle(selected: Bool) -> Color {
+        if selected {
+            return BSHDesign.active == .folio ? BSHPalette.folioOnInk : .dsInk
+        }
+        return Color.dsInk.opacity(0.72)
     }
 
     private func segmentButton(_ segment: Segment) -> some View {
@@ -230,21 +299,21 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
                 }
                 Text(segment.title)
             }
-            .font(.system(size: compact ? 11 : 13, weight: .medium))
-            .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.75))
+            .font(.system(size: compact ? 11 : 13, weight: isSelected && BSHDesign.active.isPaper ? .semibold : .medium))
+            .foregroundStyle(labelStyle(selected: isSelected))
             .lineLimit(1)
             .padding(.horizontal, compact ? 8 : 11)
             .padding(.vertical, compact ? 2 : 3.5)
             .frame(maxWidth: .infinity)
             .background {
                 if isSelected {
-                    GlassPillSurface(shape: Capsule(style: .continuous), shadowRadius: 4, shadowY: 2, shadowOpacity: 0.16)
-                        .matchedGeometryEffect(id: "thumb", in: thumb)
+                    thumb
+                        .matchedGeometryEffect(id: "thumb", in: thumbSpace)
                 } else if hovered == segment.value {
-                    Capsule(style: .continuous).fill(Color.primary.opacity(0.05))
+                    thumbShape.fill(Color.dsInk.opacity(0.05))
                 }
             }
-            .contentShape(Capsule(style: .continuous))
+            .contentShape(thumbShape)
         }
         .buttonStyle(.plain)
         .onHover { inside in

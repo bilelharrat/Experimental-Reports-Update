@@ -114,36 +114,40 @@ struct CompanyResearchView: View {
 
     var body: some View {
         List {
-            if model.loading && model.company == nil {
-                ProgressView(language.t("common.loading"))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .listRowSeparator(.hidden)
-            } else if let err = model.error, model.company == nil {
-                ContentUnavailableView {
-                    Label(language.t("common.error"), systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(err)
-                } actions: {
-                    Button(language.t("common.retry")) { Task { await model.load() } }
-                }
-                .listRowSeparator(.hidden)
-            } else if let company = model.company {
-                overviewSection(company)
-                marketSection(company)
-                if company.isPublic {
-                    TraderCardsSection(
-                        companyId: company.id,
-                        snapshot: company.traderSnapshot
-                    ) {
-                        Task { await model.load() }
+            Group {
+                if model.loading && model.company == nil {
+                    ProgressView(language.t("common.loading"))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .listRowSeparator(.hidden)
+                } else if let err = model.error, model.company == nil {
+                    ContentUnavailableView {
+                        Label(language.t("common.error"), systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(err)
+                    } actions: {
+                        Button(language.t("common.retry")) { Task { await model.load() } }
                     }
+                    .listRowSeparator(.hidden)
+                } else if let company = model.company {
+                    overviewSection(company)
+                    marketSection(company)
+                    if company.isPublic {
+                        TraderCardsSection(
+                            companyId: company.id,
+                            snapshot: company.traderSnapshot
+                        ) {
+                            Task { await model.load() }
+                        }
+                    }
+                    reportsSection(company)
+                    studioSection(company)
+                    consoleSection(company)
+                    linksSection(company)
                 }
-                reportsSection(company)
-                studioSection(company)
-                consoleSection(company)
-                linksSection(company)
             }
+            .bshListRows()
         }
+        .bshListSurface()
         .listStyle(.insetGrouped)
         .navigationTitle(model.company?.displayName(lang: language.language) ?? model.companyId)
         .navigationBarTitleDisplayMode(.inline)
@@ -257,20 +261,24 @@ struct CompanyResearchView: View {
     @ViewBuilder
     private func marketSection(_ company: CompanyDetail) -> some View {
         if let quote = model.liveQuote {
-            Section(language.t("market.title")) {
+            Section {
                 NavigationLink {
                     QuoteDetailView(ticker: quote.ticker)
                 } label: {
                     QuoteRow(quote: quote)
                 }
+            } header: {
+                BSHSectionTitle(language.t("market.title"))
             }
         } else if let ticker = company.ticker, !ticker.isEmpty {
-            Section(language.t("market.title")) {
+            Section {
                 NavigationLink {
                     QuoteDetailView(ticker: ticker)
                 } label: {
                     Label(language.t("market.open_quote"), systemImage: "chart.xyaxis.line")
                 }
+            } header: {
+                BSHSectionTitle(language.t("market.title"))
             }
         }
     }
@@ -294,7 +302,7 @@ struct CompanyResearchView: View {
                 }
             }
         } header: {
-            Text(language.t("research.reports"))
+            BSHSectionTitle(language.t("research.reports"))
         }
     }
 
@@ -366,7 +374,7 @@ struct CompanyResearchView: View {
                 Text(err).font(.caption).foregroundStyle(.red)
             }
         } header: {
-            Text(language.t("studio.title"))
+            BSHSectionTitle(language.t("studio.title"))
         } footer: {
             Text(language.t("studio.footer"))
         }

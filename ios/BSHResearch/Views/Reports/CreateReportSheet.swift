@@ -38,21 +38,25 @@ struct CreateReportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                companySection
+                Group {
+                    companySection
 
-                if !selectedCompanyId.isEmpty {
-                    customizerPromotionSection
-                    optionsSection
-                }
+                    if !selectedCompanyId.isEmpty {
+                        customizerPromotionSection
+                        optionsSection
+                    }
 
-                if let error {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
+                    if let error {
+                        Section {
+                            Text(error)
+                                .foregroundStyle(.red)
+                                .font(.footnote)
+                        }
                     }
                 }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(language.t("reports.new_report"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,7 +110,7 @@ struct CreateReportSheet: View {
                 HStack(spacing: 12) {
                     Image(systemName: "slider.horizontal.3")
                         .font(.title3)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text("Institutional Report Customizer")
@@ -117,8 +121,8 @@ struct CreateReportSheet: View {
                                 .font(.system(size: 9, weight: .bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.15))
-                                .foregroundStyle(Color.accentColor)
+                                .background(Color.dsAccent.opacity(0.15))
+                                .foregroundStyle(Color.dsAccent)
                                 .clipShape(Capsule())
                         }
                         Text("Blueprint archetypes, Studio review, reasoning quality tier & risk cards")
@@ -200,7 +204,7 @@ struct CreateReportSheet: View {
                     }
                 }
             } header: {
-                Text(language.t("research.options"))
+                BSHSectionTitle(language.t("research.options"))
             } footer: {
                 Text(language.t("research.generate_hint"))
             }

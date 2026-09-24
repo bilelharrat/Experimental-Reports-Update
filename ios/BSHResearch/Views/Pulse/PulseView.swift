@@ -105,7 +105,7 @@ struct PulseView: View {
                 .padding(.bottom, 12)
                 .readableContentWidth(AdaptiveLayout.wideReadableMaxWidth)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color.dsCanvas)
             .compactRootChrome(title: language.t("pulse.title")) {
                 Menu {
                     if let brief = model.brief {
@@ -167,7 +167,7 @@ struct PulseView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -191,8 +191,8 @@ struct PulseView: View {
                     .symbolRenderingMode(.hierarchical)
             }
             HStack(spacing: 8) {
-                tapeChip("\(model.tape.up)", systemImage: "arrow.up.right", tone: Color(.systemGreen))
-                tapeChip("\(model.tape.down)", systemImage: "arrow.down.right", tone: Color(.systemRed))
+                tapeChip("\(model.tape.up)", systemImage: "arrow.up.right", tone: BSHDesign.active.isPaper ? .dsPositive : Color(.systemGreen))
+                tapeChip("\(model.tape.down)", systemImage: "arrow.down.right", tone: BSHDesign.active.isPaper ? .dsNegative : Color(.systemRed))
                 if let generated = brief.generatedAt {
                     Text(relativeStamp(generated))
                         .font(.caption)
@@ -236,7 +236,7 @@ struct PulseView: View {
                         ForEach(Array(bullets.enumerated()), id: \.offset) { _, line in
                             HStack(alignment: .top, spacing: 10) {
                                 Circle()
-                                    .fill(Color.accentColor)
+                                    .fill(Color.dsAccent)
                                     .frame(width: 5, height: 5)
                                     .padding(.top, 7)
                                 Text(line)
@@ -262,7 +262,7 @@ struct PulseView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .textSelection(.enabled)
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -280,7 +280,7 @@ struct PulseView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -307,7 +307,7 @@ struct PulseView: View {
                                 }
                                 .padding(14)
                                 .frame(width: 132, alignment: .leading)
-                                .background(Color(.secondarySystemGroupedBackground))
+                                .background(Color.dsCard)
                                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             }
                             .buttonStyle(.plain)
@@ -344,7 +344,7 @@ struct PulseView: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 
@@ -403,7 +403,7 @@ struct PulseView: View {
                         }
                     }
                 }
-                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }
@@ -433,7 +433,7 @@ struct PulseView: View {
                                     if let ticker = event.ticker, !ticker.isEmpty {
                                         Text(ticker)
                                             .font(.caption.weight(.semibold))
-                                            .foregroundStyle(Color.accentColor)
+                                            .foregroundStyle(Color.dsAccent)
                                     }
                                     if let consensus = event.consensus, !consensus.isEmpty {
                                         Text("\(language.t("pulse.consensus")) \(consensus)")
@@ -456,7 +456,7 @@ struct PulseView: View {
                         }
                     }
                 }
-                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.dsCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }

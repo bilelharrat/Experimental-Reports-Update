@@ -330,11 +330,11 @@ private struct FounderCardView: View {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill(Color.accentColor.opacity(0.15))
+                        .fill(Color.dsAccent.opacity(0.15))
                         .frame(width: 36, height: 36)
                     Text(initials(founder.name))
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {

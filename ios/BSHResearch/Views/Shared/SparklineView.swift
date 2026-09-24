@@ -98,6 +98,7 @@ struct SparklineView: View {
     private func tone(_ series: SparkSeries) -> Color {
         let reference = series.previousClose ?? series.closes.first ?? 0
         let last = series.closes.last ?? 0
+        if BSHDesign.active.isPaper { return last >= reference ? .dsPositive : .dsNegative }
         return last >= reference ? Color(.systemGreen) : Color(.systemRed)
     }
 }

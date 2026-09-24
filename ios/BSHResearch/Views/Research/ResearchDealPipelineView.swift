@@ -98,7 +98,7 @@ public struct MacDealPipelineView: View {
                                     HStack(spacing: 6) {
                                         ZStack {
                                             Circle()
-                                                .fill(isCurrent ? Color.accentColor : (isPast ? Color.green : Color.secondary.opacity(0.2)))
+                                                .fill(isCurrent ? Color.dsAccent : (isPast ? Color.green : Color.secondary.opacity(0.2)))
                                                 .frame(width: 16, height: 16)
                                             if isPast {
                                                 Image(systemName: "checkmark")
@@ -113,11 +113,11 @@ public struct MacDealPipelineView: View {
 
                                         Text(stage)
                                             .font(.system(size: 11, weight: isCurrent ? .bold : .medium))
-                                            .foregroundStyle(isCurrent ? Color.accentColor : (isPast ? Color.primary : Color.secondary))
+                                            .foregroundStyle(isCurrent ? Color.dsAccent : (isPast ? Color.primary : Color.secondary))
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 8)
-                                    .appleGlassTile(cornerRadius: 8, tint: isCurrent ? Color.accentColor : (isPast ? Color.green : nil))
+                                    .appleGlassTile(cornerRadius: 8, tint: isCurrent ? Color.dsAccent : (isPast ? Color.green : nil))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(saving || isCurrent)
@@ -204,7 +204,7 @@ public struct MacDealPipelineView: View {
     private func tile(_ field: PipelineField) -> some View {
         let isNext = field == .nextStep
         let overdue = isNext && pipeline?.nextStepOverdue == true
-        let tint: Color? = isNext ? (overdue ? Color.dsNegative : Color.accentColor) : nil
+        let tint: Color? = isNext ? (overdue ? Color.dsNegative : Color.dsAccent) : nil
         return Button {
             if pipeline != nil { editing = field }
         } label: {
@@ -260,26 +260,30 @@ private struct PipelineFieldEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField(field.title, text: $text, axis: .vertical)
-                        .lineLimit(2...5)
-                }
-                if field == .nextStep {
+                Group {
                     Section {
-                        Toggle("Due date", isOn: $hasDue)
-                        if hasDue {
-                            DatePicker("Due", selection: $due, displayedComponents: .date)
+                        TextField(field.title, text: $text, axis: .vertical)
+                            .lineLimit(2...5)
+                    }
+                    if field == .nextStep {
+                        Section {
+                            Toggle("Due date", isOn: $hasDue)
+                            if hasDue {
+                                DatePicker("Due", selection: $due, displayedComponents: .date)
+                            }
+                        }
+                    }
+                    if let error {
+                        Section {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(Color.dsNegative)
                         }
                     }
                 }
-                if let error {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(Color.dsNegative)
-                    }
-                }
+                .bshListRows()
             }
+            .bshListSurface()
             .navigationTitle(field.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

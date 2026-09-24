@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MacSettingsView: View {
     @EnvironmentObject private var store: MacAppStore
+    @EnvironmentObject private var design: BSHDesignStore
     @Environment(\.openWindow) private var openWindow
 
     @State private var serverURL: String = MacConfig.baseURL.absoluteString
@@ -62,6 +63,20 @@ struct MacSettingsView: View {
                         Text(err).font(.caption).foregroundStyle(.red)
                     }
                 }
+            }
+
+            Section("Design") {
+                GlassSegmentedPicker(
+                    "Design",
+                    selection: $design.design,
+                    options: BSHDesign.allCases,
+                    title: \.title
+                )
+                .frame(maxWidth: 360)
+                .accessibilityIdentifier("settings-design")
+                Text("Bureau lays the page on a green desk. Folio is paper and ink. Summit Glass is the Mac's original look. Each device and the website keep their own choice.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Thesis") {

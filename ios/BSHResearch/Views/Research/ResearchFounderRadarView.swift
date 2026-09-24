@@ -177,10 +177,10 @@ public struct MacFounderRadarView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 ZStack {
-                    Circle().fill(Color.accentColor.opacity(0.15)).frame(width: 32, height: 32)
+                    Circle().fill(Color.dsAccent.opacity(0.15)).frame(width: 32, height: 32)
                     Text(initials(founder.name))
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.dsAccent)
                 }
 
                 VStack(alignment: .leading, spacing: 1) {

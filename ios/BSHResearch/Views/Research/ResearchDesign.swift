@@ -2,29 +2,64 @@ import SwiftUI
 import UIKit
 
 // MARK: - Research Design System Tokens (iOS adaptation of MacDS)
+//
+// The colors, radii and title faces follow the chosen design (BSHDesign: Bureau, Folio
+// or Summit Glass); sizes and anatomy don't.
 
 public enum MacDS {
     public static let page: CGFloat = 16
     public static let card: CGFloat = 16
     public static let gap: CGFloat = 12
     public static let section: CGFloat = 16
-    public static let cardRadius: CGFloat = 14
-    public static let tileRadius: CGFloat = 10
+
+    /// Bureau's trays are soft, Folio's cards are cut, Summit's are the system's own.
+    public static var cardRadius: CGFloat { BSHDesign.active == .folio ? 6 : 14 }
+    public static var tileRadius: CGFloat { BSHDesign.active == .folio ? 5 : 10 }
 }
 
 public extension Color {
-    static let dsCanvas = Color(uiColor: .systemGroupedBackground)
-    static let dsCard = Color(uiColor: .secondarySystemGroupedBackground)
-    static let dsTile = Color(uiColor: .tertiarySystemGroupedBackground)
-    static let dsHairline = Color.primary.opacity(0.08)
-    static let dsPositive = Color.green
-    static let dsNegative = Color.red
-    static let dsWarning = Color.orange
+    static var dsCanvas: Color { BSHPalette.canvas }
+    static var dsCard: Color { BSHPalette.card }
+    static var dsRaised: Color { BSHPalette.raised }
+    static var dsTile: Color { BSHPalette.tile }
+    static var dsHairline: Color { BSHPalette.hairline }
+    static var dsPositive: Color { BSHPalette.positive }
+    static var dsNegative: Color { BSHPalette.negative }
+    static var dsWarning: Color { BSHPalette.warning }
+    /// The design's color for acting. Use it wherever the app used `Color.accentColor`.
+    static var dsAccent: Color { BSHPalette.accent }
+    /// The page's ink (the system's label color under Summit Glass).
+    static var dsInk: Color { BSHPalette.ink ?? .primary }
+}
+
+public extension Color {
+    /// A page at full width, such as a reader or a pane: the system's white under Summit
+    /// Glass, the design's paper under Bureau and Folio.
+    static var dsPage: Color {
+        BSHDesign.active.isPaper ? BSHPalette.canvas : Color(uiColor: .systemBackground)
+    }
+}
+
+public extension ShapeStyle where Self == Color {
+    static var dsAccent: Color { BSHPalette.accent }
+}
+
+public extension ShapeStyle where Self == AnyShapeStyle {
+    /// A strip over the page (a composer, a toolbar): frosted under Summit Glass, the
+    /// page's own paper under Bureau and Folio, where nothing frosts.
+    static var dsBar: AnyShapeStyle {
+        BSHDesign.active.isPaper ? AnyShapeStyle(Color.dsCanvas) : AnyShapeStyle(.bar)
+    }
+
+    /// A small control floating over content: thin glass, or paper lifted off the page.
+    static var dsFloating: AnyShapeStyle {
+        BSHDesign.active.isPaper ? AnyShapeStyle(Color.dsRaised) : AnyShapeStyle(.ultraThinMaterial)
+    }
 }
 
 public extension Font {
-    static let dsTitle = Font.system(size: 22, weight: .bold)
-    static let dsHeadline = Font.system(size: 15, weight: .semibold)
+    static var dsTitle: Font { BSHType.title(22) }
+    static var dsHeadline: Font { BSHType.heading(15) }
     static let dsSubhead = Font.system(size: 13, weight: .medium)
     static let dsBody = Font.system(size: 13)
     static let dsLabel = Font.system(size: 11, weight: .medium)
@@ -48,8 +83,14 @@ public struct AppleGlassCardModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.dsHairline, lineWidth: 1)
+                    .strokeBorder(Self.edge, lineWidth: 1)
             )
+    }
+
+    /// Bureau's tray is pressed into the sheet, so its edge is barely there; a card on
+    /// Folio's paper or Summit's canvas is ruled off with a hairline.
+    private static var edge: Color {
+        BSHDesign.active == .bureau ? Color.dsInk.opacity(0.05) : .dsHairline
     }
 }
 
@@ -59,14 +100,14 @@ public struct AppleGlassTileModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         content.background(
-            RoundedRectangle(cornerRadius: min(cornerRadius, 10), style: .continuous)
+            RoundedRectangle(cornerRadius: min(cornerRadius, MacDS.tileRadius), style: .continuous)
                 .fill(tint.map { $0.opacity(0.10) } ?? Color.dsTile)
         )
     }
 }
 
 public struct AppleGlassPillModifier: ViewModifier {
-    public var color: Color = .accentColor
+    public var color: Color = .dsAccent
     public func body(content: Content) -> some View {
         content.background(Capsule().fill(color.opacity(0.14)))
     }
@@ -81,7 +122,7 @@ public extension View {
         modifier(AppleGlassTileModifier(cornerRadius: cornerRadius, tint: tint))
     }
 
-    func appleGlassPill(color: Color = .accentColor) -> some View {
+    func appleGlassPill(color: Color = .dsAccent) -> some View {
         modifier(AppleGlassPillModifier(color: color))
     }
 
@@ -114,7 +155,7 @@ public struct MacCardHeader<Trailing: View>: View {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.dsAccent)
                     .frame(width: 18)
             }
             VStack(alignment: .leading, spacing: 2) {
@@ -135,13 +176,19 @@ public extension MacCardHeader where Trailing == EmptyView {
     }
 }
 
+/// Secondary label above a group of controls or rows: Bureau's italic serif kicker,
+/// Folio's small tracked capitals, Summit's plain label.
 public struct MacSectionLabel: View {
     public let text: String
     public var trailing: String? = nil
     public init(_ text: String, trailing: String? = nil) { self.text = text; self.trailing = trailing }
     public var body: some View {
         HStack {
-            Text(text).font(.dsLabel).foregroundStyle(.secondary)
+            Text(text)
+                .font(BSHType.kicker(11))
+                .tracking(BSHType.kickerIsCapitals ? 0.8 : 0)
+                .textCase(BSHType.kickerIsCapitals ? .uppercase : nil)
+                .foregroundStyle(.secondary)
             Spacer()
             if let trailing { Text(trailing).font(.dsCaption.monospacedDigit()).foregroundStyle(.secondary) }
         }
@@ -232,14 +279,14 @@ public struct MacTabBar<Item: Hashable>: View {
                         VStack(spacing: 6) {
                             Text(label)
                                 .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
-                                .foregroundStyle(selection == item ? Color.primary : Color.secondary)
+                                .foregroundStyle(selection == item ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                                 .lineLimit(1)
                                 .fixedSize()
                             ZStack {
                                 Rectangle().fill(Color.clear).frame(height: 2)
                                 if selection == item {
                                     Rectangle()
-                                        .fill(Color.accentColor)
+                                        .fill(Self.underlineColor)
                                         .frame(height: 2)
                                         .matchedGeometryEffect(id: "underline", in: underline)
                                 }
@@ -252,7 +299,16 @@ public struct MacTabBar<Item: Hashable>: View {
             }
             .padding(.horizontal, 4)
         }
-        .overlay(alignment: .bottom) { Divider() }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.dsHairline).frame(height: 1) }
+    }
+
+    /// Folio underlines in ink, Bureau in brass, Summit in its blue.
+    private static var underlineColor: Color {
+        switch BSHDesign.active {
+        case .bureau: return BSHPalette.bureauBrassDeep
+        case .folio: return BSHPalette.folioInk
+        case .glass: return .dsAccent
+        }
     }
 }
 

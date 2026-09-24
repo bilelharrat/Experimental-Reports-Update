@@ -182,8 +182,8 @@ struct MacReportCustomizerSheet: View {
                             .font(.system(size: 11, weight: .bold).monospaced())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12))
-                            .foregroundStyle(Color.accentColor)
+                            .background(Color.dsAccent.opacity(0.12))
+                            .foregroundStyle(Color.dsAccent)
                             .clipShape(Capsule())
                     }
 
@@ -236,8 +236,8 @@ struct MacReportCustomizerSheet: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(activeTab == tab ? Color.accentColor.opacity(0.15) : Color.clear)
-                    .foregroundStyle(activeTab == tab ? Color.accentColor : Color.secondary)
+                    .background(activeTab == tab ? Color.dsAccent.opacity(0.15) : Color.clear)
+                    .foregroundStyle(activeTab == tab ? Color.dsAccent : Color.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -319,7 +319,7 @@ struct MacReportCustomizerSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: option.icon)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -331,7 +331,7 @@ struct MacReportCustomizerSheet: View {
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 14))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         }
                     }
                     Text(option.subtitle)
@@ -342,10 +342,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -360,7 +360,7 @@ struct MacReportCustomizerSheet: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -372,7 +372,7 @@ struct MacReportCustomizerSheet: View {
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 13))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.dsAccent)
                         }
                     }
                     Text(description)
@@ -383,10 +383,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -402,14 +402,14 @@ struct MacReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(label)
                         .font(.dsSubhead.weight(.semibold))
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
                 Text(desc)
@@ -419,10 +419,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -441,10 +441,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+            .background(isSelected ? Color.dsAccent.opacity(0.12) : Color.primary.opacity(0.04))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -520,19 +520,19 @@ struct MacReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.06))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                         .clipShape(Capsule())
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 15))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
 
@@ -547,10 +547,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -566,19 +566,19 @@ struct MacReportCustomizerSheet: View {
                 HStack {
                     Image(systemName: icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.06))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
+                        .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                         .clipShape(Capsule())
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.dsAccent)
                     }
                 }
 
@@ -592,10 +592,10 @@ struct MacReportCustomizerSheet: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
             .overlay(
                 RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? Color.dsAccent : Color.dsHairline, lineWidth: isSelected ? 1.5 : 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
         }
@@ -667,7 +667,7 @@ struct MacReportCustomizerSheet: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                                 Text(pillar)
                                     .font(.dsCaption.weight(.medium))
                                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
@@ -675,7 +675,7 @@ struct MacReportCustomizerSheet: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+                            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                         .buttonStyle(.plain)
@@ -734,9 +734,9 @@ struct MacReportCustomizerSheet: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                                 Image(systemName: "doc.text.fill")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(Color.dsAccent)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(rep.displayTitle)
                                         .font(.dsSubhead)
@@ -750,13 +750,13 @@ struct MacReportCustomizerSheet: View {
                                         .font(.system(size: 9, weight: .bold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.15))
-                                        .foregroundStyle(Color.accentColor)
+                                        .background(Color.dsAccent.opacity(0.15))
+                                        .foregroundStyle(Color.dsAccent)
                                         .clipShape(Capsule())
                                 }
                             }
                             .padding(10)
-                            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+                            .background(isSelected ? Color.dsAccent.opacity(0.08) : Color.primary.opacity(0.03))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                         .buttonStyle(.plain)
