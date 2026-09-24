@@ -688,12 +688,16 @@ function changeClass(change) {
   return Number(change) >= 0 ? "text-success-ink" : "text-danger-ink";
 }
 
+// Live quotes arrive as { last_price, change_pct_1d, currency }; the tape helpers take
+// { last, currency } and a bare percentage.
 function quotePrice(ticker) {
-  return lastPriceLabel(quotes.value?.[ticker] || null);
+  const quote = quotes.value?.[ticker];
+  if (quote?.last_price == null) return null;
+  return lastPriceLabel({ last: Number(quote.last_price), currency: quote.currency || "USD" });
 }
 
 function quoteChange(ticker) {
-  return signedChange(quotes.value?.[ticker] || null);
+  return signedChange(quotes.value?.[ticker]?.change_pct_1d ?? null);
 }
 
 function openTicker(ticker) {
@@ -714,8 +718,9 @@ function refreshedAtLabel(iso) {
   });
 }
 
+// A screener row's move in percent (`change` is the dollar move).
 function moverChange(row) {
-  const change = Number(row?.change_pct_1d ?? row?.change);
+  const change = Number(row?.change_pct_1d ?? row?.change_pct);
   return Number.isFinite(change) ? change : null;
 }
 
