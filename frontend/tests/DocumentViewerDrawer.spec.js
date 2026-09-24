@@ -40,6 +40,35 @@ describe("DocumentViewerDrawer", () => {
     expect(wrapper.text()).toContain("notes.md");
   });
 
+  it("fetches through withApiToken, so a /research mount still finds the file", async () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "bsh-research-api-base");
+    meta.setAttribute("content", "/research");
+    document.head.appendChild(meta);
+    try {
+      fetch.mockResolvedValue(fetchResponse({ text: "# Notes" }));
+      const wrapper = mount(DocumentViewerDrawer, {
+        global: { stubs: { teleport: true } },
+        props: {
+          sources: [
+            { key: "EN", url: "/api/reports/r1/download?language=en", kind: "docx" },
+            { key: "ZH", url: "/research/api/reports/r1/download?language=zh", kind: "docx" },
+          ],
+          // Opened from a viewer showing the Chinese document.
+          initialIndex: 1,
+        },
+      });
+      await flushPromises();
+      // Already-prefixed URLs are left alone; the tab handed over opens first.
+      expect(fetch).toHaveBeenCalledWith("/research/api/reports/r1/download?language=zh");
+      await wrapper.findAll("button").find((b) => b.text() === "EN").trigger("click");
+      await flushPromises();
+      expect(fetch).toHaveBeenCalledWith("/research/api/reports/r1/download?language=en");
+    } finally {
+      meta.remove();
+    }
+  });
+
   it("keeps raw HTML in markdown inert", async () => {
     fetch.mockResolvedValue(
       fetchResponse({ text: "hello <script>window.pwned = 1</script>" }),

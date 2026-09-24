@@ -2,8 +2,10 @@
 
 The files are the source of truth for the text the memo agents run: the
 voice contract, the structure-v2 addendum, the risk-card contracts, the
-Phase 2 pass focus texts (passes.md), the stage structure profiles
-(structures/) and the company-type lenses (types/). Chinese twins live
+Phase 2 pass focus texts and the rules every pass shares (passes.md), the
+stage structure profiles (structures/), the company-type lenses (types/),
+the Chinese style guide and glossary (zh_style.md) and the jurisdiction
+research overlays (jurisdictions/). Chinese twins live
 under skills/memo/zh/ for the founder's team to edit; the English files
 are what the agents read (see skills/memo/README.md for the sync flow).
 
@@ -21,6 +23,11 @@ from typing import Any, Callable
 MEMO_SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo"
 
 _PASS_HEADER_RE = re.compile(r"^## pass: ([a-z0-9_]+)\s*$")
+# The run-wide block of passes.md: everything under this heading up to the
+# next `## ` heading reaches every Phase 2 pass (the notes above it are for
+# maintainers and never reach an agent).
+_PASS_RULES_HEADING = "## Rules for every pass"
+_JURISDICTION_CODE_RE = re.compile(r"^[a-z]{2,8}$")
 
 
 def strip_front_matter(text: str) -> str:
@@ -89,3 +96,42 @@ def load_passes(spec_factory: Callable[..., Any]) -> list[Any]:
     artifact_filename=, focus=)` objects, in dispatch order."""
     text = (MEMO_SKILLS_DIR / "passes.md").read_text(encoding="utf-8")
     return [spec_factory(**fields) for fields in parse_passes(text)]
+
+
+def parse_pass_rules(text: str) -> str:
+    """The body of the `## Rules for every pass` block of passes.md (the
+    heading itself dropped, surrounding blank lines trimmed), or "" when
+    the file has no such block. The block ends at the next `## ` heading."""
+    body: list[str] = []
+    inside = False
+    for line in strip_front_matter(text).splitlines():
+        if line.strip() == _PASS_RULES_HEADING:
+            inside = True
+            continue
+        if inside:
+            if line.startswith("## "):
+                break
+            body.append(line)
+    return "\n".join(body).strip("\n")
+
+
+def load_pass_rules() -> str:
+    """The run-wide rules every Phase 2 pass shares (passes.md), "" if the
+    block is absent. Read at call time, so an edit lands on the next run."""
+    return parse_pass_rules(
+        (MEMO_SKILLS_DIR / "passes.md").read_text(encoding="utf-8")
+    )
+
+
+def load_jurisdiction(code: str | None) -> str:
+    """The research overlay for one jurisdiction —
+    skills/memo/jurisdictions/<code>.md, front matter removed — or "" when
+    the code is empty, malformed or has no file (a run with no detected
+    jurisdiction gets nothing, so its prompts stay byte-identical)."""
+    key = str(code or "").strip().lower()
+    if not _JURISDICTION_CODE_RE.match(key):
+        return ""
+    path = MEMO_SKILLS_DIR / "jurisdictions" / f"{key}.md"
+    if not path.is_file():
+        return ""
+    return load_prompt(f"jurisdictions/{key}.md")

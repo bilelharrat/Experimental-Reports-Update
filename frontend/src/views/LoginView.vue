@@ -169,6 +169,13 @@ async function onSubmit() {
   } catch (e) {
     if (e && e.status === 401) {
       errorMessage.value = t("auth.invalid_credentials");
+    } else if (!e?.status || e.status >= 500) {
+      // The sign-in never reached the account check: the API is down, or
+      // the proxy in front of it could not reach it (dev's Vite answers
+      // that with a bare 500). "500 Internal Server Error" tells the
+      // person nothing they can act on; this says what happened and that
+      // their password is not the problem.
+      errorMessage.value = t("auth.server_unreachable");
     } else {
       // 403 carries the reason an account cannot be used yet — awaiting
       // approval, or disabled — which is the whole point of showing it.

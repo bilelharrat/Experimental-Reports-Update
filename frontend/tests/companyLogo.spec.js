@@ -52,7 +52,28 @@ describe("companyLogo", () => {
       expect(resolveCompanyDomain({ id: "anthropic" })).toBe("anthropic.com");
       expect(resolveCompanyDomain({ name: "OpenAI" })).toBe("openai.com");
       expect(resolveCompanyDomain({ id: "zainar-inc" })).toBe("zainartech.com");
+      // A corporate suffix does not change whose name it is.
       expect(resolveCompanyDomain({ name: "Cerebras Systems" })).toBe("cerebras.ai");
+      expect(resolveCompanyDomain({ name: "Databricks, Inc." })).toBe("databricks.com");
+      expect(resolveCompanyDomain({ name: "Coca Cola Co" })).toBe("coca-cola.com");
+    });
+
+    it("never matches a name that merely contains a mapped one", () => {
+      // Each of these used to borrow a famous company's domain.
+      expect(resolveCompanyDomain({ name: "Anthropics Technology" })).toBe("");
+      expect(resolveCompanyDomain({ name: "Walten" })).toBe("");
+      expect(resolveCompanyDomain({ name: "Upscale Foods" })).toBe("");
+      expect(resolveCompanyDomain({ name: "Open Artificial Intelligence" })).toBe("");
+    });
+
+    it("prefers a report's identity snapshot to the live record", () => {
+      const report = {
+        id: "acme",
+        name: "Acme",
+        website: "https://acme-rebrand.example",
+        company_identity: { website: "https://acme.example", ticker: "ACME" },
+      };
+      expect(resolveCompanyDomain(report)).toBe("acme.example");
     });
   });
 
@@ -83,10 +104,43 @@ describe("companyLogo", () => {
 
     it("resolves report companies by id or name", () => {
       expect(companyLogoUrl({ id: "ko", name: "Coca Cola Co" })).toContain("assets.parqet.com/logos/symbol/KO");
-      expect(companyLogoUrl({ id: "open-artificial-intelligence-inc", name: "Open Artificial Intelligence" })).toContain("openai.svg");
       expect(companyLogoUrl({ id: "cienet-technologies-beijing-co-ltd", name: "CIeNET Technologies" })).toContain("cienet.com");
       expect(companyLogoUrl({ id: "ceinet-data-co-ltd-中经网数据有限公司", name: "CEInet Data" })).toContain("cei.cn");
       expect(companyLogoUrl({ id: "oxy", name: "Occidental Petroleum Corp /De/" })).toContain("assets.parqet.com/logos/symbol/OXY");
+    });
+
+    it("gives a lookalike company its initials, not the famous company's logo", () => {
+      // "Open Artificial Intelligence" (the Ravine reports) is not OpenAI.
+      const lookalike = { id: "open-artificial-intelligence-inc", name: "Open Artificial Intelligence" };
+      expect(companyLogoUrl(lookalike)).toBe("");
+      expect(companyFallbackLogoUrl(lookalike)).toBe("");
+      expect(companyLogoUrl({ id: "anthropics-technology", name: "Anthropics Technology" })).toBe("");
+      expect(companyLogoUrl({ id: "alphabet-signs", name: "Alphabet Signs" })).toBe("");
+      expect(companyLogoUrl({ id: "walten", name: "Walten" })).toBe("");
+      // The real names still resolve.
+      expect(companyLogoUrl({ id: "x1", name: "Anthropic, PBC" })).toContain("simple-icons:anthropic.svg");
+      expect(companyLogoUrl({ name: "OpenAI" })).toContain("simple-icons:openai.svg");
+    });
+
+    it("uses the record's own ticker and domain before any map", () => {
+      // A record whose slug happens to be a curated key still shows its own mark.
+      expect(companyLogoUrl({ id: "anthropic", ticker: "ANTH" })).toContain("assets.parqet.com/logos/symbol/ANTH");
+      const own = companyLogoUrl({ id: "scale", name: "Scale", website: "https://scale-bakery.example" });
+      expect(own).toContain("gstatic.com");
+      expect(own).toContain("scale-bakery.example");
+    });
+
+    it("prefers a report's identity snapshot to the live record", () => {
+      const report = {
+        id: "google-llc",
+        name: "Google LLC",
+        logo_url: null,
+        company_identity: { ticker: "GOOGL", legal_name: "Google LLC" },
+      };
+      expect(companyLogoUrl(report)).toContain("assets.parqet.com/logos/symbol/GOOGL");
+      expect(
+        companyLogoUrl({ id: "x", logo_url: "https://live.example/logo.png", company_identity: { logo_url: "https://snap.example/logo.png" } }),
+      ).toBe("https://snap.example/logo.png");
     });
 
     it("returns empty string when domain cannot be determined", () => {

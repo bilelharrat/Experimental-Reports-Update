@@ -32,6 +32,7 @@ import { useRouter } from "vue-router";
 import { api } from "../api.js";
 import { formatIsoDate, formatRelativeTime, humanizeStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
+import { reportCanOpen, reportIsHidden } from "../reportStatus.js";
 import { appLanguage } from "../state.js";
 import AiMark from "./AiMark.vue";
 import MemoStudioBulletTree from "./memo/MemoStudioBulletTree.vue";
@@ -123,13 +124,23 @@ const progressPct = computed(() =>
   Math.round((completedSections.value / sectionIds.length) * 100),
 );
 
-// The Mac workbench's studio flow, from the dossier's report list.
+// The Mac workbench's studio flow, from the dossier's report list. Read
+// through reportStatus.js: the API sends no `can_open`, and a memo with
+// quality warnings (complete_with_warnings) is as openable as a clean one.
 const awaitingStudioReport = computed(() =>
-  (props.reports || []).find((rep) => rep.status === "awaiting_studio"),
+  (props.reports || []).find((rep) => rep.status === "awaiting_studio" && !reportIsHidden(rep)),
 );
-const latestOpenableReport = computed(() =>
-  (props.reports || []).find((rep) => rep.status === "complete" || rep.can_open),
-);
+const latestOpenableReport = computed(() => {
+  const openable = (props.reports || []).filter(
+    (rep) => reportCanOpen(rep) && !reportIsHidden(rep),
+  );
+  // Newest first, whatever order the list arrived in.
+  return (
+    openable.sort((a, b) =>
+      String(b.created_at || "").localeCompare(String(a.created_at || "")),
+    )[0] || null
+  );
+});
 
 const synthesizing = ref(false);
 const synthesisStarted = ref(false);

@@ -41,6 +41,17 @@ research_focus:
     position, moat, revenue growth and quality, business model and unit
     economics, team and governance, valuation, exit certainty — and say
     in the company profile which type it is closest to and why.
+  valuation_exit: >-
+    Pin the valuation method before building the range, and keep it
+    stable across reruns. A services or asset-light business
+    (consulting, outsourced engineering, staffing, data or IT services)
+    is valued on EV/EBITDA against named listed comparables, each
+    multiple with its date; EV/revenue is only a cross-check, used alone
+    only when EBITDA is negative or undisclosed, and then said so. A
+    wholly owned subsidiary is valued on a look-through basis: its own
+    revenue or EBITDA at the listed parent's multiple. Name the parent as
+    the security an investor can actually buy and say how large a share
+    of the parent this business is — never value the parent itself here.
 ---
 ## What this type is
 A company outside the fund's five focus verticals (AI foundation models,
@@ -54,3 +65,15 @@ stage profile's default structure, weights and contracts apply unchanged.
   exactly as for the focus types.
 - The decision section states whether the investment fits the fund's
   mandate as a fifth-lane exception.
+
+## How to value it
+- Services and asset-light businesses: EV/EBITDA on named listed
+  comparables, each multiple dated. EV/revenue is a cross-check; it
+  carries the valuation alone only when EBITDA is negative or not
+  disclosed, and the valuation passage says so.
+- A wholly owned subsidiary: a look-through value — its own revenue or
+  EBITDA at the listed parent's multiple. The memo names the parent as
+  the security an investor would actually buy and says how large a share
+  of the parent this business is; it does not value the parent.
+- State the method in the valuation section's first sentence, so a rerun
+  that changes method has to say why.

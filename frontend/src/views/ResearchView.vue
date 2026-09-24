@@ -56,7 +56,7 @@ const openReportCustomizer = inject("openReportCustomizer", () => {});
 const REPORT_TYPE_ZH = {
   "Investment Report (Auto)": "投资报告（自动判断阶段）",
   "Investment Memo (Late-Stage)": "投资备忘录（Late-Stage / Pre-IPO）",
-  "Buffett Investment Memo": "巴菲特投资备忘录",
+  "Buffett Investment Memo": "巴菲特方法备忘录",
   "Investment Report": "投资报告",
   Background: "背景研究",
   "Financial Analysis": "财务分析",
@@ -87,9 +87,14 @@ const PRIMARY_REPORT_TYPES = new Set([
   "Investment Memo (Late-Stage)",
   BUFFETT_REPORT_TYPE,
 ]);
+// English display names that differ from the wire value (the wire value is
+// what the API compares, so it never changes).
+const REPORT_TYPE_EN = {
+  "Buffett Investment Memo": "Buffett-Method Memo",
+};
 function reportTypeLabel(val) {
   if (appLanguage.value === "zh") return REPORT_TYPE_ZH[val] || val;
-  return val;
+  return REPORT_TYPE_EN[val] || val;
 }
 function audienceLabel(val) {
   if (appLanguage.value === "zh") return AUDIENCE_ZH[val] || val;

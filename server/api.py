@@ -59,8 +59,8 @@ from . import (
     external_store,
     external_translate,
     files_store,
+    fund_policy,
     trader_bilingual_fill,
-    generator,
     hormuz_console,
     hormuz_prep,
     hormuz_store,
@@ -72,12 +72,18 @@ from . import (
     live_quotes,
     market_brief,
     memo_analysis,
+    memo_diff,
     memo_editor_store,
     memo_flags,
+    memo_pdf,
     memo_studio_bridge,
     memo_prep,
     news_archive,
     product_store,
+    provider_limits,
+    report_access,
+    report_reader,
+    report_rerender,
     research_eval,
     research_pages,
     research_store,
@@ -1124,12 +1130,14 @@ REPORT_TYPES = (
     "Investment Report (Auto)",
     "Investment Memo (Late-Stage)",
     "Buffett Investment Memo",
-    "Background",
-    "Financial Analysis",
-    "Market Analysis",
 )
+# Report types the Generate dialogs once offered that never had a real
+# pipeline behind them (a stub wrote a placeholder and marked it Ready).
+# A stale client that still sends one gets a readable 400.
+UNAVAILABLE_REPORT_TYPES = ("Background", "Financial Analysis", "Market Analysis")
 AUDIENCES = ("LP", "Assistant", "Partner", "Internal")
 LANGUAGES = ("en", "zh")
+REVIEW_STATES = ("draft", "in_review", "approved", "withdrawn")
 
 
 @router.get("/health")
@@ -1239,11 +1247,106 @@ class ReportSummary(BaseModel):
     # collected) at run_finished_at. Equal-ish when nothing was deferred.
     report_ready_at: str | None = None
     run_finished_at: str | None = None
+    # English-first delivery: when the English DOCX landed while the Chinese
+    # was still being written, and whether the run ended on the English
+    # alone (failure_phase "chinese_package"; Resume = "Retry Chinese").
+    english_ready_at: str | None = None
+    english_only: bool = False
     # Set when a newer memo run for the same company replaced this failed
     # run; superseded failures are no longer resumable or auto-surfaced.
     superseded_by: str | None = None
     # Set when the user cleared this failure record without reprocessing.
     dismissed_at: str | None = None
+    # --- What the report concludes (server/report_reader.py) -----------
+    # {v, headline {en, zh}, decision, buy_price_text, buy_price_text_zh,
+    #  pass_kind, memo_as_of, evidence_latest, sources_dated,
+    #  sources_total, source: package|buffett|spine, computed_at}
+    reader: dict | None = None
+    decision: str | None = None
+    buy_price: str | dict | None = None
+    buy_price_zh: str | None = None
+    pass_kind: str | None = None
+    # Reader-facing label of the Buffett call, {en, zh}: "Pass at today's
+    # price — buy at or below $215" / "暂不买入（买入价 ≤ 215 美元）".
+    call_label: dict | None = None
+    # The Buffett valuation object as stored by the pipeline (all optional).
+    buffett_valuation: dict | None = None
+    # Buffett run provenance: the pinned quote / 10-year yield
+    # (logs/market_inputs.json), how many web lookups the run made and how
+    # many sources it retrieved.
+    market_inputs: dict | None = None
+    web_lookups: int | None = None
+    retrieved_sources: int | None = None
+    # Chinese twins of quality_warnings (same order), when the run wrote them.
+    quality_warnings_zh: list[str] | None = None
+    # Structured quality warnings: [{gate, language ("EN"|"ZH"|null),
+    # section, severity, code, summary_en, summary_zh, detail_path}].
+    quality_warning_items: list[dict] | None = None
+    # Optional structured Buffett price fields (newer records only).
+    price: float | None = None
+    price_date: str | None = None
+    currency: str | None = None
+    value_low: float | None = None
+    value_central: float | None = None
+    value_high: float | None = None
+    buy_price_value: float | None = None
+    mos_pct: float | None = None
+    # Compact fact-check summary on list rows; the full payload on detail.
+    # Absent for runs that predate the check.
+    memo_fact_check: dict | None = None
+    # False when the record has no document at all (download and preview
+    # URLs both empty) — the two old placeholder records, failed runs.
+    has_document: bool = False
+    # PDF per language: ready | building | failed | pending | unavailable
+    # | none (server/memo_pdf.py).
+    pdf_status: dict | None = None
+    # --- Versions (derived at read time; server/memo_diff.py) ----------
+    is_latest: bool | None = None
+    version_index: int | None = None
+    version_count: int | None = None
+    previous_version_id: str | None = None
+    newer_version_id: str | None = None
+    latest_version_id: str | None = None
+    verdict_changed_from: str | None = None
+    verdict_flip_days: float | None = None
+    unstable_call: bool | None = None
+    # --- Review ---------------------------------------------------------
+    review_state: str = "draft"
+    reviewer: str | None = None
+    reviewer_name: str | None = None
+    reviewed_at: str | None = None
+    review_note: str | None = None
+    approved_revision: str | None = None
+    # rendered | skipped | failed | refused — whether the documents were
+    # re-stamped at the last review change (None: no re-render needed).
+    review_render_status: str | None = None
+    open_comments: int = 0
+    open_flags: int = 0
+    # --- Failure explanation (failed runs only) -------------------------
+    failure_kind: str | None = None
+    failure_summary_en: str | None = None
+    failure_summary_zh: str | None = None
+    failure_resets_at: str | None = None
+    failure_spend_usd: float | None = None
+    # --- Identity, template and rendering provenance --------------------
+    company_identity: dict | None = None
+    structure_version: str | None = None
+    requested_audience: str | None = None
+    rendered_at: str | None = None
+    renderer_version: str | None = None
+    # What actually generated the memo (memo_analysis._generated_with):
+    # {engine, quality, template, structure?{stage, version, mode},
+    #  models{ROLE: model_id}, writer_model, translation_model,
+    #  code_version}. None for runs that predate it.
+    generated_with: dict | None = None
+    # Deterministic quality numbers computed at finalize
+    # (server/memo_quality_metrics.py): traced_pct, over_cap_sections,
+    # metric_conflicts, repetition_index, ... None for runs that predate it.
+    quality_metrics: dict | None = None
+    # A run that stopped after the English was accepted so a reviewer can
+    # read it before the Chinese, artifacts and IC memo are paid for.
+    pause_after_english: bool | None = None
+    cost_ceiling_usd: float | None = None
 
 
 class ReportDetail(ReportSummary):
@@ -1254,6 +1357,10 @@ class ReportDetail(ReportSummary):
     content_zh: str | None = None
     warnings: list[str] = Field(default_factory=list)
     scope_check: dict | None = None
+    # What an outside investor could buy, from the registry
+    # (memo_prep.classify_actionability): {source, kind, investable_security,
+    # parent?, ticker?}.
+    actionability: dict | None = None
     # Phase 1 company type ({type, source, confidence?}) and the spine's
     # evidence-confirmed stage ({stage, source}); the research view renders
     # both as cards once they land.
@@ -1263,6 +1370,13 @@ class ReportDetail(ReportSummary):
     log_url: str | None = None
     analysis_artifacts: list[dict] = Field(default_factory=list)
     resume_available: bool = False
+    # The last few explicit exports ({ts, actor, role, language, artifact,
+    # format}), newest first.
+    recent_exports: list[dict] = Field(default_factory=list)
+    review_history: list[dict] = Field(default_factory=list)
+    relint: dict | None = None
+    # Set only on the PATCH /review response: what the re-render did.
+    rerender: dict | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -1270,6 +1384,10 @@ class GenerateRequest(BaseModel):
     report_type: str
     audience: str
     language: str = "en"
+    # Per-run memo template override: "standard" (structure v1) or "ic_v2"
+    # (the founder's IC template, structure v2). Late-stage / Auto only;
+    # None falls back to the caller's Settings choice, then the env flag.
+    memo_template: str | None = None
     analysis_session_id: str | None = None
     # "full" = the complete IC report; "compact" = the short partner-memo
     # profile (falls back to full for stages without a compact profile).
@@ -1284,6 +1402,14 @@ class GenerateRequest(BaseModel):
     # whole research folder, which is what every run did before the
     # customizer offered a choice.
     evidence_files: list[str] | None = None
+    # Stop after the English is accepted and rendered, so a reviewer can
+    # read it before the Chinese, artifacts and IC memo are paid for; the
+    # run resumes through the normal resume path.
+    pause_after_english: bool = False
+    # Spend ceiling for this run in USD; None means the server default
+    # (BSH_MEMO_COST_CEILING_USD). A run that reaches it delivers what is
+    # finished instead of starting another paid phase.
+    cost_ceiling_usd: float | None = None
 
 
 class MemoPrepRequest(BaseModel):
@@ -1454,6 +1580,9 @@ class WorkspacePreferencePatch(BaseModel):
     # "claude" | "gemini" — which engine Warren asks first; the other one
     # stands in when it cannot answer (server/warren_engine.py). Desk-wide.
     warren_engine: str | None = None
+    # "standard" | "ic_v2" — the memo template new late-stage / Auto memos
+    # use (per user). "" or "default" clears the choice (env flag decides).
+    memo_template: str | None = None
 
 
 class ThreadIn(BaseModel):
@@ -1646,12 +1775,37 @@ class SelectMatch(BaseModel):
     company_type: str | None = None
 
 
+def _structure_v2_enabled() -> bool:
+    """Whether a run with no per-run choice is written on the v2 structure.
+    The switch and its default live in memo_flags (on unless =0)."""
+    return memo_flags.enabled("BSH_MEMO_STRUCTURE_V2")
+
+
+def _english_parallel_enabled() -> bool:
+    return memo_flags.enabled("BSH_MEMO_ENGLISH_PARALLEL")
+
+
 @router.get("/options")
 def get_options() -> dict:
     return {
         "report_types": list(REPORT_TYPES),
         "audiences": list(AUDIENCES),
         "languages": [{"code": "en", "label": "English"}, {"code": "zh", "label": "中文"}],
+        # Environment facts, so the customizer can be honest about what a
+        # run will do: the report-length choice only exists on v2, and v2
+        # needs the parallel English path.
+        "structure_v2_enabled": _structure_v2_enabled(),
+        "english_parallel_enabled": _english_parallel_enabled(),
+        "memo_templates": list(product_store.MEMO_TEMPLATES),
+        "memo_template_default": product_store.default_memo_template(),
+    }
+
+
+def _memo_template_fields(email: str | None) -> dict:
+    prefs = product_store.get_preferences(email)["preferences"]
+    return {
+        "memo_template": prefs.get("memo_template"),
+        "memo_template_effective": prefs.get("memo_template_effective"),
     }
 
 
@@ -1663,6 +1817,7 @@ def get_workspace_settings(request: Request) -> dict:
             role_override=_caller_role(request),
         )["account"],
         **product_store.get_preferences(_caller_email(request)),
+        **_memo_template_fields(_caller_email(request)),
         "warren": warren_engine.status(),
     }
 
@@ -1672,7 +1827,11 @@ def patch_workspace_settings(
     patch: WorkspacePreferencePatch,
     request: Request,
 ) -> dict:
-    _require_permission(request, "settings:update")
+    changes = patch.model_dump(exclude_none=True)
+    # The memo template is a personal choice (which template MY runs use),
+    # not a workspace setting: anyone who may start a memo may set it.
+    personal_only = bool(changes) and set(changes) <= {"memo_template"}
+    _require_permission(request, "tasks:action" if personal_only else "settings:update")
     try:
         return {
             "account": product_store.workspace_profile(
@@ -1681,8 +1840,9 @@ def patch_workspace_settings(
             )["account"],
             **product_store.update_preferences(
                 _caller_email(request),
-                patch.model_dump(exclude_none=True),
+                changes,
             ),
+            **_memo_template_fields(_caller_email(request)),
             # Read after the update, so a new Warren choice shows at once.
             "warren": warren_engine.status(),
         }
@@ -3502,12 +3662,9 @@ def get_company(company_id: str) -> CompanyOut:
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    analytics_store.record_event(
-        "workspace_opened",
-        company_id=company_id,
-        company_name=company.get("name"),
-        source="company_get",
-    )
+    # No analytics event here: this GET fires on every desk render and
+    # poll, which drowned the event log. "First interest" in a company is
+    # still recorded where it happens (search, POST /companies/select).
     return CompanyOut(**_company_view(company))
 
 
@@ -3771,7 +3928,16 @@ def post_company_comment(request: Request, company_id: str, payload: dict) -> di
     _require_company(company_id)
     payload = payload or {}
     try:
-        item = firm.add_comment(company_id, text=str(payload.get("text") or ""), author=_caller_email(request), target=payload.get("target"), parent_id=payload.get("parent_id"))
+        item = firm.add_comment(
+            company_id,
+            text=str(payload.get("text") or ""),
+            author=_caller_email(request),
+            target=payload.get("target"),
+            parent_id=payload.get("parent_id"),
+            flag=payload.get("flag"),
+            quote=payload.get("quote"),
+            language=payload.get("language"),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     firm_search.invalidate()
@@ -4276,6 +4442,26 @@ def put_thesis(request: Request, payload: dict) -> dict:
     return thesis_store.save_thesis(payload or {})
 
 
+@router.get("/settings/fund-policy")
+def get_fund_policy() -> dict:
+    """The fund's return policy per stage (unset until the owner saves one)
+    plus read-only fund context (fund size, check size)."""
+    return fund_policy.get_policy()
+
+
+@router.put("/settings/fund-policy")
+def put_fund_policy(request: Request, payload: dict) -> dict:
+    """Save the return policy: ``{"stages": {"late": {target_moic,
+    target_irr_pct, max_hold_years, max_position_pct, basis}, ...}}``; a
+    stage set to null is cleared, ``{"clear": true}`` unsets everything.
+    Admin and partner (settings:update)."""
+    _require_permission(request, "settings:update")
+    try:
+        return fund_policy.save_policy(payload or {}, updated_by=_caller_email(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/thesis/score")
 def post_thesis_score(payload: dict) -> dict:
     """Score a company (by id) or an ad-hoc description against the thesis."""
@@ -4676,9 +4862,16 @@ def get_reports(lite: bool = False) -> list[ReportSummary]:
 
     ``lite=1`` blanks the per-report contract / lint / parity blobs and the
     memo file list (null / empty); download and preview URLs stay, and the
-    full fields remain on ``GET /reports/{id}``.
+    full fields remain on ``GET /reports/{id}``. Version fields
+    (``is_latest``, ``newer_version_id`` …) are derived here in one pass.
     """
-    summaries = [_report_summary(r) for r in storage.list_reports()]
+    from . import firm
+
+    counts = firm.report_comment_counts()
+    summaries = [
+        _report_summary(r, comment_counts=counts) for r in storage.list_reports()
+    ]
+    memo_diff.annotate_versions(summaries)
     if lite:
         for summary in summaries:
             for field in _REPORT_LIST_HEAVY_FIELDS:
@@ -4686,12 +4879,229 @@ def get_reports(lite: bool = False) -> list[ReportSummary]:
     return [ReportSummary(**summary) for summary in summaries]
 
 
+# ---- Pre-flight: readiness and estimates (zero-cost signals only) ----------------
+#
+# Registered before GET /reports/{report_id} so "readiness" and "estimates"
+# are not read as report ids.
+
+_READINESS_MESSAGES = {
+    "company_not_found": (
+        "This company is not in the workspace.",
+        "该公司不在工作区中。",
+    ),
+    "company_name_unconfirmed": (
+        "The company record has no proper name yet; check it is the right company.",
+        "该公司记录尚无正式名称，请确认公司是否正确。",
+    ),
+    "claude_cli_missing": (
+        "The Claude command-line tool is not installed on the server.",
+        "服务器上未安装 Claude 命令行工具。",
+    ),
+    "claude_limited": (
+        "Claude has hit its usage limit.",
+        "Claude 已达到使用上限。",
+    ),
+    "gemini_key_missing": (
+        "No Gemini API key is configured on the server.",
+        "服务器未配置 Gemini API 密钥。",
+    ),
+}
+
+
+def _readiness_item(code: str, **extra: Any) -> dict:
+    en, zh = _READINESS_MESSAGES[code]
+    return {"code": code, "en": en, "zh": zh, **extra}
+
+
+@router.get("/reports/readiness")
+def get_report_readiness(company_id: str | None = None, engine: str | None = None) -> dict:
+    """Can a memo run start now? Built only from signals that cost nothing:
+    the CLI is on PATH, a recorded Claude usage limit that has not expired,
+    a Gemini key is set, and the company exists with a proper name. It never
+    spawns a prompt (unlike /api/diagnostics/claude). Advisory: POST
+    /reports is never refused because of it."""
+    from . import gemini_runner
+
+    engine_name = str(engine or "claude").strip().lower() or "claude"
+    if engine_name not in ("claude", "gemini"):
+        raise HTTPException(status_code=400, detail="engine must be 'claude' or 'gemini'")
+    blockers: list[dict] = []
+    warnings: list[dict] = []
+    company_block: dict | None = None
+    if company_id:
+        company = storage.get_company(company_id)
+        if company is None:
+            blockers.append(_readiness_item("company_not_found"))
+            company_block = {"id": company_id, "exists": False, "name": None, "real_name": False}
+        else:
+            name = str(company.get("name") or "").strip()
+            real_name = bool(name) and name.lower() != str(company.get("id") or "").lower() and not storage.is_placeholder_company(company)
+            if not real_name:
+                warnings.append(_readiness_item("company_name_unconfirmed"))
+            company_block = {
+                "id": company.get("id"),
+                "exists": True,
+                "name": name or None,
+                "legal_name": company.get("legal_name"),
+                "ticker": company.get("ticker"),
+                "real_name": real_name,
+                # What an outside investor could buy (listed / a subsidiary's
+                # parent / a private round) — the same registry read the run
+                # records as report.actionability.
+                "actionability": memo_prep.classify_actionability(company),
+            }
+    claude_available = claude_runner.is_available()
+    claude_limit = provider_limits.current_limit("claude")
+    gemini_available = gemini_runner.is_available()
+    if engine_name == "claude":
+        if not claude_available:
+            blockers.append(_readiness_item("claude_cli_missing"))
+        elif claude_limit:
+            blockers.append(
+                _readiness_item("claude_limited", reset_at=claude_limit.get("reset_at"))
+            )
+    elif not gemini_available:
+        blockers.append(_readiness_item("gemini_key_missing"))
+    suggest = None
+    if engine_name == "claude" and (not claude_available or claude_limit) and gemini_available:
+        suggest = "gemini"
+    # What a run on this company would be built from — counted by the same
+    # code that stages the run's inputs (server/memo_inputs.py), so the
+    # Generate dialog's "Built from" line and the memo agree.
+    inputs = None
+    if company_block and company_block.get("exists"):
+        from . import memo_inputs
+
+        try:
+            inputs = memo_inputs.counts(str(company_block["id"]))
+        except Exception:  # noqa: BLE001 — advisory, never a 500
+            logger.warning("readiness input counts failed", exc_info=True)
+    return {
+        "engine": engine_name,
+        "ready": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "suggest_engine": suggest,
+        "company": company_block,
+        "inputs": inputs,
+        "engines": {
+            "claude": {
+                "available": claude_available,
+                "limited": bool(claude_limit),
+                "limit": claude_limit,
+            },
+            "gemini": {"available": gemini_available},
+        },
+        "checked_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+
+
+ESTIMATE_MIN_SAMPLES = 3
+
+
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number > 0 else None
+
+
+def _spread(values: list[float]) -> dict:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2.0
+    return {"median": round(median, 4), "min": round(ordered[0], 4), "max": round(ordered[-1], 4)}
+
+
+@router.get("/reports/estimates")
+def get_report_estimates() -> dict:
+    """Typical run time and API-equivalent cost from finished runs, keyed by
+    (report_type, model_quality, structure_mode, engine). Only keys with at
+    least three samples are returned; anything else is "no runs at this
+    setting yet" for the UI. Cost is the API-equivalent figure the CLI
+    reports; Claude runs draw on the subscription's weekly allowance."""
+    buckets: dict[tuple[str, str, str, str], dict[str, list[float]]] = {}
+    for report in storage.list_reports():
+        if str(report.get("status") or "") not in ("complete", "complete_with_warnings"):
+            continue
+        if not memo_prep.is_memo_kind(report.get("kind")):
+            continue
+        duration = _number_or_none(report.get("claude_duration_ms"))
+        if duration is None:
+            continue
+        key = (
+            str(report.get("report_type") or ""),
+            str(report.get("model_quality") or "best"),
+            str(report.get("structure_mode") or "full"),
+            str(report.get("engine") or "claude"),
+        )
+        bucket = buckets.setdefault(key, {"duration": [], "cost": []})
+        bucket["duration"].append(duration)
+        cost = _number_or_none(report.get("claude_cost_usd"))
+        if cost is not None:
+            bucket["cost"].append(cost)
+    rows = []
+    for (report_type, quality, mode, engine_name), bucket in sorted(buckets.items()):
+        if len(bucket["duration"]) < ESTIMATE_MIN_SAMPLES:
+            continue
+        priced = len(bucket["cost"]) >= ESTIMATE_MIN_SAMPLES
+        rows.append({
+            "report_type": report_type,
+            "model_quality": quality,
+            "structure_mode": mode,
+            "engine": engine_name,
+            "samples": len(bucket["duration"]),
+            "duration_ms": _spread(bucket["duration"]),
+            "cost_usd": _spread(bucket["cost"]) if priced else None,
+            "cost_samples": len(bucket["cost"]),
+            "unpriced": not priced,
+            "cost_basis": "api_equivalent",
+        })
+    return {
+        "min_samples": ESTIMATE_MIN_SAMPLES,
+        "cost_basis": "api_equivalent",
+        "cost_note": (
+            "API-equivalent cost reported by the engine. Claude runs use the "
+            "subscription and draw on its weekly allowance."
+        ),
+        "estimates": rows,
+    }
+
+
+def _versioned_detail(report: dict) -> dict:
+    """The report detail with its version fields, derived from the company's
+    other reports (records carry decision and reader blocks)."""
+    detail = _report_detail(report)
+    company_id = report.get("company_id")
+    if company_id and memo_prep.is_memo_kind(report.get("kind")):
+        rows = [dict(r) for r in storage.list_reports_for(str(company_id))]
+        memo_diff.annotate_versions(rows)
+        mine = next((r for r in rows if r.get("id") == report.get("id")), None)
+        if mine is not None:
+            for field in (
+                "is_latest",
+                "version_index",
+                "version_count",
+                "previous_version_id",
+                "newer_version_id",
+                "latest_version_id",
+                "verdict_changed_from",
+                "verdict_flip_days",
+                "unstable_call",
+            ):
+                detail[field] = mine.get(field)
+    return detail
+
+
 @router.get("/reports/{report_id}")
 def get_report(report_id: str) -> ReportDetail:
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    return ReportDetail(**_report_detail(report))
+    return ReportDetail(**_versioned_detail(report))
 
 
 def _supersede_stale_memo_failures(company_id: str, new_report_id: str | None) -> None:
@@ -4738,6 +5148,15 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
     }
     _record_report_generation_event("request_received", **base_event)
     analytics_store.record_event("memo_generate_started", **base_event)
+    if payload.report_type in UNAVAILABLE_REPORT_TYPES:
+        detail = f"{payload.report_type} reports are not available yet"
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail=detail,
+        )
+        raise HTTPException(status_code=400, detail=detail)
     if payload.report_type not in REPORT_TYPES:
         _record_report_generation_event(
             "request_rejected",
@@ -4778,72 +5197,64 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
             detail="Invalid quality",
         )
         raise HTTPException(status_code=400, detail="Invalid quality")
-
-    # Investment memos (late-stage and Buffett) route through the prep
-    # pipeline (run folder, scope check) instead of the placeholder generator.
-    if memo_prep.is_memo_report_type(payload.report_type):
-        try:
-            result = memo_prep.bootstrap_memo_run(
-                payload.company_id,
-                analysis_session_id=payload.analysis_session_id,
-                report_type=payload.report_type,
-                report_mode=payload.report_mode,
-                quality=payload.quality,
-                engine=payload.engine,
-                evidence_files=payload.evidence_files,
-            )
-        except memo_prep.AnalysisSessionNotReadyError as exc:
-            _record_report_generation_event(
-                "request_rejected",
-                **base_event,
-                status_code=400,
-                detail=str(exc),
-            )
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except ValueError as exc:
-            _record_report_generation_event(
-                "request_rejected",
-                **base_event,
-                status_code=404,
-                detail=str(exc),
-            )
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            _record_report_generation_event(
-                "request_failed",
-                **base_event,
-                status_code=500,
-                detail=str(exc),
-            )
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        report = result.get("report") or storage.get_report(result["report_id"])
-        if report is None:
-            _record_report_generation_event(
-                "request_failed",
-                **base_event,
-                status_code=500,
-                detail="Report record vanished after prep",
-            )
-            raise HTTPException(status_code=500, detail="Report record vanished after prep")
-        _supersede_stale_memo_failures(
-            report.get("company_id") or payload.company_id, report.get("id")
-        )
+    if payload.cost_ceiling_usd is not None and not (0 < payload.cost_ceiling_usd <= 1000):
         _record_report_generation_event(
-            "report_created",
+            "request_rejected",
             **base_event,
-            report_id=report.get("id"),
-            status=report.get("status"),
-            run_dir=report.get("run_dir"),
+            status_code=400,
+            detail="Invalid cost_ceiling_usd",
         )
-        return ReportDetail(**_report_detail(report))
+        raise HTTPException(
+            status_code=400,
+            detail="cost_ceiling_usd must be between 0 and 1000 US dollars",
+        )
+    if (
+        payload.memo_template is not None
+        and payload.memo_template not in product_store.MEMO_TEMPLATES
+    ):
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid memo_template",
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="memo_template must be 'standard' or 'ic_v2'",
+        )
 
+    # Every accepted report type is an investment memo (late-stage, Auto or
+    # Buffett); they all route through the prep pipeline (run folder, scope
+    # check). The old placeholder generator is gone.
+    structure_version, structure_version_source = _new_run_structure_version(
+        request, payload.report_type, payload.memo_template
+    )
     try:
-        report = storage.create_report(
-            company_id=payload.company_id,
+        result = memo_prep.bootstrap_memo_run(
+            payload.company_id,
+            analysis_session_id=payload.analysis_session_id,
             report_type=payload.report_type,
+            report_mode=payload.report_mode,
+            quality=payload.quality,
+            engine=payload.engine,
+            evidence_files=payload.evidence_files,
+            # Both land on the record before the worker starts: the
+            # audience decides whether the IC decision memo is written, and
+            # the template decides the structure the run resolves.
             audience=payload.audience,
-            language=payload.language,
+            structure_version=structure_version,
+            structure_version_source=structure_version_source,
+            pause_after_english=bool(payload.pause_after_english),
+            cost_ceiling_usd=payload.cost_ceiling_usd,
         )
+    except memo_prep.AnalysisSessionNotReadyError as exc:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         _record_report_generation_event(
             "request_rejected",
@@ -4852,15 +5263,109 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
             detail=str(exc),
         )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    generator.start_generation(report["id"])
+    except RuntimeError as exc:
+        _record_report_generation_event(
+            "request_failed",
+            **base_event,
+            status_code=500,
+            detail=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    report = result.get("report") or storage.get_report(result["report_id"])
+    if report is None:
+        _record_report_generation_event(
+            "request_failed",
+            **base_event,
+            status_code=500,
+            detail="Report record vanished after prep",
+        )
+        raise HTTPException(status_code=500, detail="Report record vanished after prep")
+    report = _stamp_new_report(
+        report,
+        request,
+        requested_audience=payload.audience,
+        memo_template=payload.memo_template,
+    )
+    _supersede_stale_memo_failures(
+        report.get("company_id") or payload.company_id, report.get("id")
+    )
     _record_report_generation_event(
         "report_created",
         **base_event,
         report_id=report.get("id"),
         status=report.get("status"),
         run_dir=report.get("run_dir"),
+        structure_version=report.get("structure_version"),
     )
     return ReportDetail(**_report_detail(report))
+
+
+def _new_run_structure_version(
+    request: Request | None,
+    report_type: str | None,
+    memo_template: str | None = None,
+    *,
+    memo_mode: str = "auto",
+) -> tuple[str | None, str | None]:
+    """The memo template ("v1" | "v2") and its source for a NEW late-stage /
+    Auto run, resolved before ``bootstrap_memo_run`` so the record carries
+    it when the worker starts: the per-run ``memo_template`` override, else
+    the caller's Settings choice, else the BSH_MEMO_STRUCTURE_V2 default.
+    Buffett runs get none. A Memo Studio run writes the standard memo (its
+    spine is composed from the v1 studio cards), and says so."""
+    if memo_prep.is_buffett_report_type(report_type):
+        return None, None
+    if memo_mode == "studio":
+        return "v1", "studio"
+    email = _caller_email(request) if request is not None else None
+    template, source = product_store.effective_memo_template(email, memo_template)
+    return product_store.MEMO_TEMPLATE_STRUCTURE_VERSIONS[template], source
+
+
+def _stamp_new_report(
+    report: dict,
+    request: Request | None,
+    *,
+    requested_audience: str | None = None,
+    memo_template: str | None = None,
+) -> dict:
+    """Facts a new memo record keeps from the moment it was created:
+
+    - ``company_identity``: the company's ticker, website / logo domain and
+      legal name, so the report's logo and identity survive later edits to
+      (or removal of) the company record;
+    - ``structure_version`` ("v1" | "v2") for late-stage / Auto memos: the
+      callers pass it to ``bootstrap_memo_run`` so it is on the record
+      before the worker starts; this fills it only for a record that
+      somehow has none (the per-run override, else the caller's Settings
+      choice, else the BSH_MEMO_STRUCTURE_V2 default). Buffett memos get no
+      field;
+    - ``requested_audience``: the audience the caller asked for (the record's
+      ``audience`` is the same value, written by prep).
+    """
+    report_id = str(report.get("id") or "")
+    if not report_id:
+        return report
+    patch: dict[str, Any] = {}
+    if not isinstance(report.get("company_identity"), dict):
+        company = storage.get_company(str(report.get("company_id") or "")) if report.get("company_id") else None
+        snapshot = report_reader.identity_from_company(company)
+        if snapshot:
+            patch["company_identity"] = snapshot
+    if requested_audience:
+        patch["requested_audience"] = requested_audience
+    if (
+        memo_prep.is_memo_kind(report.get("kind"))
+        and not memo_prep.is_buffett_kind(report.get("kind"))
+        and not report.get("structure_version")
+    ):
+        email = _caller_email(request) if request is not None else None
+        template, source = product_store.effective_memo_template(email, memo_template)
+        patch["structure_version"] = product_store.MEMO_TEMPLATE_STRUCTURE_VERSIONS[template]
+        patch["structure_version_source"] = source
+    if not patch:
+        return report
+    return storage.update_report(report_id, **patch) or {**report, **patch}
 
 
 def _report_artifact_entry(
@@ -4871,15 +5376,21 @@ def _report_artifact_entry(
     preview: bool = False,
 ) -> dict | None:
     if artifact == "internal":
-        entries = report.get("internal_memo_files") or []
+        # The IC decision memo is written in English and Chinese (one entry
+        # per language); older records carry one English entry with or
+        # without a language. zh asks for the Chinese entry only.
+        entries = [
+            f
+            for f in report.get("internal_memo_files") or []
+            if isinstance(f, dict)
+            and f.get("kind") == "internal_diligence_memo"
+            and (not preview or f.get("pdf_path"))
+        ]
+        if language == "zh":
+            return next((f for f in entries if f.get("language") == "zh"), None)
         return next(
-            (
-                f
-                for f in entries
-                if f.get("kind") == "internal_diligence_memo"
-                and (not preview or f.get("pdf_path"))
-            ),
-            None,
+            (f for f in entries if str(f.get("language") or "en") == "en"),
+            entries[0] if entries else None,
         )
     entries = report.get("memo_files") or []
     key = "pdf_path" if preview else "path"
@@ -4910,22 +5421,59 @@ def _analysis_artifact_label(filename: str) -> str:
     return Path(filename).stem.replace("_", " ").replace("-", " ").title()
 
 
-def _report_analysis_artifacts(report: dict) -> list[dict]:
+# The working papers a reader wants first — the case against, the
+# arithmetic, what would disconfirm it, the claim audit, the downside —
+# then every other pass in pipeline order. Web and the native apps read
+# this one order.
+_ANALYSIS_READER_PRIORITY = (
+    "countercase.md",
+    "pressure_tests.md",
+    "disconfirming_evidence.md",
+    "claim_register.md",
+    "downside_scenario.md",
+)
+
+
+def _analysis_artifact_order() -> dict[str, int]:
+    order: dict[str, int] = {}
+    for filename in (
+        *_ANALYSIS_READER_PRIORITY,
+        *claude_runner._MEMO_ANALYSIS_PASSES,
+        *claude_runner._BUFFETT_ANALYSIS_PASSES,
+    ):
+        order.setdefault(filename, len(order))
+    return order
+
+
+def _analysis_artifact_failed(path: Path) -> bool:
+    """A pass that failed leaves a placeholder ('## Status' / 'Pass failed:')
+    instead of findings; list it as "did not run", never as a paper."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(4000)
+    except OSError:
+        return False
+    return "Pass failed:" in head or bool(re.search(r"(?m)^##\s+Status\s*$", head))
+
+
+def _analysis_markdown_files(report: dict) -> list[Path]:
     run_dir = _memo_run_dir(report)
     if not run_dir:
         return []
     analysis_dir = run_dir / "analysis"
     if not analysis_dir.is_dir():
         return []
-
-    known_order = {
-        filename: idx
-        for idx, filename in enumerate(claude_runner._MEMO_ANALYSIS_PASSES)
-    }
-    files = sorted(
+    known_order = _analysis_artifact_order()
+    return sorted(
         (p for p in analysis_dir.iterdir() if p.is_file() and p.suffix == ".md"),
         key=lambda p: (known_order.get(p.name, len(known_order)), p.name),
     )
+
+
+def _report_analysis_artifacts(report: dict) -> list[dict]:
+    files = _analysis_markdown_files(report)
+    if not files:
+        return []
     rid = report.get("id")
     artifacts: list[dict] = []
     for path in files:
@@ -4933,6 +5481,7 @@ def _report_analysis_artifacts(report: dict) -> list[dict]:
             "label": _analysis_artifact_label(path.name),
             "filename": path.name,
             "path": memo_prep._rel(path),
+            "failed": _analysis_artifact_failed(path),
         }
         if rid:
             entry["download_url"] = (
@@ -4951,11 +5500,28 @@ def _report_resume_available(report: dict) -> bool:
     # resumed.
     if report.get("superseded_by") or report.get("dismissed_at"):
         return False
+    status = str(report.get("status") or "")
+    if status == "english_ready_paused":
+        # Paused after the English on purpose: continuing needs only the
+        # accepted English package, exactly like "Retry Chinese".
+        run_dir = _memo_run_dir(report)
+        return bool(
+            run_dir and (run_dir / "logs" / "memo_package.en.json").exists()
+        )
+    if report.get("failure_phase") == "chinese_package" and (
+        status == "complete_with_warnings" or status.startswith("failed")
+    ):
+        # "Retry Chinese": the English was delivered and only the Chinese is
+        # re-run from the accepted English package — nothing a Studio run's
+        # pins could be lost to, so Studio runs get it too.
+        run_dir = _memo_run_dir(report)
+        return bool(
+            run_dir and (run_dir / "logs" / "memo_package.en.json").exists()
+        )
     if str(report.get("memo_mode") or "auto") == "studio":
         # Studio recovery is "press Generate again": the monolithic resume
         # path would regenerate the package ignoring the user's pins.
         return False
-    status = str(report.get("status") or "")
     resumable = (
         status.startswith("failed") and status not in {"failed_scope_check"}
     ) or status == "complete_with_warnings"
@@ -4970,10 +5536,24 @@ def _report_resume_available(report: dict) -> bool:
         return status.startswith("failed") and status not in {"failed_scope_check"}
     if status in ("failed_quality_gate", "complete_with_warnings"):
         # Quality regeneration needs the analysis artifacts to rewrite from.
-        return bool(_report_analysis_artifacts(report))
+        return bool(_usable_analysis_files(report))
     if (run_dir / "logs" / "memo_package.json").exists():
         return True
-    return bool(_report_analysis_artifacts(report))
+    # The fast resume continues from an accepted English package, or from
+    # the analysis passes that succeeded — a run made only of failed-pass
+    # stubs has nothing to resume from.
+    if (run_dir / "logs" / "memo_package.en.json").exists():
+        return True
+    return bool(_usable_analysis_files(report))
+
+
+def _usable_analysis_files(report: dict) -> list[Path]:
+    """The run's analysis artifacts minus failed-pass placeholders."""
+    return [
+        path
+        for path in _analysis_markdown_files(report)
+        if not _analysis_artifact_failed(path)
+    ]
 
 
 def _report_analysis_artifact_path(report: dict, filename: str | None) -> Path:
@@ -4997,18 +5577,66 @@ def _report_analysis_artifact_path(report: dict, filename: str | None) -> Path:
     return file_path
 
 
+_DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _gate_report_file(request: Request | None, *, artifact: str, purpose: str) -> None:
+    """Reading a memo stays open to every signed-in role (the web viewer,
+    Mac and iOS read the same URL); an explicit export needs memo:export
+    and the internal diligence memo needs memo:edit. Direct (non-HTTP)
+    callers pass no request and are not gated."""
+    if request is None:
+        return
+    if artifact == "internal":
+        _require_permission(request, "memo:edit")
+    if purpose == "export":
+        _require_permission(request, "memo:export")
+
+
+def _log_report_file(
+    request: Request | None,
+    report: dict,
+    *,
+    language: str | None,
+    artifact: str,
+    purpose: str,
+    fmt: str | None = None,
+    file: str | None = None,
+) -> None:
+    if request is None:
+        return
+    try:
+        report_access.record_access(
+            report=report,
+            actor=_caller_email(request),
+            auth_kind=getattr(request.state, "auth_kind", None),
+            role=_caller_role(request),
+            language=language,
+            artifact=artifact,
+            purpose=purpose,
+            fmt=fmt,
+            file=file,
+        )
+    except Exception:  # noqa: BLE001 — logging must never break a download
+        logger.debug("report access log failed", exc_info=True)
+
+
 @router.get("/reports/{report_id}/download")
 def download_memo(
     report_id: str,
     language: str = "en",
     artifact: str = "memo",
     analysis_file: str | None = Query(default=None, alias="file"),
+    purpose: str | None = None,
+    request: Request = None,
 ) -> FileResponse:
     """Download a memo .docx in the requested language.
 
-    Returns 404 if the report doesn't exist, isn't an investment memo, or
-    the rendered file isn't on disk (e.g., still running, or the run
-    folder was deleted).
+    ``purpose=export`` marks an explicit Download (it needs memo:export);
+    anything else is an in-app view. Every successful response is logged
+    to the report access log. Returns 404 if the report doesn't exist,
+    isn't an investment memo, or the rendered file isn't on disk (e.g.,
+    still running, or the run folder was deleted).
     """
     if artifact not in ("memo", "internal", "analysis"):
         raise HTTPException(
@@ -5017,6 +5645,8 @@ def download_memo(
         )
     if artifact == "memo" and language not in ("en", "zh"):
         raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
+    access_purpose = report_access.normalize_purpose(purpose)
+    _gate_report_file(request, artifact=artifact, purpose=access_purpose)
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -5026,6 +5656,15 @@ def download_memo(
         )
     if artifact == "analysis":
         file_path = _report_analysis_artifact_path(report, analysis_file)
+        _log_report_file(
+            request,
+            report,
+            language=None,
+            artifact="analysis",
+            purpose=access_purpose,
+            fmt="md",
+            file=file_path.name,
+        )
         return FileResponse(
             path=str(file_path),
             filename=file_path.name,
@@ -5045,14 +5684,21 @@ def download_memo(
                 f"deleted: {target['path']}"
             ),
         )
-    # Suggest a clean download filename — the on-disk name already includes
-    # the company name, type label, and timestamp.
+    file_language = (target.get("language") or language) if artifact == "internal" else language
+    _log_report_file(
+        request,
+        report,
+        language=file_language,
+        artifact=artifact,
+        purpose=access_purpose,
+        fmt="docx",
+    )
     return FileResponse(
         path=str(file_path),
-        filename=file_path.name,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        filename=report_access.download_filename(
+            report, language=file_language, ext="docx", artifact=artifact
         ),
+        media_type=_DOCX_MEDIA_TYPE,
     )
 
 
@@ -5061,19 +5707,23 @@ def preview_memo(
     report_id: str,
     language: str = "en",
     artifact: str = "memo",
+    purpose: str | None = None,
+    request: Request = None,
 ) -> FileResponse:
-    """Serve the rendered PDF of a memo for inline preview.
+    """Serve the memo as a PDF, inline (for an <iframe>).
 
-    Mirrors `download_memo` but targets the `pdf_path` recorded on the
-    memo_files entry (rendered post-run from the .docx) and serves it
-    with an inline disposition so it renders in an <iframe>/embed rather
-    than downloading. Returns 404 if no PDF was produced (e.g. Word
-    automation unavailable) — the .docx download is still offered.
+    The PDF is made on first request and cached against the docx it came
+    from (server/memo_pdf.py): a re-rendered docx gets a fresh PDF. Answers
+    503 with Retry-After while another request is converting the same
+    document, and 404 when no PDF can be made here (no Word or
+    LibreOffice) — the viewer then keeps rendering the docx.
     """
     if artifact not in ("memo", "internal"):
         raise HTTPException(status_code=400, detail="artifact must be 'memo' or 'internal'")
     if artifact == "memo" and language not in ("en", "zh"):
         raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
+    access_purpose = report_access.normalize_purpose(purpose)
+    _gate_report_file(request, artifact=artifact, purpose=access_purpose)
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -5081,32 +5731,107 @@ def preview_memo(
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
         )
-    target = _report_artifact_entry(
-        report,
-        artifact=artifact,
-        language=language,
-        preview=True,
-    )
-    if not target or not target.get("pdf_path"):
+    pdf_path, error = memo_pdf.get_or_create(report, language, artifact=artifact)
+    if pdf_path is None:
+        if error == "building":
+            raise HTTPException(
+                status_code=503,
+                detail="The PDF is still being made; try again shortly.",
+                headers={"Retry-After": "10"},
+            )
         label = "internal diligence memo" if artifact == "internal" else f"{language} PDF"
         raise HTTPException(
             status_code=404,
-            detail=f"No {label} preview was rendered for this run",
+            detail=f"No {label} preview is available: {error}",
         )
-    repo_root = memo_prep.DATA_DIR.parent
-    file_path = (repo_root / target["pdf_path"]).resolve()
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"PDF preview not found on disk; the run folder may have "
-                f"been deleted: {target['pdf_path']}"
-            ),
-        )
+    _log_report_file(
+        request,
+        report,
+        language="en" if artifact == "internal" else language,
+        artifact=artifact,
+        purpose=access_purpose,
+        fmt="pdf",
+    )
     return FileResponse(
-        path=str(file_path),
+        path=str(pdf_path),
         media_type="application/pdf",
+        filename=report_access.download_filename(
+            report,
+            language="en" if artifact == "internal" else language,
+            ext="pdf",
+            artifact=artifact,
+        ),
         content_disposition_type="inline",
+    )
+
+
+def _content_disposition(filename: str, disposition: str = "attachment") -> str:
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"{disposition}; filename*=utf-8''{quoted}"
+    return f'{disposition}; filename="{filename}"'
+
+
+@router.get("/reports/{report_id}/bundle")
+def download_memo_bundle(
+    report_id: str,
+    format: str = "docx",
+    request: Request = None,
+) -> Response:
+    """Both languages in one .zip — an explicit export (memo:export).
+    ``format``: docx (default), pdf, or all (docx and pdf)."""
+    import io
+    import zipfile
+
+    fmt = str(format or "docx").strip().lower()
+    if fmt not in ("docx", "pdf", "all"):
+        raise HTTPException(status_code=400, detail="format must be 'docx', 'pdf' or 'all'")
+    _gate_report_file(request, artifact="memo", purpose="export")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not memo_prep.is_memo_kind(report.get("kind")):
+        raise HTTPException(status_code=404, detail="Report is not an investment memo")
+    members: list[tuple[str, Path]] = []
+    notes: list[str] = []
+    for lang in ("en", "zh"):
+        docx = memo_pdf.docx_path(report, lang)
+        if docx is None:
+            continue
+        if fmt in ("docx", "all"):
+            members.append(
+                (report_access.download_filename(report, language=lang, ext="docx"), docx)
+            )
+        if fmt in ("pdf", "all"):
+            pdf, error = memo_pdf.get_or_create(report, lang)
+            if pdf is not None:
+                members.append(
+                    (report_access.download_filename(report, language=lang, ext="pdf"), pdf)
+                )
+            else:
+                notes.append(f"{lang}: {error}")
+    if not members:
+        detail = "No documents are on file for this report"
+        if notes:
+            detail += " (" + "; ".join(notes) + ")"
+        raise HTTPException(status_code=404, detail=detail)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, path in members:
+            archive.write(path, arcname=name)
+    _log_report_file(
+        request,
+        report,
+        language="both",
+        artifact="bundle",
+        purpose="export",
+        fmt=fmt,
+    )
+    filename = report_access.download_filename(report, language="both", ext="zip")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -5328,12 +6053,17 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
             status_code=400,
             detail="Scope-check failures cannot be resumed",
         )
-    if not status.startswith("failed") and status != "complete_with_warnings":
+    # A run paused after its English (pause_after_english) continues
+    # through the same resume path, straight to the Chinese.
+    if (
+        not status.startswith("failed")
+        and status not in ("complete_with_warnings", "english_ready_paused")
+    ):
         raise HTTPException(
             status_code=409,
             detail=(
-                "Only failed or complete-with-warnings memo reports can be "
-                "resumed"
+                "Only failed, complete-with-warnings or paused memo reports "
+                "can be resumed"
             ),
         )
     if not _report_resume_available(report):
@@ -5383,6 +6113,11 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
         memo_quality_lint=None,
         memo_chinese_parity=None,
         quality_warnings=None,
+        quality_warnings_zh=None,
+        quality_warning_items=None,
+        # The resumed run writes new documents: what they conclude is
+        # recomputed at completion, and any sign-off no longer applies.
+        **_regeneration_resets(report),
     ) or report
     if memo_prep.is_buffett_kind(report.get("kind")):
         buffett_memo_analysis.start_resume(report_id)
@@ -5391,17 +6126,421 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
     return ReportDetail(**_report_detail(updated))
 
 
+def _regeneration_resets(report: dict) -> dict:
+    """Fields to clear when a run is about to write new documents."""
+    patch: dict[str, Any] = {}
+    if report.get("reader") is not None:
+        patch["reader"] = None
+    if (report.get("review_state") or "draft") != "draft":
+        patch.update(review_state="draft", approved_revision=None)
+    return patch
+
+
+# ---- Versions: what changed since the previous memo ---------------------------------
+
+
+@router.get("/reports/{report_id}/diff")
+def get_report_diff(report_id: str, against: str | None = None) -> dict:
+    """Compare a memo with an earlier one on the same company and kind —
+    by default the previous finished version. Deterministic, no model call
+    (server/memo_diff.py)."""
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not memo_prep.is_memo_kind(report.get("kind")):
+        raise HTTPException(status_code=400, detail="Only investment memos have versions")
+    if against:
+        other = storage.get_report(against)
+        if other is None:
+            raise HTTPException(status_code=404, detail="Comparison report not found")
+        if other.get("id") == report.get("id"):
+            raise HTTPException(status_code=400, detail="Pick a different report to compare with")
+        if other.get("kind") != report.get("kind"):
+            raise HTTPException(
+                status_code=400,
+                detail="Only memos of the same kind can be compared",
+            )
+    else:
+        rows = [dict(r) for r in storage.list_reports_for(str(report.get("company_id") or ""))]
+        for row in rows:
+            report_reader.ensure_reader_block(row)
+        memo_diff.annotate_versions(rows)
+        mine = next((r for r in rows if r.get("id") == report_id), None)
+        previous_id = (mine or {}).get("previous_version_id")
+        other = storage.get_report(previous_id) if previous_id else None
+        if other is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No earlier version of this memo to compare with",
+            )
+    report_reader.ensure_reader_block(report)
+    report_reader.ensure_reader_block(other)
+    return memo_diff.diff_reports(report, other)
+
+
+# ---- Review: draft → in review → approved / withdrawn ---------------------------------
+
+
+class ReportReviewPatch(BaseModel):
+    state: str
+    note: str | None = Field(default=None, max_length=2000)
+    # Re-render even though someone has ink on the report (the ink moves
+    # aside with the old documents).
+    force: bool = False
+    # Approve although comments or reader flags are still open.
+    acknowledge_open_comments: bool = False
+
+
+def _stamp_state(state: str | None) -> str:
+    """What the document header shows for a review state."""
+    return state if state in ("approved", "withdrawn") else "draft"
+
+
+@router.patch("/reports/{report_id}/review")
+def patch_report_review(
+    request: Request, report_id: str, body: ReportReviewPatch
+) -> ReportDetail:
+    """Move a memo through review. memo:approve (admin, partner) may set any
+    state; memo:edit alone may only ask for review (draft → in_review).
+    Approving or withdrawing (or undoing either) re-renders the documents
+    deterministically so their header carries the right stamp — no model
+    call (server/report_rerender.py)."""
+    role = _caller_role(request)
+    can_approve = product_store.has_permission(role, "memo:approve")
+    can_request = product_store.has_permission(role, "memo:edit")
+    if not (can_approve or can_request):
+        raise HTTPException(status_code=403, detail="Permission denied: memo:approve")
+    state = str(body.state or "").strip().lower()
+    if state not in REVIEW_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail="state must be one of " + ", ".join(REVIEW_STATES),
+        )
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not memo_prep.is_memo_kind(report.get("kind")):
+        raise HTTPException(status_code=400, detail="Only investment memos can be reviewed")
+    current = str(report.get("review_state") or "draft")
+    if not can_approve and not (current == "draft" and state == "in_review"):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: memo:approve (you may only ask for review)",
+        )
+    if state == current:
+        return ReportDetail(**_versioned_detail(report))
+    finished = str(report.get("status") or "").startswith("complete")
+    if state in ("in_review", "approved") and not finished:
+        raise HTTPException(status_code=409, detail="Only finished memos can be reviewed")
+    if state == "approved" and not body.acknowledge_open_comments:
+        from . import firm
+
+        counts = firm.report_comment_counts().get(report_id) or {}
+        open_total = int(counts.get("open_comments") or 0) + int(counts.get("open_flags") or 0)
+        if open_total:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{open_total} open comment(s) or flag(s) on this memo. "
+                    "Resolve them, or approve with acknowledge_open_comments."
+                ),
+            )
+    needs_rerender = _stamp_state(current) != _stamp_state(state) and finished
+    caps = report_rerender.renderer_capabilities(report.get("kind")) if needs_rerender else {}
+    if needs_rerender and caps.get("review") and not body.force and report_rerender.ink_annotations(report_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This memo has ink annotations that would drift on the re-stamped "
+                "document. Send force=true to move the ink aside and re-render."
+            ),
+        )
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    actor_email = _caller_email(request)
+    auth_kind = getattr(request.state, "auth_kind", None)
+    from . import firm
+
+    actor = firm.audit_actor(actor_email, auth_kind)
+    actor_name = product_store.display_name(actor_email) if actor_email else (
+        (os.environ.get("BSH_ANON_DEV_NAME") or "").strip() or actor
+    )
+    history = list(report.get("review_history") or [])[-49:]
+    history.append({
+        "from": current,
+        "to": state,
+        "by": actor,
+        "by_name": actor_name,
+        "at": now,
+        "note": (body.note or "").strip() or None,
+    })
+    patch: dict[str, Any] = {
+        "review_state": state,
+        "reviewer": actor,
+        "reviewer_name": actor_name,
+        "reviewed_at": now,
+        "review_note": (body.note or "").strip() or None,
+        "review_history": history,
+    }
+    if state == "approved":
+        patch["approved_revision"] = report_rerender.package_revision(report)
+    elif state in ("draft", "in_review"):
+        patch["approved_revision"] = None
+    updated = storage.update_report(report_id, **patch) or {**report, **patch}
+    firm.record_audit(
+        actor=actor_email,
+        auth_kind=auth_kind,
+        action=f"review report: {state}",
+        path=f"/api/reports/{report_id}/review",
+        status=200,
+        company_id=report.get("company_id"),
+        detail=f"{current} -> {state}" + (f": {patch['review_note']}" if patch["review_note"] else ""),
+    )
+    rerender_result: dict | None = None
+    if needs_rerender:
+        review_payload = {
+            "state": _stamp_state(state),
+            "reviewer": actor_name,
+            "reviewer_email": actor_email,
+            "reviewed_at": now,
+        }
+        try:
+            rerender_result = report_rerender.rerender_report(
+                report_id,
+                review=review_payload,
+                strict_sources=False,
+                force=body.force,
+                reason=f"review:{state}",
+            )
+        except report_rerender.RerenderRefused as exc:
+            rerender_result = {"status": "refused", "code": exc.code, "detail": exc.detail}
+        # Whether the documents now carry this state's stamp: rendered,
+        # skipped (renderer cannot stamp yet), failed or refused.
+        updated = storage.update_report(
+            report_id, review_render_status=rerender_result.get("status")
+        ) or storage.get_report(report_id) or updated
+    detail = _versioned_detail(updated)
+    detail["rerender"] = rerender_result
+    return ReportDetail(**detail)
+
+
+class ReportRerenderBody(BaseModel):
+    # Move ink aside and re-render anyway.
+    force: bool = False
+    # False renders packages that predate the source-URL rule (the rule is
+    # then a logged warning).
+    strict_sources: bool = False
+    # Re-run the quality lint and Chinese parity afterwards (report-only).
+    relint: bool = True
+
+
+@router.post("/reports/{report_id}/rerender")
+def post_report_rerender(
+    request: Request, report_id: str, body: ReportRerenderBody | None = None
+) -> ReportDetail:
+    """Re-render a finished memo with today's renderer from its stored
+    package — no model call. The old documents move to memo/_prev/; the
+    review stamp the record earned is kept. Admin only."""
+    _require_permission(request, "admin:read")
+    body = body or ReportRerenderBody()
+    if storage.get_report(report_id) is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        result = report_rerender.rerender_report(
+            report_id,
+            strict_sources=body.strict_sources,
+            force=body.force,
+            relint=body.relint,
+            reason="rerender",
+        )
+    except report_rerender.RerenderRefused as exc:
+        status_code = 409 if exc.code in ("ink", "not_finished") else 400
+        raise HTTPException(status_code=status_code, detail=exc.detail) from exc
+    record = storage.get_report(report_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    detail = _versioned_detail(record)
+    detail["rerender"] = result
+    return ReportDetail(**detail)
+
+
+# ---- Comments and reader flags on a report ---------------------------------------------
+
+
+class ReportCommentBody(BaseModel):
+    text: str = Field(default="", max_length=4000)
+    # "report" (default) or "section"; label = the section heading / anchor.
+    kind: str | None = None
+    label: str | None = Field(default=None, max_length=200)
+    # wrong_number | unsupported | unclear | missing | tone
+    flag: str | None = None
+    quote: str | None = Field(default=None, max_length=2000)
+    language: str | None = None
+    parent_id: str | None = None
+
+
+def _report_comment_scope(report: dict) -> str:
+    return str(report.get("company_id") or "_reports")
+
+
+@router.get("/reports/{report_id}/comments")
+def get_report_comments(report_id: str, open_only: bool = False, flags_only: bool = False) -> dict:
+    """Comments and reader flags on one report, oldest first, with
+    ``open_comments`` / ``open_flags`` counts."""
+    from . import firm
+
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return firm.report_comments(
+        _report_comment_scope(report),
+        report_id,
+        include_resolved=not open_only,
+        flags_only=flags_only,
+    )
+
+
+@router.post("/reports/{report_id}/comments", status_code=201)
+def post_report_comment(request: Request, report_id: str, body: ReportCommentBody) -> dict:
+    """Comment on a report, or flag a passage (``flag`` + ``quote``). Stored
+    with the firm's shared comments (target kind report/section)."""
+    from . import firm, firm_search
+
+    _require_permission(request, "memo:edit")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    kind = str(body.kind or "report").strip().lower()
+    if kind not in firm.REPORT_TARGET_KINDS:
+        raise HTTPException(status_code=400, detail="kind must be 'report' or 'section'")
+    try:
+        item = firm.add_comment(
+            _report_comment_scope(report),
+            text=body.text,
+            author=_caller_email(request),
+            target={"kind": kind, "ref": report_id, "label": body.label or ""},
+            parent_id=body.parent_id,
+            flag=body.flag,
+            quote=body.quote,
+            language=body.language,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return item
+
+
+@router.post("/reports/{report_id}/comments/{comment_id}/resolve")
+def post_resolve_report_comment(
+    request: Request, report_id: str, comment_id: str, payload: dict | None = None
+) -> dict:
+    from . import firm
+
+    _require_permission(request, "memo:edit")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    scope = _report_comment_scope(report)
+    on_report = firm.report_comments(scope, report_id)["items"]
+    if not any(item.get("id") == comment_id for item in on_report):
+        raise HTTPException(status_code=404, detail="Comment not found")
+    resolved = (payload or {}).get("resolved", True)
+    item = firm.resolve_comment(scope, comment_id, by=_caller_email(request), resolved=bool(resolved))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return item
+
+
+# ---- Reader telemetry ------------------------------------------------------------------
+
+READER_EVENTS = ("report_opened", "report_downloaded")
+
+
+class ReportEventBody(BaseModel):
+    event: str
+    language: str | None = None
+    # Where the reader came from: reports_list, deep_link, desk, …
+    source: str | None = Field(default=None, max_length=60)
+    artifact: str | None = Field(default=None, max_length=20)
+    format: str | None = Field(default=None, max_length=10)
+
+
+def _reader_session_key(request: Request) -> str:
+    presented, _ = _extract_presented_token(request)
+    token = presented or request.cookies.get(SESSION_COOKIE_NAME)
+    if token:
+        return "t:" + _sha256_token(token)[:24]
+    email = _caller_email(request)
+    if email:
+        return "e:" + email.lower()
+    return "a:" + str(getattr(request.state, "auth_kind", None) or "anonymous")
+
+
+@router.post("/reports/{report_id}/events")
+def post_report_event(request: Request, report_id: str, body: ReportEventBody) -> dict:
+    """Record that a report was opened or downloaded — once per reader
+    session and language. Open to every signed-in caller (reading is not
+    gated); readers are counted by a hash, never named."""
+    event = str(body.event or "").strip()
+    if event not in READER_EVENTS:
+        raise HTTPException(
+            status_code=400,
+            detail="event must be one of " + ", ".join(READER_EVENTS),
+        )
+    language = (body.language or "").strip().lower() or None
+    if language is not None and language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    session_key = _reader_session_key(request)
+    if not report_access.should_record_reader_event(session_key, report_id, event, language):
+        return {"recorded": False, "event": event}
+    analytics_store.record_event(
+        event,
+        report_id=report_id,
+        company_id=report.get("company_id"),
+        kind=report.get("kind"),
+        language=language,
+        source=(body.source or None),
+        artifact=(body.artifact or None),
+        format=(body.format or None),
+        reader=report_access.reader_hash(_caller_email(request) or session_key),
+    )
+    return {"recorded": True, "event": event}
+
+
+_AUTO_RESUME_MAX_AGE_SEC = 2 * 60 * 60
+
+
+def _recent_activity(value: Any, max_age_sec: float) -> bool:
+    """Whether an ISO timestamp lies within ``max_age_sec`` of now."""
+    if not value:
+        return False
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    return 0 <= age <= max_age_sec
+
+
 def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
     """Auto-resume memo runs a restart interrupted (Phase 4.6).
 
     The memo worker is a daemon thread, so a restart kills it; the shutdown
     hook marks in-flight runs ``failed_during_analysis`` with
     ``failure_phase="shutdown"`` — those were provably healthy when the
-    process exited, so resume them at startup. Runs the *orphan sweep*
-    demoted (``failure_phase="orphaned"``) may be arbitrarily old and are
-    deliberately NOT auto-resumed — they get a working Resume button for a
-    human instead. Genuine analysis failures also stay parked. Set
-    ``BSH_MEMO_AUTO_RESUME=0`` to keep restarts from spawning Claude work.
+    process exited, so resume them at startup. A hard kill found by the
+    startup recovery before the package was written
+    (``failure_phase="interrupted"``) is resumed the same way, but only
+    when the run was active within the last two hours. Runs the *orphan
+    sweep* demoted (``failure_phase="orphaned"``) may be arbitrarily old
+    and are deliberately NOT auto-resumed — they get a working Resume
+    button for a human instead. Genuine analysis failures also stay
+    parked. Set ``BSH_MEMO_AUTO_RESUME=0`` to keep restarts from spawning
+    Claude work.
     """
     if os.environ.get("BSH_MEMO_AUTO_RESUME", "1") != "1":
         return 0
@@ -5417,7 +6556,14 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
             continue
         if str(report.get("status") or "") != "failed_during_analysis":
             continue
-        if report.get("failure_phase") != "shutdown":
+        phase = report.get("failure_phase")
+        if phase == "interrupted":
+            # A hard kill the startup recovery found before the package was
+            # written: resumed like a clean shutdown, but only while recent
+            # — an old orphan stays parked for a person to decide.
+            if not _recent_activity(report.get("last_activity_at"), _AUTO_RESUME_MAX_AGE_SEC):
+                continue
+        elif phase != "shutdown":
             continue
         if not _report_resume_available(report):
             continue
@@ -5451,6 +6597,8 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
             memo_quality_lint=None,
             memo_chinese_parity=None,
             quality_warnings=None,
+            quality_warnings_zh=None,
+            quality_warning_items=None,
         )
         if memo_prep.is_buffett_kind(report.get("kind")):
             buffett_memo_analysis.start_resume(report_id)
@@ -5472,10 +6620,15 @@ def post_memo_prep(request: Request, payload: MemoPrepRequest) -> ReportDetail:
     folder and return `status: failed_scope_check` plus the scope reason.
     """
     _require_permission(request, "tasks:action")
+    structure_version, structure_version_source = _new_run_structure_version(
+        request, memo_prep.REPORT_TYPE
+    )
     try:
         result = memo_prep.bootstrap_memo_run(
             payload.company_id,
             analysis_session_id=payload.analysis_session_id,
+            structure_version=structure_version,
+            structure_version_source=structure_version_source,
         )
     except memo_prep.AnalysisSessionNotReadyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -5487,6 +6640,7 @@ def post_memo_prep(request: Request, payload: MemoPrepRequest) -> ReportDetail:
     report = result.get("report") or storage.get_report(result["report_id"])
     if report is None:
         raise HTTPException(status_code=500, detail="Report record vanished after prep")
+    report = _stamp_new_report(report, request)
     _supersede_stale_memo_failures(
         report.get("company_id") or payload.company_id, report.get("id")
     )
@@ -5547,12 +6701,17 @@ def post_memo_studio_investigate(
             status_code=409,
             detail="A memo run is already in flight for this company",
         )
+    structure_version, structure_version_source = _new_run_structure_version(
+        request, report_type, memo_mode="studio"
+    )
     try:
         result = memo_prep.bootstrap_memo_run(
             payload.company_id,
             analysis_session_id=payload.analysis_session_id,
             report_type=report_type,
             memo_mode="studio",
+            structure_version=structure_version,
+            structure_version_source=structure_version_source,
         )
     except memo_prep.AnalysisSessionNotReadyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -5565,6 +6724,7 @@ def post_memo_studio_investigate(
         raise HTTPException(
             status_code=500, detail="Report record vanished after prep"
         )
+    report = _stamp_new_report(report, request)
     _supersede_stale_memo_failures(
         report.get("company_id") or payload.company_id, report.get("id")
     )
@@ -5672,6 +6832,9 @@ def post_memo_studio_generate(request: Request, report_id: str) -> ReportDetail:
         memo_quality_lint=None,
         memo_chinese_parity=None,
         quality_warnings=None,
+        quality_warnings_zh=None,
+        quality_warning_items=None,
+        **_regeneration_resets(report),
         studio_generate={
             "revision_id": editor_state.get("revision_id"),
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -5758,13 +6921,18 @@ async def stream_memo_progress(report_id: str) -> "StreamingResponse":
 
 @router.get("/companies/{company_id}/reports")
 def get_company_reports(company_id: str) -> list[ReportSummary]:
+    from . import firm
+
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    return [
-        ReportSummary(**_report_summary(r))
+    counts = firm.report_comment_counts()
+    summaries = [
+        _report_summary(r, comment_counts=counts)
         for r in storage.list_reports()
         if r.get("company_id") == company_id
     ]
+    memo_diff.annotate_versions(summaries)
+    return [ReportSummary(**summary) for summary in summaries]
 
 
 @router.get("/companies/{company_id}/memo-analysis")
@@ -8086,9 +9254,10 @@ def _memo_kind_records():
             "subtitle": state.get("subtitle") or "Memo run",
             "stream_url": f"/api/memos/{report_id}/stream",
             "log_url": f"/api/jobs/log?path=memo:{report_id}",
+            # The web router's Reports page selects a report by ?id=.
             "primary_route": {
-                "name": "report",
-                "params": {"reportId": report_id},
+                "name": "reports",
+                "query": {"id": report_id},
             },
             "report_id": report_id,
             "company_id": init.get("company_id"),
@@ -8514,8 +9683,8 @@ def get_job_history(limit: int = 30) -> list[dict]:
                 if report.get("claude_cost_usd") is not None:
                     entry["claude_cost_usd"] = report.get("claude_cost_usd")
             entry["primary_route"] = {
-                "name": "report",
-                "params": {"reportId": report_id},
+                "name": "reports",
+                "query": {"id": report_id},
             }
         elif row.get("log_path"):
             entry["log_url"] = f"/api/jobs/log?path=history:{row.get('id')}"
@@ -10566,12 +11735,16 @@ _TICKER_DOMAINS: dict[str, str] = {
     "ATE": "alten.com",
 }
 
+# Slug → logo maps, for records that carry no ticker, website or logo of
+# their own (e.g. reports whose company left the workspace). Only slugs
+# that name exactly one real entity are listed: no name-substring rules
+# and no lookalike slugs ("open-artificial-intelligence-inc" is not
+# OpenAI; short "cienet"/"clenet"/"celnet" aliases were claimed by other
+# entities), so a lookalike never wears a famous company's mark.
 _SLUG_DOMAINS: dict[str, str] = {
     "anthropic": "anthropic.com",
     "anthropic-pbc": "anthropic.com",
     "openai": "openai.com",
-    "open-artificial-intelligence": "openai.com",
-    "open-artificial-intelligence-inc": "openai.com",
     "google-llc": "google.com",
     "google": "google.com",
     "ko": "coca-cola.com",
@@ -10581,16 +11754,8 @@ _SLUG_DOMAINS: dict[str, str] = {
     "tsm": "tsmc.com",
     "tsmc": "tsmc.com",
     "cienet-technologies-beijing-co-ltd": "cienet.com",
-    "cienet-technologies": "cienet.com",
-    "cienet": "cienet.com",
-    "clenet-technologies": "cienet.com",
-    "clenet": "cienet.com",
     "ceinet-data-co-ltd-中经网数据有限公司": "cei.cn",
     "中经网数据有限公司": "cei.cn",
-    "ceinet-data": "cei.cn",
-    "ceinet": "cei.cn",
-    "celnet-data": "cei.cn",
-    "celnet": "cei.cn",
     "alten": "alten.com",
     "ate": "alten.com",
     "zainar": "zainartech.com",
@@ -10608,23 +11773,13 @@ _SLUG_LOGOS: dict[str, str] = {
     "anthropic": "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
     "anthropic-pbc": "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
     "openai": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
-    "open-artificial-intelligence": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
-    "open-artificial-intelligence-inc": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
     "google-llc": "https://assets.parqet.com/logos/symbol/GOOG",
     "ko": "https://assets.parqet.com/logos/symbol/KO",
     "oxy": "https://assets.parqet.com/logos/symbol/OXY",
     "tsm": "https://assets.parqet.com/logos/symbol/TSM",
     "cienet-technologies-beijing-co-ltd": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-    "cienet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-    "cienet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-    "clenet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
-    "clenet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
     "ceinet-data-co-ltd-中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
     "中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-    "ceinet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-    "ceinet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-    "celnet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
-    "celnet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
     "ate": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
     "alten": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
     "oasys-now": "https://framerusercontent.com/images/ctwK8JfDzLYECpwWHw7fd1rrZU.svg",
@@ -10637,7 +11792,15 @@ _SLUG_LOGOS: dict[str, str] = {
 }
 
 
+def _favicon_url(domain: str) -> str:
+    return (
+        f"https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://{domain}&size=128"
+    )
+
+
 def _company_logo_domain(c: dict) -> str | None:
+    """The record's own logo domain or website first, then its own ticker,
+    then an exact-slug map. No guessing from the name."""
     domain = c.get("logo_domain") or storage._normalize_host(c.get("website"))
     if domain:
         return domain
@@ -10645,51 +11808,30 @@ def _company_logo_domain(c: dict) -> str | None:
     if ticker in _TICKER_DOMAINS:
         return _TICKER_DOMAINS[ticker]
     slug = (c.get("id") or "").strip().lower()
-    if slug in _SLUG_DOMAINS:
-        return _SLUG_DOMAINS[slug]
-    name = (c.get("name") or "").lower()
-    if "coca" in name and "cola" in name:
-        return "coca-cola.com"
-    if "open" in name and ("artificial" in name or "ai" in name):
-        return "openai.com"
-    if "occidental" in name:
-        return "oxy.com"
-    if "cienet" in name or "clenet" in name:
-        return "cienet.com"
-    if "ceinet" in name or "celnet" in name or "中经网" in name:
-        return "cei.cn"
-    if "alten" in name:
-        return "alten.com"
-    return None
+    return _SLUG_DOMAINS.get(slug)
 
 
 def _company_logo_url(c: dict, domain: str | None) -> str | None:
+    """The record's own logo URL, ticker and domain before any map; then the
+    exact-slug maps (a slug that is itself a ticker, like "ko" or "oxy",
+    counts); then the favicon of whatever domain was resolved."""
+    own_logo = str(c.get("logo_url") or "").strip()
+    if own_logo:
+        return own_logo
+    ticker = (c.get("ticker") or "").strip().upper()
+    if ticker:
+        return f"https://assets.parqet.com/logos/symbol/{ticker}"
+    own_domain = c.get("logo_domain") or storage._normalize_host(c.get("website"))
+    if own_domain:
+        return _favicon_url(own_domain)
     slug = (c.get("id") or "").strip().lower()
     if slug in _SLUG_LOGOS:
         return _SLUG_LOGOS[slug]
-    name = (c.get("name") or "").lower()
-    if "coca" in name and "cola" in name:
-        return "https://assets.parqet.com/logos/symbol/KO"
-    if "open" in name and ("artificial" in name or "ai" in name):
-        return "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f"
-    if "occidental" in name:
-        return "https://assets.parqet.com/logos/symbol/OXY"
-    if "cienet" in name or "clenet" in name:
-        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128"
-    if "ceinet" in name or "celnet" in name or "中经网" in name:
-        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128"
-    if "alten" in name:
-        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128"
-    ticker = (c.get("ticker") or "").strip().upper()
-    if not ticker and len(slug) <= 5 and slug.upper() in _TICKER_DOMAINS:
-        ticker = slug.upper()
-    if ticker:
-        return f"https://assets.parqet.com/logos/symbol/{ticker}"
+    if len(slug) <= 5 and slug.upper() in _TICKER_DOMAINS:
+        return f"https://assets.parqet.com/logos/symbol/{slug.upper()}"
     if not domain:
         return None
-    return (
-        f"https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://{domain}&size=128"
-    )
+    return _favicon_url(domain)
 
 
 
@@ -10765,9 +11907,25 @@ def _memo_report_artifact_urls(r: dict) -> tuple[dict[str, str], dict[str, str]]
         for lang in ("en", "zh")
         if lang in have_docx
     }
-    if any(rel_exists(f.get("path")) for f in r.get("internal_memo_files") or []):
+    internal_entries = [
+        f for f in r.get("internal_memo_files") or [] if isinstance(f, dict)
+    ]
+    if any(
+        rel_exists(f.get("path"))
+        for f in internal_entries
+        if str(f.get("language") or "en") == "en"
+    ):
         download_urls["internal"] = (
             f"/api/reports/{rid}/download?artifact=internal"
+        )
+    if any(
+        rel_exists(f.get("path"))
+        for f in internal_entries
+        if f.get("language") == "zh"
+    ):
+        # The IC decision memo's Chinese twin (written in the same call).
+        download_urls["internal_zh"] = (
+            f"/api/reports/{rid}/download?artifact=internal&language=zh"
         )
 
     have_pdf = {
@@ -10775,24 +11933,91 @@ def _memo_report_artifact_urls(r: dict) -> tuple[dict[str, str], dict[str, str]]
         for f in memo_files
         if rel_exists(f.get("pdf_path"))
     }
+    # A finished memo always offers its PDF: GET /preview makes it on
+    # first request (server/memo_pdf.py). Other runs offer only a PDF the
+    # pipeline already rendered.
+    finished = str(r.get("status") or "") in ("complete", "complete_with_warnings")
+    preview_langs = have_pdf | (have_docx if finished else set())
     preview_urls = {
         lang: f"/api/reports/{rid}/preview?language={lang}"
         for lang in ("en", "zh")
-        if lang in have_pdf
+        if lang in preview_langs
     }
-    if any(rel_exists(f.get("pdf_path")) for f in r.get("internal_memo_files") or []):
+    internal = r.get("internal_memo_files") or []
+    if any(rel_exists(f.get("pdf_path")) for f in internal) or (
+        finished and any(rel_exists(f.get("path")) for f in internal)
+    ):
         preview_urls["internal"] = f"/api/reports/{rid}/preview?artifact=internal"
     return download_urls, preview_urls
 
 
-def _report_summary(r: dict) -> dict:
+def _report_logo_identity(r: dict, comp: dict | None) -> dict:
+    """What a report's logo is resolved from: the identity snapshot the
+    report took of its company at creation first, then the live company
+    record, then just the id and name the report carries."""
     cid = (r.get("company_id") or "").strip()
-    cname = r.get("company_name")
+    identity = dict(comp) if comp else {"id": cid, "name": r.get("company_name")}
+    snapshot = r.get("company_identity") if isinstance(r.get("company_identity"), dict) else {}
+    for key in ("ticker", "website", "logo_domain", "logo_url", "legal_name"):
+        if snapshot.get(key):
+            identity[key] = snapshot[key]
+    identity["id"] = cid
+    return identity
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().replace(",", "").replace("$", "").rstrip("%").strip()
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+def _optional_int(value: Any) -> int | None:
+    number = _finite_number(value)
+    return int(number) if number is not None else None
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None or isinstance(value, (dict, list)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _pdf_status(r: dict) -> dict | None:
+    if not memo_prep.is_memo_kind(r.get("kind")):
+        return None
+    out = {}
+    for lang in ("en", "zh"):
+        state = memo_pdf.status(r, lang)
+        if state != "none":
+            out[lang] = state
+    return out or None
+
+
+def _report_summary(r: dict, *, comment_counts: dict | None = None) -> dict:
+    cid = (r.get("company_id") or "").strip()
     comp = storage.get_company(cid) if cid else None
-    if comp is None:
-        comp = {"id": cid, "name": cname}
-    r_domain = _company_logo_domain(comp)
-    r_logo = _company_logo_url(comp, r_domain)
+    logo_identity = _report_logo_identity(r, comp)
+    r_domain = _company_logo_domain(logo_identity)
+    r_logo = _company_logo_url(logo_identity, r_domain)
+    reader = report_reader.ensure_reader_block(r) if memo_prep.is_memo_kind(r.get("kind")) else None
+    if reader is None and isinstance(r.get("reader"), dict):
+        reader = r.get("reader")
+    price_fields = report_reader.price_fields(r)
+    if not price_fields and isinstance((reader or {}).get("price_fields"), dict):
+        price_fields = reader["price_fields"]
+    buy_price = r.get("buy_price") or (reader or {}).get("buy_price_text")
+    if comment_counts is None:
+        from . import firm
+
+        comment_counts = firm.report_comment_counts()
+    counts = comment_counts.get(str(r.get("id") or "")) or {}
     base = {
         "id": r.get("id"),
         "company_id": r.get("company_id"),
@@ -10837,12 +12062,82 @@ def _report_summary(r: dict) -> dict:
         "auto_run_id": r.get("auto_run_id"),
         "report_ready_at": r.get("report_ready_at"),
         "run_finished_at": r.get("run_finished_at"),
+        "english_ready_at": r.get("english_ready_at"),
+        "english_only": bool(r.get("english_only")),
+        # What the report concludes and how fresh it is.
+        "reader": reader,
+        "decision": _optional_text(r.get("decision") or (reader or {}).get("decision")),
+        "buy_price": buy_price if isinstance(buy_price, (str, dict)) else None,
+        "buy_price_zh": _optional_text(r.get("buy_price_zh") or (reader or {}).get("buy_price_text_zh")),
+        "pass_kind": _optional_text(r.get("pass_kind") or (reader or {}).get("pass_kind")),
+        "call_label": (
+            r.get("call_label")
+            if isinstance(r.get("call_label"), dict)
+            else (reader or {}).get("call_label")
+        ),
+        "buffett_valuation": (
+            r.get("buffett_valuation") if isinstance(r.get("buffett_valuation"), dict) else None
+        ),
+        "market_inputs": r.get("market_inputs") if isinstance(r.get("market_inputs"), dict) else None,
+        "web_lookups": _optional_int(r.get("web_lookups")),
+        "retrieved_sources": _optional_int(r.get("retrieved_sources")),
+        "quality_warnings_zh": (
+            [str(w) for w in r.get("quality_warnings_zh") or [] if w] or None
+            if isinstance(r.get("quality_warnings_zh"), list)
+            else None
+        ),
+        "quality_warning_items": (
+            [item for item in r.get("quality_warning_items") or [] if isinstance(item, dict)] or None
+            if isinstance(r.get("quality_warning_items"), list)
+            else None
+        ),
+        "price": _finite_number(price_fields.get("price")),
+        "price_date": _optional_text(price_fields.get("price_date")),
+        "currency": _optional_text(price_fields.get("currency")),
+        "value_low": _finite_number(price_fields.get("value_low")),
+        "value_central": _finite_number(price_fields.get("value_central")),
+        "value_high": _finite_number(price_fields.get("value_high")),
+        "buy_price_value": _finite_number(price_fields.get("buy_price_value")),
+        "mos_pct": _finite_number(price_fields.get("mos_pct")),
+        "memo_fact_check": (
+            report_reader.fact_check_summary(r)
+            if memo_prep.is_memo_kind(r.get("kind"))
+            else None
+        ),
+        "pdf_status": _pdf_status(r),
+        # Review.
+        "review_state": str(r.get("review_state") or "draft"),
+        "reviewer": r.get("reviewer"),
+        "reviewer_name": r.get("reviewer_name"),
+        "reviewed_at": r.get("reviewed_at"),
+        "review_note": r.get("review_note"),
+        "approved_revision": r.get("approved_revision"),
+        "review_render_status": r.get("review_render_status"),
+        "open_comments": int(counts.get("open_comments") or 0),
+        "open_flags": int(counts.get("open_flags") or 0),
+        # Identity, template, rendering provenance.
+        "company_identity": r.get("company_identity") if isinstance(r.get("company_identity"), dict) else None,
+        "structure_version": r.get("structure_version"),
+        "requested_audience": r.get("requested_audience"),
+        "rendered_at": r.get("rendered_at"),
+        "renderer_version": r.get("renderer_version"),
+        # The models that actually wrote the memo (per role), the tier,
+        # template, structure and server code version — memo_analysis.
+        # _generated_with; None for runs that predate it.
+        "generated_with": r.get("generated_with") if isinstance(r.get("generated_with"), dict) else None,
+        "quality_metrics": report_reader.quality_metrics(r),
+        "pause_after_english": bool(r.get("pause_after_english")) if r.get("pause_after_english") is not None else None,
+        "cost_ceiling_usd": r.get("cost_ceiling_usd") if isinstance(r.get("cost_ceiling_usd"), (int, float)) else None,
     }
+    failure = report_reader.classify_failure(r)
+    if failure:
+        base.update(failure)
     download_urls, preview_urls = _memo_report_artifact_urls(r)
     if download_urls:
         base["download_urls"] = download_urls
     if preview_urls:
         base["preview_urls"] = preview_urls
+    base["has_document"] = bool(download_urls or preview_urls)
     return base
 
 
@@ -10855,8 +12150,11 @@ def _report_detail(r: dict) -> dict:
         "content_zh": r.get("content_zh"),
         "warnings": list(r.get("warnings") or []),
         "scope_check": r.get("scope_check"),
+        "actionability": r.get("actionability") if isinstance(r.get("actionability"), dict) else None,
         "company_type": r.get("company_type"),
         "company_stage": r.get("company_stage"),
+        "review_history": list(r.get("review_history") or []),
+        "relint": r.get("relint") if isinstance(r.get("relint"), dict) else None,
     }
     # Attach unified-rail URLs and download links for memo runs so the
     # frontend can tail the same JSONL the prep wrote and offer
@@ -10870,11 +12168,20 @@ def _report_detail(r: dict) -> dict:
         download_urls, preview_urls = _memo_report_artifact_urls(r)
         if download_urls:
             base["download_urls"] = download_urls
-        # Only advertise a preview URL for a language whose PDF was
-        # actually rendered (Word automation can be unavailable, or an
-        # older run may predate PDF rendering).
         if preview_urls:
             base["preview_urls"] = preview_urls
+        # The detail carries the full fact-check payload (the list row the
+        # compact summary).
+        base["memo_fact_check"] = report_reader.fact_check_full(r)
+        base["recent_exports"] = report_access.recent_exports(str(rid))
+        if str(r.get("status") or "").startswith("failed"):
+            try:
+                state = _scan_progress_state(_memo_stream_path_for_report(str(rid)))
+            except Exception:  # noqa: BLE001
+                state = None
+            failure = report_reader.classify_failure(r, state)
+            if failure:
+                base.update(failure)
     return base
 
 

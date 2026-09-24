@@ -22,7 +22,13 @@ pseudo_sections:
 ---
 
 Late-stage structure profile v1 — the pre-restructure 5-section
-memo encoded as data (Round 0: byte-equal to the old literals).
+memo encoded as data (Round 0: byte-equal to the old literals; the
+2026-09 round added calculation notes, the three-line round summary,
+the `base_case_outcome` echo and the Terms used block). A pinned fact
+is stated verbatim once in each section the pin sheet requires it in,
+and referred to without the figure everywhere else ("the February 2026
+mark", "the base case"); a term of art is defined once, in the
+executive summary's "Terms used" block, and used bare after that.
 
 ## section: executive_summary
 ```yaml
@@ -46,6 +52,32 @@ content blocks. Must include the Key Metrics Snapshot table with
 spine brief fixes it. When the shared fact sheet pins a
 `decision_history_sentence`, state it verbatim as factual history — it
 records what BSH previously decided, never the memo's own conclusion.
+
+No deal table here. The round is a three-line summary in prose, after
+the Key Metrics Snapshot: (1) the round as the sources report it —
+round, date, size, post-money; (2) BSH's vehicle and instrument when
+deal terms are on file, otherwise "No vehicle or terms on file
+(pipeline stage: <stage>)"; (3) one sentence pointing to the full
+table — "Headline terms are in Financial Forecast & Valuation" (see
+Valuation). The `deal_terms` table lives there, once; a live memo
+printed it twice, and the two copies drifted.
+
+When the shared fact sheet pins `base_case_outcome` (one sentence
+stating what the base case returns and how), state it verbatim in the
+paragraph that interprets the entry price. The scenarios table in
+Financial Forecast & Valuation states the same sentence verbatim in its
+base row, so the summary and the table cannot disagree — a live memo's
+summary called the base case "a modest premium" while its table said
+"a few times the mark".
+
+Close the section with the "Terms used" glossary as its LAST block: a
+`glossary` block with `component: "glossary"` and `items`, one per
+term of art this memo uses (MOIC, IRR, ARR, NRR, CAGR, TAM/SAM/SOM,
+run-rate, post-money, MOU and the like — 6-15 items), each `{"term":
+{"en", "zh"}, "definition": {"en", "zh"}}` with the definition in five
+to ten words (the renderer prints the "Terms used" heading and the
+term-definition table). It is where every such term is defined; no
+section defines them again.
 
 ## section: company_overview
 ```yaml
@@ -151,3 +183,28 @@ valuation sensitivities), `investment_decision` (final Investment Decision /
 Closing View in recommendation register — the concluding call repeats the
 pinned recommendation sentence, which opens with "Recommendation: "), and
 `disclosures` (concise legal/offering disclosure language).
+
+Calculation notes. Every derived number in this section — the entry
+multiple, the fair-value bounds, each scenario's exit value, gross MOIC
+and IRR, the growth bridge's conversion arithmetic, any market-slice
+figure — shows its arithmetic in the sentence or the next one (inputs,
+operation, result) and names each input's source in the sentence.
+When the shared fact sheet pins calculation notes (the "Calculation
+notes" lines, ids C1, C2, ...), cite the note as `[C#]` after the
+result wherever it appears in prose or a table cell — the renderer
+links it to the Calculation notes appendix — and cite ONLY the ids the
+pin sheet lists; an id it does not carry fails a deterministic gate.
+When the pin sheet carries no calculation notes, show the arithmetic
+in the sentence and cite no `[C#]` at all. A figure with neither a
+named source nor shown arithmetic is "not disclosed", in those words;
+an estimate is called our estimate, with its assumptions named beside
+it, and never passes as a disclosure.
+
+The `scenario_analysis` table's base row states the pinned
+`base_case_outcome` sentence verbatim when the shared fact sheet pins
+one — the same sentence the executive summary carries — so the two
+cannot disagree.
+
+The `deal_terms` table here is the memo's ONLY deal table ("Headline
+terms"): the executive summary carries a three-line summary that points
+to it, never a second copy.

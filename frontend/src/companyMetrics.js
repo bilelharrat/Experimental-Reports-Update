@@ -17,6 +17,11 @@ const SOURCE_LABEL_KEYS = {
   "bsh prd reference package": "company.metric_source_bsh_prd",
   "stealth-exit funding disclosure": "company.metric_source_stealth_funding",
   "bsh market model reference": "company.metric_source_bsh_market_model",
+  // The seeded ZaiNar values come from the v2 design mock and are not
+  // evidence. The seed puts the short class on the value and the long label
+  // on its source ref; both read the same, in either language.
+  "demo placeholder (v2 design mock)": "company.metric_source_demo_placeholder",
+  "demo placeholder (v2 design mock) — not evidence": "company.metric_source_demo_placeholder",
 };
 
 export function inferredMetricLabelKey(label) {

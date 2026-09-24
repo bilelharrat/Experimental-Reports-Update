@@ -16,10 +16,13 @@ import {
   Pencil,
   RefreshCw,
   Terminal,
+  X,
 } from "lucide-vue-next";
+import { RouterLink } from "vue-router";
 import AiMark from "./AiMark.vue";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { jobLogRequest, memoJobChanges, memoJobSnapshot } from "../reportStatus.js";
 import {
   activeJobs as jobs,
   refreshActiveJobs,
@@ -66,6 +69,72 @@ watch(
 
 onMounted(subscribeActiveJobs);
 onBeforeUnmount(unsubscribeActiveJobs);
+
+// A report viewer asks for this rail's transcript modal (its "Open live
+// log"), so the app keeps one modal and one live stream per job.
+watch(jobLogRequest, (request) => {
+  if (!request?.job) return;
+  openJob.value = request.job;
+  jobLogRequest.value = null;
+});
+
+// ---- Finished memos ----------------------------------------------------------
+// A memo run that finishes leaves the poll, and its row used to vanish with
+// no word that the report was ready. It stays as a "Ready · Read EN /
+// 阅读中文" row for ten minutes, or until one of its links is used.
+const READY_TTL_MS = 10 * 60 * 1000;
+const readyMemos = ref([]); // [{ reportId, title, languages }]
+const readyTimers = new Map();
+const memoTitles = new Map();
+let memoSnapshot = memoJobSnapshot(jobs.value);
+
+function dismissReady(reportId) {
+  clearTimeout(readyTimers.get(reportId));
+  readyTimers.delete(reportId);
+  readyMemos.value = readyMemos.value.filter((memo) => memo.reportId !== reportId);
+}
+
+async function announceReady(reportId) {
+  let report = null;
+  try {
+    report = await api.getReport(reportId);
+  } catch {
+    return;
+  }
+  const status = String(report?.status || "").toLowerCase();
+  const languages = ["en", "zh"].filter((lang) => report?.download_urls?.[lang]);
+  const meta = memoTitles.get(reportId) || {};
+  memoTitles.delete(reportId);
+  // A run that failed or was cancelled has nothing to read.
+  if (!status.startsWith("complete") || !languages.length) return;
+  readyMemos.value = [
+    { reportId, title: meta.title || report.company_name || "", languages },
+    ...readyMemos.value.filter((memo) => memo.reportId !== reportId),
+  ];
+  clearTimeout(readyTimers.get(reportId));
+  readyTimers.set(reportId, setTimeout(() => dismissReady(reportId), READY_TTL_MS));
+}
+
+watch(jobs, (nextJobs) => {
+  for (const job of nextJobs) {
+    if (job?.kind === "memo" && job.report_id) {
+      memoTitles.set(String(job.report_id), { title: job.title });
+    }
+  }
+  const snapshot = memoJobSnapshot(nextJobs);
+  const { finished } = memoJobChanges(memoSnapshot, snapshot);
+  memoSnapshot = snapshot;
+  for (const reportId of finished) announceReady(reportId);
+});
+
+onBeforeUnmount(() => {
+  for (const timer of readyTimers.values()) clearTimeout(timer);
+  readyTimers.clear();
+});
+
+function readLabel(lang) {
+  return lang === "zh" ? t("jobs.read_zh") : t("jobs.read_en");
+}
 
 function pct(j) {
   if (j.kind === "summary" && j.slide_count && j.slide_no) {
@@ -409,7 +478,7 @@ async function requestCancel(job) {
   }
 }
 
-const visible = computed(() => jobs.value.length > 0);
+const visible = computed(() => jobs.value.length > 0 || readyMemos.value.length > 0);
 </script>
 
 <template>
@@ -427,7 +496,7 @@ const visible = computed(() => jobs.value.length > 0);
           <span class="text-footnote font-semibold text-ink-primary">
             {{ t("jobs.rail_title") }}
           </span>
-          <span class="chip bg-info-soft text-info-ink tabular">{{ jobs.length }}</span>
+          <span v-if="jobs.length" class="chip bg-info-soft text-info-ink tabular">{{ jobs.length }}</span>
           <span class="flex-1"></span>
           <button
             type="button"
@@ -447,6 +516,46 @@ const visible = computed(() => jobs.value.length > 0);
           v-if="!collapsed"
           class="min-h-0 space-y-1.5 overflow-y-auto overscroll-contain px-2 pb-2"
         >
+          <li
+            v-for="memo in readyMemos"
+            :key="`ready:${memo.reportId}`"
+            class="overflow-hidden rounded-[13px] bg-surface/80 shadow-card"
+            data-testid="rail-ready-row"
+          >
+            <div class="flex items-start gap-2.5 p-3">
+              <span class="job-row-icon !bg-success-soft !text-success-ink">
+                <CheckCircle2 class="h-3.5 w-3.5" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-footnote font-semibold text-ink-primary">
+                  {{ memo.title }}
+                </div>
+                <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption1">
+                  <span class="chip bg-success-soft text-success-ink">{{ t("jobs.ready") }}</span>
+                  <template v-for="(lang, index) in memo.languages" :key="lang">
+                    <span v-if="index > 0" class="text-ink-subtle" aria-hidden="true">/</span>
+                    <RouterLink
+                      :to="{ name: 'reports', query: { id: memo.reportId, lang } }"
+                      class="font-medium text-accent-ink hover:underline focus-ring"
+                      :data-testid="`rail-ready-read-${lang}`"
+                      @click="dismissReady(memo.reportId)"
+                    >
+                      {{ readLabel(lang) }}
+                    </RouterLink>
+                  </template>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="icon-btn !h-6 !w-6 shrink-0"
+                :aria-label="t('jobs.ready_dismiss')"
+                :title="t('jobs.ready_dismiss')"
+                @click="dismissReady(memo.reportId)"
+              >
+                <X class="h-3 w-3" />
+              </button>
+            </div>
+          </li>
           <li
             v-for="j in jobs"
             :key="jobKey(j)"
@@ -536,6 +645,21 @@ const visible = computed(() => jobs.value.length > 0);
                 </div>
               </div>
             </button>
+            <div
+              v-if="j.report_ready && j.kind === 'memo' && j.report_id"
+              class="hairline-t flex items-center gap-1.5 px-3 py-2 text-caption1"
+              data-testid="rail-report-ready-links"
+            >
+              <template v-for="(lang, index) in ['en', 'zh']" :key="lang">
+                <span v-if="index > 0" class="text-ink-subtle" aria-hidden="true">/</span>
+                <RouterLink
+                  :to="{ name: 'reports', query: { id: j.report_id, lang } }"
+                  class="font-medium text-accent-ink hover:underline focus-ring"
+                >
+                  {{ readLabel(lang) }}
+                </RouterLink>
+              </template>
+            </div>
             <button
               v-if="jobFailed(j) && j.company_id && openCopilot"
               type="button"

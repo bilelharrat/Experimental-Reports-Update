@@ -590,11 +590,45 @@ def _company_name_keys(record: dict) -> set[str]:
     return keys
 
 
+# Legal forms ``_normalize_company_name`` keeps but that do not change which
+# entity a name denotes ('Anthropic PBC' is 'Anthropic, Public Benefit
+# Corporation'). Stripped only for the legal-entity comparison below.
+_LEGAL_FORM_TAIL_RE = re.compile(
+    r"\s+(?:pbc|public benefit|limited liability|lp|llp|pte|pty|bv|sas|spa|gk)$"
+)
+
+
+def _legal_entity_key(legal_name: str) -> str:
+    key = _normalize_company_name(legal_name or "")
+    while True:
+        stripped = _LEGAL_FORM_TAIL_RE.sub("", key).strip()
+        if stripped == key:
+            return key
+        key = stripped
+
+
+def _legal_names_conflict(candidate: dict, record: dict) -> bool:
+    """Both sides name a registered legal entity and the names differ.
+
+    The search model returns sibling entities that share a website and
+    often a display name — 'OpenAI Group PBC' and 'OpenAI Foundation',
+    'CIeNET Technologies (Beijing) Co., Ltd.' and 'Cienet International,
+    LLC' (Oak Brook) — and matching on the host alone merged the second
+    into the first, overwriting its identity. Compared on normalized forms
+    ('Anthropic PBC' == 'Anthropic, PBC'), and only when both are set."""
+    ours = _legal_entity_key(str(candidate.get("legal_name") or ""))
+    theirs = _legal_entity_key(str(record.get("legal_name") or ""))
+    return bool(ours and theirs and ours != theirs)
+
+
 def _find_company_match_index(companies: list[dict], match: dict) -> int | None:
     """Return the index in ``companies`` that ``match`` identifies, or None.
 
     Evidence priority: ticker equality → website/logo host equality →
     name/alias equality (gated on same standing + no host contradiction).
+    Host and name matches are refused when both sides carry a legal name
+    and the names differ (``_legal_names_conflict``): that is a different
+    legal entity, which gets its own record.
     """
     ticker = (match.get("ticker") or "").strip().upper() or None
     name = (match.get("name") or "").strip()
@@ -611,15 +645,18 @@ def _find_company_match_index(companies: list[dict], match: dict) -> int | None:
             return i
 
     # 2. Website/logo host equality — stable key independent of the
-    #    LLM-generated name string.
+    #    LLM-generated name string — unless the two name different legal
+    #    entities (a parent and its foundation share one website).
     if cand_hosts:
         for i, c in enumerate(companies):
-            if cand_hosts & _company_hosts(c):
+            if cand_hosts & _company_hosts(c) and not _legal_names_conflict(match, c):
                 return i
 
     # 3. Name/alias equality, gated on corroborating identity.
     if cand_names:
         for i, c in enumerate(companies):
+            if _legal_names_conflict(match, c):
+                continue
             c_ticker = (c.get("ticker") or "").strip().upper() or None
             # A tickerless candidate must never merge into a tickered
             # record on name alone (a private company must not absorb a
@@ -655,23 +692,49 @@ def resolve_company_match(match: dict) -> str | None:
         return companies[idx].get("id") if idx is not None else None
 
 
-def upsert_company_from_match(match: dict) -> dict:
+# Fields that say WHICH legal entity a record is. An ordinary search fills
+# them only when empty: every search result is upserted, and one 'openai'
+# search used to turn the OpenAI Group PBC record into 'OpenAI Foundation'
+# (nonprofit), one 'cienet technologies' search the Beijing CIeNET record
+# into Cienet International, LLC of Oak Brook — and three paid memos ran on
+# that record. The explicit Refresh path (``overwrite_identity``) and a
+# listing (a tickered hit on a tickerless record) may still overwrite them.
+_IDENTITY_FIELDS = frozenset({
+    "legal_name",
+    "disambiguator",
+    "ticker",
+    "exchange",
+    "status",
+    "hq",
+    "parent_company",
+    "website",
+})
+
+
+def upsert_company_from_match(match: dict, *, overwrite_identity: bool = False) -> dict:
     """Reconcile an AI search hit with the local company list.
 
     Identity is established on evidence, in priority order:
 
       1. ticker equality (both sides non-null);
       2. website / logo_domain host equality — the strongest stable key
-         for private companies;
+         for private companies — unless both sides carry a legal name and
+         the names differ (a different legal entity on the same site);
       3. normalized name or alias equality, but only between records of
          the same public/private standing (a tickerless candidate must
          never merge into a tickered record — that is the guard that
          keeps 'Alphabet Inc.' the signage company from overwriting
-         ``goog``), and never when both sides carry hosts that disagree.
+         ``goog``), never when both sides carry hosts that disagree, and
+         never across differing legal names.
 
     If found, merge any newly-discovered fields and return the local
-    entry; if not, mint a fresh id and append. Always returns a dict that
-    includes the local `id` plus all enrichment fields the caller passed in.
+    entry; if not, mint a fresh id (from the legal name when there is one)
+    and append. Identity fields (``_IDENTITY_FIELDS``) are only filled when
+    empty, unless ``overwrite_identity`` (the explicit Refresh path,
+    ``deep_search(only_company_id=…)``) or the hit carries a ticker the
+    record lacks (the company listed). Other enrichment keeps refreshing.
+    Always returns a dict that includes the local `id` plus all enrichment
+    fields the caller passed in.
     """
     ticker = (match.get("ticker") or "").strip().upper() or None
     name = (match.get("name") or "").strip()
@@ -720,8 +783,21 @@ def upsert_company_from_match(match: dict) -> dict:
                     new_aliases.append(alias)
                     existing_keys.add(norm)
             existing["aliases"] = new_aliases
-            for k, v in enrichment.items():
+            # A tickered hit on a tickerless record: the company listed, so
+            # its ticker, exchange and status legitimately change.
+            listed = bool(ticker) and not (existing.get("ticker") or "").strip()
+            may_overwrite_identity = overwrite_identity or listed
+            for k, v in {**enrichment, "ticker": ticker}.items():
                 if v not in (None, [], ""):
+                    if (
+                        k in _IDENTITY_FIELDS
+                        and _has_value(existing.get(k))
+                        # A ticker is only ever filled (a listing), never
+                        # replaced — not even by Refresh, which never wrote
+                        # it before.
+                        and (k == "ticker" or not may_overwrite_identity)
+                    ):
+                        continue
                     if (
                         k == "competitors"
                         and any(isinstance(item, dict) for item in existing.get(k) or [])

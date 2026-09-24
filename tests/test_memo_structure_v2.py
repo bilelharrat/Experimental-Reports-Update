@@ -492,13 +492,16 @@ def test_lint_section_recognition_v2():
         )
         == "xii. investment decision"
     )
-    # v1 recognizer does not know the deep numerals
+    # v1 knows the deep numerals too: the renderer numbers the sections a
+    # v1 package adds after its five core ones ("VI. Investment Decision"),
+    # but a deep "XI." heading is never v1's risk section key.
     assert (
         memo_quality_lint._section_after_heading(
             "XI. Investment Risk", "front matter", memo_structure.LATE
         )
-        == "front matter"
+        == "xi. investment risk"
     )
+    assert memo_structure.LATE.numbered_lint_key("risk") == "iv. investment risk"
 
 
 def test_pin_check_uses_returns_exit_for_scenarios_in_v2():

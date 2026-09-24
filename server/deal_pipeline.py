@@ -36,6 +36,13 @@ STAGES = [
 
 TEXT_FIELDS = {"deal_lead": 200, "intro_path": 1000, "last_touchpoint": 1000, "next_step": 1000}
 
+# Proposed deal terms (optional): what the memo may say about the vehicle,
+# price and check. Absent terms mean "no terms on file", and the memo must
+# not assert any (memo_inputs stages them as deal_terms.md).
+TERM_TEXT_FIELDS = {"round": 120, "instrument": 120, "terms_note": 1000}
+TERM_MONEY_FIELDS = ("pre_money_usd", "post_money_usd", "proposed_check_usd")
+TERM_FIELDS = tuple(TERM_TEXT_FIELDS) + TERM_MONEY_FIELDS
+
 ALLOWED_UPDATE_KEYS = {
     "stage",
     "deal_lead",
@@ -44,6 +51,7 @@ ALLOWED_UPDATE_KEYS = {
     "last_touchpoint",
     "next_step",
     "next_step_due",
+    *TERM_FIELDS,
 }
 
 
@@ -80,6 +88,9 @@ def _default(company_id: str) -> dict:
         "next_step": None,
         # A calendar date (YYYY-MM-DD) the next step is due by, or None.
         "next_step_due": None,
+        # Proposed terms (all optional): round, instrument, pre/post-money
+        # and the proposed check in USD, plus a free-text note.
+        **{key: None for key in TERM_FIELDS},
         "stage_changed_at": now,
         "updated_at": now,
     }
@@ -132,6 +143,30 @@ def _text(key: str, value: Any) -> str | None:
     return value.strip()[: TEXT_FIELDS[key]] or None
 
 
+def _money(key: str, value: Any) -> float | None:
+    """A USD amount (>= 0) or null; "$24M"-style text is not accepted —
+    the UI sends numbers."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be a number of US dollars or null")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number of US dollars or null") from None
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{key} must be a number of US dollars or null")
+    return int(number) if number.is_integer() else number
+
+
+def _term_text(key: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string or null")
+    return value.strip()[: TERM_TEXT_FIELDS[key]] or None
+
+
 def _due(value: Any) -> str | None:
     """A next-step due date: ``YYYY-MM-DD`` or null."""
     if value in (None, ""):
@@ -155,6 +190,10 @@ def _validate(updates: dict) -> dict:
             clean[key] = _warmth(value)
         elif key == "next_step_due":
             clean[key] = _due(value)
+        elif key in TERM_MONEY_FIELDS:
+            clean[key] = _money(key, value)
+        elif key in TERM_TEXT_FIELDS:
+            clean[key] = _term_text(key, value)
         else:
             clean[key] = _text(key, value)
     return clean
@@ -179,6 +218,16 @@ def _sanitize(record: dict, company_id: str) -> dict:
         out["next_step_due"] = _due(record.get("next_step_due"))
     except ValueError:
         out["next_step_due"] = None
+    for key in TERM_MONEY_FIELDS:
+        try:
+            out[key] = _money(key, record.get(key))
+        except ValueError:
+            out[key] = None
+    for key in TERM_TEXT_FIELDS:
+        try:
+            out[key] = _term_text(key, record.get(key))
+        except ValueError:
+            out[key] = None
     updated = _parse_ts(record.get("updated_at"))
     out["updated_at"] = updated.isoformat() if updated else base["updated_at"]
     changed = _parse_ts(record.get("stage_changed_at")) or updated

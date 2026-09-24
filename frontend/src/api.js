@@ -689,6 +689,76 @@ export const api = {
   },
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
+  // A report's versions, review, comments and files (server/api.py).
+  getReportDiff: (reportId, againstId) => {
+    const qs = againstId ? `?against=${encodeURIComponent(againstId)}` : "";
+    return request(`/api/reports/${encodeURIComponent(reportId)}/diff${qs}`);
+  },
+  setReportReview: (reportId, { state, note, force, acknowledgeOpenComments } = {}) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        state,
+        ...(note ? { note } : {}),
+        ...(force ? { force: true } : {}),
+        ...(acknowledgeOpenComments ? { acknowledge_open_comments: true } : {}),
+      }),
+    }),
+  listReportComments: (reportId, { openOnly = false, flagsOnly = false } = {}) => {
+    const params = new URLSearchParams();
+    if (openOnly) params.set("open_only", "true");
+    if (flagsOnly) params.set("flags_only", "true");
+    const qs = params.toString();
+    return request(
+      `/api/reports/${encodeURIComponent(reportId)}/comments${qs ? `?${qs}` : ""}`,
+    );
+  },
+  addReportComment: (reportId, payload) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/comments`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resolveReportComment: (reportId, commentId) =>
+    request(
+      `/api/reports/${encodeURIComponent(reportId)}/comments/${encodeURIComponent(commentId)}/resolve`,
+      { method: "POST" },
+    ),
+  recordReportEvent: (reportId, event, { language, source } = {}) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        event,
+        ...(language ? { language } : {}),
+        ...(source ? { source } : {}),
+      }),
+      timeoutMs: 8000,
+    }),
+  reportReadiness: (companyId, engine) => {
+    const params = new URLSearchParams({ company_id: companyId });
+    if (engine) params.set("engine", engine);
+    return request(`/api/reports/readiness?${params}`, { timeoutMs: 10000 });
+  },
+  reportEstimates: () => request("/api/reports/estimates", { timeoutMs: 10000 }),
+  // PDF rendition, inline. 503 + Retry-After while it is being made.
+  reportPdfUrl: (reportId, language = "en", artifact = "memo") =>
+    withApiToken(
+      `/api/reports/${encodeURIComponent(reportId)}/preview?language=${encodeURIComponent(language)}&artifact=${encodeURIComponent(artifact)}`,
+    ),
+  // An explicit Download: purpose=export is what the export log records.
+  reportExportUrl: (reportId, language = "en", artifact = "memo") =>
+    withApiToken(
+      `/api/reports/${encodeURIComponent(reportId)}/download?language=${encodeURIComponent(language)}&artifact=${encodeURIComponent(artifact)}&purpose=export`,
+    ),
+  reportBundleUrl: (reportId, format = "all") =>
+    withApiToken(
+      `/api/reports/${encodeURIComponent(reportId)}/bundle?format=${encodeURIComponent(format)}`,
+    ),
+  getFundPolicy: () => request("/api/settings/fund-policy"),
+  updateFundPolicy: (policy) =>
+    request("/api/settings/fund-policy", {
+      method: "PUT",
+      body: JSON.stringify(policy),
+    }),
   listCompanyDocuments: (companyId) =>
     request(`/api/companies/${companyId}/documents`),
   updateDocumentMetadata: (companyId, backend, documentId, patch) =>

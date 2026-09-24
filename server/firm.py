@@ -32,6 +32,20 @@ def _audit_file() -> Path:
 
 MENTION_RE = re.compile(r"(?<![\w.])@([A-Za-z0-9._-]+)")
 COMMENT_TARGET_KINDS = ("company", "report", "decision", "section", "document", "kpi", "transcript")
+# Reader flags on a report (G7): a comment may name what is wrong with the
+# text it quotes. Plain comments carry no flag.
+FLAG_KINDS = ("wrong_number", "unsupported", "unclear", "missing", "tone")
+FLAG_LABELS = {
+    "wrong_number": "Flagged: wrong number",
+    "unsupported": "Flagged: unsupported claim",
+    "unclear": "Flagged: unclear",
+    "missing": "Flagged: something missing",
+    "tone": "Flagged: tone",
+}
+QUOTE_MAX_CHARS = 300
+COMMENT_LANGUAGES = ("en", "zh")
+# Target kinds whose ``ref`` is a report id.
+REPORT_TARGET_KINDS = ("report", "section")
 
 
 def _now() -> str:
@@ -130,8 +144,31 @@ def list_comments(company_id: str, *, target_kind: str | None = None, target_ref
     return {"company_id": company_id, "items": items, "open_count": sum(1 for c in items if not c.get("resolved_at"))}
 
 
-def add_comment(company_id: str, *, text: str, author: str | None, target: dict | None = None, parent_id: str | None = None) -> dict:
+def add_comment(
+    company_id: str,
+    *,
+    text: str,
+    author: str | None,
+    target: dict | None = None,
+    parent_id: str | None = None,
+    flag: str | None = None,
+    quote: str | None = None,
+    language: str | None = None,
+) -> dict:
+    """Append a comment. ``flag`` (one of ``FLAG_KINDS``), ``quote`` (the
+    selected text, up to ``QUOTE_MAX_CHARS``) and ``language`` (en | zh) are
+    optional and only stored when given, so plain comments keep their shape.
+    A flag with no text gets the flag's label as its text."""
+    flag_value = str(flag or "").strip().lower() or None
+    if flag_value is not None and flag_value not in FLAG_KINDS:
+        raise ValueError(f"flag must be one of {', '.join(FLAG_KINDS)}")
+    language_value = str(language or "").strip().lower() or None
+    if language_value is not None and language_value not in COMMENT_LANGUAGES:
+        raise ValueError("language must be 'en' or 'zh'")
+    quote_value = " ".join(str(quote or "").split())[:QUOTE_MAX_CHARS] or None
     body = " ".join(str(text or "").split())
+    if not body and flag_value:
+        body = FLAG_LABELS[flag_value]
     if not body:
         raise ValueError("Comment text is empty")
     if len(body) > COMMENT_MAX_CHARS:
@@ -155,6 +192,12 @@ def add_comment(company_id: str, *, text: str, author: str | None, target: dict 
         "resolved_at": None,
         "resolved_by": None,
     }
+    if flag_value:
+        item["flag"] = flag_value
+    if quote_value:
+        item["quote"] = quote_value
+    if language_value:
+        item["language"] = language_value
     with _LOCK:
         items = _load_comments(company_id)
         if parent_id and not any(c.get("id") == parent_id for c in items):
@@ -195,6 +238,77 @@ def all_comments() -> list[dict]:
             except Exception:  # noqa: BLE001
                 continue
     return out
+
+
+def _is_report_comment(item: dict, report_id: str | None = None) -> bool:
+    target = item.get("target") or {}
+    if target.get("kind") not in REPORT_TARGET_KINDS:
+        return False
+    return report_id is None or target.get("ref") == report_id
+
+
+def report_comments(company_id: str, report_id: str, *, include_resolved: bool = True, flags_only: bool = False) -> dict:
+    """Comments and reader flags on one report, oldest first, with counts.
+    Comments on a report live in its company's comment file (target kind
+    ``report`` or ``section``, ``ref`` = the report id)."""
+    with _LOCK:
+        items = _load_comments(company_id)
+    items = [c for c in items if _is_report_comment(c, report_id)]
+    open_top = [c for c in items if not c.get("resolved_at") and not c.get("parent_id")]
+    counts = {
+        "open_comments": sum(1 for c in open_top if not c.get("flag")),
+        "open_flags": sum(1 for c in open_top if c.get("flag")),
+    }
+    if flags_only:
+        items = [c for c in items if c.get("flag")]
+    if not include_resolved:
+        items = [c for c in items if not c.get("resolved_at")]
+    items.sort(key=lambda c: c.get("created_at") or "")
+    return {
+        "company_id": company_id,
+        "report_id": report_id,
+        "items": items,
+        "open_count": counts["open_comments"] + counts["open_flags"],
+        **counts,
+    }
+
+
+_COUNTS_CACHE: dict[str, Any] = {"key": None, "counts": {}}
+
+
+def report_comment_counts() -> dict[str, dict[str, int]]:
+    """``{report_id: {"open_comments": n, "open_flags": n}}`` over every
+    comment file — open, top-level items only (replies belong to a thread).
+    Cached on the comment files' sizes and modification times, so the
+    Reports list does not re-read them on every request."""
+    folder = _comments_dir()
+    stamp: list[tuple[str, int, int]] = []
+    if folder.exists():
+        for path in folder.glob("*.json"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            stamp.append((str(path), st.st_mtime_ns, st.st_size))
+    key = (str(folder), tuple(sorted(stamp)))
+    with _LOCK:
+        if _COUNTS_CACHE["key"] == key:
+            return {rid: dict(v) for rid, v in _COUNTS_CACHE["counts"].items()}
+    counts: dict[str, dict[str, int]] = {}
+    for item in all_comments():
+        if not isinstance(item, dict) or not _is_report_comment(item):
+            continue
+        if item.get("resolved_at") or item.get("parent_id"):
+            continue
+        rid = str((item.get("target") or {}).get("ref") or "")
+        if not rid:
+            continue
+        entry = counts.setdefault(rid, {"open_comments": 0, "open_flags": 0})
+        entry["open_flags" if item.get("flag") else "open_comments"] += 1
+    with _LOCK:
+        _COUNTS_CACHE["key"] = key
+        _COUNTS_CACHE["counts"] = counts
+    return {rid: dict(v) for rid, v in counts.items()}
 
 
 # ---- Chat ----------------------------------------------------------------------------------

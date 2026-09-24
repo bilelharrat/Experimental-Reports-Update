@@ -169,6 +169,74 @@ helpers are in `src/companyPages.js`.
   monospace face. Keep `font-mono` for code, paths and logs.
 - Containers: `.page` (max 1240px) or `.page-wide`.
 
+## The Reports viewer
+
+The pieces around the document in `DocumentViewerWindow.vue`. They read
+report records through `src/reportStatus.js`, never fields of their own.
+
+- **Status card.** A report with no document shows its run, not an empty
+  page: one card (`data-testid="viewer-status"`) whose tinted glyph says
+  running (info, spinner, stage and a progress bar), failed (danger, the
+  server's plain-words summary, what was spent, Resume / Dismiss / New
+  report), cards ready (accent, a link to Memo Studio) or no document.
+  Dismiss and Cancel arm on the first click and act on the second.
+- **Outline panel.** The contents button in the header opens a 224px column
+  of the memo's sections beside the page, or over it on a phone. The section
+  on screen is marked like a sidebar row (accent tint, `aria-current`).
+- **Full-screen layer.** Full screen moves the same viewer — zoom, language,
+  place in the document — to a fixed layer over the whole window
+  (`.reports-viewer-fullscreen`): above the jobs rail, below sheets.
+- **Working-papers menu.** A capsule in the header opens a glass popover
+  (`.glass-panel.glass-popover`) listing the run's analysis files; a pass
+  that did not run says so. Opening one swaps the document for the paper,
+  with a Back capsule in place of the language switch.
+- **Review chip.** Under the header, one row of chips says what the memo
+  concludes (verdict), where its review stands (draft, in review, approved,
+  withdrawn) and whether it is current. Review moves live in the header's
+  overflow menu, and only for the permissions the reader has.
+- **Comments and flags panel.** The Comments button (with the count of open
+  comments and flags) opens a side panel of the report's threads, open first.
+  Selecting text in the document offers Flag, which files the quote with a
+  kind (wrong number, unsupported, unclear, missing, tone).
+- **Two-line header.** Line one is the title, the language switch and the
+  tools; line two is the chip row above (verdict, review, freshness —
+  "Written Aug 31 · 22 days ago", with the latest source date only when it
+  lags the memo by more than two weeks, amber after 30 days).
+- **Export and ⋯ menus.** Export is a menu, never a bare link: PDF for
+  sharing (only once the server's PDF is ready), Word (editable), both
+  languages as a zip; every item is an explicit export (`purpose=export`) and
+  the menu is absent without `memo:export`. The ⋯ menu holds Copy link, Open
+  Studio and the review moves.
+- **PDF / Web toggle.** When a PDF is ready the viewer can show it in an
+  iframe; the Web view (docx-preview) stays the default working surface —
+  outline, zoom and Flag only exist there. The choice is remembered per
+  browser (`bsh.docViewerMode`).
+- **Printing.** Print prints the PDF when it is shown, else the page with
+  print rules that keep only the document (`html[data-bsh-print="document"]`).
+- **Rows.** A report row carries the company, the type, a verdict chip, a
+  one-line headline in the UI language, the review chip, the quality and
+  fact-check chips and the open-flag count; older versions of the same
+  company and type fold under "n earlier versions" beneath the latest.
+
+## The Generate dialog
+
+`ReportCustomizerModal.vue` says what a run will cost and what could stop it
+before anything is spent.
+
+- The header names the entity under its display name: legal name ·
+  disambiguator · domain (`companyIdentityParts` in `src/companyLogo.js`).
+- A pre-flight strip above the footer lists the readiness blockers
+  (danger-soft, with the time a usage limit resets), warnings (warning-soft)
+  and soft notes (fill-tertiary): a subsidiary's parent, a nonprofit, a listed
+  company better served by the Buffett-method memo. A fix is a small bordered
+  button on the row ("Switch engine to Gemini", "Run on Microsoft Corp"). It
+  never changes a choice by itself and never disables Generate.
+- The footer carries the estimate from finished runs at the same settings, or
+  "No runs at this setting yet".
+- A control a run cannot use is locked with its reason in italics
+  (`text-[11px] italic text-ink-muted`), not hidden: audience on a Buffett
+  memo, the engine on Buffett and Memo Studio runs.
+
 ## Gotchas
 
 - Component classes (`.icon-btn`, `.monogram`, `.btn-*`) come after Tailwind's

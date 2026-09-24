@@ -41,7 +41,11 @@ toward growth quality and team. Scorecard weights for this stage:
 商业模式与单位经济 12 | 团队与治理 13 | 估值 10 | 退出确定性 5 |
 风险收益比 5. Every section is organized under its declared numbered
 subsections; the run-wide data-honesty, navigation, and chart rules
-ride the shared context.
+ride the shared context. A pinned fact is stated verbatim once in each
+section the pin sheet requires it in, and referred to without the
+figure everywhere else ("the March 2026 mark", "the base case"); a
+term of art is defined once, in the executive summary's "Terms used"
+block, and used bare after that.
 
 ## section: executive_summary
 ```yaml
@@ -70,7 +74,8 @@ subsections:
 ```
 
 600-800 words. The summary's one job is to say what matters. It
-contains NO tables — every number it needs lives in a sentence that
+contains NO tables (its last block, the "Terms used" glossary, is a
+`glossary` block) — every number it needs lives in a sentence that
 interprets it (the Deal Snapshot and Key Metrics Snapshot tables live
 in the Company & Team section). Content per subsection:
 
@@ -103,7 +108,13 @@ in the Company & Team section). Content per subsection:
    placeholders verbatim. With a pinned verdict tier and scorecard,
    open on "{tier} — {total}/100". A pinned
    `decision_history_sentence` is stated verbatim after the callout as
-   history.
+   history. Then, as the LAST block of the section, the "Terms used"
+   glossary: a `glossary` block with `component: "glossary"` and
+   `items`, one per term of art this memo uses (MOIC, IRR, ARR, NRR,
+   CAGR, TAM/SAM/SOM, run-rate, post-money, MOU and the like — 6-15
+   items), each `{"term": {"en", "zh"}, "definition": {"en", "zh"}}`
+   with the definition in five to ten words. It is where every such
+   term is defined; no section defines them again.
 
 ## section: company_team
 ```yaml
@@ -508,6 +519,18 @@ in each world, and how the money comes back. Content per subsection:
    crossover stated), and chart slot `chart_return_scenarios`: a
    `chart` block (bar; x = Bear / Base / Bull; y = gross MOIC) from
    the pinned MOICs, with its one-sentence reading.
+   Then "What has to be true": when the shared fact sheet carries the
+   Python-computed price lines — the exit value and exit-year revenue
+   that return the money, clear the firm's bar and return 3x at this
+   price; the breakeven entry price; the growth each case implies from
+   the latest disclosed revenue; the base-case IRR if the exit slips a
+   year or two; BSH's own proceeds by case when a check is on file —
+   state each line verbatim with its [C#], then say in one sentence
+   what the gap between what is needed and what the base case assumes
+   means: a base case that already needs more than the company has
+   shown is a bull case wearing a base case's label. When the fact
+   sheet carries none of these lines, write nothing for them — never
+   compute them here.
 7. The exit horizon — replaces a late-stage exit map, because
    growth-stage exits are horizons, not calendars: the plausible exit
    window, what must be true by then (scale, margins, governance),
@@ -559,12 +582,10 @@ subsections:
    using EXACTLY the pinned risk list and ratings. Card = level-3
    heading (the pinned summary — a complete verdict sentence with a
    finite verb, never a topic label) + key_value table with
-   `component: "risk_register"`, rows: Risk Type | Why it matters
-   (fact → failure mode → economic consequence, arithmetic when
-   quantifiable) | What we watch | Mitigation (the real mechanism —
-   company action, deal structure, or position sizing; when none
-   exists: "No structural mitigation exists. <consequence>") |
-   Likelihood | Risk Rating N/10.
+   `component: "risk_register"`. The card format is the risk-card
+   contract in your instructions: its fixed rows, in its order, with
+   "Why it matters" carrying fact → failure mode → economic
+   consequence, and the arithmetic when quantifiable.
 3. Disconfirming evidence: the treatment with
    `component: "disconfirming_evidence"`: the strongest facts against
    the recommendation, each weighed in one sentence.
@@ -630,6 +651,11 @@ subsections:
    paragraph with `component: "disclosures"` follows. A pinned
    `decision_history_sentence` is restated verbatim as history,
    adjacent to (never inside) the callout.
+   When it pins a `prior_view_sentence` — what BSH's previous memo on
+   this company concluded — restate it verbatim beside the callout
+   too, followed by one sentence on what changed since, or why the
+   view holds. It is history, not evidence: no figure from the
+   previous memo is cited.
 5. Monitoring & triggers: the "Monitoring Indicators" table (投后监控):
    4-6 rows — Indicator | Current value | Trigger threshold |
    Response. Titled "What changes the verdict" when the verdict is

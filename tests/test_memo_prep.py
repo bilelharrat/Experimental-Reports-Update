@@ -689,9 +689,16 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Open from the sponsor thesis" in prompt
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
-    assert "The vehicle is a $10,000,000 SAFE" in prompt
-    assert "Recommendation: BSH commits $3,000,000" in prompt
-    assert "BSH invests in physical-world infrastructure" in prompt
+    # One fictional company in the worked examples; no amount after "BSH
+    # commits" without a sizing input; no mandate sentence composed per
+    # deal (2026-09-22 — the ZaiNar opener had leaked verbatim).
+    assert "The vehicle is an $8,000,000 SAFE" in prompt
+    assert "Recommendation: BSH commits to <target> at <terms>." in prompt
+    assert "Recommendation: BSH commits $3,000,000" not in prompt
+    assert "BSH invests in physical-world infrastructure" not in prompt
+    assert "Never compose a mandate sentence for a deal" in prompt
+    assert "Tarnwell Robotics" in prompt
+    assert "ZaiNar" not in prompt
     assert "A SAFE is not equity" in prompt
     assert "we are being offered" in prompt  # banned, listed in contract
     assert "we recommend participating" in prompt
@@ -755,9 +762,10 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "Human Executive Memo Voice Contract" in prompt
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
-    assert "BSH invests in physical-world infrastructure" in prompt
-    assert "The vehicle is a $10,000,000 SAFE" in prompt
-    assert "Recommendation: BSH commits $3,000,000" in prompt
+    assert "BSH invests in physical-world infrastructure" not in prompt
+    assert "The vehicle is an $8,000,000 SAFE" in prompt
+    assert "Recommendation: BSH commits $3,000,000" not in prompt
+    assert "Recommendation: BSH commits to <target> at <terms>." in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "Never use detached IC jargon" in prompt
     assert "recommendation, opportunity, access, or base-case framing" in prompt
@@ -899,11 +907,72 @@ def test_internal_diligence_prompt_is_separate_internal_artifact(tmp_path):
         internal_markdown_path=tmp_path / "memo" / "internal.md",
     )
 
-    assert "separate internal BSH diligence memo" in prompt
-    assert "Output Markdown path" in prompt
-    assert "Suggested allocation" in prompt
+    # Rewritten 2026-09-22 into the IC decision memo (R6): same contract of
+    # a separate Markdown artifact, now built around the decision.
+    assert "internal IC decision memo" in prompt
+    assert "never shared outside BSH" in prompt
+    assert "Output Markdown path (English)" in prompt
     assert "Do not edit `logs/memo_package.json`" in prompt
-    assert "Write only the Markdown file" in prompt
+    assert "Write only the Markdown file(s)" in prompt
+    assert f"# {claude_runner.IC_MEMO_TITLE_EN} — Generalist, Inc." in prompt
+    for heading_en, _heading_zh in claude_runner.IC_MEMO_SECTIONS:
+        assert f"## {heading_en}\n" in prompt, heading_en
+    assert "[TO BE DETERMINED BY IC]" in prompt
+    assert "Exactly three" in prompt  # kill criteria, each with a date
+    # English only when no Chinese path is given.
+    assert claude_runner.IC_MEMO_TITLE_ZH not in prompt
+    assert "Output Markdown path (Chinese)" not in prompt
+
+
+def test_ic_decision_memo_prompt_writes_english_and_chinese_in_one_call(tmp_path):
+    zh_path = tmp_path / "memo" / "internal.zh.md"
+    package_path = tmp_path / "logs" / "memo_package.en.json"
+    prompt = claude_runner._build_internal_diligence_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={"en": "memo-en.docx", "zh": "memo-zh.docx"},
+        internal_markdown_path=tmp_path / "memo" / "internal.md",
+        internal_markdown_path_zh=zh_path,
+        package_path=package_path,
+    )
+
+    assert f"Output Markdown path (Chinese): `{zh_path}`" in prompt
+    assert f"Structured LP memo package: `{package_path}`" in prompt
+    assert "logs/english_units/spine.json" in prompt
+    assert f"# {claude_runner.IC_MEMO_TITLE_ZH} — Generalist, Inc." in prompt
+    for _heading_en, heading_zh in claude_runner.IC_MEMO_SECTIONS:
+        assert f"## {heading_zh}\n" in prompt, heading_zh
+    # The Chinese is written under the memo Chinese style and glossary.
+    assert "CHINESE LOCALIZATION QUALITY BAR" in prompt
+    assert "Money keeps its English form" in prompt
+    assert "| run-rate (revenue) | 年化收入 |" in prompt
+    # No policy saved: the walk-away bar is labelled as the memo's own.
+    assert "has not saved a return hurdle" in prompt
+
+
+def test_ic_decision_memo_prompt_uses_a_saved_fund_policy(tmp_path):
+    from server import fund_policy
+
+    fund_policy.save_policy(
+        {"stages": {"late": {"target_moic": 2.0, "target_irr_pct": 20, "basis": "gross"}}}
+    )
+    prompt = claude_runner._build_internal_diligence_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="r1",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={"en": "memo-en.docx", "zh": "memo-zh.docx"},
+        internal_markdown_path=tmp_path / "memo" / "internal.md",
+    )
+    assert "## Fund return policy (set by the firm)" in prompt
+    assert "Target return multiple: 2x (gross)." in prompt
+    assert "has not saved a return hurdle" not in prompt
 
 
 def test_resume_memo_package_prompt_is_package_only(tmp_path):
@@ -1247,7 +1316,12 @@ def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkey
     assert claude_runner.MEMO_PHASE6_THREAD in planned_threads
     assert "--allowedTools" in captured["cmd"]
     allowed = captured["cmd"][captured["cmd"].index("--allowedTools") + 1]
-    assert allowed == "Read,Write,Edit,Bash,Grep,Glob"
+    # The writer agents' grant, pinned as the CLI's actual tool set (an
+    # allow-list alone cannot remove tools under bypassed permissions); the
+    # web tools are named so the pin does not take them away.
+    assert allowed == claude_runner.MEMO_WRITER_TOOLS
+    assert allowed == "Read,Write,Edit,Bash,Grep,Glob,WebSearch,WebFetch"
+    assert captured["cmd"][captured["cmd"].index("--tools") + 1] == allowed
     denied = captured["cmd"][captured["cmd"].index("--disallowedTools") + 1]
     assert "ToolSearch" in denied
     assert "TaskCreate" in denied
@@ -1307,3 +1381,47 @@ def test_calibrate_only_keeps_late_stage_pass_untouched():
     )
     assert calibrated["outcome"] == "pass"
     assert calibrated["reason"] == plain["reason"]
+
+
+# ---- display names, filenames and the Buffett scope path ---------------------
+
+
+def test_company_display_name_strips_edgar_suffixes():
+    assert (
+        memo_prep.company_display_name({"id": "oxy", "name": "Occidental Petroleum Corp /De/"})
+        == "Occidental Petroleum Corp"
+    )
+    assert memo_prep.company_display_name({"id": "aapl", "name": "Apple Inc."}) == "Apple Inc."
+    assert memo_prep.company_display_name({"id": "acme"}) == "acme"
+    assert memo_prep.company_display_name(None, fallback="slug") == "slug"
+
+
+def test_memo_filename_is_one_path_component():
+    for buffett in (False, True):
+        for language in ("en", "zh"):
+            name = memo_prep._memo_filename(
+                "Occidental Petroleum Corp /De/", "2026-08-25__002314", language, buffett=buffett
+            )
+            assert "/" not in name and "\\" not in name
+            assert name.startswith("Occidental Petroleum Corp - ")
+    assert (
+        memo_prep._memo_filename("Acme", "2026-08-20__120000", "en")
+        == "Acme - Investment Memo - 2026-08-20__120000.docx"
+    )
+    assert memo_prep._memo_filename("AC/DC Holdings", "r1", "en").startswith("AC-DC Holdings - ")
+
+
+def test_buffett_scope_keeps_only_the_nonprofit_failure():
+    assert memo_prep._assess_buffett_scope({"status": "nonprofit"})["outcome"] == "fail"
+    early = memo_prep._assess_buffett_scope({"latest_funding": {"round": "Series A"}})
+    assert early["outcome"] == "pass"
+    assert early["classification"] == "private"
+    assert "stage" not in " ".join(early["signals"])
+    listed = memo_prep._assess_buffett_scope({"ticker": "KO", "status": "public"})
+    assert listed["classification"] == "public"
+    assert "ticker: KO" in listed["signals"]
+    subsidiary = memo_prep._assess_buffett_scope(
+        {"status": "subsidiary", "parent_company": "ALTEN"}
+    )
+    assert subsidiary["classification"] == "subsidiary"
+    assert "parent: ALTEN" in subsidiary["signals"]

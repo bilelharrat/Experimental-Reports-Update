@@ -9,13 +9,14 @@
 // beside the dossier again. It shares the sidebar's sort, "modified" rule
 // (state.js) and deck intake sheet (App.vue) rather than keeping copies.
 import { ref, computed, watch, watchEffect, onMounted, onBeforeUnmount, inject } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useT } from "../i18n.js";
 import { chromeLeftInset, useMediaQuery } from "../chrome.js";
 import {
   Sparkles,
   Sparkle,
   Search,
+  SearchX,
   ChevronsUpDown,
   X,
   FilePlus2,
@@ -60,6 +61,14 @@ const t = useT();
 
 const internalCompanies = ref([]);
 const loadingCompanies = ref(false);
+// Whether the company list is known: handed in, or fetched. A route id is
+// only called missing once it is, so a deep link never flashes "not found"
+// while the list is still on its way.
+const companiesReady = ref(false);
+// The first load has finished, whether or not it succeeded.
+const listSettled = ref(false);
+// A route id that names no company in the loaded list.
+const notFoundId = ref("");
 
 const searchText = ref("");
 const selectedSector = ref("All");
@@ -157,17 +166,29 @@ const isDeckDragTargeted = ref(false);
 const deckNotice = ref("");
 let deckNoticeTimer = null;
 
-async function loadCompaniesIfNeeded() {
-  if (props.companies && props.companies.length > 0) return;
+async function fetchCompanies() {
   loadingCompanies.value = true;
   try {
     const res = await api.listCompanies();
     internalCompanies.value = Array.isArray(res) ? res : (res?.companies || []);
+    companiesReady.value = true;
   } catch {
-    internalCompanies.value = [];
+    // An unreachable list says nothing about whether a company exists, so
+    // it never turns into "Company not found".
+    if (!companiesReady.value) internalCompanies.value = [];
   } finally {
     loadingCompanies.value = false;
+    listSettled.value = true;
   }
+}
+
+async function loadCompaniesIfNeeded() {
+  if (props.companies && props.companies.length > 0) {
+    companiesReady.value = true;
+    listSettled.value = true;
+    return;
+  }
+  await fetchCompanies();
 }
 
 onMounted(async () => {
@@ -239,17 +260,63 @@ function selectCompany(company) {
   }
 }
 
-function syncSelectionFromRoute() {
-  const targetId = props.companyId || route.params.companyId || route.query.company;
+// The id this desk was linked to, if any.
+function routeCompanyId() {
+  const raw = props.companyId || route.params.companyId || route.query.company;
+  return typeof raw === "string" ? raw : "";
+}
+const linkedCompanyId = computed(routeCompanyId);
+// Linked to a company whose fate is not known yet (the list is loading, or
+// being looked through again): the pane stays quiet rather than show "No
+// company selected" or "not found" for a moment. A list that failed to load
+// falls back to the plain empty state.
+const resolvingLink = computed(
+  () =>
+    Boolean(linkedCompanyId.value) &&
+    !notFoundId.value &&
+    !selectedCompany.value &&
+    (loadingCompanies.value || !listSettled.value),
+);
+
+// The link target last looked up again after a miss: a company added since
+// this desk fetched its list (the toolbar's Add, a search pick) is looked
+// for once more, per link, before it is called missing.
+let refetchedFor = "";
+
+async function syncSelectionFromRoute() {
+  const targetId = routeCompanyId();
   if (targetId) {
     const found = allCompanies.value.find((c) => c.id === targetId);
     if (found) {
+      notFoundId.value = "";
+      refetchedFor = "";
       selectedCompanyId.value = found.id;
       mobileView.value = "dossier";
       return;
     }
+    // Still loading: decide once the list lands (the watch below re-runs).
+    if (!companiesReady.value) return;
+    // Never another company's dossier under this URL, even for a moment.
+    selectedCompanyId.value = "";
+    if (!props.companies?.length && refetchedFor !== targetId) {
+      refetchedFor = targetId;
+      await fetchCompanies();
+      if (routeCompanyId() !== targetId) return;
+      if (allCompanies.value.some((c) => c.id === targetId)) {
+        syncSelectionFromRoute();
+        return;
+      }
+    }
+    // A link to a company this workspace does not have. Say so, rather than
+    // open another company's dossier under this URL.
+    notFoundId.value = targetId;
+    selectedCompanyId.value = "";
+    mobileView.value = "dossier";
+    return;
   }
 
+  notFoundId.value = "";
+  refetchedFor = "";
   if (!selectedCompanyId.value && allCompanies.value.length > 0) {
     selectedCompanyId.value = defaultCompanyId(window.innerWidth >= 768);
   }
@@ -584,6 +651,34 @@ function onDeckDrop(e) {
           @open-copilot="emit('open-copilot', $event)"
           @stage-updated="onStageUpdated"
         />
+
+        <!-- A link to a company this workspace does not have (most reports
+             belong to companies that were never added). Its reports may
+             still be on file, so the way out is the Reports desk filtered
+             to it. -->
+        <div
+          v-else-if="notFoundId"
+          class="flex h-full min-h-[24rem] flex-col items-center justify-center px-8 text-center"
+          data-testid="desk-company-not-found"
+        >
+          <SearchX class="mac-c-secondary h-11 w-11" stroke-width="1.25" />
+          <h2 class="mac-t-headline mt-4" style="font-size: 17px">
+            {{ t("desk.company_not_found_title") }}
+          </h2>
+          <p class="mac-t-body mac-c-secondary mt-1.5 max-w-sm">
+            {{ t("desk.company_not_found_body", { id: notFoundId }) }}
+          </p>
+          <RouterLink
+            :to="{ name: 'reports', query: { company: notFoundId } }"
+            class="mac-btn mac-btn--prominent mt-4"
+            data-testid="desk-company-not-found-reports"
+          >
+            {{ t("desk.company_not_found_reports") }}
+          </RouterLink>
+        </div>
+
+        <!-- Following a link: quiet until the company list says who it is. -->
+        <div v-else-if="resolvingLink" class="h-full min-h-[24rem]" aria-busy="true" />
 
         <!-- ContentUnavailableView("No Company Selected", systemImage: building.2) -->
         <div

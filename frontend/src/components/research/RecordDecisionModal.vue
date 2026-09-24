@@ -8,6 +8,8 @@ import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
 import { sessionName } from "../../auth.js";
+import { formatIsoDate } from "../../formatters.js";
+import { reportCanOpen, reportIsHidden, reportTypeLabel } from "../../reportStatus.js";
 import { CheckCircle2, Eye, XCircle } from "lucide-vue-next";
 
 const props = defineProps({
@@ -38,9 +40,19 @@ const reportId = ref("");
 const submitting = ref(false);
 const error = ref(null);
 
+// A decision rests on a memo someone can open: a document on file (with or
+// without quality warnings), newest first. The API sends no `title` or
+// `can_open`, so the picker names each memo by its type and date.
 const openableReports = computed(() =>
-  (props.reports || []).filter((r) => r.status === "complete" || r.can_open),
+  (props.reports || [])
+    .filter((r) => reportCanOpen(r) && !reportIsHidden(r))
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))),
 );
+
+function reportOptionLabel(r) {
+  const date = formatIsoDate(r.report_ready_at || r.created_at, "");
+  return date ? `${reportTypeLabel(r, t)} · ${date}` : reportTypeLabel(r, t);
+}
 
 watch(
   () => props.isOpen,
@@ -84,7 +96,7 @@ async function submitDecision() {
     emit("saved", res);
     emit("close");
   } catch (err) {
-    error.value = err?.message || "Could not record the decision.";
+    error.value = err?.message || t("desk.decision_save_failed");
   } finally {
     submitting.value = false;
   }
@@ -186,7 +198,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
               <select v-model="reportId">
                 <option value="">{{ t("research_desk.none") }}</option>
                 <option v-for="r in openableReports" :key="r.id" :value="r.id">
-                  {{ r.title || r.id }}
+                  {{ reportOptionLabel(r) }}
                 </option>
               </select>
             </div>

@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { createMemoryHistory, createRouter } from "vue-router";
 
 const apiMock = vi.hoisted(() => ({
   listActiveJobs: vi.fn(),
   cancelReportRun: vi.fn(),
+  getReport: vi.fn(),
   apiFetch: vi.fn(),
 }));
 
@@ -11,12 +13,28 @@ vi.mock("../src/api.js", () => ({
   api: {
     listActiveJobs: apiMock.listActiveJobs,
     cancelReportRun: apiMock.cancelReportRun,
+    getReport: apiMock.getReport,
   },
   apiFetch: apiMock.apiFetch,
   withApiToken: (url) => url,
 }));
 
 import ActiveJobsRail from "../src/components/ActiveJobsRail.vue";
+import { activeJobs } from "../src/activeJobs.js";
+import { requestJobLog } from "../src/reportStatus.js";
+import { KO_BUFFETT, FAILED_DISMISSED, withReport } from "./fixtures/reportSummaries.js";
+
+// The rail's rows link into /reports, so it mounts with a router.
+function withRouter() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: "/", name: "home", component: { template: "<div />" } },
+      { path: "/reports", name: "reports", component: { template: "<div />" } },
+    ],
+  });
+  return router;
+}
 
 describe("ActiveJobsRail", () => {
   let wrapper;
@@ -24,6 +42,8 @@ describe("ActiveJobsRail", () => {
   afterEach(() => {
     wrapper?.unmount();
     vi.restoreAllMocks();
+    // The poll's result is shared app state; start each test from none.
+    activeJobs.value = [];
   });
 
   it("expands parallel flow rows with event counts and elapsed time", async () => {
@@ -63,6 +83,7 @@ describe("ActiveJobsRail", () => {
 
     wrapper = mount(ActiveJobsRail, {
       global: {
+        plugins: [withRouter()],
         stubs: { Teleport: true },
       },
     });
@@ -99,7 +120,7 @@ describe("ActiveJobsRail", () => {
     apiMock.cancelReportRun.mockResolvedValue({ status: "failed_during_analysis" });
 
     wrapper = mount(ActiveJobsRail, {
-      global: { stubs: { Teleport: true } },
+      global: { plugins: [withRouter()], stubs: { Teleport: true } },
     });
     await flushPromises();
 
@@ -130,7 +151,7 @@ describe("ActiveJobsRail", () => {
     ]);
 
     wrapper = mount(ActiveJobsRail, {
-      global: { stubs: { Teleport: true } },
+      global: { plugins: [withRouter()], stubs: { Teleport: true } },
     });
     await flushPromises();
 
@@ -160,6 +181,7 @@ describe("ActiveJobsRail", () => {
     wrapper = mount(ActiveJobsRail, {
       props: { copilotOpen: true },
       global: {
+        plugins: [withRouter()],
         stubs: { Teleport: true },
       },
     });
@@ -169,5 +191,85 @@ describe("ActiveJobsRail", () => {
     // Beside whatever width Warren was dragged to (--copilot-w).
     expect(rail.classes()).toContain("rail-beside-copilot");
     expect(rail.classes()).toContain("max-xl:hidden");
+  });
+  it("links a delivered report from its row while artifacts finish", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      {
+        kind: "memo",
+        report_id: "memo-1",
+        title: "Investment memo — ZaiNar, Inc.",
+        latest_stage: "Finalizing private analysis artifacts",
+        report_ready: true,
+      },
+    ]);
+    wrapper = mount(ActiveJobsRail, {
+      global: { plugins: [withRouter()], stubs: { Teleport: true } },
+    });
+    await flushPromises();
+    const links = wrapper.get('[data-testid="rail-report-ready-links"]').findAll("a");
+    expect(links.map((a) => a.text())).toEqual(["Read EN", "阅读中文"]);
+    expect(links[1].attributes("href")).toBe("/reports?id=memo-1&lang=zh");
+  });
+
+  it("keeps a finished memo as a Ready row until it is opened", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      { kind: "memo", report_id: KO_BUFFETT.id, title: "Buffett memo — Coca Cola Co" },
+    ]);
+    apiMock.getReport.mockResolvedValue(withReport(KO_BUFFETT));
+    const router = withRouter();
+    wrapper = mount(ActiveJobsRail, {
+      global: { plugins: [router], stubs: { Teleport: true } },
+    });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="rail-ready-row"]').exists()).toBe(false);
+
+    // The run leaves the poll: the rail says it is ready instead of vanishing.
+    apiMock.listActiveJobs.mockResolvedValue([]);
+    activeJobs.value = [];
+    await flushPromises();
+    expect(apiMock.getReport).toHaveBeenCalledWith(KO_BUFFETT.id);
+    const row = wrapper.get('[data-testid="rail-ready-row"]');
+    expect(row.text()).toContain("Buffett memo — Coca Cola Co");
+    expect(row.text()).toContain("Ready");
+    const en = row.get('[data-testid="rail-ready-read-en"]');
+    expect(en.attributes("href")).toBe(`/reports?id=${KO_BUFFETT.id}&lang=en`);
+    expect(row.get('[data-testid="rail-ready-read-zh"]').text()).toBe("阅读中文");
+
+    await en.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe(`/reports?id=${KO_BUFFETT.id}&lang=en`);
+    expect(wrapper.find('[data-testid="rail-ready-row"]').exists()).toBe(false);
+  });
+
+  it("does not announce a run that failed", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      { kind: "memo", report_id: FAILED_DISMISSED.id, title: "Investment memo" },
+    ]);
+    apiMock.getReport.mockResolvedValue(withReport(FAILED_DISMISSED));
+    wrapper = mount(ActiveJobsRail, {
+      global: { plugins: [withRouter()], stubs: { Teleport: true } },
+    });
+    await flushPromises();
+    apiMock.listActiveJobs.mockResolvedValue([]);
+    activeJobs.value = [];
+    await flushPromises();
+    expect(wrapper.find('[data-testid="rail-ready-row"]').exists()).toBe(false);
+  });
+
+  it("opens its transcript modal when a report viewer asks for a job's log", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([]);
+    wrapper = mount(ActiveJobsRail, {
+      global: {
+        plugins: [withRouter()],
+        stubs: {
+          Teleport: true,
+          JobLogModal: { props: ["job"], template: '<div data-testid="job-log">{{ job.report_id }}</div>' },
+        },
+      },
+    });
+    await flushPromises();
+    requestJobLog({ kind: "memo", report_id: "memo-9", log_url: "/api/jobs/log?path=memo:memo-9" });
+    await flushPromises();
+    expect(wrapper.get('[data-testid="job-log"]').text()).toBe("memo-9");
   });
 });

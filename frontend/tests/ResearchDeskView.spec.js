@@ -10,6 +10,13 @@ import CapTableCard from "../src/components/research/CapTableCard.vue";
 import VCRatiosCard from "../src/components/research/VCRatiosCard.vue";
 import RecordDecisionModal from "../src/components/research/RecordDecisionModal.vue";
 import api from "../src/api.js";
+import {
+  ANTHROPIC_COMPLETE,
+  KO_BUFFETT,
+  ZAINAR_WARNINGS,
+  runningReport,
+  withReport,
+} from "./fixtures/reportSummaries.js";
 
 vi.mock("../src/api.js", () => {
   const mock = {
@@ -22,7 +29,8 @@ vi.mock("../src/api.js", () => {
     getFounderDossier: vi.fn(),
     deepSearchFounder: vi.fn(),
     getMemoNumberLint: vi.fn(),
-    getReports: vi.fn(),
+    listCompanyReports: vi.fn(),
+    studioGenerate: vi.fn(),
     decisionRecords: {
       list: vi.fn(),
       add: vi.fn(),
@@ -87,8 +95,9 @@ describe("ResearchDeskView", () => {
       stage: "Term Sheet / IC",
       warmth_score: 90,
     });
-    api.getReports.mockResolvedValue([
-      { id: "rep-1", title: "Q3 Investment Memo", status: "complete" },
+    // A real ReportSummary (GET /api/companies/{id}/reports), moved to Acme.
+    api.listCompanyReports.mockResolvedValue([
+      withReport(ANTHROPIC_COMPLETE, { company_id: "acme-corp", company_name: "Acme Corp" }),
     ]);
     api.decisionRecords.list.mockResolvedValue([
       { id: "dec-1", type: "invest", rationale: "Strong moat", created_at: "2026-03-01" },
@@ -277,7 +286,8 @@ describe("ResearchDeskView", () => {
       props: {
         isOpen: true,
         company: mockCompanies[0],
-        reports: [{ id: "rep-1", title: "Q3 Investment Memo", status: "complete" }],
+        // A real ReportSummary: the picker reads its documents, not a title.
+        reports: [withReport(ANTHROPIC_COMPLETE, { id: "rep-1", company_id: "acme-corp" })],
       },
       global: {
         plugins: [router],
@@ -307,6 +317,34 @@ describe("ResearchDeskView", () => {
     const payload = api.decisionRecords.add.mock.calls[0][1];
     expect(payload.decided_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00Z$/);
     expect(wrapper.emitted("saved")).toBeTruthy();
+  });
+
+  it("offers the memos on file by type and date, newest first", async () => {
+    const wrapper = mount(RecordDecisionModal, {
+      props: {
+        isOpen: true,
+        company: mockCompanies[0],
+        reports: [
+          withReport(ANTHROPIC_COMPLETE, { id: "older", created_at: "2026-08-01T10:00:00Z" }),
+          // complete_with_warnings is a finished memo too.
+          withReport(ZAINAR_WARNINGS, { id: "newer", created_at: "2026-09-01T10:00:00Z" }),
+          // A run in flight, a placeholder with no document and a dismissed
+          // memo are not something a decision can rest on.
+          runningReport({ id: "running" }),
+          withReport(KO_BUFFETT, { id: "stub", download_urls: null, preview_urls: null }),
+          withReport(KO_BUFFETT, { id: "gone", dismissed_at: "2026-09-02T00:00:00Z" }),
+        ],
+      },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const options = wrapper.findAll("select option").map((o) => [o.attributes("value"), o.text()]);
+    expect(options.map(([value]) => value)).toEqual(["", "newer", "older"]);
+    expect(options[1][1]).toBe("Investment Memo (Late-Stage) · 2026-09-01");
+    expect(options.map(([, text]) => text).join(" ")).not.toMatch(/undefined|older|newer/);
+    // The newest memo is the one picked by default.
+    expect(wrapper.get("select").element.value).toBe("newer");
   });
 });
 
@@ -354,7 +392,7 @@ describe("CompanyDossierView follows its URL", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listCompanies.mockResolvedValue(companies);
-    api.getReports.mockResolvedValue([]);
+    api.listCompanyReports.mockResolvedValue([]);
     router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -471,15 +509,20 @@ describe("CompanyDossierView follows its URL", () => {
 
   it("reloads the memo list when a new run arrives with ?report=", async () => {
     const wrapper = await openDesk("/globex?section=memos");
-    expect(api.getReports).toHaveBeenCalledTimes(1);
+    expect(api.listCompanyReports).toHaveBeenCalledTimes(1);
+    expect(api.listCompanyReports).toHaveBeenCalledWith("globex");
 
-    api.getReports.mockResolvedValue([
-      { id: "rep-2", title: "Globex memo run", status: "running", stage: "Phase 1" },
+    api.listCompanyReports.mockResolvedValue([
+      runningReport({ id: "rep-2", company_id: "globex", company_name: "Globex Corporation" }),
     ]);
     await go("/globex?section=memos&report=rep-2");
 
-    expect(api.getReports).toHaveBeenCalledTimes(2);
-    expect(wrapper.text()).toContain("Globex memo run");
+    expect(api.listCompanyReports).toHaveBeenCalledTimes(2);
+    // The run shows under Active Analysis Pipelines by its type and stage,
+    // not by its id.
+    expect(wrapper.text()).toContain("Investment Memo (Late-Stage)");
+    expect(wrapper.text()).toContain("Phase 2 - Parallel analysis passes");
+    expect(wrapper.text()).not.toContain("rep-2");
     expect(url()).toBe("/globex?section=memos");
   });
 

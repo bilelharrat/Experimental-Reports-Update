@@ -22,7 +22,17 @@ code paths, no run folders, no inputs. They do not invoke each other.
    a document and then generating a memo are two independent decisions.
 
 3. **`memo_prep.py` does not stage any files into the run folder.** It
-   creates the versioned run folder and a manifest, nothing else.
+   creates the versioned run folder and a manifest, nothing else. The
+   analysis worker then stages the firm's own material on the company
+   (`server/memo_inputs.py`), never anything from `data/uploads/`: digests
+   in the research folder — `call_notes.md` (reference and expert calls:
+   role, relation and month, never a contact's name; earnings calls
+   excluded), `founder_updates.md` (portfolio KPIs and updates with their
+   dates and sources) and `deal_terms.md` (the terms on the deal-pipeline
+   record, else the portfolio position) — and, in the run's `logs/`,
+   `run_inputs.json` (what the run was built from), `staged_private_items.json`
+   and `open_reader_flags.md` (open reader flags on earlier memos, inlined
+   into the passes' context as untrusted notes — never a research file).
 
 4. **Python owns orchestration and DOCX rendering, but not memo judgment.**
    In the default fast path, Python fans out independent Claude analysis
@@ -34,6 +44,19 @@ code paths, no run folders, no inputs. They do not invoke each other.
    (`server.memo_docx_renderer`), and creates both `.docx` files, validation
    logs, file inventory, and manifest finalization. Per-run renderer scripts
    such as `build_memo.py` are forbidden.
+
+   **The English memo never waits on, or dies with, the Chinese.** Its
+   `.docx` is written the moment the English package is accepted
+   (`memo_docx_renderer.render_memo_locale(package, "en", …)`), while the
+   run stays `analyzing` ("English memo ready — Chinese in progress",
+   `english_ready_at`). A Chinese-stage failure — or a cancel or kill
+   during it — delivers the English alone: `complete_with_warnings`,
+   `failure_phase = "chinese_package"`, `english_only = true`, the bilingual
+   warning "Chinese version failed — English delivered / 中文版生成失败，已交付英文版",
+   and whatever Chinese did land kept in `logs/memo_package.zh_partial.json`.
+   Resume on such a run is **Retry Chinese**: it translates only what is
+   still blank and re-renders the Chinese `.docx`; it never rewrites the
+   English package or its `.docx`.
 
 ## Where Serena's "company folder" lives in this codebase
 
@@ -73,7 +96,7 @@ company records that must survive a GitHub checkout live in tracked seed files:
 
 | Path | Owned by | Purpose |
 |---|---|---|
-| `server/seed_data/company_records.yaml` | Git-tracked product data | Curated company profile and PRD overview fields, including the ZaiNar v2 demo record. |
+| `server/seed_data/company_records.yaml` | Git-tracked product data | Curated company profile and PRD overview fields, including the ZaiNar v2 demo record. Its ARR (~$24M), YoY growth (+180%), TAM (~$45B), every industry-view metric (~24% CAGR, ~12x median over five comps), the 95.5% cap table and the two "expert" stances are placeholder values from the v2 design mock (as of 2026-06-13), not diligence: they are labelled `demo placeholder (v2 design mock)` (and the record carries `demo_data_note`) so the company page keeps its designed layout without anything presenting them as BSH research. Only the $1.0B+ valuation and the dated news are company disclosures. |
 | `server/seed_data/company_fixtures.yaml` | Git-tracked QA data | Opt-in deterministic fixtures for Databricks, Stripe, NextNav, and empty company states. |
 | `server/seed_data/serena_background.md` | Git-tracked product data | Default analyst background (`memo_prep.ensure_settings_file()` copies it to `data/settings/serena_background.md` at startup and at memo prep when no background exists), so a fresh checkout can generate memos immediately. A locally present background is never overwritten. |
 | `data/companies.yaml` | Server-local runtime data | Materialized company registry consumed by the API, memo generation, translations, trader snapshots, and local edits. |
@@ -145,7 +168,7 @@ which spends the user's Claude Code subscription. Three surfaces do not:
 
 | Surface | Module | Why Gemini |
 |---|---|---|
-| Team dossier refresh | `founder_dossier.py` | Web-grounded, needs machine-readable source URLs |
+| Team dossier refresh | `founder_dossier.py` | Web-grounded, needs machine-readable source URLs; a short lookup, so it pins the cheapest, fastest tier (`RESEARCH_MODEL`) rather than the desk's Gemini setting |
 | Morning Brief written note | `market_brief.py` | Short, frequent, no tools needed |
 | Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
 | Story briefings | `news_brief.py` | Highest-frequency call in the app; no tools needed |
@@ -222,9 +245,23 @@ A Stop is never passed on.
 The memo pipeline does not use `ai_engine`. Every stage — the parallel
 analysis passes, the English spine, the bilingual package, every repair
 pass — funnels through `claude_runner._run_memo_local_json_artifact`, which
-spawns a Claude CLI subprocess with `--add-dir` and `Read,Bash,Grep,Glob`:
-the prompts hand the agent a *listing* of the company research folder and
-expect it to open those files itself.
+spawns a Claude CLI subprocess with `--add-dir`: the prompts hand the agent
+a *listing* of the company research folder and expect it to open those
+files itself.
+
+The agents are sandboxed. `--tools` (which, unlike `--allowedTools`, removes
+every tool it does not name) pins `claude_runner.MEMO_AGENT_TOOLS_DEFAULT`
+(`Read,Grep,Glob,WebSearch,WebFetch`; `BSH_MEMO_AGENT_TOOLS` overrides) on
+the funnel, `Read,Write,…` only for the handoff workers that write their
+part to a file, and the file-writing agents (legacy skill, resume, IC memo,
+Buffett) keep exactly the list they had. The subprocess environment is
+`claude_runner.memo_agent_env`: the server's, minus secrets the CLI does not
+need (other engines' keys, push credentials, `*_KEY`/`*_TOKEN`/`*_SECRET`),
+with `TMPDIR` under the run's `logs/tmp`. After a run, `logs/boundary_audit.md`
+lists any tool call that reached outside the run's grant (server code,
+tests, `.env`, `data/uploads/`, other runs) — a warning on the report. The
+`data/` read grant stays: the registry entry and the analyst background are
+still read from files.
 
 `server/memo_engine.py` adds a per-run toggle at that one funnel, so a
 Gemini memo runs the same stage graph, prompts, schemas, retries, repair
@@ -347,5 +384,140 @@ The fact ledger itself is editable from the research desk (Files tab) and
 at `GET/PUT /api/companies/{id}/fact-ledger`; a run without one emits
 `memo_fact_ledger_missing`. Package sources retrieved from the web must
 carry their URL (`BSH_MEMO_SOURCE_URL_REQUIRED`); before validation the
-pipeline attaches URLs the analysis passes or the cache already recorded.
+pipeline attaches URLs the analysis passes (`analysis/fast/*.json`, whose
+evidence sits under `data`), the cache or the Memo Studio session's
+locators already recorded (`memo_fact_check.attach_source_urls`).
 
+Report-only additions (2026-09-22) — none of them changes what the repair
+enforces:
+
+- `fact_check.json` carries `tiers`, an honest split of the checked
+  figures: verified in a cited source that is not the subject's own site,
+  found in independent evidence (and how many of those name the same
+  metric near the number), derived, company-reported (only pages on the
+  subject's own domain carry it), registry-only (only registry fields with
+  `source_refs`), and not traced. The strict match behind it ignores bare
+  numbers that are dates, pages, sections or footnotes ("30 June", "p. 12",
+  "§ 4", "[12]"). `memo_fact_check.summarize_fact_check` turns a stored
+  check into the reader-facing summary; a thin corpus reads "not
+  checkable", never a percentage.
+- Every package source URL is marked seen (the cache fetched it, the run
+  manifest lists it, the analysis artifacts or the Memo Studio session
+  recorded it) or unseen, and a bare homepage cited by two or more sources
+  is flagged — in `fact_check.json` (`source_urls`), `logs/source_urls.md`
+  and the package envelope (`run.source_url_status`). URLs are never
+  stripped.
+- `memo_fact_check.private_inventory` lists the private items a run may
+  read (research documents it is allowed to see — not the fact ledger,
+  decision record or web digests — and registry metrics whose
+  `source_refs` are tagged BSH diligence), for a per-source check to
+  replace the package-wide `private_material_on_file` boolean.
+
+## Company identity in the registry (2026-09-22)
+
+Every company-search hit is upserted into `data/companies.yaml`
+(`storage.upsert_company_from_match`). A hit matches an existing record by
+ticker, then website host, then name — but a host or name match is refused
+when both sides carry a legal name and the normalized names differ
+('OpenAI Group PBC' vs 'OpenAI Foundation'; 'Anthropic PBC' and 'Anthropic,
+PBC' are the same): that entity gets its own record, slugged from its legal
+name. Identity fields (legal name, disambiguator, ticker, exchange, status,
+HQ, parent, website) are only filled when empty; the explicit Refresh
+(`deep_search(only_company_id=…)`) may overwrite them except the ticker, and
+a tickered hit on a tickerless record (a listing) updates them. Search
+results are deduplicated by record id.
+
+## Memo pipeline additions (2026-09-22)
+
+What a late-stage / Auto run records beyond the documents, and the modules
+behind it. Every field and file is optional: records and packages written
+before these existed render, resume and read as before.
+
+**Modules**
+
+| Module | What it owns |
+|---|---|
+| `server/memo_flags.py` | The eight pipeline switches and their defaults (all on); every call site reads `memo_flags.enabled(name)`. |
+| `server/memo_inputs.py` | The firm's material staged for a run (hard rule 3), jurisdiction detection (`detect_jurisdiction`), and the "Built from" counts the readiness endpoint shows. |
+| `server/memo_returns.py` | Returns recomputed in Python from the v2 pins: exit values, MOIC, IRR, the probability-weighted MOIC and P(MOIC < 1), the walk-away entry price against the firm's hurdle, preference-adjusted multiples (`cap_model.compute`), an entry × exit-multiple grid. Its figures join the pin sheet as `[C#]` notes (`shared_facts.returns`); its disagreements with the pins are warnings. |
+| `server/memo_signposts.py` | Signposts phase 1: `extract(package)` — the writer's optional `signposts[]`, else derived from the monitoring table and the risk cards' "What we watch" rows — and `echo_findings(package)`. Written to `logs/signposts.json` for the tracking store to come. |
+| `server/source_tiers.py` | Source reliability tiers and honest source dates (`normalize_source_dates`, `evidence_cutoff`). |
+| `server/fund_policy.py` | The firm's return bar per stage (`data/settings/fund_policy.yaml`, unset by default). A saved policy reaches the spine prompt and is pinned verbatim as `shared_facts.return_hurdle` (`claude_runner.pin_return_hurdle`). |
+| `server/report_reader.py` | The reader block on list rows, failure explanations (`classify_failure`: shutdown, orphaned and interrupted runs read as interrupted), company identity snapshots. |
+| `server/report_rerender.py` | Re-render a stored package with the current renderer (`POST /api/reports/{id}/rerender`, or `python -m server.report_rerender`), report-only re-lint. |
+| `server/report_access.py`, `server/memo_pdf.py`, `server/memo_diff.py`, `server/provider_limits.py` | Download/export naming and access, the background PDF, the version diff, recorded provider usage limits. |
+| `server/buffett_checks.py`, `server/company_names.py` | Buffett-memo deterministic checks and market inputs; clean company display names. |
+
+**Run folder files** (under `logs/` unless noted)
+
+| File | Written by | Holds |
+|---|---|---|
+| `memo_package.en.json` | English acceptance | The accepted English package (the source of the English `.docx` and of Retry Chinese). |
+| `memo_package.zh_partial.json` | A failed Chinese stage | The English plus every Chinese string that landed. |
+| `crash.txt` | A worker crash | The traceback (appended); the record carries `failure_detail`. |
+| `run_inputs.json`, `staged_private_items.json`, `open_reader_flags.md` | Input staging | What the run was built from (see hard rule 3). |
+| `boundary_audit.md` | After the run | Agent tool calls outside the run's grant. |
+| `signposts.json` | Finalize | The memo's signposts (`memo_signposts.extract`). |
+| `generated_models.json` | Every memo subprocess | `{role: model_id}` — the first model seen per role (ANALYSIS_PASS, SPINE, SECTION, ENGLISH, ARTIFACTS, REPAIR, SPINE_CHECK, TRANSLATION; SKILL, RESUME, BUFFETT), read from the CLI stream (the answering assistant message, else the system/init event), never the tier's alias. |
+| `english_units/spine.json` | The parallel English pass | The pin sheet, including Python's `return_hurdle` and `returns`. |
+
+**Deterministic envelope facts.** The accepted English package is stamped in
+Python before the English `.docx` and the Chinese stage
+(`memo_analysis._stamp_envelope_facts`): `run.as_of` is the run date (never
+the raw run id); the company's cover fields become `{en, zh}` slots
+(`hq` → `location`; the registry's own Chinese prefilled where the English is
+the registry's), a missing stage comes from the run's structure and a
+missing round from the deal-pipeline record (never guessed); calculation
+input names become `{en, zh}` slots; every source gets honest dates
+(`published_at` undated when a web page is dated the day the run read it,
+unless its URL carries a date), `retrieved_at` from the run's source manifest
+or the source cache, and the analysis's `evidence_source_class` /
+`evidence_confidence`; `run.evidence_cutoff` is derived when the model left
+it out or set it to the run date; `run.checks` carries the fact check's
+counts (the document's provenance line), with the quality and Chinese-parity
+results stamped from the pre-render pass over the final package. The run's
+private inventory is recorded report-only as `run.private_items_on_file`:
+`run.private_inventory` tightens the renderer's source gate and is not
+stamped until the writers are told to cite private documents by exact title
+or `private_ref`.
+
+**What generated a memo.** `package["run"]["generated_with"]` — stamped where
+the package is written (English acceptance, the end of the Chinese stage,
+the legacy one-shot skill, the Buffett finalize) and copied to the record
+and the report API as `generated_with`:
+`{engine: "claude"|"gemini", quality, template: "standard"|"ic_v2"|"buffett",
+structure: {stage, version, mode} (not on Buffett), models: {ROLE: model_id},
+writer_model, translation_model, code_version}` — `code_version` is the
+server checkout's short commit (`-dirty` with local changes), read once when
+the server loads, and a later Chinese stage keeps the English's. A package
+written before the stamp existed is never back-filled.
+
+**Report record fields.** `audience` (the real one from `POST /reports`),
+`structure_version` + `structure_version_source` (written before the worker
+starts), `actionability` (`memo_prep.classify_actionability`: `kind`
+`private_round` | `listed` | `subsidiary` | `nonprofit`, `investable_security`,
+`parent`?, `ticker`?), `english_ready_at`, `english_only`, `internal_memo_files`
+with a `language` per entry (the IC decision memo in English and Chinese for
+Internal, Partner and Assistant audiences; `BSH_MEMO_GENERATE_INTERNAL`
+overrides), `quality_warnings` + aligned `quality_warnings_zh` +
+`quality_warning_items` (`[{gate, language, section, severity, code,
+summary_en, summary_zh, detail_path?}]`; gates include `quality`,
+`chinese_parity`, `chinese_package`, `ic_memo`, `analysis_coverage`,
+`private_diligence`, `agent_boundary`, `risk_cards`, `returns`,
+`signposts`). Warning wording never says "quality gate" or "memo quality":
+Resume reads those words as an English quality failure.
+
+**Endpoints.** `GET /api/reports/readiness?company_id=` also returns
+`inputs {research_docs, calls, founder_updates}` and
+`company.actionability`; `GET/PUT /api/companies/{id}/deal-pipeline`
+carries the optional deal terms (`round`, `instrument`, `pre_money_usd`,
+`post_money_usd`, `proposed_check_usd`, `terms_note`). The report API
+also serves `GET /api/reports/estimates` (duration and cost from past runs),
+`GET /api/reports/{id}/preview` (the PDF, 503 while it builds),
+`GET /api/reports/{id}/bundle`, `GET /api/reports/{id}/download?purpose=`,
+`GET /api/reports/{id}/diff?against=`, `PATCH /api/reports/{id}/review`,
+`POST /api/reports/{id}/rerender`, `GET|POST /api/reports/{id}/comments`
+(reader flags: `wrong_number`, `unsupported`, `unclear`, `missing`, `tone`)
+and `POST /api/reports/{id}/events`, and `GET|PUT /api/settings/fund-policy`.
+Buffett runs record their call (`decision`, `buy_price`, `call_label`,
+`buffett_valuation`, `market_inputs`) from `buffett_checks` and the renderer.

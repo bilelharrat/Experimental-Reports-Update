@@ -47,7 +47,7 @@ writer-process phrasing.
 Avoid meta-commentary about the document itself:
 - do not write memo/document/process narration, analysis-process narration, or writer-process language
 - do not write detached IC jargon for the investment call
-- write in the LP co-invest register: "BSH invests in..." for the mandate, "Recommendation: BSH commits $X" for the call, "The SPV is a $10M SAFE with a 15% discount"
+- write in the LP co-invest register: never compose a mandate sentence ("BSH invests in..." written fresh for each deal); "Recommendation: BSH commits to <target> at <terms>" for the call, with a dollar amount only when an input supplies BSH's check size; "The SPV is an $8M SAFE with a 20% discount" only when deal terms are on file
 - never use the stock phrases "we believe", "we are being offered", "we recommend participating", or "we are participating through"
 - do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
 - state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
@@ -85,9 +85,9 @@ writer-process framing such as "we frame it as", "we frame the market", or
 imperative diligence commands such as "Require X before underwriting"; write
 the implication: "X is not in the disclosed terms" or "X remains the principal risk."
 
-Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
-statements. Write "BSH invests in..." for the mandate and "Recommendation: BSH commits..."
-for the action. Prefer physical language over framework metaphors when the
+Do not use casual sponsor verbs or exposure-seeking idioms. Write
+"Recommendation: BSH commits..." for the action, and never compose a mandate
+sentence for the deal. Prefer physical language over framework metaphors when the
 source supports it; do not prescribe "control layer for" or "is compelling because".
 
 Do not overload the opening paragraph with sponsor mission, technical claim,
@@ -99,14 +99,15 @@ Do not use uniqueness claims such as "only scaled platform" unless the source
 package independently supports both uniqueness and scale. Use precise
 capability claims instead.
 
-Concrete positive writing patterns:
-- Opening: "BSH invests in physical-world infrastructure that makes people safer, healthier, and more capable. ZaiNar locates people and assets from the network itself: no cameras, no biometric capture, no battery-powered devices on workers."
-- Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a $3.0B estimated pre-money. Recommendation: BSH commits $3,000,000, leaving $7,000,000 for co-investors. Effective entry after the discount is about $2.55B."
-- Proof: "Commercial pull is $500M+ in signed contracts and MOUs in six months, $36M of DoD work, and named partners including Microsoft, Nvidia, and SoftBank. Steve Jurvetson sits on the board."
-- Scan bullets: bold noun lead-ins, then one fact. "SAFE risk. A SAFE is not equity and has no LP voting. Concentration. A material share of the $500M+ figure remains MOUs."
-- Risk: "A SAFE is not equity and has no LP voting. $3.0B is high relative to disclosed revenue. A material share of the $500M+ figure remains MOUs. Carrier cycles run 18 to 36 months."
-- Evidence gap: "Revenue is not disclosed. $3.0B is high relative to disclosed commercial proof."
-- Diligence: "Additional BSH diligence independently corroborated the technology and the founding team."
+Concrete positive writing patterns (Tarnwell Robotics is a fictional company: copy the shape of these sentences, never their facts or wording):
+- Opening: "Cold-storage warehouses still move pallets by hand at minus twenty degrees, and they cannot hire for the work. Tarnwell Robotics builds forklifts that run those aisles on their own: no rails, no floor markers, no driver in the cab."
+- Transaction, with deal terms on file: "The vehicle is an $8,000,000 SAFE with a 20% discount at a $1.2B estimated pre-money. Effective entry after the discount is about $960M. Recommendation: BSH commits to Tarnwell at those terms."
+- Transaction, with no deal terms on file: "No vehicle or terms are on file. The March 2026 Series B at a $1.1B post-money is the only mark. Recommendation: watch Tarnwell — the trigger is a term sheet at or below that mark."
+- Proof: "Commercial pull is $140M+ in signed contracts and letters of intent over nine months, $9M of defense-logistics work, and named customers including Carrow Freight and Pemberly Cold Chain. Ines Varga, who ran warehouse automation at a national grocer, chairs the board."
+- Scan bullets: bold noun lead-ins, then one fact. "SAFE risk. A SAFE is not equity and has no LP voting. Concentration. A material share of the $140M+ figure remains letters of intent."
+- Risk: "A SAFE is not equity and has no LP voting. $1.2B is high relative to disclosed revenue. A material share of the $140M+ figure remains letters of intent. Warehouse retrofit cycles run 12 to 24 months."
+- Evidence gap: "Revenue is not disclosed. $1.2B is high relative to disclosed commercial proof."
+- Diligence: "A BSH reference call (customer, 2026-06) confirmed the uptime figure. One call is an anecdote, so the case does not rest on it."
 
 Rejected language categories:
 - stock participation slogans ("we are being offered", "we are participating through", "we recommend participating")
@@ -123,7 +124,7 @@ Banned phrase / rewrite guidance:
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
 | The principal risk is that... | SAFE risk. Concentration. Illiquidity. |
-| Detached recommendation framing | Recommendation: BSH commits $X... / Recommendation: pass on... |
+| Detached recommendation framing | Recommendation: BSH commits to <target>... / Recommendation: pass on... |
 | we are being offered / we recommend participating / we are participating through | Firm-as-subject deal English; never reuse these slogans |
 | Sponsor-capability speculation | State the disclosed fact and the risk. |
 | Funding-gate checklist phrase | State the fact or the risk. |
@@ -157,9 +158,9 @@ Do not write "we give credit to", "our base case credits", "the investment
 case rests on", "source class", or "model treatment" in the body.
 
 For Wisdom-sponsored opportunities, write in a Wisdom / BSH co-invest register:
-use "BSH invests in..." for mandate-level category statements, and use
-"Recommendation: BSH commits $X, leaving $Y for co-investors" plus plain SAFE/SPV
-mechanics for the transaction. Do not use "we are being offered",
+never compose a mandate sentence for the deal, and use "Recommendation: BSH
+commits to <target> at <terms>" plus plain SAFE/SPV mechanics for the
+transaction when deal terms are on file. Do not use "we are being offered",
 "we are participating through the SPV", or "we recommend participating".
 
 ---
@@ -985,7 +986,7 @@ Do not put inline source markers, bracketed source IDs, file names, artifact nam
 - clearly separated validation appendices.
 
 In Sections I through V, name the proof instead of classifying it:
-- if a material fact is company-originated, name the speaker, contract, or document ("Steve Jurvetson sits on the board", "Kajima", "Fierce");
+- if a material fact is company-originated, name the speaker, contract, or document ("Ines Varga chairs the board", "the Carrow Freight contract", a named trade publication);
 - if a fact is independently supported, name the third party;
 - if a fact is inferred, say the inference in ordinary English ("Revenue is not disclosed. $3.0B is high relative to disclosed commercial proof.");
 - if a claim is unresolved, say so and pair it with the risk, not with "model treatment" or "source class".
@@ -1290,7 +1291,9 @@ Required cover-page elements:
    - Round (for late-stage transactions where round size and post-money are public or in-talks)
 
    Do not include a `Prepared by` line on the cover. Internal authorship belongs in the run manifest, not the deliverable.
-7. **Table of Contents** placed below the metadata block, listing the six body-section entries only — I. Executive Summary, II. Company Overview, III. Investment Highlights, IV. Investment Risk, V. Financial Forecast & Valuation, VI. Sources, Source Classes, and Fact Reference Index — with their page numbers. Do **not** include any optional source-treatment appendix in the TOC; appendix material is audit support rather than navigable narrative content. Use a small Tiffany-rule header labeled `TABLE OF CONTENTS` (English) or `目录` (Chinese), then a compact two-column layout (section name on the left, page number right-aligned with dot leaders or simple right-alignment). Include only top-level (Heading 1) entries to keep the cover page uncluttered. Subsection headings are reserved for the body, not the cover.
+7. **Contents** placed below the metadata block: one entry per numbered body section, each linked to its section — no page-number column.
+
+The fixed renderer draws all of page one, and page one is only this: the masthead, the company name and descriptor, a "Written … · Evidence through …" line, the cover facts table and the contents list; the body starts on page two. You supply the cover facts as package data — `company` name, descriptor, stage, sector, location and round as bilingual objects, `run.as_of` as a YYYY-MM-DD date and `run.evidence_cutoff` — never as cover prose. Section numerals (I., II., … / 一、二、…) belong to the renderer: never number a section, and never write a heading that restates a section title.
 
 Preferred implementation:
 - Use a dedicated cover page with a different first-page header/footer if supported.
@@ -1498,7 +1501,7 @@ Do not use funding-gate, source-process, or weak diligence language that narrate
 State what moves the number as facts, not as a worksheet. Examples: binding-contract mix inside a blended commercial figure, SAFE conversion mechanics, final round price, and timing of carrier or defense revenue recognition. Short sentences. No "valuation support is strongest where."
 
 *Investment Recommendation*
-A clear recommendation in sentence form, opening with "Recommendation: ". Use "Recommendation: BSH commits $X, leaving $Y for co-investors." or "Recommendation: pass on <target> — <one-line reason>." It is a recommendation, never a decided action — BSH has not decided anything when the memo is written. Follow with 2–4 sentences defending the logic. Never use "We recommend participating." Do not use conditional verdicts that make the investment decision depend on later confirmation. Do not summarize the memo's structure or methodology.
+A clear recommendation in sentence form, opening with "Recommendation: ". Use "Recommendation: BSH commits to <target> at <terms>." (a dollar amount only when an input supplies BSH's check size) or "Recommendation: pass on <target> — <one-line reason>." It is a recommendation, never a decided action — BSH has not decided anything when the memo is written. Follow with 2–4 sentences defending the logic. Never use "We recommend participating." Do not use conditional verdicts that make the investment decision depend on later confirmation. Do not summarize the memo's structure or methodology.
 
 ---
 
@@ -1761,7 +1764,7 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 **Investment Decision / Closing View**
 
 Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
-- the recommendation in sentence form: "Recommendation: BSH commits $X..." or "Recommendation: pass on...";
+- the recommendation in sentence form: "Recommendation: BSH commits to <target>..." or "Recommendation: pass on...";
 - the evidence supporting that;
 - the named risks;
 - what changes the next-round / step-up case;
@@ -1816,7 +1819,7 @@ Translate into Simplified Chinese:
 - All body prose, callout text, and bullet points
 - All table column headers and any descriptive cell text
 - Status labels (e.g., "Supported / Partially supported / Unproven / Disconfirmed")
-- The recommendation in sentence form (e.g., "Recommendation: BSH commits $X...")
+- The recommendation in sentence form (e.g., "Recommendation: BSH commits to <target>...")
 - Footer / running header text
 
 Preserve in original Latin form (do **not** translate):

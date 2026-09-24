@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from server import memo_structure
-from typing import Any
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -216,6 +216,15 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bwe are being offered\b", re.IGNORECASE),
     re.compile(r"\bwe are participating through\b", re.IGNORECASE),
     re.compile(r"\bwe recommend participating\b", re.IGNORECASE),
+    # The same slogans negated read as the same generated copy; the
+    # positive patterns above let "We do not recommend participating"
+    # through (R19). memo_analysis's voice rewrite should mirror these.
+    re.compile(
+        r"\bwe (?:do not|don't|would not|wouldn't) recommend participating\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bwe are not being offered\b", re.IGNORECASE),
+    re.compile(r"\bwe are not participating (?:through|via)\b", re.IGNORECASE),
     re.compile(r"\bwe give credit to\b", re.IGNORECASE),
     re.compile(r"\bour base case credits\b", re.IGNORECASE),
     re.compile(r"\bour base case gives credit\b", re.IGNORECASE),
@@ -499,11 +508,30 @@ def _meta_language_suggestion(match_text: str) -> str:
 def lint_memo_docx(
     path: str | Path,
     structure: memo_structure.MemoStructure | None = None,
+    *,
+    sizing_supplied: bool | None = None,
+    deal_terms_on_file: bool | None = None,
+    hurdle_moic: float | None = None,
+    pinned_values: Iterable[str] | None = None,
 ) -> MemoLintResult:
     """Lint one generated memo DOCX and return structured findings.
 
     ``structure`` names the report structure the memo was rendered
-    against (heading recognizers, the risk section key); default late v1."""
+    against (heading recognizers, the risk section key); default late v1.
+
+    The keyword-only run facts feed NON-BLOCKING findings (P1/P2 — never
+    a P0, so they never trigger a repair or fail a gate):
+
+    - ``sizing_supplied``: whether an input gave BSH's check size. Anything
+      but True flags a dollar amount after "BSH commits" (invented sizing).
+    - ``deal_terms_on_file``: False flags SPV / SAFE / vehicle assertions
+      (None — unknown — skips the check).
+    - ``hurdle_moic``: the firm's target MOIC for the run's stage, when a
+      policy is saved; flags a commit recommendation whose base-case MOIC
+      (the scenario table's MOIC column) starts below it.
+    - ``pinned_values``: pinned figures ("$1.2B", "1.5x") the pin-echo gate
+      requires in several places; exempt from the repetition count.
+    """
     structure = structure or memo_structure.LATE
     docx_path = Path(path)
     try:
@@ -523,9 +551,18 @@ def lint_memo_docx(
                 )
             ],
         )
-    return MemoLintResult(
-        path=str(docx_path), findings=_lint_blocks(blocks, structure)
+    findings = _lint_blocks(blocks, structure)
+    findings.extend(
+        _advisory_findings(
+            blocks,
+            sizing_supplied=sizing_supplied,
+            deal_terms_on_file=deal_terms_on_file,
+            hurdle_moic=hurdle_moic,
+            pinned_values=pinned_values,
+            v2=bool(structure.scorecard_weights()),
+        )
     )
+    return MemoLintResult(path=str(docx_path), findings=_dedupe_findings(findings))
 
 
 def render_markdown_report(result: MemoLintResult) -> str:
@@ -607,8 +644,13 @@ def _extract_docx_blocks(
 
     for child in document.element.body.iterchildren():
         if isinstance(child, CT_P):
+            # Renderer-derived restatements (the page-one decision summary,
+            # the contents list, table footnotes) are linted where their
+            # text first appears, never twice.
+            if memo_structure.is_derived_docx_element(child):
+                continue
             paragraph = Paragraph(child, document)
-            text = _clean_text(paragraph.text)
+            text = _clean_text(memo_structure.docx_paragraph_text(paragraph))
             if not text:
                 continue
             paragraph_index += 1
@@ -626,14 +668,16 @@ def _extract_docx_blocks(
             )
         elif isinstance(child, CT_Tbl):
             table_index += 1
+            if memo_structure.is_derived_docx_element(child):
+                continue
             table = Table(child, document)
             allowed = _allowed_trace_section(section)
             for row_index, row in enumerate(table.rows, start=1):
                 row_text = _clean_text(
-                    " ".join(cell.text for cell in row.cells)
+                    " ".join(memo_structure.docx_cell_text(cell) for cell in row.cells)
                 )
                 for col_index, cell in enumerate(row.cells, start=1):
-                    text = _clean_text(cell.text)
+                    text = _clean_text(memo_structure.docx_cell_text(cell))
                     if not text:
                         continue
                     blocks.append(
@@ -938,6 +982,580 @@ def _lint_blocks(
                 )
 
     return _dedupe_findings(findings)
+
+
+# ---- advisory findings (P1 / P2 — never blocking) ---------------------------
+#
+# Things a reader should hear about but no repair loop may chase: every
+# finding below is P1 or P2, so the gate status stays "passed", nothing is
+# retried on them, and old memos re-linted only gain notes. Each code is
+# capped so one noisy memo cannot bury the report.
+
+_ADVISORY_CAP = 8
+
+# A dollar amount right after "BSH commits": BSH's check size, which only an
+# input may supply (the 2026-09-18 ZaiNar memo committed an invented $15M).
+_SIZING_AMOUNT_RE = re.compile(
+    r"\bBSH\s+commits\s+(?:up\s+to\s+|about\s+|approximately\s+|roughly\s+"
+    r"|~\s*)?(?:US)?[$€£¥]\s?\d",
+    re.IGNORECASE,
+)
+# BSH's own vehicle, instrument or allocation, asserted while the run has
+# no deal terms on file. SPV / SAFE are matched in capitals only.
+_DEAL_VEHICLE_RE = re.compile(r"\b(?:SPV|SAFEs?)\b")
+_DEAL_VEHICLE_PHRASE_RE = re.compile(
+    r"\b(?:the|this|our|BSH's|BSH)\s+(?:co-invest(?:ment)?\s+)?vehicle\b"
+    r"|\b(?:BSH's|our)\s+allocation\b",
+    re.IGNORECASE,
+)
+_NO_TERMS_MARKERS = ("no vehicle or terms on file", "to be determined by ic")
+_COMMIT_RECOMMENDATION_RE = re.compile(
+    r"\bRecommendation:\s*BSH\s+commits\b", re.IGNORECASE
+)
+_MOIC_VALUE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*x\b", re.IGNORECASE)
+_CELL_LOCATION_RE = re.compile(r"^table (\d+) row (\d+) cell (\d+)$")
+# A figure that carries a unit: money, a percentage or a multiple. Bare
+# integers (years, scores, counts) are not figures for these checks.
+_NUMBER_TOKEN_RE = re.compile(
+    r"(?:US)?[$€£¥]\s?\d[\d,]*(?:\.\d+)?"
+    r"(?:\s?(?:[KMBT]|bn|mn|million|billion|trillion)\b)?"
+    r"|\b\d[\d,]*(?:\.\d+)?\s?(?:%|x\b)",
+    re.IGNORECASE,
+)
+_NUMBER_UNIT_WORDS = (
+    ("trillion", "t"),
+    ("billion", "b"),
+    ("million", "m"),
+    ("bn", "b"),
+    ("mn", "m"),
+)
+# More than this many uses of one figure inside one body section is
+# restatement, not argument (pinned figures are exempt).
+_REPEAT_LIMIT = 2
+# "rather than" and ", not X": the English habit the Chinese memo mirrors
+# as 而非 (54 and 56 of them in one live pair). Idioms such as ", not yet"
+# or ", not only" are not contrasts.
+_CONTRAST_RE = re.compile(
+    r"\brather than\b"
+    r"|,\s+not\s+(?!yet\b|only\b|least\b|just\b|all\b|necessarily\b"
+    r"|disclosed\b|including\b|to\b)\w",
+    re.IGNORECASE,
+)
+_CONTRAST_PER_THOUSAND = 2.0
+_CONTRAST_MIN_COUNT = 3
+# Risk-card row labels repeat across cards by design.
+_RISK_CARD_ROW_LABELS = frozenset(
+    {
+        "risk type",
+        "verdict",
+        "impact",
+        "why it matters",
+        "what we watch",
+        "mitigation",
+        "likelihood",
+        "risk rating",
+    }
+)
+
+
+def _normalize_number_token(token: str) -> str:
+    value = re.sub(r"[\s,]", "", token.lower())
+    for word, short in _NUMBER_UNIT_WORDS:
+        if value.endswith(word):
+            return value[: -len(word)] + short
+    return value
+
+
+def _number_tokens(text: str) -> list[str]:
+    return [
+        _normalize_number_token(match.group(0))
+        for match in _NUMBER_TOKEN_RE.finditer(text or "")
+    ]
+
+
+def _is_body_block(block: _TextBlock) -> bool:
+    return not block.allowed_trace_section and block.section != "front matter"
+
+
+def _is_disclosure_block(block: _TextBlock) -> bool:
+    return any(pattern.search(block.text) for pattern in _DISCLOSURE_LANGUAGE_PATTERNS)
+
+
+def _table_cells(
+    blocks: list[_TextBlock],
+) -> dict[int, dict[int, dict[int, _TextBlock]]]:
+    """table index -> row index -> column index -> cell block."""
+    tables: dict[int, dict[int, dict[int, _TextBlock]]] = {}
+    for block in blocks:
+        if block.kind != "table_cell":
+            continue
+        match = _CELL_LOCATION_RE.match(block.location)
+        if not match:
+            continue
+        table, row, col = (int(part) for part in match.groups())
+        tables.setdefault(table, {}).setdefault(row, {})[col] = block
+    return tables
+
+
+def _advisory_finding(
+    code: str,
+    severity: str,
+    location: str,
+    snippet: str,
+    suggestion: str,
+) -> MemoLintFinding:
+    return MemoLintFinding(
+        severity=severity,
+        code=code,
+        location=location,
+        snippet=_clean_text(snippet)[:240],
+        suggestion=suggestion,
+    )
+
+
+def _sizing_findings(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+    findings: list[MemoLintFinding] = []
+    for block in blocks:
+        if block.allowed_trace_section:
+            continue
+        match = _SIZING_AMOUNT_RE.search(block.text)
+        if match:
+            findings.append(
+                _finding(
+                    block,
+                    "P1",
+                    "sizing_without_input",
+                    match.group(0),
+                    (
+                        "No BSH check size was supplied for this run, so the "
+                        "recommendation names no amount: 'Recommendation: BSH "
+                        "commits to <target> at <terms>.' A dollar figure "
+                        "after 'BSH commits' is invented sizing."
+                    ),
+                )
+            )
+    return findings[:_ADVISORY_CAP]
+
+
+def _deal_vehicle_findings(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+    findings: list[MemoLintFinding] = []
+    for block in blocks:
+        if not _is_body_block(block) or _is_disclosure_block(block):
+            continue
+        lowered = block.text.lower()
+        if any(marker in lowered for marker in _NO_TERMS_MARKERS):
+            continue
+        match = _DEAL_VEHICLE_RE.search(block.text) or _DEAL_VEHICLE_PHRASE_RE.search(
+            block.text
+        )
+        if match:
+            findings.append(
+                _finding(
+                    block,
+                    "P1",
+                    "deal_vehicle_without_terms",
+                    match.group(0),
+                    (
+                        "No deal terms are on file for this run, so the memo "
+                        "cannot assert a BSH vehicle, instrument or "
+                        "allocation. Describe the round as the sources report "
+                        "it; the deal-terms table says 'No vehicle or terms on "
+                        "file'."
+                    ),
+                )
+            )
+    return findings[:_ADVISORY_CAP]
+
+
+def _base_case_moic(blocks: list[_TextBlock]) -> float | None:
+    """The lower bound of the base scenario's MOIC, read from a table with a
+    MOIC column and a row labelled Base; None when no such table exists."""
+    for rows in _table_cells(blocks).values():
+        header = rows.get(min(rows)) if rows else None
+        if not header:
+            continue
+        moic_cols = [
+            col
+            for col, cell in header.items()
+            if re.search(r"\bmoic\b", cell.text, re.IGNORECASE)
+        ]
+        if not moic_cols:
+            continue
+        for row_index in sorted(rows):
+            row = rows[row_index]
+            first = row.get(min(row)) if row else None
+            if first is None or not re.match(r"\s*base\b", first.text, re.IGNORECASE):
+                continue
+            cell = row.get(moic_cols[0])
+            match = _MOIC_VALUE_RE.search(cell.text) if cell else None
+            if match:
+                return float(match.group(1))
+    return None
+
+
+def _hurdle_findings(
+    blocks: list[_TextBlock], hurdle_moic: float
+) -> list[MemoLintFinding]:
+    base = _base_case_moic(blocks)
+    if base is None or base >= hurdle_moic:
+        return []
+    for block in blocks:
+        if block.allowed_trace_section:
+            continue
+        match = _COMMIT_RECOMMENDATION_RE.search(block.text)
+        if match:
+            return [
+                _finding(
+                    block,
+                    "P1",
+                    "recommendation_below_hurdle",
+                    match.group(0),
+                    (
+                        f"The base case returns {base:g}x, below the firm's "
+                        f"{hurdle_moic:g}x hurdle for this stage, yet the "
+                        "recommendation commits. State the comparison and the "
+                        "price at which the base case clears the hurdle, or "
+                        "change the call."
+                    ),
+                )
+            ]
+    return []
+
+
+def _duplicate_row_findings(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+    findings: list[MemoLintFinding] = []
+    seen: dict[tuple[str, frozenset[str]], int] = {}
+    for table_index, rows in sorted(_table_cells(blocks).items()):
+        for row_index in sorted(rows):
+            row = rows[row_index]
+            first = row.get(min(row)) if row else None
+            if first is None or not _is_body_block(first):
+                continue
+            label = re.sub(r"[^a-z0-9]+", " ", first.text.lower()).strip()
+            if not label or label in _RISK_CARD_ROW_LABELS:
+                continue
+            numbers = frozenset(
+                token
+                for col, cell in row.items()
+                if col != min(row)
+                for token in _number_tokens(cell.text)
+            )
+            if not numbers:
+                continue
+            key = (label, numbers)
+            earlier = seen.setdefault(key, table_index)
+            if earlier != table_index:
+                findings.append(
+                    _finding(
+                        first,
+                        "P1",
+                        "duplicate_table_row",
+                        first.text,
+                        (
+                            "This row repeats a row of an earlier table with "
+                            "the same figures. Keep each headline number in "
+                            "one table (the Key Metrics Snapshot) and point to "
+                            "it from the others."
+                        ),
+                    )
+                )
+    return findings[:_ADVISORY_CAP]
+
+
+def _repetition_findings(
+    blocks: list[_TextBlock], pinned: set[str]
+) -> list[MemoLintFinding]:
+    counts: dict[tuple[str, str], int] = {}
+    order: list[tuple[str, str]] = []
+    for block in blocks:
+        if not _is_body_block(block) or _is_disclosure_block(block):
+            continue
+        # Prose only. A table repeats a figure per row by design (the
+        # scenario table's per-case dilution, a column of "Not disclosed"
+        # dates), and that is layout, not restatement; duplicate rows across
+        # tables have their own check above.
+        if block.kind == "table_cell":
+            continue
+        for token in _number_tokens(block.text):
+            if token in pinned:
+                continue
+            key = (block.section, token)
+            if key not in counts:
+                order.append(key)
+            counts[key] = counts.get(key, 0) + 1
+    findings = [
+        _advisory_finding(
+            "number_repeated_in_section",
+            "P1",
+            section,
+            f"{token} appears {counts[(section, token)]} times in {section}",
+            (
+                "State each figure once, in the passage that argues it, and "
+                "refer back to it elsewhere in the section instead of "
+                "restating it. Pinned figures the pin sheet requires are "
+                "exempt."
+            ),
+        )
+        for section, token in order
+        if counts[(section, token)] > _REPEAT_LIMIT
+    ]
+    return findings[:_ADVISORY_CAP]
+
+
+def _contrast_density_findings(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+    words = 0
+    contrasts = 0
+    for block in blocks:
+        if not _is_body_block(block):
+            continue
+        words += len(block.text.split())
+        contrasts += len(_CONTRAST_RE.findall(block.text))
+    if not words or contrasts < _CONTRAST_MIN_COUNT:
+        return []
+    density = contrasts * 1000 / words
+    if density <= _CONTRAST_PER_THOUSAND:
+        return []
+    return [
+        _advisory_finding(
+            "rather_than_density",
+            "P2",
+            "document",
+            (
+                f"{contrasts} 'rather than' / ', not X' contrasts in {words} "
+                f"words ({density:.1f} per 1,000)"
+            ),
+            (
+                "Say what a thing is before what it is not, and keep "
+                "contrasts for where the contrast is the point — about two "
+                "per thousand words. The Chinese memo mirrors each one as 而非."
+            ),
+        )
+    ]
+
+
+def _advisory_findings(
+    blocks: list[_TextBlock],
+    *,
+    sizing_supplied: bool | None = None,
+    deal_terms_on_file: bool | None = None,
+    hurdle_moic: float | None = None,
+    pinned_values: Iterable[str] | None = None,
+    v2: bool = False,
+) -> list[MemoLintFinding]:
+    """The non-blocking P1/P2 findings (see lint_memo_docx). ``v2`` marks
+    a memo whose structure cites inline ([S#] / [C#]); the estimate-
+    discipline check runs only there."""
+    findings: list[MemoLintFinding] = []
+    if sizing_supplied is not True:
+        findings.extend(_sizing_findings(blocks))
+    if deal_terms_on_file is False:
+        findings.extend(_deal_vehicle_findings(blocks))
+    if hurdle_moic is not None and hurdle_moic > 0:
+        findings.extend(_hurdle_findings(blocks, float(hurdle_moic)))
+    findings.extend(_duplicate_row_findings(blocks))
+    pinned = {
+        token for value in (pinned_values or ()) for token in _number_tokens(str(value))
+    }
+    findings.extend(_repetition_findings(blocks, pinned))
+    findings.extend(_contrast_density_findings(blocks))
+    findings.extend(_restatement_findings(blocks, pinned))
+    if v2:
+        findings.extend(_figure_anchor_findings(blocks))
+    return findings
+
+
+# ---- estimate discipline and cross-section restatement (2026-09-23) ----------
+#
+# Report-only. A v2 memo carries [S#] / [C#] on every figure it asserts;
+# a sentence with a figure and neither is an estimate the reader cannot
+# trace (the Gemini v1 memo's "8 to 10 months of runway" came from no
+# source). And a sentence — or a figure with its metric — that the memo
+# says again in section after section is restatement, not argument (the
+# 2026-09-23 v2 draft restated "2.2x", "1.73x" and "no named customer"
+# across most of its sections).
+
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(\[$])")
+_ANCHOR_MIN_WORDS = 6
+_RESTATED_MIN_WORDS = 8
+_CLAIM_SECTIONS = 3
+_FIGURE_SECTIONS = 4
+_METRIC_WORD_RE = re.compile(
+    r"\b(arr|mrr|revenue|sales|bookings|billings|growth|margin|customers?|"
+    r"clients?|users?|employees?|headcount|valuation|tam|sam|som|cagr|ebitda|"
+    r"profit|income|loss|cash|burn|runway|funding|raised|round|contracts?|"
+    r"backlog|churn|retention|patents?|multiple|moic|irr|price|exit|ev|"
+    r"dilution|ownership|stake|discount|hurdle|return|entry|mark|proceeds)\b",
+    re.IGNORECASE,
+)
+# A sentence that says the figure is NOT on file is the anchor the
+# prompts prescribe for an unanchorable figure ("Not disclosed — no
+# document on file"); glossary definitions render as a table (cells are
+# never checked).
+_NOT_DISCLOSED_RE = re.compile(
+    r"\bnot (?:disclosed|computable|available|on file|verified)\b|\bno document on file\b",
+    re.IGNORECASE,
+)
+# The renderer prints a citation as a superscript link carrying the bare
+# id ("2.2x C3", "revenue S5,S6"); the docx text has no brackets.
+_ANCHOR_RE = re.compile(r"(?:\[[SC]\d+(?:\s*,\s*[SC]\d+)*\]|(?<![A-Za-z0-9-])[SC]\d+(?![A-Za-z0-9-]))")
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in _SENTENCE_END_RE.split(text or "") if part.strip()]
+
+
+def _specific_figure(token: str) -> bool:
+    """A figure that identifies itself: a multiple ("2.2x", "1.73x") or a
+    number with three or more significant digits ("$579.37m", "$118.4m").
+    Round figures ("$1b", "20%") need the metric word beside them."""
+    if token.endswith("x"):
+        return True
+    digits = re.sub(r"[^0-9]", "", token).lstrip("0").rstrip("0")
+    return len(digits) >= 3
+
+
+def _sentence_key(sentence: str) -> str:
+    clean = _CITATION_TOKEN_RE.sub(" ", sentence.lower())
+    clean = re.sub(r"[^a-z0-9$%. ]+", " ", clean)
+    return re.sub(r"\s+", " ", clean).strip()
+
+
+def _figure_anchor_findings(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+    """P1 ``figure_without_anchor``: a body-prose sentence in a v2 memo
+    that states a figure ($, %, x) and cites neither a source nor a
+    calculation note. Table cells and the sources / calculation sections
+    are not prose; "not disclosed" is not a figure."""
+    findings: list[MemoLintFinding] = []
+    total = 0
+    for block in blocks:
+        if not _is_body_block(block) or block.kind == "table_cell":
+            continue
+        for sentence in _sentences(block.text):
+            if len(sentence.split()) < _ANCHOR_MIN_WORDS:
+                continue
+            if _ANCHOR_RE.search(sentence):
+                continue
+            tokens = _number_tokens(sentence)
+            if not tokens or _NOT_DISCLOSED_RE.search(sentence):
+                continue
+            total += 1
+            if len(findings) < _ADVISORY_CAP:
+                findings.append(
+                    _finding(
+                        block,
+                        "P1",
+                        "figure_without_anchor",
+                        tokens[0] if tokens[0] in sentence else sentence[:40],
+                        (
+                            "Every figure carries a [S#] source or a [C#] "
+                            "calculation note in the same sentence; a figure "
+                            "with neither is written as 'not disclosed'."
+                        ),
+                    )
+                )
+    if total > len(findings) and findings:
+        first = findings[0]
+        findings[0] = MemoLintFinding(
+            severity=first.severity,
+            code=first.code,
+            location=first.location,
+            snippet=first.snippet,
+            suggestion=first.suggestion + f" ({total} such sentences in all)",
+        )
+    return findings
+
+
+def _restatement_findings(
+    blocks: list[_TextBlock], pinned: set[str]
+) -> list[MemoLintFinding]:
+    """P1 ``claim_restated``: one sentence (8+ words, normalised) in three
+    or more sections. P2 ``figure_restated_across_sections``: one figure
+    with the same metric word beside it in four or more sections. Pinned
+    figures the pin sheet requires everywhere are exempt from the figure
+    check, not from the sentence check (a pin is echoed once per section
+    by design; three sections is the owner's limit for anything else)."""
+    sentence_sections: dict[str, dict[str, str]] = {}
+    figure_sections: dict[tuple[str, str], dict[str, str]] = {}
+    for block in blocks:
+        if not _is_body_block(block) or _is_disclosure_block(block):
+            continue
+        section = block.section
+        for sentence in _sentences(block.text):
+            key = _sentence_key(sentence)
+            if len(key.split()) >= _RESTATED_MIN_WORDS:
+                sentence_sections.setdefault(key, {}).setdefault(section, block.location)
+            if block.kind == "table_cell":
+                continue
+            metric_spans = [
+                (m.start(), m.end(), m.group(1).lower())
+                for m in _METRIC_WORD_RE.finditer(sentence)
+            ]
+            for match in _NUMBER_TOKEN_RE.finditer(sentence):
+                token = _normalize_number_token(match.group(0))
+                if token in pinned:
+                    continue
+                if _specific_figure(token):
+                    metric = ""
+                elif metric_spans:
+                    # The metric word nearest the figure names it.
+                    metric = min(
+                        metric_spans,
+                        key=lambda span: min(
+                            abs(span[0] - match.end()), abs(match.start() - span[1])
+                        ),
+                    )[2]
+                else:
+                    continue
+                figure_sections.setdefault((token, metric), {}).setdefault(
+                    section, block.location
+                )
+    findings: list[MemoLintFinding] = []
+    by_spread = sorted(
+        sentence_sections.items(), key=lambda item: -len(item[1])
+    )
+    for key, sections in by_spread:
+        if len(sections) < _CLAIM_SECTIONS:
+            continue
+        findings.append(
+            _advisory_finding(
+                "claim_restated",
+                "P1",
+                next(iter(sections.values())),
+                f"\"{key[:120]}\" appears in {len(sections)} sections: "
+                + ", ".join(list(sections)[:5]),
+                (
+                    "Say it once, in the section that argues it, and refer "
+                    "back to it elsewhere. A pinned sentence is echoed at most "
+                    "once per section."
+                ),
+            )
+        )
+        if len(findings) >= _ADVISORY_CAP:
+            break
+    figure_findings: list[MemoLintFinding] = []
+    figures_by_spread = sorted(
+        figure_sections.items(), key=lambda item: -len(item[1])
+    )
+    for (token, metric), sections in figures_by_spread:
+        if len(sections) < _FIGURE_SECTIONS:
+            continue
+        figure_findings.append(
+            _advisory_finding(
+                "figure_restated_across_sections",
+                "P2",
+                next(iter(sections.values())),
+                f"{token}{f' ({metric})' if metric else ''} is stated in {len(sections)} sections: "
+                + ", ".join(list(sections)[:6]),
+                (
+                    "State the figure where it is argued and refer to it "
+                    "elsewhere; the executive summary and the decision may "
+                    "each carry it once."
+                ),
+            )
+        )
+        if len(figure_findings) >= _ADVISORY_CAP:
+            break
+    return findings + figure_findings
 
 
 def _section_after_heading(

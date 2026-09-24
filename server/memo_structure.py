@@ -30,13 +30,169 @@ from . import memo_flags
 # the other memo prompts the founder's team edits (see skills/memo/README.md).
 STRUCTURES_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo" / "structures"
 
-_ROMAN = (
-    "I II III IV V VI VII VIII IX X XI XII XIII XIV XV".split()
+_ROMAN_UNITS = (
+    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"),
+    (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"),
+    (4, "IV"), (1, "I"),
 )
+_ZH_DIGITS = "零一二三四五六七八九"
+
+# How many numbered positions the recognizers cover: every core section of
+# the longest profile plus the extra sections a model may add after them.
+MAX_NUMBERED_POSITIONS = 40
 
 
 def _roman(position: int) -> str:
-    return _ROMAN[position - 1]
+    """Upper-case roman numeral for a 1-based position (``4`` -> ``IV``)."""
+    if position < 1:
+        raise ValueError(f"no roman numeral for {position}")
+    out = []
+    remaining = position
+    for value, numeral in _ROMAN_UNITS:
+        while remaining >= value:
+            out.append(numeral)
+            remaining -= value
+    return "".join(out)
+
+
+def _zh_numeral(position: int) -> str:
+    """Chinese numeral for a 1-based position (``4`` -> ``四``, ``12`` ->
+    ``十二``, ``20`` -> ``二十``), as used in ``一、二、三、`` headings."""
+    if not 1 <= position <= 99:
+        raise ValueError(f"no Chinese section numeral for {position}")
+    tens, units = divmod(position, 10)
+    if tens == 0:
+        return _ZH_DIGITS[units]
+    head = "" if tens == 1 else _ZH_DIGITS[tens]
+    return head + "十" + (_ZH_DIGITS[units] if units else "")
+
+
+def section_numeral(position: int, locale: str) -> str:
+    """The numeral the renderer prints for a numbered body section:
+    ``IV`` in English, ``四`` in Chinese."""
+    return _zh_numeral(position) if locale == "zh" else _roman(position)
+
+
+def numbered_title(position: int, title: str, locale: str) -> str:
+    """A numbered section heading: ``IV. Investment Risk`` / ``四、投资风险``."""
+    if locale == "zh":
+        return f"{_zh_numeral(position)}、{title}"
+    return f"{_roman(position)}. {title}"
+
+
+# A numeral a writer put in front of a heading the renderer numbers itself:
+# roman ("VI. "), arabic ("6. "), Chinese ("六、") or an appendix label
+# ("Appendix A: ", "附录一："). Roman numerals are matched from the valid
+# set only, so a title such as "Civil. ..." keeps its first word; Latin
+# punctuation must be followed by a space so "3.5x Returns" is not cut.
+_ROMAN_ALTERNATIVES = "|".join(
+    sorted(
+        (_roman(i) for i in range(1, MAX_NUMBERED_POSITIONS + 1)),
+        key=lambda numeral: (-len(numeral), numeral),
+    )
+)
+_LEADING_NUMERAL_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:appendix|附录)\s*(?:[A-Z](?![a-z])|[一二三四五六七八九十]+)?\s*[:：.．、—–-]?"
+    rf"|(?:{_ROMAN_ALTERNATIVES}|\d{{1,2}})(?:[.:)](?=\s)|[．、：])"
+    r"|[一二三四五六七八九十]+\s*[、．.:：]"
+    r")\s*",
+    re.IGNORECASE,
+)
+
+
+def strip_section_numeral(text: str) -> str:
+    """``"VI. Investment Decision"`` -> ``"Investment Decision"``; the
+    renderer owns section numbering, so a numeral the model wrote is
+    dropped before the renderer adds its own. Text that is nothing but a
+    numeral is returned unchanged."""
+    raw = str(text or "")
+    stripped = _LEADING_NUMERAL_RE.sub("", raw, count=1).strip()
+    return stripped or raw.strip()
+
+
+# The numeral the renderer itself prints on a level-1 heading: roman with a
+# period in English ("XV. "), a Chinese numeral with 、 in Chinese ("十五、").
+# Arabic "2. " is a subsection number the model wrote, never the renderer's.
+_RENDERED_NUMERAL_RE = re.compile(
+    rf"^\s*(?:(?:{_ROMAN_ALTERNATIVES})\.\s+|[一二三四五六七八九十]+、\s*)",
+    re.IGNORECASE,
+)
+
+
+def heading_matches(pattern: re.Pattern | None, text: str) -> bool:
+    """Whether a rendered heading is the section ``pattern`` recognises,
+    whatever section numeral the renderer printed in front of it.
+
+    A profile's parity pattern accepts the numeral of the section's own
+    position ("XIII." / "十三、" for the v2 sources back matter). The
+    renderer numbers back matter after any extra sections a package adds,
+    so the same heading can read "XV. Sources, ..." — it still matches once
+    that numeral is set aside. Anything else is judged as written."""
+    if pattern is None:
+        return False
+    raw = str(text or "")
+    if pattern.search(raw):
+        return True
+    bare = _RENDERED_NUMERAL_RE.sub("", raw, count=1)
+    return bare != raw and bool(bare.strip()) and bool(pattern.search(bare))
+
+
+# Renderer-built text the model never wrote — the page-one masthead and date
+# line, the contents list, the risk summary table, table footnotes, the tier
+# legend and the checks line in the sources section. The renderer tags it
+# with these style ids and the quality lint and Chinese parity gate skip
+# its text (tables still count toward the EN/ZH table parity), so a
+# restated sentence is never reported twice, or at a location the repair
+# loop cannot route back to a section.
+DERIVED_PARAGRAPH_STYLE = "BSH Derived"
+DERIVED_TABLE_STYLE = "BSH Derived Table"
+DERIVED_PARAGRAPH_STYLE_ID = "BSHDerived"
+DERIVED_TABLE_STYLE_ID = "BSHDerivedTable"
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def is_derived_docx_element(element: Any) -> bool:
+    """Whether a ``w:p`` / ``w:tbl`` body element is a renderer-derived
+    block the docx gates skip (see DERIVED_*)."""
+    tag = getattr(element, "tag", "")
+    if tag == f"{_W}p":
+        ppr = element.find(f"{_W}pPr")
+        style = ppr.find(f"{_W}pStyle") if ppr is not None else None
+        return style is not None and style.get(f"{_W}val") == DERIVED_PARAGRAPH_STYLE_ID
+    if tag == f"{_W}tbl":
+        tbl_pr = element.find(f"{_W}tblPr")
+        style = tbl_pr.find(f"{_W}tblStyle") if tbl_pr is not None else None
+        return style is not None and style.get(f"{_W}val") == DERIVED_TABLE_STYLE_ID
+    return False
+
+
+def is_list_paragraph(element: Any) -> bool:
+    """A real bullet: Word numbering on the paragraph or a list style."""
+    ppr = element.find(f"{_W}pPr") if element is not None else None
+    if ppr is None:
+        return False
+    if ppr.find(f"{_W}numPr") is not None:
+        return True
+    style = ppr.find(f"{_W}pStyle")
+    return style is not None and str(style.get(f"{_W}val") or "").startswith("ListBullet")
+
+
+def docx_paragraph_text(paragraph: Any) -> str:
+    """A rendered paragraph's text as the docx gates read it. A real bullet
+    reads with the "• " it used to carry as typed text, so the gates' line
+    anchors see bullets exactly as before the renderer switched to Word
+    numbering (keeps findings stable)."""
+    text = paragraph.text
+    if text.strip() and is_list_paragraph(paragraph._p):
+        return f"• {text}"
+    return text
+
+
+def docx_cell_text(cell: Any) -> str:
+    """A table cell's text for the docx gates (see docx_paragraph_text)."""
+    return "\n".join(docx_paragraph_text(paragraph) for paragraph in cell.paragraphs)
 
 
 @dataclass(frozen=True)
@@ -337,25 +493,40 @@ class MemoStructure:
     # ---- derivations (each byte-equal to a former literal) ---------------
 
     def section_titles(self) -> dict[str, dict[str, str]]:
-        """Renderer SECTION_TITLES: numbered from position, both locales."""
+        """The headings the renderer prints for the core sections and the
+        back matter, numbered by position — "IV. Investment Risk" /
+        "四、投资风险". A pseudo-section (the sources back matter) follows
+        its own profile: ``numbered: true`` takes the next numeral after
+        the core sections ("VI. Sources, ..." / "六、来源、..."), otherwise
+        it prints its own title as written. Extra sections a package adds
+        are numbered after the core ones by the renderer, which then numbers
+        the back matter after them (:func:`numbered_title`)."""
         titles: dict[str, dict[str, str]] = {}
         position = 0
         for s in self.sections:
             position += 1
             titles[s.id] = {
-                "en": f"{_roman(position)}. {s.en_title}",
-                "zh": f"{_roman(position)}. {s.zh_title}",
+                "en": numbered_title(position, s.en_title, "en"),
+                "zh": numbered_title(position, s.zh_title, "zh"),
             }
         for ps in self.pseudo_sections:
             if ps.numbered:
                 position += 1
                 titles[ps.id] = {
-                    "en": f"{_roman(position)}. {ps.en_title}",
-                    "zh": f"{_roman(position)}. {ps.zh_title}",
+                    "en": numbered_title(position, ps.en_title, "en"),
+                    "zh": numbered_title(position, ps.zh_title, "zh"),
                 }
             else:
                 titles[ps.id] = {"en": ps.en_title, "zh": ps.zh_title}
         return titles
+
+    def pseudo_section(self, section_id: str) -> PseudoSection | None:
+        """The profile's back-matter entry of this id (``sources``,
+        ``validation_log``), or None."""
+        for ps in self.pseudo_sections:
+            if ps.id == section_id:
+                return ps
+        return None
 
     def parity_patterns(self) -> dict[str, dict[str, re.Pattern]]:
         patterns: dict[str, dict[str, re.Pattern]] = {}
@@ -400,13 +571,22 @@ class MemoStructure:
         return {s.id: s.floor for s in self.sections}
 
     def numbered_prefix_pattern(self) -> re.Pattern:
-        """Lowercased roman-prefix recognizer for lint section boundaries
-        (covers every numbered position this structure renders)."""
-        count = len(self.sections) + sum(
-            1 for ps in self.pseudo_sections if ps.numbered
+        """Lowercased roman-prefix recognizer for lint section boundaries.
+
+        Covers every position the renderer can number: the core sections
+        AND the extra sections a package adds after them, which the
+        renderer numbers too ("VII. Disclosures"). Longest numerals first
+        so "iv." is never read as "i"."""
+        count = max(
+            MAX_NUMBERED_POSITIONS,
+            len(self.sections)
+            + sum(1 for ps in self.pseudo_sections if ps.numbered),
         )
-        alternatives = "|".join(_roman(i).lower() for i in range(1, count + 1))
-        return re.compile(rf"^({alternatives})\.\s+")
+        numerals = sorted(
+            (_roman(i).lower() for i in range(1, count + 1)),
+            key=lambda numeral: (-len(numeral), numeral),
+        )
+        return re.compile(rf"^({'|'.join(numerals)})\.\s+")
 
     def lint_section_titles(self) -> frozenset[str]:
         """Bare heading strings lint recognizes as section boundaries."""
@@ -674,6 +854,15 @@ def _profile_path(stage: str, version: int = 1) -> Path:
     return STRUCTURES_DIR / f"{name}.md"
 
 
+# Optional pin on the v1 spine (2026-09-23): one sentence stating the
+# base-case outcome ("Base case: $120M ARR by 2029 at a 10x exit returns
+# 1.0x") that the executive summary and the scenarios table both echo,
+# so the two cannot disagree. Optional in the spine schema
+# (claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA — shared_facts) and a
+# P1 WARNING in memo_pin_check when not echoed, never a gate.
+SPINE_BASE_CASE_OUTCOME_FIELD = "base_case_outcome"
+SPINE_OPTIONAL_PIN_FIELDS = (SPINE_BASE_CASE_OUTCOME_FIELD,)
+
 # The investment stages a run can classify a company into — the spine
 # schema's `stage` enum, and the only values `declared_stage` may take.
 INVESTMENT_STAGES = ("early", "growth", "late")
@@ -890,7 +1079,11 @@ LATE = load_structure("late")
 
 
 def active_structure(
-    stage: str = "late", mode: str = "full", company_type: str | None = None
+    stage: str = "late",
+    mode: str = "full",
+    company_type: str | None = None,
+    *,
+    version: str | None = None,
 ) -> MemoStructure:
     """The structure a NEW pipeline run should use for this stage.
 
@@ -901,12 +1094,20 @@ def active_structure(
     the late v2 chain. ``BSH_MEMO_STRUCTURE_V2=0`` restores the
     historical late v1 structure for every stage.
 
+    ``version`` is the per-run template choice (Settings): ``"v2"`` runs
+    the v2 chain exactly as the env flag does, ``"v1"`` pins the standard
+    late v1 memo whatever the flag says, and ``None`` (every caller today)
+    follows the flag.
+
     ``mode="compact"`` prefers the stage's compact profile
     (``{stage}_compact.md`` — the short Wisdom-style memo: fewer merged
     sections, tight budgets, bullet-format risks) and falls back to the
     full chain when the stage has none, so the mode can ship stage by
     stage without ever failing a run."""
-    if not memo_flags.enabled("BSH_MEMO_STRUCTURE_V2"):
+    choice = str(version or "").strip().lower()
+    if choice == "v1":
+        return LATE
+    if choice != "v2" and not memo_flags.enabled("BSH_MEMO_STRUCTURE_V2"):
         return LATE
     candidates: list[tuple[str, int]] = []
     if mode == "compact":

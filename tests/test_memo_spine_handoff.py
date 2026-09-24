@@ -168,11 +168,18 @@ def test_every_part_of_the_spine_has_a_home():
 
 
 def test_a_v1_spine_plans_fewer_parts(tmp_path):
-    """v1 has no scorecard, highlights or calculations to write."""
-    v1_stems = {e[0] for e in _plan(tmp_path, memo_structure.LATE)}
-    v2_stems = {e[0] for e in _plan(tmp_path, V2)}
+    """v1 has no scorecard or highlights to write; its calculation notes
+    (optional since 2026-09-23) get a file the writer may leave unwritten."""
+    v1_plan = _plan(tmp_path, memo_structure.LATE)
+    v1_stems = {e[0] for e in v1_plan}
+    v2_plan = _plan(tmp_path, V2)
+    v2_stems = {e[0] for e in v2_plan}
     assert "highlights" in v2_stems and "calculations" in v2_stems
-    assert "highlights" not in v1_stems and "calculations" not in v1_stems
+    assert "highlights" not in v1_stems
+    v1_required = {e[0]: e[3] for e in v1_plan}
+    v2_required = {e[0]: e[3] for e in v2_plan}
+    assert v1_required["calculations"] == ()
+    assert v2_required["calculations"] == ("calculations",)
     # the free-form v1 envelope still gets its files
     assert {"envelope", "sources"} <= v1_stems
 
@@ -556,8 +563,13 @@ def test_the_contract_stays_small_enough_to_prepend(tmp_path):
 def test_a_v1_spine_only_states_the_limits_it_has(tmp_path):
     contract = _contract(tmp_path, memo_structure.LATE)
     assert "05_highlights.json" not in contract
-    assert "07_calculations.json" not in contract
-    assert "calculations[].inputs" not in contract
+    # The v1 calculation notes are optional: the file is offered, marked
+    # so, and its limits are stated for the writer that does pin them.
+    assert "07_calculations.json" in contract
+    line = next(l for l in contract.splitlines() if "07_calculations.json" in l)
+    assert "(optional:" in line
+    v2_line = next(l for l in _contract(tmp_path).splitlines() if "07_calculations.json" in l)
+    assert "(optional:" not in v2_line
     # the parts v1 does have still carry their limits
     assert "04_metrics.json" in contract
     assert "key_metrics: at most" in contract

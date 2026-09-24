@@ -78,6 +78,9 @@ def test_section_repair_prompt_schema_and_forced_id(tmp_path, monkeypatch):
         section={"id": "investment_risk", "blocks": []},
         section_id="investment_risk",
         findings=['quality gate em_dash_bridge: "text — text" — split it'],
+        # The re-emit path is the explicit fallback since 2026-09-23; the
+        # default is edits mode (tests/test_p1b_repair_edits.py).
+        mode="full",
     )
     assert error is None
     # The repair cannot rename the section.

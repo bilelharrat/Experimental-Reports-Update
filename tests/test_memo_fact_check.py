@@ -332,21 +332,43 @@ def test_check_memo_run_never_raises(tmp_path, monkeypatch):
 # ---- URL attachment -------------------------------------------------------------
 
 
-def test_attach_source_urls_from_artifacts_then_cache(tmp_path):
-    run_dir = tmp_path / "memos" / COMPANY / "run"
-    fast = run_dir / "analysis" / "fast"
-    fast.mkdir(parents=True)
-    (fast / "market_sizing.json").write_text(
+def _write_fast_pass(fast_dir: Path, pass_id: str, data: dict | None, *, status: str = "ok") -> None:
+    """The file ``memo_analysis._write_fast_pass_outputs`` writes: the pass
+    output sits under ``data`` (null for a failed pass)."""
+    fast_dir.mkdir(parents=True, exist_ok=True)
+    (fast_dir / f"{pass_id}.json").write_text(
         json.dumps(
             {
-                "supporting_evidence": [
-                    {"source": "Gartner IT Services Databook 2026", "source_class": "third-party", "detail": "x", "as_of": "2026", "url": "https://gartner.com/it-services-databook"},
-                    {"source": "Private deck", "source_class": "company", "detail": "y", "as_of": "2026", "url": None},
-                ]
+                "pass_id": pass_id,
+                "label": pass_id.replace("_", " ").title(),
+                "artifact_filename": f"{pass_id}.md",
+                "status": status,
+                "error": None if data is not None else "timed out",
+                "duration_ms": 1,
+                "cost_usd": 0.0,
+                "usage": {},
+                "data": data,
             }
         ),
         encoding="utf-8",
     )
+
+
+def test_attach_source_urls_from_artifacts_then_cache(tmp_path):
+    run_dir = tmp_path / "memos" / COMPANY / "run"
+    fast = run_dir / "analysis" / "fast"
+    _write_fast_pass(
+        fast,
+        "market_sizing",
+        {
+            "summary": "s",
+            "supporting_evidence": [
+                {"source": "Gartner IT Services Databook 2026", "source_class": "third-party", "detail": "x", "as_of": "2026", "url": "https://gartner.com/it-services-databook"},
+                {"source": "Private deck", "source_class": "company", "detail": "y", "as_of": "2026", "url": None},
+            ],
+        },
+    )
+    _write_fast_pass(fast, "competition", None, status="failed")  # a failed pass is skipped, not fatal
     source_cache.record_source(COMPANY, kind="web_fetch", text="IDC forecast text " * 10, url="https://idc.com/digital-engineering-forecast", title="IDC Worldwide Digital Engineering Forecast")
     package = _package(
         {"market": ["x"]},
@@ -396,5 +418,450 @@ def test_check_company_payload_shape(tmp_path, monkeypatch):
     assert payload["findings"][0]["section"] == "Exec"
     assert "looked_for" in payload["findings"][0]
     assert payload["thin_corpus"] is True
+    # Report-only additions: the honest split and the reader-facing summary.
+    assert payload["tiers"]["basis"] == "tiered"
+    assert payload["summary"]["status"] == "not_checkable" and payload["summary"]["coverage_pct"] is None
     monkeypatch.setattr(comps, "_latest_memo_package", lambda cid, reports=None: (None, None))
     assert fc.check_company(COMPANY)["note"] == "No memo package on record"
+
+
+# ---- strict matching behind the honest tiers (report only) ------------------------
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "The round closed on 30 June 2026.",
+        "Filed June 30, 2026 with the regulator.",
+        "Filed Jun. 30 with the regulator.",
+        "see p. 30 of the deck",
+        "page 30 of the deck",
+        "ranked No. 30 on the list",
+        "under § 30 of the act",
+        "as reported earlier [30] and since",
+        "a footnote^30 here",
+        "dated 2026-06-30 in the filing",
+        "signed on 06/30/2026 by both parties",
+    ],
+)
+def test_strict_index_ignores_dates_pages_sections_and_footnotes(source):
+    figure = fc.extract_figures("over 30 customers")[0]
+    # The enforced (loose) match is unchanged: the repair still accepts it.
+    assert fc.TextIndex.of(source).supports(figure) is True
+    assert fc.TextIndex.of(source, strict=True).supports(figure) is False
+    assert 30.0 in fc.corpus_values(source)["amount"]
+    assert 30.0 not in fc.corpus_values(source, strict=True)["amount"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["customer count: 30", "30 customers signed", "we now serve 30 enterprises", "In June, 30 customers renewed."],
+)
+def test_strict_index_keeps_real_counts(source):
+    figure = fc.extract_figures("over 30 customers")[0]
+    assert fc.TextIndex.of(source, strict=True).supports(figure) is True
+
+
+def test_loose_index_is_unchanged_by_the_strict_scan():
+    """``TextIndex.of`` / ``corpus_values`` default to exactly the index the
+    repair has always enforced against."""
+    text = "Revenue $2,580 million in FY25; 30 June; 1,200 staff; margin 61%; 2026-06-30; [12] 7x."
+    index = fc.TextIndex.of(text)
+    assert {"30", "12", "2026", "06"} <= index.forms
+    assert 30.0 in index.values["amount"] and 12.0 in index.values["amount"]
+    assert 2026.0 not in index.values["amount"]  # years never counted
+    assert fc.corpus_values(text) == index.values
+
+
+def _tiered_corpus(*, filler: int = 2_500) -> fc.Corpus:
+    corpus = fc.Corpus()
+    corpus.company_hosts = {"acme.com"}
+    corpus.company_tokens = {"acme"}
+    corpus.add(
+        "research file: analyst_notes.md",
+        "Independent analyst note: revenue reached $12M last year. The round closed on 30 June 2026. "
+        + "Background prose without figures. " * (filler // 34),
+    )
+    corpus.add(
+        "cached source a1: https://www.acme.com/news/launch",
+        "Acme says it serves 450 customers across hospitals.",
+        tier="company",
+    )
+    corpus.add("registry entry", "id: acme\ntam: ~$45B\npipeline: $77M\n", evidence=False)
+    corpus.add_tier_text("registry", "registry field: metrics[0]", "TAM ; ~$45B ; USD ; 2030")
+    return corpus.finish()
+
+
+def _tier_package() -> dict:
+    return _package(
+        {
+            "executive_summary": [
+                "Churn was 8% [S1].",
+                "Acme serves 450 customers.",
+            ],
+            "market": [
+                "Revenue reached $12M.",
+                "The market is a $45B opportunity.",
+                "A pipeline of $77M.",
+                "Implied 3.0x [C1].",
+                "Over 30 customers renewed.",
+                "Headcount is 999 employees.",
+            ],
+        },
+        sources=[
+            {"id": "S1", "title": _loc("Industry churn survey"), "class": "independent secondary", "treatment": _loc("t"), "as_of": "2026", "url": "https://survey.example.org/churn"},
+            {"id": "S2", "title": _loc("Acme newsroom"), "class": "company-reported", "treatment": _loc("t"), "as_of": "2026", "url": "https://acme.com/news/launch"},
+        ],
+        calculations=[{"id": "C1", "formula": "$36M ÷ $12M = 3.0x", "result": "3.0x"}],
+    )
+
+
+def test_honest_tiers_split_what_the_loose_match_calls_supported():
+    corpus = _tiered_corpus()
+    package = _tier_package()
+    result = fc.check_package(package, corpus, source_texts={"S1": "Survey: median churn 8% across vendors."})
+
+    # The enforced buckets are exactly what the loose check always gave.
+    assert (result.checked, result.verified, result.supported, result.derived, result.unsupported) == (8, 1, 5, 1, 1)
+    tiers = result.tiers
+    assert tiers["basis"] == "tiered"
+    assert tiers["verified"] == 1  # 8%: the cited independent survey carries it
+    assert tiers["derived"] == 1  # 3.0x
+    assert tiers["found_elsewhere"] == 1  # $12M in the analyst note
+    assert tiers["in_context"] == 1  # "revenue" sits next to $12M there
+    assert tiers["company_reported"] == 1  # 450 customers: only acme.com says so
+    assert tiers["company_reported_headline"] == 1
+    assert tiers["registry_only"] == 1  # $45B: only a registry field with source_refs
+    # $77M rests on the registry dump alone, 30 on "30 June", 999 on nothing.
+    assert tiers["not_traced"] == 3
+    assert sum(tiers[k] for k in ("verified", "found_elsewhere", "derived", "company_reported", "registry_only", "not_traced")) == result.checked
+    rows = {row["figure"]: row for row in result.figure_tiers}
+    assert rows["450"]["tier"] == "company_reported" and rows["450"]["headline"] is True
+    assert rows["$45B"]["tier"] == "registry_only"
+    assert rows["$77M"]["tier"] == "not_traced" and rows["$77M"]["unsupported"] is False
+    assert rows["30"]["tier"] == "not_traced"
+    assert rows["999"]["unsupported"] is True
+    payload = result.to_dict()
+    assert payload["tiers"] == tiers and payload["figure_tiers"]
+    # Enforcement never reads the tiers.
+    assert payload["p0_count"] == 1 and payload["unsupported"] == 1
+    report = fc.render_markdown_report(result)
+    assert "What the figures rest on (report only, not enforced)" in report
+    assert "headline figure 450" in report
+
+
+def test_a_cited_company_page_is_company_reported_not_verified():
+    corpus = _tiered_corpus()
+    package = _package(
+        {"executive_summary": ["Acme serves 450 customers [S2]."]},
+        sources=_tier_package()["sources"],
+    )
+    result = fc.check_package(
+        package,
+        corpus,
+        source_texts={"S2": "Acme says it serves 450 customers across hospitals."},
+    )
+    assert result.verified == 1  # the enforced bucket: the cited source carries it
+    assert result.tiers["verified"] == 0
+    assert result.tiers["company_reported"] == 1
+
+
+def test_build_corpus_tags_company_pages_and_reads_only_sourced_registry_fields(tmp_path, monkeypatch):
+    from server import storage
+
+    monkeypatch.setattr(fc.numbers_lint, "_corpus", lambda cid: ([], []))
+    storage._write_yaml(
+        storage.COMPANIES_FILE,
+        [
+            {
+                "id": COMPANY,
+                "name": "Generalist, Inc.",
+                "website": "https://www.generalist.ai",
+                "description": "Generalist builds robots; 70 pilots.",
+                "metrics": [
+                    {"label": "ARR", "value": "~$24M", "source_refs": [{"label": "Board deck", "source_class": "company"}]},
+                    {"label": "Pipeline", "value": "$88M"},
+                ],
+            }
+        ],
+    )
+    source_cache.record_source(COMPANY, kind="web_fetch", text="Generalist announces 40 customers. " * 3, url="https://news.generalist.ai/launch")
+    source_cache.record_source(COMPANY, kind="web_fetch", text="Reuters: Generalist has 40 customers. " * 3, url="https://reuters.com/g")
+
+    corpus = fc.build_corpus(COMPANY, research_dir=tmp_path / "none")
+
+    tiers = {row["label"]: row["tier"] for row in corpus.describe()}
+    assert tiers["registry entry"] == "context"
+    assert any(label.endswith("news.generalist.ai/launch") and tier == "company" for label, tier in tiers.items())
+    assert any("reuters.com" in label and tier == "independent" for label, tier in tiers.items())
+    assert corpus.company_hosts == {"generalist.ai"}
+    registry = corpus.tier_index["registry"]
+    assert registry.supports(fc.extract_figures("$24M")[0])
+    assert not registry.supports(fc.extract_figures("$88M")[0])  # no source_refs on that field
+    assert corpus.index.supports(fc.extract_figures("$88M")[0])  # the loose corpus still reads the dump
+
+
+def test_firm_record_rows_pair_the_company_record_explicitly():
+    rows = fc._firm_record_rows(
+        ["description text", "Series B", "file summary text", "matrix row"],
+        ["company record", "file summary: deck.pdf", "evidence matrix"],
+    )
+    assert rows[:2] == [("company record", "description text"), ("company record", "Series B")]
+    assert rows[2] == ("file summary: deck.pdf", "file summary text")
+    assert fc._firm_record_rows(["a"], ["transcript: call"]) == [("transcript: call", "a")]
+
+
+# ---- the reader-facing summary ------------------------------------------------------
+
+
+def test_summarize_fact_check_tiered_and_thin():
+    corpus = _tiered_corpus()
+    result = fc.check_package(_tier_package(), corpus, source_texts={"S1": "Survey: median churn 8% across vendors."})
+    summary = fc.summarize_fact_check(result.to_dict())
+    assert summary["basis"] == "tiered"
+    assert summary["status"] == "warn"  # unsupported but not enforced (auto, small corpus)
+    assert (summary["checked"], summary["verified"], summary["found_elsewhere"], summary["derived"]) == (8, 1, 1, 1)
+    assert (summary["company_reported"], summary["registry_only"], summary["not_traced"]) == (1, 1, 3)
+    assert summary["in_context"] == 1 and summary["company_reported_headline"] == 1
+    assert summary["unsupported"] == 1 and summary["p0_count"] == 1
+    assert summary["coverage_pct"] == 50  # (1 + 1 + 1 + 1) of 8
+    thin = fc.check_package(_tier_package(), _tiered_corpus(filler=0))
+    thin_summary = fc.summarize_fact_check(thin.to_dict())
+    assert thin_summary["thin_corpus"] is True
+    assert thin_summary["status"] == "not_checkable"
+    assert thin_summary["coverage_pct"] is None and thin_summary["p0_count"] == 0
+
+
+def test_summarize_fact_check_legacy_missing_and_error():
+    assert fc.summarize_fact_check(None)["status"] == "not_run"
+    assert fc.summarize_fact_check({})["coverage_pct"] is None
+    legacy = {
+        "status": "warn", "checked": 10, "verified": 2, "supported": 5, "derived": 1,
+        "unsupported": 2, "coverage_pct": 80, "thin_corpus": False, "p0_count": 2,
+    }
+    summary = fc.summarize_fact_check(legacy)
+    assert summary["basis"] == "legacy"
+    assert (summary["found_elsewhere"], summary["not_traced"], summary["coverage_pct"]) == (5, 2, 80)
+    assert summary["company_reported"] is None and summary["registry_only"] is None
+    assert fc.summarize_fact_check({**legacy, "thin_corpus": True})["coverage_pct"] is None
+    errored = fc.summarize_fact_check(fc.FactCheckResult(error="RuntimeError: x").to_dict())
+    assert errored["status"] == "error" and errored["coverage_pct"] is None
+    assert fc.summarize_fact_check({"status": "skipped", "checked": 0})["status"] == "no_figures"
+
+
+# ---- source URLs: Serena locators and the seen/unseen audit ------------------------
+
+
+def _serena_session(tmp_path: Path) -> Path:
+    import yaml
+
+    session_dir = tmp_path / "serena_session"
+    session_dir.mkdir(parents=True)
+    artifacts = {
+        "strategic_risks": {
+            "risks": [
+                {
+                    "id": "risk-1",
+                    "supporting_evidence": [
+                        {
+                            "file_id": None,
+                            "filename": None,
+                            "locator": "https://www.cnbc.com/2026/08/17/acme-says-annualized-revenue-climbed-to-65-billion.html",
+                            "excerpt": "Acme told investors its annualized revenue run rate climbed to $65 billion.",
+                            "source_class": "news",
+                        }
+                    ],
+                    "contradicting_evidence": [
+                        {"locator": "p.4", "excerpt": "Private file evidence.", "source_class": "research_file"},
+                    ],
+                }
+            ]
+        },
+        "infographic_source_brief": {
+            "claims": [
+                {
+                    "claim": "c",
+                    "source_traces": [
+                        {"title": "Mergermarket record IPO valuation target", "url": "https://ionanalytics.com/insights/mergermarket/record-ipo", "excerpt": "Skeptics contend the valuation prices in 2028 revenue."},
+                    ],
+                }
+            ]
+        },
+        "series_news": {
+            "source_traces": [
+                {"title": "", "url": "https://acme.com/news/series-h", "excerpt": "Series H."},
+                {"title": "", "url": "https://acme.com/news/series-g", "excerpt": "Series G."},
+            ]
+        },
+    }
+    (session_dir / "session.yaml").write_text(yaml.safe_dump({"id": "s1", "artifacts": artifacts}), encoding="utf-8")
+    return session_dir
+
+
+def test_serena_candidates_come_from_traces_and_risk_locators(tmp_path):
+    rows = fc._serena_url_candidates(_serena_session(tmp_path))
+    urls = {row["url"]: row for row in rows}
+    assert "https://www.cnbc.com/2026/08/17/acme-says-annualized-revenue-climbed-to-65-billion.html" in urls
+    assert urls["https://ionanalytics.com/insights/mergermarket/record-ipo"]["name"] == "Mergermarket record IPO valuation target"
+    assert urls["https://ionanalytics.com/insights/mergermarket/record-ipo"]["excerpt"].startswith("Skeptics")
+    assert all(row["url"].startswith("https://") for row in rows)  # "p.4" is a page, not a URL
+    assert fc._serena_url_candidates(None) == []
+    assert fc._serena_url_candidates(tmp_path / "missing") == []
+
+
+def test_attach_source_urls_from_serena_locators_refuses_ties_and_reports(tmp_path):
+    session_dir = _serena_session(tmp_path)
+    run_dir = tmp_path / "memos" / COMPANY / "run"
+    (run_dir / "logs").mkdir(parents=True)
+    package = _package(
+        {"m": ["x"]},
+        sources=[
+            {"id": "S1", "title": _loc("CNBC: Acme annualized revenue climbed to $65 billion"), "class": "press reporting", "treatment": _loc("t"), "as_of": "2026"},
+            {"id": "S2", "title": _loc("Mergermarket: record IPO valuation target"), "class": "press reporting", "treatment": _loc("t"), "as_of": "2026"},
+            {"id": "S3", "title": _loc("Acme news series"), "class": "company disclosure", "treatment": _loc("t"), "as_of": "2026"},
+            {"id": "S4", "title": _loc("Unrelated market sizing study"), "class": "third-party", "treatment": _loc("t"), "as_of": "2026"},
+        ],
+    )
+    notes = fc.attach_source_urls(package, company_id=COMPANY, run_dir=run_dir, session_dir=session_dir, attempt=2)
+    by_id = {s["id"]: s.get("url") for s in package["sources"]}
+    assert by_id["S1"].startswith("https://www.cnbc.com/2026/08/17/acme-says")
+    assert by_id["S2"] == "https://ionanalytics.com/insights/mergermarket/record-ipo"
+    assert by_id["S3"] is None  # series-h and series-g tie: a wrong link is worse than none
+    assert by_id["S4"] is None
+    assert [note.split(" ", 1)[0] for note in notes] == ["S1", "S2"]
+    assert "matched Serena session locator" in notes[0]
+    log = (run_dir / "logs" / "source_urls.md").read_text(encoding="utf-8")
+    assert log.startswith("## URL check — attempt 2")
+    # Both attached URLs were recorded by the session: nothing is unseen.
+    assert package["run"]["source_url_status"]["unseen"] == {}
+    assert "not attached S3" in log and "series-h" in log and "series-g" in log
+    assert "excerpt: \"Acme told investors" in log
+
+
+def test_attach_source_urls_finds_the_session_through_the_run_manifest(tmp_path, monkeypatch):
+    from server import serena_analysis
+
+    session_dir = _serena_session(tmp_path)
+    monkeypatch.setattr(serena_analysis, "session_dir", lambda company_id, session_id: session_dir if session_id == "s1" else tmp_path / "nope")
+    run_dir = tmp_path / "memos" / COMPANY / "run"
+    (run_dir / "logs").mkdir(parents=True)
+    (run_dir / "logs" / "run_manifest.md").write_text(
+        "# Investment Memo Run Manifest\n\n- run_id: run\n- analysis_session_id: s1\n", encoding="utf-8"
+    )
+    package = _package(
+        {"m": ["x"]},
+        sources=[{"id": "S1", "title": _loc("Mergermarket record IPO valuation target"), "class": "press", "treatment": _loc("t"), "as_of": "2026"}],
+    )
+    notes = fc.attach_source_urls(package, company_id=COMPANY, run_dir=run_dir, write_report=False)
+    assert package["sources"][0]["url"] == "https://ionanalytics.com/insights/mergermarket/record-ipo"
+    assert len(notes) == 1
+    assert not (run_dir / "logs" / "source_urls.md").exists()
+
+
+def test_audit_marks_urls_seen_or_unseen_and_flags_reused_homepages(tmp_path):
+    session_dir = _serena_session(tmp_path)
+    run_dir = tmp_path / "memos" / COMPANY / "run"
+    source_cache.record_source(COMPANY, kind="web_fetch", text="Cached page text " * 5, url="https://www.cached.com/a")
+    source_cache.record_source(
+        COMPANY,
+        kind="web_search",
+        text="search results blob " * 5,
+        query="acme",
+        links=[{"title": "Listed only", "url": "https://listed.example.com/only"}],
+    )
+    source_cache.record_run_source(COMPANY, run_dir, tool="WebFetch", text="Run fetch text " * 5, url="https://run.example.com/b", run_id="run")
+    _write_fast_pass(
+        run_dir / "analysis" / "fast",
+        "market",
+        {"supporting_evidence": [{"source": "Artifact page", "source_class": "x", "detail": "d", "as_of": None, "url": "https://artifact.example.com/c"}]},
+    )
+    package = _package(
+        {"m": ["x"]},
+        sources=[
+            {"id": "S1", "title": _loc("a"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "http://cached.com/a"},
+            {"id": "S2", "title": _loc("b"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://run.example.com/b/"},
+            {"id": "S3", "title": _loc("c"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://artifact.example.com/c"},
+            {"id": "S4", "title": _loc("d"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://ionanalytics.com/insights/mergermarket/record-ipo"},
+            {"id": "S5", "title": _loc("e"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://made-up.example.com/deep/link"},
+            {"id": "S6", "title": _loc("f"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://zainartech.com"},
+            {"id": "S7", "title": _loc("g"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://www.zainartech.com/"},
+            {"id": "S8", "title": _loc("h"), "class": "BSH primary diligence", "treatment": _loc("t"), "as_of": "2026"},
+            {"id": "S9", "title": _loc("i"), "class": "c", "treatment": _loc("t"), "as_of": "2026", "url": "https://listed.example.com/only"},
+        ],
+    )
+    before = json.dumps(package, sort_keys=True)
+    audit = fc.audit_source_urls(package, company_id=COMPANY, run_dir=run_dir, session_dir=session_dir)
+    assert json.dumps(package, sort_keys=True) == before  # report only: nothing stripped or edited
+    rows = {row["id"]: row for row in audit["sources"]}
+    assert rows["S1"]["seen_in"] == ["source_cache"]
+    assert rows["S2"]["seen_in"] == ["source_cache", "run_manifest"]
+    assert rows["S3"]["seen_in"] == ["analysis_artifacts"]
+    assert rows["S4"]["seen_in"] == ["serena_locators"]
+    assert rows["S5"]["seen"] is False and rows["S5"]["seen_in"] == []
+    assert rows["S9"]["seen"] is False and rows["S9"]["seen_in"] == ["search_results"]
+    assert rows["S8"]["url"] is None and rows["S8"]["seen"] is None
+    assert rows["S6"]["homepage_reused"] and rows["S7"]["homepage_reused"]
+    assert audit["homepage_reused"] == [{"url": "https://zainartech.com", "ids": ["S6", "S7"]}]
+    assert (audit["with_url"], audit["unseen"], audit["no_url"]) == (8, 4, 1)
+    assert audit["unseen_ids"] == ["S5", "S6", "S7", "S9"]
+    lines = fc._source_url_summary_lines(audit)
+    assert any("bare homepage https://zainartech.com is cited by 2 sources" in line for line in lines)
+    assert any(line.startswith("- S9 UNSEEN (listed by a search, never fetched)") for line in lines)
+    status = fc.stamp_source_url_status(package, audit)
+    assert package["run"]["source_url_status"] == status
+    assert status["unseen"] == {
+        "S5": "https://made-up.example.com/deep/link",
+        "S6": "https://zainartech.com",
+        "S7": "https://www.zainartech.com/",
+        "S9": "https://listed.example.com/only",
+    }
+    assert set(status["homepage_reused"]) == {"S6", "S7"}
+
+
+def test_check_memo_run_records_the_url_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(fc.numbers_lint, "_corpus", lambda cid: ([], []))
+    package = _package({"market": ["The market reaches $45B by 2030 [S1]."]})
+    run_dir = tmp_path / "memos" / COMPANY / "run"
+    result = fc.check_memo_run(run_dir=run_dir, package=package, company_id=COMPANY, research_dir=tmp_path / "none")
+    payload = result.to_dict()
+    assert payload["source_urls"]["with_url"] == 1
+    assert payload["source_urls"]["unseen_ids"] == ["S1"]
+    assert fc.summarize_fact_check(payload)["urls"] == {"with_url": 1, "seen": 0, "unseen": 1, "homepage_reused": 0}
+    assert "## Source URLs (report only)" in fc.render_markdown_report(result)
+
+
+def test_in_context_needs_the_memo_metric_near_the_number_in_the_source():
+    corpus = fc.Corpus()
+    corpus.company_tokens = {"acme"}
+    corpus.add(
+        "research file: survey.md",
+        "Acme survey: 61% of respondents prefer hosted tools. "
+        "Separately, Acme pilots ran in 70 hospitals. " + "Unrelated background prose. " * 60
+        + "By then the new office had reached 450 desks. " + "More unrelated prose. " * 40,
+    )
+    corpus = corpus.finish()
+    package = _package(
+        {"financials": ["Acme gross margin was 61%.", "Acme runs 70 hospitals today.", "The platform reached 450 customers."]}
+    )
+    result = fc.check_package(package, corpus)
+    assert result.tiers["found_elsewhere"] == 3
+    # "hospitals" sits next to 70 in the source. "Gross margin" is nowhere near
+    # 61%; "reached" sits next to 450, but the memo's metric is customers; and
+    # the company's own name never counts as context.
+    assert result.tiers["in_context"] == 1
+
+
+def test_a_broken_tally_never_changes_the_enforced_check(monkeypatch):
+    package = _tier_package()
+    expected = fc.check_package(package, _tiered_corpus(), source_texts={"S1": "Survey: median churn 8% across vendors."})
+
+    def boom(*_a, **_k):
+        raise RuntimeError("tally bug")
+
+    monkeypatch.setattr(fc._HonestTally, "classify", boom)
+    result = fc.check_package(package, _tiered_corpus(), source_texts={"S1": "Survey: median churn 8% across vendors."})
+    assert result.error is None and result.tiers == {} and result.figure_tiers == []
+    keys = ("checked", "verified", "supported", "derived", "unsupported", "unverifiable_citations", "repair_feed")
+    assert {k: getattr(result, k) for k in keys} == {k: getattr(expected, k) for k in keys}
+    assert [f.to_dict() for f in result.findings] == [f.to_dict() for f in expected.findings]
+    assert fc.summarize_fact_check(result.to_dict())["basis"] == "legacy"

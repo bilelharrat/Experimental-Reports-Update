@@ -55,8 +55,6 @@ function mountCard(companyId = "zainar-inc", company = {}) {
 
 describe("FounderRadarCard (the desk's Team tab)", () => {
   beforeEach(() => {
-    // The deep search spends tokens, so it asks first; say yes by default.
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.clearAllMocks();
     researchingCompanies.clear();
   });
@@ -178,9 +176,10 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     expect(wrapper.text()).toContain("Daniel Jacker");
   });
 
-  it("does not spend when the token confirmation is declined", async () => {
-    window.confirm.mockReturnValue(false);
+  it("researches without asking to confirm — it's the cheapest, fastest Gemini tier", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
     api.getFounderDossier.mockResolvedValue(dossier);
+    api.deepSearchFounder.mockResolvedValue({ ...dossier, source: "research" });
     const wrapper = mount(FounderRadarCard, {
       props: { companyId: "zainar-inc", company: {} },
     });
@@ -188,7 +187,8 @@ describe("FounderRadarCard (the desk's Team tab)", () => {
     const refresh = wrapper.find('[data-testid="founder-research"]');
     await refresh.trigger("click");
     await flushPromises();
-    expect(api.deepSearchFounder).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(api.deepSearchFounder).toHaveBeenCalledWith("zainar-inc");
   });
 
   it("shows which engine answered and how many sources it read", async () => {

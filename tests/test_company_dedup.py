@@ -266,3 +266,168 @@ def test_company_search_prompt_is_identity_first():
     assert "HIGH FILL" not in prompt
     assert "full investment analysis" in prompt.lower() or "not a full investment analysis" in prompt
     assert "identification" in prompt.lower()
+
+
+# ---- a different legal entity on the same website gets its own record (G3) ----
+# Every search result is upserted. One 'openai' search turned the OpenAI Group
+# PBC record into 'OpenAI Foundation' (nonprofit) through the shared
+# openai.com host; one 'cienet technologies' search turned the Beijing CIeNET
+# record into Cienet International, LLC of Oak Brook — and three memos ran on
+# that record.
+
+OPENAI_PBC = {
+    "name": "OpenAI",
+    "legal_name": "OpenAI Group PBC",
+    "ticker": None,
+    "website": "https://openai.com",
+    "status": "private",
+    "hq": "San Francisco, CA",
+    "parent_company": "OpenAI Foundation",
+}
+CIENET_BEIJING = {
+    "name": "CIeNET Technologies",
+    "legal_name": "CIeNET Technologies (Beijing) Co., Ltd.",
+    "ticker": None,
+    "website": "https://www.cienet.com",
+    "status": "private",
+    "hq": "Beijing, China",
+}
+
+
+@pytest.mark.parametrize("returned_name", ["OpenAI Foundation", "OpenAI"])
+def test_openai_foundation_does_not_overwrite_the_pbc_record(tmp_data, returned_name):
+    pbc = storage.upsert_company_from_match(dict(OPENAI_PBC))
+    foundation = storage.upsert_company_from_match(
+        {
+            "name": returned_name,
+            "legal_name": "OpenAI Foundation",
+            "ticker": None,
+            "website": "https://openai.com",
+            "status": "nonprofit",
+            "hq": "San Francisco, CA",
+            "parent_company": None,
+        }
+    )
+    assert foundation["id"] == "openai-foundation" != pbc["id"]
+    assert _ids() == sorted([pbc["id"], "openai-foundation"])
+    kept = storage.get_company(pbc["id"])
+    assert kept["legal_name"] == "OpenAI Group PBC"
+    assert kept["status"] == "private"
+    assert storage.get_company("openai-foundation")["status"] == "nonprofit"
+    # The same entity found again still lands on its own record.
+    again = storage.upsert_company_from_match({"name": "OpenAI", "legal_name": "OpenAI Group, PBC", "website": "openai.com"})
+    assert again["id"] == pbc["id"]
+
+
+def test_cienet_international_does_not_overwrite_cienet_beijing(tmp_data):
+    beijing = storage.upsert_company_from_match(dict(CIENET_BEIJING))
+    oak_brook = storage.upsert_company_from_match(
+        {
+            "name": "Cienet International",
+            "legal_name": "Cienet International, LLC",
+            "ticker": None,
+            "website": "https://cienet.com",
+            "status": "private",
+            "hq": "Oak Brook, IL",
+        }
+    )
+    assert oak_brook["id"] == "cienet-international-llc" != beijing["id"]
+    kept = storage.get_company(beijing["id"])
+    assert kept["hq"] == "Beijing, China"
+    assert kept["legal_name"] == "CIeNET Technologies (Beijing) Co., Ltd."
+    assert storage.resolve_company_match({"name": "Cienet International", "legal_name": "Cienet International LLC", "website": "cienet.com"}) == "cienet-international-llc"
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("Anthropic PBC", "Anthropic, PBC"),
+        ("Anthropic PBC", "Anthropic, Public Benefit Corporation"),
+        ("Anduril Industries, Inc.", "Anduril Industries Inc"),
+    ],
+)
+def test_legal_name_spelling_variants_do_not_split(tmp_data, first, second):
+    storage.upsert_company_from_match({"name": first.split(",")[0].split(" PBC")[0], "legal_name": first, "website": "https://example-legal.com"})
+    storage.upsert_company_from_match({"name": second.split(",")[0], "legal_name": second, "website": "https://example-legal.com"})
+    assert len(storage.list_companies()) == 1
+
+
+def test_an_ordinary_search_fills_identity_fields_but_never_overwrites_them(tmp_data):
+    record = storage.upsert_company_from_match(
+        {"name": "CIeNET Technologies", "legal_name": "CIeNET Technologies (Beijing) Co., Ltd.", "website": "https://www.cienet.com", "hq": "Beijing, China", "status": "private"}
+    )
+    storage.upsert_company_from_match(
+        {
+            "name": "CIeNET Technologies",
+            "website": "cienet.com",
+            "hq": "Oak Brook, IL",
+            "status": "subsidiary",
+            "exchange": "OTC",
+            "parent_company": "CIeNET Holdings",
+            "disambiguator": "Beijing embedded-software services firm",
+            "employee_band": "1,000-5,000",
+        }
+    )
+    merged = storage.get_company(record["id"])
+    assert merged["hq"] == "Beijing, China"  # identity: kept
+    assert merged["status"] == "private"
+    assert merged["legal_name"] == "CIeNET Technologies (Beijing) Co., Ltd."
+    assert merged["exchange"] == "OTC"  # identity, but empty before: filled
+    assert merged["parent_company"] == "CIeNET Holdings"
+    assert merged["disambiguator"] == "Beijing embedded-software services firm"
+    assert merged["employee_band"] == "1,000-5,000"  # enrichment keeps refreshing
+
+
+def test_the_explicit_refresh_may_still_overwrite_identity(tmp_data):
+    record = storage.upsert_company_from_match(dict(CIENET_BEIJING))
+    storage.upsert_company_from_match(
+        {"name": "CIeNET Technologies", "legal_name": "CIeNET Technologies (Beijing) Co., Ltd.", "website": "cienet.com", "hq": "Beijing Haidian, China", "ticker": "CNT"},
+        overwrite_identity=True,
+    )
+    refreshed = storage.get_company(record["id"])
+    assert refreshed["hq"] == "Beijing Haidian, China"
+    # A ticker is only ever filled — here the record had none, so it is.
+    assert refreshed["ticker"] == "CNT"
+    storage.upsert_company_from_match({"name": "CIeNET Technologies", "ticker": "CNT", "website": "cienet.com"}, overwrite_identity=True)
+    storage.upsert_company_from_match({"name": "CIeNET Technologies", "ticker": "CNTX", "website": "cienet.com"}, overwrite_identity=True)
+    assert storage.get_company(record["id"])["ticker"] == "CNT"
+
+
+def test_a_listing_still_updates_a_tickerless_record(tmp_data):
+    private = storage.upsert_company_from_match(
+        {"name": "Figma", "legal_name": "Figma, Inc.", "website": "https://figma.com", "status": "private", "hq": "San Francisco, CA"}
+    )
+    listed = storage.upsert_company_from_match(
+        {"name": "Figma", "legal_name": "Figma, Inc.", "ticker": "FIG", "exchange": "NYSE", "status": "public", "website": "https://figma.com"}
+    )
+    assert listed["id"] == private["id"]
+    record = storage.get_company(private["id"])
+    assert (record["ticker"], record["exchange"], record["status"]) == ("FIG", "NYSE", "public")
+    assert record["company_type"] == "public"
+
+
+def test_deep_search_refresh_overwrites_identity_and_search_dedupes(tmp_data, monkeypatch):
+    from server import cache, companies_ai
+
+    monkeypatch.setattr(cache, "CACHE_ROOT", tmp_data / "cache")
+    target = storage.upsert_company_from_match(dict(CIENET_BEIJING))
+    monkeypatch.setattr(companies_ai.claude_runner, "is_available", lambda: True)
+    raw = [
+        {"name": "CIeNET Technologies", "legal_name": "CIeNET Technologies (Beijing) Co., Ltd.", "website": "https://cienet.com", "hq": "Beijing Haidian, China"},
+        # Two variants of one other company: listed once.
+        {"name": "Cienet International", "legal_name": "Cienet International, LLC", "website": "https://cienet.com", "hq": "Oak Brook, IL"},
+        {"name": "Cienet International LLC", "legal_name": "Cienet International LLC", "website": "https://cienet.com", "employee_band": "11-50"},
+    ]
+    monkeypatch.setattr(companies_ai.claude_runner, "run_company_search", lambda **kwargs: (raw, None))
+
+    result = companies_ai.deep_search("cienet", force_refresh=True)
+    ids = [row["id"] for row in result["matches"]]
+    assert ids == [target["id"], "cienet-international-llc"]
+    assert result["matches"][1]["employee_band"] == "11-50"  # the latest merge wins
+    # An ordinary search did not move the Beijing record.
+    assert storage.get_company(target["id"])["hq"] == "Beijing, China"
+
+    refreshed = companies_ai.deep_search("cienet", force_refresh=True, only_company_id=target["id"])
+    assert [row["id"] for row in refreshed["matches"]] == [target["id"]]
+    assert storage.get_company(target["id"])["hq"] == "Beijing Haidian, China"
+    assert storage.get_company("cienet-international-llc")["hq"] == "Oak Brook, IL"

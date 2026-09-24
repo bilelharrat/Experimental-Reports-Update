@@ -272,19 +272,25 @@ def test_team_research_runs_on_gemini_whatever_the_desk_engine_is(
 ):
     gemini = founder_dossier.ai_engine.gemini_runner
     monkeypatch.setattr(gemini, "is_available", lambda: True)
+    calls: list[dict] = []
     monkeypatch.setattr(
         gemini,
         "run_grounded_json",
-        lambda **kw: (
+        lambda **kw: calls.append(kw)
+        or (
             {"people": [{"name": "Ira Okonkwo", "role": "CTO"}]},
-            {"model": "gemini-3.8-flash", "grounded": True, "sources": GEMINI_META["sources"]},
+            {"model": "gemini-3.8-flash-lite", "grounded": True, "sources": GEMINI_META["sources"]},
             None,
         ),
     )
     dossier = founder_dossier.deep_search_founder_dossier("acme")
-    assert (dossier["engine"], dossier["model"]) == ("gemini", "gemini-3.8-flash")
+    assert (dossier["engine"], dossier["model"]) == ("gemini", "gemini-3.8-flash-lite")
     assert dossier["research_error"] is None
     assert claude_calls == []
+    # The cheapest, fastest tier: a team roster is a short, well-defined
+    # lookup, and cheap enough that the button doesn't stop to confirm
+    # (frontend/src/confirmTokens.js).
+    assert calls[0]["model"] == founder_dossier.RESEARCH_MODEL == "gemini-3.8-flash-lite"
 
 
 def test_a_gemini_failure_is_shown_not_handed_to_claude(monkeypatch, company, claude_calls):

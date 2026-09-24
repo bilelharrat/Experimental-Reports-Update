@@ -123,11 +123,27 @@ def test_index_failure_falls_back_to_bare_names(tmp_path, monkeypatch):
         cid, filename="doc.md", content_type="text/markdown", data=b"# d"
     )
     research_dir = research_store.RESEARCH_ROOT / cid
-
-    def _boom(*_a, **_kw):
-        raise RuntimeError("index unreadable")
-
-    monkeypatch.setattr(research_store, "list_files", _boom)
+    # The listing reads the folder's own index (a dotted/CJK id's folder
+    # name is a hashed store key, so re-keying it from the name missed the
+    # index); an unreadable index still falls back to bare names.
+    (research_dir / "index.yaml").write_text("{: not yaml [", encoding="utf-8")
     listing = claude_runner._research_file_listing(research_dir)
     assert "__doc.md" in listing  # bare stored name still listed
     assert "uploaded" not in listing
+
+
+def test_listing_reads_the_index_of_a_hashed_store_key_folder(tmp_path, monkeypatch):
+    """A dotted id ('brk.b') is stored under a hashed key; the listing must
+    still carry its upload dates (storage_key is not idempotent, so the old
+    re-keying of the folder name read an empty index)."""
+    from server import company_paths
+
+    cid = _seed(tmp_path, monkeypatch, company_id="brk.b")
+    research_store.upload_file(
+        cid, filename="letter.md", content_type="text/markdown", data=b"# letter"
+    )
+    research_dir = research_store.RESEARCH_ROOT / company_paths.storage_key(cid)
+    assert research_dir.name != cid
+    listing = claude_runner._research_file_listing(research_dir)
+    assert "letter.md" in listing
+    assert "uploaded" in listing

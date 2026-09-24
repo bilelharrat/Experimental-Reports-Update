@@ -7,6 +7,16 @@ import threading
 from server import claude_runner
 
 
+def _fake_zh(en: str) -> str:
+    """A fake translation: "中文:" + the English. A long English sentence
+    kept that way is what the untranslated-slot rule catches (Gemini,
+    2026-09-23), so its words are joined with the ideographic space."""
+    from server import memo_chinese_parity
+
+    text = f"中文:{en}"
+    return text.replace(" ", "\u3000") if memo_chinese_parity.embedded_english_sentence(text) else text
+
+
 def _loc(en: str, zh: str = "") -> dict:
     return {"en": en, "zh": zh}
 
@@ -32,7 +42,7 @@ def _fill_unit(unit: dict) -> dict:
     def fill(node):
         if isinstance(node, dict):
             if "en" in node and "zh" in node and not node["zh"]:
-                node["zh"] = f"中文:{node['en']}"
+                node["zh"] = _fake_zh(node["en"])
             for value in node.values():
                 fill(value)
         elif isinstance(node, list):
@@ -451,3 +461,66 @@ def test_pinned_calculations_that_are_not_notes_are_left_alone():
     assert claude_runner._localized_pinned_calculations(
         {"shared_facts": {"calculations": [{"id": "C1"}]}}
     ) == []
+
+
+def test_calculation_input_names_are_chased_with_the_envelope(tmp_path, monkeypatch):
+    """Input names and values and the result are {en, zh} slots in the
+    package (every Chinese 计算说明 table used to show them in English), so
+    the envelope chase carries them with the label and meaning — one entry
+    per input, aligned with the package's list, carrying whichever of name
+    and value the input has."""
+
+    def fake_unit(*, unit_path, **kwargs):
+        return (
+            _fill_unit(json.loads(unit_path.read_text(encoding="utf-8"))),
+            None,
+        )
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    shared_facts = {
+        "calculations": [
+            {
+                "id": "C1",
+                "label": "Entry multiple",
+                "inputs": [
+                    {"name": "post-money valuation", "value": "$2.4B", "ref": "S1"},
+                    {"name": "", "value": "$60M", "ref": "S2"},
+                    "junk",
+                ],
+                "formula": "$2.4B / $60M",
+                "result": "40x",
+                "meaning": "The entry prices 40 years of revenue.",
+            }
+        ]
+    }
+    carried = claude_runner._localized_pinned_calculations({"shared_facts": shared_facts})
+    assert carried[0]["result"] == {"en": "40x", "zh": ""}
+    assert carried[0]["inputs"] == [
+        {"name": {"en": "post-money valuation", "zh": ""}, "value": {"en": "$2.4B", "zh": ""}},
+        {"value": {"en": "$60M", "zh": ""}},
+    ]
+    package = {
+        "company": {"name": "Test Co", "descriptor": _loc("AI", "人工智能")},
+        "calculations": claude_runner._package_calculations(shared_facts),
+    }
+    assert package["calculations"][0]["inputs"][0]["name"] == {"en": "post-money valuation", "zh": ""}
+    chaser = _chaser(tmp_path)
+    chaser.on_spine(
+        {
+            "package_skeleton": {
+                "schema_version": 1,
+                "company": {"name": "Test Co", "descriptor": _loc("AI", "人工智能")},
+            },
+            "shared_facts": shared_facts,
+        }
+    )
+    outcome = chaser.collect(join_timeout_sec=5)
+    chaser.shutdown()
+    stats = chaser.merge_into(package, outcome["units"])
+    assert stats["adopted"] == 6  # label, result, meaning, one name, two values
+    inputs = package["calculations"][0]["inputs"]
+    assert inputs[0]["name"] == {"en": "post-money valuation", "zh": "中文:post-money valuation"}
+    assert inputs[0]["value"] == {"en": "$2.4B", "zh": "中文:$2.4B"}
+    assert inputs[0]["ref"] == "S1"
+    assert package["calculations"][0]["result"] == {"en": "40x", "zh": "中文:40x"}
+    assert inputs[1]["name"] == {"en": "", "zh": ""}

@@ -344,3 +344,45 @@ def test_run_memo_pin_check_disabled_or_no_spine(tmp_path, monkeypatch):
         == []
     )
     assert not (run_dir / "logs" / "pin_check.md").exists()
+
+
+def test_prior_view_echo_is_a_warning_in_the_decision_section():
+    sentence = "BSH's previous memo on Generalist, Inc. (2026-08-01) concluded Watch — 72/100 at $900M post-money."
+    facts = {**_shared_facts(), "prior_view_sentence": sentence}
+    package = _echoing_package()
+    result = memo_pin_check.check_package_pins(package, facts)
+    assert result.ok  # a missing echo is a warning, never a gate
+    warned = [w for w in result.warnings if w.code == "prior_view_not_echoed"]
+    assert len(warned) == 1 and warned[0].severity == "P1" and warned[0].pin == sentence.rstrip(".")
+    # A late v1 package has no decision section: the executive summary,
+    # where its recommendation is, owns the sentence.
+    assert warned[0].location == "executive_summary"
+    location = warned[0].location
+    section = next((s for s in package["sections"] if s["id"] == location), None)
+    if section is None:
+        section = {"id": location, "blocks": []}
+        package["sections"].append(section)
+    section["blocks"].append(
+        {"type": "paragraph", "text": _loc(sentence + " The view holds: nothing new is disclosed.")}
+    )
+    again = memo_pin_check.check_package_pins(package, facts)
+    assert again.ok and not [w for w in again.warnings if w.code == "prior_view_not_echoed"]
+    # No pin, no check.
+    assert not [w for w in memo_pin_check.check_package_pins(_echoing_package(), _shared_facts()).warnings if w.code == "prior_view_not_echoed"]
+
+
+def test_a_previous_score_restated_as_this_memos_is_a_warning():
+    sentence = "BSH's previous memo on Generalist, Inc. (2026-08-01) concluded Pass — 58/100 at $1B+ post-money."
+    facts = {**_shared_facts(), "prior_view_sentence": sentence}
+    package = _echoing_package()
+    exec_section = next(s for s in package["sections"] if s["id"] == "executive_summary")
+    exec_section["blocks"].append({"type": "paragraph", "text": _loc(sentence + " The view holds.")})
+    assert not [w for w in memo_pin_check.check_package_pins(package, facts).warnings if w.code == "prior_score_restated"]
+    # B3, ZaiNar 2026-09-23: "BSH evaluates ZaiNar at Pass — 58/100" in a
+    # v1 memo that has no scorecard.
+    exec_section["blocks"].append({"type": "paragraph", "text": _loc("BSH evaluates Generalist at Pass — 58/100.")})
+    warned = [w for w in memo_pin_check.check_package_pins(package, facts).warnings if w.code == "prior_score_restated"]
+    assert len(warned) == 1 and warned[0].pin == "58/100" and warned[0].severity == "P1"
+    # This run's own total is the same number: not a restatement.
+    same = {**facts, "scorecard": {"total": 58}}
+    assert not [w for w in memo_pin_check.check_package_pins(package, same).warnings if w.code == "prior_score_restated"]

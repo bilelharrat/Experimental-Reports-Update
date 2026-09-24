@@ -1,4 +1,18 @@
 
+## How these rules rank (structure v2)
+- Where this addendum or a section contract names a component, a table,
+  a heading or a line, the contract wins over the voice contract's
+  generic bans. "Evidence Thresholds — The Six Questions" and "What
+  changes the verdict" are contracted titles, and the founder's "What to
+  check:" line is a contracted line.
+- "What to check:" lists facts — nouns a reader could go and find — and
+  never opens with a verb: "What to check: the seller's price range, the
+  evidence that 2028 revenue is achievable, and comparable transaction
+  multiples."
+- Outside those contracted slots every voice-contract rule still applies,
+  including the bans on revisit-condition, expected-bar and
+  imperative-verb headings.
+
 ## Data honesty (structure v2 — these rules override any instinct to fill gaps)
 - Never invent, extrapolate, or "estimate" a number that no source states.
   A missing datum is stated as missing, in place, every time.
@@ -44,11 +58,29 @@
 - The heading does the orienting: never open a passage by announcing
   what it is about ("This section examines...", "Turning to the
   market..."). Under its heading, the passage starts with the verdict.
-- The executive summary contains NO tables. It says the point: what the
-  company is, what the deal is, why invest, what could kill it, and the
-  recommendation — every number interpreted in its own sentence. The
-  snapshot tables live in the overview section the contract routes them
-  to.
+- The executive summary contains NO tables; its LAST block is the
+  "Terms used" glossary, a `glossary` block, not a table (see "Teach,
+  don't assert"). It says the point: what the company is, what the deal
+  is, why invest, what could kill it, and the recommendation — every
+  number interpreted in its own sentence. The snapshot tables live in
+  the overview section the contract routes them to.
+
+## Pins once per section (structure v2)
+- A pinned fact — a key metric, the entry mark, a scenario number, a
+  fair-value bound, a risk summary, the recommendation sentence — is
+  stated verbatim ONCE in each section the pin sheet requires it in, in
+  the passage that owns it there (the pin-echo gate needs one verbatim
+  statement per required section, not five). Every other mention in the
+  section refers to it without the figure: "the February 2026 mark",
+  "the base case", "the contracts-and-letters aggregate", "the prior
+  priced round".
+- Facts the pin sheet does NOT require in a section are not restated
+  there at all: refer back to the section that owns them ("see
+  Valuation").
+- A section that repeats the entry mark in every paragraph is over
+  budget and has said nothing new. Measured on a live memo: the same
+  five facts restated dozens of times added roughly 6,000 words and no
+  evidence. Spend the room on the reasoning behind each verdict instead.
 
 ## Charts (structure v2)
 Where a section contract names a chart slot, emit a `chart` block:
@@ -116,14 +148,14 @@ Where a section contract names a chart slot, emit a `chart` block:
   one the evidence favors.
 
 Worked examples (match the Prefer register, never the Avoid one):
-- Avoid: "Risk 1: Entry price. $1.0B+ on ~$24M ARR is ~42x against a
-  ~12x comp median."
+- Avoid: "Risk 1: Entry price. $1.2B on ~$30M ARR is ~40x against a
+  ~11x comp median."
   Prefer: "Risk 1: The entry price already assumes success — ordinary
-  execution earns nothing. At $1.0B+ on ~$24M ARR the round is priced
-  at ~42x, three and a half times the ~12x comp median. ARR must
-  roughly double before the price merely matches peers, so flawless
-  execution holds value flat, and any multiple compression comes out
-  of principal first."
+  execution earns nothing. At $1.2B on ~$30M ARR the round is priced at
+  ~40x, more than three times the ~11x comp median. ARR has to reach
+  about $110M before the price merely matches peers, so flawless
+  execution holds value flat, and any multiple compression comes out of
+  principal first."
 - Avoid: "NRR: 118%. CAC payback: 19 months."
   Prefer: "NRR of 118% means the installed base grows on its own — a
   real asset. The 19-month CAC payback works against it: each new
@@ -147,16 +179,40 @@ Worked examples (match the Prefer register, never the Avoid one):
   validation. Place the token after the number or at the end of the
   sentence, never inside a heading.
 - Keep the tokens exactly as written in both languages.
+- Estimate discipline: every figure in prose carries an [S#] or a [C#]
+  in its own sentence. A figure with neither is one of two things: a
+  gap, written as "not disclosed" in those words; or an estimate, which
+  belongs in a calculation note — its assumptions listed as inputs
+  marked "assumption", its arithmetic shown — and is cited from prose
+  as [C#] and called our estimate. Never estimate in prose ("roughly
+  $50M of runway", "about two years of payroll") without a note behind
+  it; a number the reader cannot click through to is a number the memo
+  invented.
 
 ## Teach, don't assert (structure v2)
-The reader is a senior investor who has never seen this company and
-reads the memo once, fast. Write the way a professor walks a student
-through a case: nothing is assumed known, every step is shown.
-- Define a term the first time it appears, in five to ten words:
-  "run-rate (the latest month's revenue multiplied by twelve)", "NRR
-  (how much last year's customers spend this year, as a percentage)",
-  "MOIC (money returned divided by money invested)", "IRR (the
-  annualized return over the holding period)".
+Write so that a reader new to investing, who has never seen this
+company, can follow every step; the partners who decide are senior, so
+explain a term the first time it appears and never re-define it. Write
+the way a professor walks a student through a case: nothing is assumed
+known, every step is shown — once.
+- A term is defined ONCE in the memo. The terms of art — MOIC, IRR,
+  ARR, NRR, CAGR, TAM/SAM/SOM, run-rate, post-money, pre-money, gross
+  margin, burn, runway, MOU, LOI, SAFE, liquidation preference — are
+  defined in the "Terms used" block, the LAST block of the executive
+  summary — a `glossary` block (the renderer prints the "Terms used" /
+  "术语说明" heading and a term-definition table):
+  {"type": "glossary", "component": "glossary", "items": [{"term":
+  {"en": "run-rate", "zh": ""}, "definition": {"en": "the latest
+  month's revenue multiplied by twelve", "zh": ""}}, ...]} — one item
+  per term the memo actually uses (6-15 items), the definition in five
+  to ten words: "NRR — how much last year's customers spend this year,
+  as a percentage", "MOIC — money returned divided by money invested",
+  "IRR — the annualized return over the holding period". Every section
+  uses those terms bare — no parenthesis, no restatement, in any
+  section.
+  A term the block does not carry (a technical term of this company's
+  field) is defined in five to ten words at its first appearance in the
+  section that owns it, and nowhere else.
 - A number is preceded by what it measures and followed by what it
   means. "Revenue is $65B" is not enough; say what kind of revenue,
   over what period, measured how — then what that size implies.
@@ -164,8 +220,11 @@ through a case: nothing is assumed known, every step is shown.
   next one: "the base case values the company at 13 times $200B of
   2029 revenue, or $2.6T; against today's $1.75T entry that is 1.5x,
   a 15% annual return over three years". Every comparison names the
-  rule it is judged against: "1.44x is below the 1.5x floor we require
-  for a late-stage position, which is why the verdict is Watch".
+  rule it is judged against: "1.44x is below our hurdle for a
+  late-stage position (the pinned return_hurdle), which is why the
+  verdict is Watch". When no return_hurdle is pinned, the firm has not
+  set one: compare against the entry price and the peers, and never
+  invent a bar and call it ours.
 - Every external number names who produced it and what it counts; our
   own estimates say so ("our estimate, built from X and Y") and never
   pass as a market fact. Never write "the memo" or "this memo" in the
@@ -189,8 +248,8 @@ Worked examples (from the founder's review of a live memo):
   The base case assumes $200B of revenue in 2029 valued at 13 times
   revenue, or $2.6T. Against a $1.75T entry price that returns 1.5x,
   a 15% annual return over three years. At an entry of $1.5T the same
-  exit returns 1.7x; at $1.8T it returns 1.44x, below the 1.5x floor
-  we require for a late-stage position — so the price, not the
+  exit returns 1.7x; at $1.8T it returns 1.44x, below our hurdle for a
+  late-stage position (the pinned return_hurdle) — so the price, not the
   growth, decides whether this works."
 - Avoid: "Risk 1: The entry price already assumes the plan is
   delivered. At $1.75T the buyer pays about 9x a 2028 revenue line

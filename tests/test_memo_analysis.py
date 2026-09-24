@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 from docx import Document
@@ -17,6 +18,16 @@ from server import (
     memo_prep,
     storage,
 )
+
+
+def _fake_zh(en: str) -> str:
+    """A fake translation: "中文:" + the English. A long English sentence
+    kept that way is what the untranslated-slot rule catches (Gemini,
+    2026-09-23), so its words are joined with the ideographic space."""
+    from server import memo_chinese_parity
+
+    text = f"中文:{en}"
+    return text.replace(" ", "\u3000") if memo_chinese_parity.embedded_english_sentence(text) else text
 
 
 @pytest.fixture
@@ -37,11 +48,24 @@ def memo_env(monkeypatch, tmp_path):
     monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "0")
     # The fixture package cites "Company investor materials" with no URL,
-    # which is only honest if the firm holds that deck. Say so, rather than
-    # let the private-material check read the real data/research folder.
+    # which is only honest if the firm holds that deck. Say so — as the
+    # boolean and as the itemised inventory the renderer matches URL-less
+    # private sources against — rather than let the private-material check
+    # read the real data/research folder.
     monkeypatch.setattr(
         "server.memo_fact_check.private_material_on_file",
         lambda *_a, **_k: ["research file: investor_materials.pdf"],
+    )
+    monkeypatch.setattr(
+        "server.memo_fact_check.private_inventory",
+        lambda *_a, **_k: [
+            {
+                "id": "deck1",
+                "kind": "research_document",
+                "title": "Company investor materials",
+                "ref": "investor_materials.pdf",
+            }
+        ],
     )
     return data_root
 
@@ -873,10 +897,21 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     )
 
 
-def test_memo_run_skips_pdf_and_internal_memo_by_default(memo_env, monkeypatch):
+@pytest.mark.parametrize("switch, audience", [("0", "Internal"), ("", "LP")])
+def test_memo_run_skips_pdf_and_internal_memo_when_off_or_lp(
+    memo_env, monkeypatch, switch, audience
+):
+    """PDF previews stay opt-in. The IC decision memo is written for the
+    firm's own audiences by default (owner decision 2026-09-22), so it is
+    skipped when BSH_MEMO_GENERATE_INTERNAL=0 overrides it, and by default
+    for an LP-audience run (the LP memo only)."""
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    if switch:
+        monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", switch)
+    else:
+        monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
     report, run_dir = _make_memo_report(memo_env)
+    report = storage.update_report(report["id"], audience=audience)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
         "job_init",
@@ -934,11 +969,79 @@ def test_memo_run_skips_pdf_and_internal_memo_by_default(memo_env, monkeypatch):
     assert "internal_memo_paths" not in events[-1]
 
 
+def test_internal_audience_writes_the_ic_memo_in_english_and_chinese_by_default(
+    memo_env, monkeypatch
+):
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    entries, _paths = memo_prep.internal_memo_files_for_run(
+        run_dir, "Generalist, Inc.", report["run_id"]
+    )
+    storage.update_report(report["id"], audience="Partner", internal_memo_files=entries)
+    seen: dict = {}
+
+    def fake_run_investment_memo(**kwargs):
+        _write_memo_package(run_dir)
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    def fake_ic_memo(**kwargs):
+        seen.update(kwargs)
+        _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+        zh = kwargs["internal_markdown_path_zh"]
+        zh.write_text(
+            "# 投委会决策备忘录 — Generalist, Inc.\n\n"
+            + "## 投资建议\n本备忘录仅供投委会内部使用，列出退出价格、否决条件与交割条件。\n" * 6,
+            encoding="utf-8",
+        )
+        return {"ok": True, "cost_usd": 0.4, "duration_ms": 300, "zh_written": True}
+
+    monkeypatch.setattr(claude_runner, "run_investment_memo", fake_run_investment_memo)
+    monkeypatch.setattr(claude_runner, "run_internal_diligence_memo", fake_ic_memo)
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["audience"] == "Partner"
+    assert seen["package_path"] == run_dir / "logs" / "memo_package.json"
+    languages = {entry["language"]: entry for entry in updated["internal_memo_files"]}
+    assert set(languages) == {"en", "zh"}
+    for entry in languages.values():
+        assert (memo_prep.DATA_DIR.parent / entry["path"]).exists()
+    assert "投委会决策备忘录" in languages["zh"]["path"]
+
+
+def test_an_ic_memo_failure_is_a_warning_not_a_failed_run(memo_env, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "1")
+    report, run_dir = _make_memo_report(memo_env)
+
+    def fake_run_investment_memo(**kwargs):
+        _write_memo_package(run_dir)
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(claude_runner, "run_investment_memo", fake_run_investment_memo)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **_kw: {"ok": False, "error": "claude exited 1"},
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete_with_warnings"
+    assert updated["failure_phase"] is None
+    assert any("IC decision memo" in w for w in updated["quality_warnings"])
+    assert len(updated["quality_warnings_zh"]) == len(updated["quality_warnings"])
+    assert [item["gate"] for item in updated["quality_warning_items"]] == ["ic_memo"]
+    assert _events(memo_prep.stream_path(run_dir))[-1]["type"] == "done"
+
+
 def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
     memo_env, monkeypatch
 ):
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -1101,7 +1204,7 @@ def test_memo_fast_pipeline_retries_transient_english_package_failure(
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_RETRY_BACKOFF_SEC", "0")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -1285,8 +1388,12 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
 
     assert rewrite_count >= 1
     package_text = package_path.read_text(encoding="utf-8")
-    assert "underwrite" not in package_text.lower()
-    assert "underwriting" not in package_text.lower()
+    # The lint-banned forms ("we underwrite", "underwriting case") are
+    # rewritten; the bare noun ("the underwriting: a pipeline-conversion
+    # case") is ordinary English and stays (I19).
+    assert not re.search(r"\b(?:we|bsh)\s+underwrit", package_text, re.IGNORECASE)
+    assert "underwriting case" not in package_text.lower()
+    assert "the underwriting: a pipeline-conversion case" in package_text
     assert "We frame" not in package_text
     assert "We back" not in package_text
     assert "we want exposure" not in package_text
@@ -1296,7 +1403,10 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
         "the recommendation commits capital to network positioning"
         in package_text
     )
-    assert "BSH invests in infrastructure" in package_text
+    # "We back X" no longer becomes a manufactured "BSH invests in X"
+    # mandate sentence (the mandate line is the firm's own, or none).
+    assert "BSH invests in infrastructure" not in package_text
+    assert "recommendation backs infrastructure" in package_text
     assert "why the opportunity fits BSH's mandate" in package_text
     assert "information rights" not in package_text
     assert "We should confirm" not in package_text
@@ -1365,15 +1475,70 @@ def test_memo_package_voice_rewrite_preserves_hyphenated_back_verbs():
 
     assert "we back-solve approximately" in rewritten
     assert "in-solve" not in rewritten
-    assert "BSH invests in the company" in rewritten
+    assert "The recommendation backs the company" in rewritten
+    assert "BSH invests in" not in rewritten
     assert "We back the company" not in rewritten
+
+
+def test_negated_slogans_are_rewritten_before_the_lint():
+    """The lint bans the negated slogans too (R19); rewriting them first
+    saves a repair round per slogan."""
+    from server import memo_quality_lint
+
+    cases = {
+        "We do not recommend participating in the Series C at $1.0B.": (
+            "Recommendation: pass on the Series C at $1.0B."
+        ),
+        "At this price we don't recommend participating.": (
+            "At this price the recommendation passes."
+        ),
+        "We are not being offered a pro-rata right.": (
+            "Investors are not offered a pro-rata right."
+        ),
+        "We are not participating through the SPV.": (
+            "The recommended participation is not through the SPV."
+        ),
+    }
+    for text, expected in cases.items():
+        rewritten = memo_analysis._rewrite_memo_package_voice_text(text)
+        assert rewritten == expected
+        assert not any(
+            pattern.search(rewritten)
+            for pattern in memo_quality_lint._SELL_SIDE_BANNED_PATTERNS
+        )
+
+
+def test_recommend_participating_becomes_the_house_recommendation_form():
+    """The rewrite used to produce "the recommendation is to commit capital
+    to …", which is the lint's own "the recommendation is" P0 — the ZaiNar
+    memo shipped with it."""
+    from server import memo_quality_lint
+
+    cases = {
+        "We recommend participating in the Series C at $1.0B.": (
+            "Recommendation: BSH commits capital to the Series C at $1.0B."
+        ),
+        "Growth is strong. We recommend participating.": (
+            "Growth is strong. Recommendation: BSH commits capital."
+        ),
+        "On these terms we recommend participating in the round.": (
+            "On these terms the recommendation commits capital to the round."
+        ),
+    }
+    for text, expected in cases.items():
+        rewritten = memo_analysis._rewrite_memo_package_voice_text(text)
+        assert rewritten == expected
+        assert not any(
+            pattern.search(rewritten)
+            for pattern in memo_quality_lint._SELL_SIDE_BANNED_PATTERNS
+        )
 
 
 def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
     memo_env, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     packet_dir = tmp_path / "packet"
     packet_dir.mkdir()
@@ -1443,7 +1608,7 @@ def test_memo_fast_pipeline_draft_packet_still_runs_parallel_passes(
     memo_env, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     packet_dir = tmp_path / "packet"
     packet_dir.mkdir()
@@ -1527,7 +1692,7 @@ def test_memo_run_completes_with_warnings_when_chinese_parity_gate_finds_p0(
     memo_env, monkeypatch
 ):
     monkeypatch.setenv("BSH_MEMO_RENDER_PDF_PREVIEWS", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
@@ -1799,7 +1964,7 @@ def test_failed_memo_report_can_resume_from_analysis_artifacts(
 def test_resume_retries_transient_resume_package_failure(
     memo_env, monkeypatch
 ):
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.setenv("BSH_MEMO_RESUME_PACKAGE_RETRIES", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_RETRY_BACKOFF_SEC", "0")
     report, run_dir = _make_memo_report(memo_env)
@@ -2383,7 +2548,7 @@ def test_resume_reuses_package_for_chinese_parity_only_warnings(
     memo_env, monkeypatch
 ):
     """Chinese-parity complete_with_warnings must not force a package regen."""
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
@@ -2450,7 +2615,7 @@ def test_memo_run_completes_with_warnings_when_docx_quality_gate_finds_p0(
     memo_env, monkeypatch
 ):
     monkeypatch.setenv("BSH_MEMO_RENDER_PDF_PREVIEWS", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
@@ -3172,7 +3337,7 @@ def test_phase3_retries_on_validation_failure_with_feedback(memo_env, monkeypatc
     validation errors fed back, not a failure 20 minutes later at render."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3250,7 +3415,7 @@ def test_phase3_auto_repairs_mechanical_defects_without_burning_a_retry(
     Python — one generation attempt, no retry, run delivered."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3286,7 +3451,9 @@ def test_phase3_auto_repairs_mechanical_defects_without_burning_a_retry(
         )
         package["sources"] = [
             {
-                "label": {"en": "Registry", "zh": ""},
+                # A URL-less private source must name the firm's own
+                # material (the fixture's private inventory holds the deck).
+                "label": {"en": "Company investor materials", "zh": ""},
                 "source_class": "company-reported",
                 "detail": {"en": "Registry disclosures.", "zh": ""},
                 "as_of": "2026-03-10",
@@ -3350,7 +3517,7 @@ def test_phase3_surgical_structure_repair_rescues_exhausted_run(
     package must rescue the run instead of failing it."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3506,7 +3673,7 @@ def test_fast_pipeline_repairs_blank_zh_after_bilingual_merge(
     """If per-section Chinese fill leaves a blank zh, the pipeline must run
     one monolithic repair pass and proceed — not fail at render time."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit("job_init", kind="memo", report_id=report["id"])
@@ -3617,7 +3784,7 @@ def test_phase3_retries_on_quality_gate_finding(memo_env, monkeypatch):
     failure mode)."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3686,7 +3853,7 @@ def test_phase3_surgical_quality_repair_avoids_regeneration(
     were exactly these 10-18 minute quality retries.)"""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3769,7 +3936,7 @@ def test_phase3_sectional_repair_replaces_whole_package_repair(
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_SECTIONAL_REPAIR", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3878,7 +4045,7 @@ def test_phase2_launches_speculative_spine_and_threads_it_into_phase3(
     # late-pass count asserted below) nondeterministic. The gate has its
     # own tests in test_memo_speculative_spine.py.
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", "none")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -3965,7 +4132,7 @@ def test_phase3_threads_previous_attempt_into_parallel_retry(
     implicated sections instead of the whole package."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -4047,7 +4214,7 @@ def test_resume_retries_then_delivers_with_warnings_on_quality_findings(
     if the final attempt still has findings, the memo is delivered as
     complete_with_warnings instead of blocking the run."""
     monkeypatch.setenv("BSH_MEMO_RESUME_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     report, run_dir = _make_memo_report(memo_env)
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
@@ -4166,7 +4333,7 @@ def test_full_fast_pipeline_end_to_end_survives_adversarial_generation(
     failure."""
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -4320,7 +4487,7 @@ def _fill_zh_unit(unit: dict) -> dict:
     def fill(node):
         if isinstance(node, dict):
             if "en" in node and "zh" in node and not node["zh"]:
-                node["zh"] = f"中文:{node['en']}"
+                node["zh"] = _fake_zh(node["en"])
             for value in node.values():
                 fill(value)
         elif isinstance(node, list):
@@ -4335,7 +4502,7 @@ def _chasing_env(memo_env, monkeypatch):
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
     monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "1")
-    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "0")
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))

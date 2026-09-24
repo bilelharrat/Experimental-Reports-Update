@@ -575,15 +575,73 @@ def run_artifact(
 
 
 def memo_gemini_model() -> str:
-    """The Gemini model memo stages run on.
+    """The Gemini model memo stages run on when no role is known.
 
     ``BSH_MEMO_GEMINI_MODEL`` pins it for memos alone; otherwise the
     app-wide ``BSH_GEMINI_MODEL`` / ``gemini-3.8-flash``. Callers must not
     pass the Claude quality tier's role model here — "sonnet" is not a
-    Gemini model.
+    Gemini model. Stages that know their role use ``gemini_model_for_role``.
     """
     raw = str(os.environ.get("BSH_MEMO_GEMINI_MODEL") or "").strip()
     return raw or gemini_runner.default_model()
+
+
+# ---- per-role Gemini models ------------------------------------------------
+#
+# A Gemini memo ran every stage on one model — the flash default, unless the
+# owner pinned BSH_MEMO_GEMINI_MODEL for all of them. The Claude tiers spend
+# the top model where the founder reads the output (the writing wave) and a
+# cheaper one on research, verification and translation; the Gemini engine
+# now mirrors that split. BSH_MEMO_GEMINI_MODEL still pins every role at
+# once, as before.
+#
+# There is no default Pro model: on 2026-09-23 Google's model list carried
+# gemini-3.8-flash but no gemini-3.8-pro (the newest Pro was
+# gemini-3.1-pro-preview, an older generation), and a guessed name would
+# fail every writer call. Until BSH_MEMO_GEMINI_MODEL_PRO names one, the
+# writer roles run on the flash model like everything else.
+
+GEMINI_PRO_MODEL_DEFAULT: str | None = None
+
+# The roles that write the memo; the same set claude_runner pins with
+# BSH_MEMO_WRITER_MODEL (kept here as well so this module stays importable
+# without claude_runner, which imports it).
+GEMINI_WRITER_ROLES = frozenset({"ENGLISH", "SPINE", "SECTION", "REPAIR", "ARTIFACTS"})
+
+
+def memo_gemini_pro_model() -> str:
+    """The Gemini model the writer roles run on: ``BSH_MEMO_GEMINI_MODEL_PRO``
+    when set, else the flash model (no Pro default exists, see above)."""
+    raw = str(os.environ.get("BSH_MEMO_GEMINI_MODEL_PRO") or "").strip()
+    return raw or GEMINI_PRO_MODEL_DEFAULT or memo_gemini_flash_model()
+
+
+def memo_gemini_flash_model() -> str:
+    """The Gemini model the research, check and translation roles run on
+    below the "best" tier: the app-wide default (``BSH_GEMINI_MODEL`` /
+    ``gemini-3.8-flash``)."""
+    return gemini_runner.default_model()
+
+
+def gemini_model_for_role(role: str | None, quality: str | None = "best") -> str:
+    """Which Gemini model a memo stage runs on.
+
+    - ``BSH_MEMO_GEMINI_MODEL`` set: that model, for every role (the
+      owner's override, unchanged).
+    - writer roles (ENGLISH, SPINE, SECTION, REPAIR, ARTIFACTS): the pro
+      model on every tier.
+    - ANALYSIS_PASS, SPINE_CHECK, TRANSLATION (and an unnamed stage): the
+      pro model on "best", the flash model on "balanced" / "economy".
+    """
+    override = str(os.environ.get("BSH_MEMO_GEMINI_MODEL") or "").strip()
+    if override:
+        return override
+    tier = str(quality or "best").strip().lower() or "best"
+    if str(role or "").strip().upper() in GEMINI_WRITER_ROLES:
+        return memo_gemini_pro_model()
+    if tier in ("balanced", "economy"):
+        return memo_gemini_flash_model()
+    return memo_gemini_pro_model()
 
 
 # A memo package is a whole investment memo as one JSON object — every

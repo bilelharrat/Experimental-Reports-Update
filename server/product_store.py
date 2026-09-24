@@ -25,6 +25,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "documents:delete",
         "memo:export",
         "memo:edit",
+        # Signing a finished memo off (or withdrawing it). Analysts with
+        # memo:edit may only ask for review.
+        "memo:approve",
         "tasks:action",
         "desk:write",
     },
@@ -33,6 +36,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "sources:edit",
         "memo:export",
         "memo:edit",
+        "memo:approve",
         "tasks:action",
         "desk:write",
     },
@@ -159,12 +163,56 @@ def get_preferences(email: str | None = None) -> dict:
         user_key = (email or "").strip().lower()
         if user_key:
             prefs = {**prefs, **(payload.get("users") or {}).get(user_key, {})}
+        else:
+            prefs = dict(prefs)
+        stored_template = _valid_memo_template(prefs.get("memo_template"))
+        prefs["memo_template"] = stored_template
+        prefs["memo_template_effective"] = stored_template or default_memo_template()
         return {
             "schema_version": payload.get("schema_version", 1),
             "updated_at": payload.get("updated_at"),
             "preferences": prefs,
             "adapter_scope": "local workspace preferences adapter",
         }
+
+
+# The memo template a new late-stage / Auto memo is written against:
+# "standard" is the historical 5-section memo (structure v1), "ic_v2" the
+# founder's IC template (structure v2). Per user; when a user has never
+# chosen, the BSH_MEMO_STRUCTURE_V2 switch decides (memo_flags: on unless
+# the environment says =0), so the default is the IC template.
+MEMO_TEMPLATES = ("standard", "ic_v2")
+MEMO_TEMPLATE_STRUCTURE_VERSIONS = {"standard": "v1", "ic_v2": "v2"}
+
+
+def _valid_memo_template(value) -> str | None:
+    text = str(value or "").strip().lower()
+    return text if text in MEMO_TEMPLATES else None
+
+
+def default_memo_template() -> str:
+    """The template for someone who has never chosen: the switch's."""
+    from . import memo_flags
+
+    return "ic_v2" if memo_flags.enabled("BSH_MEMO_STRUCTURE_V2") else "standard"
+
+
+def memo_template_for(email: str | None) -> str | None:
+    """The template this user saved, or None when they never chose one."""
+    return get_preferences(email)["preferences"].get("memo_template")
+
+
+def effective_memo_template(email: str | None, override: str | None = None) -> tuple[str, str]:
+    """``(template, source)``: a valid per-run override wins ("request"),
+    then the user's saved choice ("preference"), then the env default
+    ("env_default")."""
+    requested = _valid_memo_template(override)
+    if requested:
+        return requested, "request"
+    saved = memo_template_for(email)
+    if saved:
+        return saved, "preference"
+    return default_memo_template(), "env_default"
 
 
 def update_preferences(email: str | None, patch: dict) -> dict:
@@ -177,12 +225,24 @@ def update_preferences(email: str | None, patch: dict) -> dict:
         "memo_parallel_runs",
         "research_engine",
         "warren_engine",
+        "memo_template",
     }
     normalized = {
         key: patch[key]
         for key in allowed
         if key in patch and patch[key] is not None
     }
+    reset_memo_template = False
+    if "memo_template" in normalized:
+        template = str(normalized["memo_template"] or "").strip().lower()
+        if template in ("", "default"):
+            # Back to "never chosen": the env flag decides again.
+            normalized.pop("memo_template")
+            reset_memo_template = True
+        elif template not in MEMO_TEMPLATES:
+            raise ValueError("memo_template must be 'standard' or 'ic_v2'")
+        else:
+            normalized["memo_template"] = template
     if "language" in normalized and normalized["language"] not in {"en", "zh"}:
         raise ValueError("language must be 'en' or 'zh'")
     if "research_engine" in normalized:
@@ -218,10 +278,16 @@ def update_preferences(email: str | None, patch: dict) -> dict:
         if user_key:
             users = payload.setdefault("users", {})
             users[user_key] = {**users.get(user_key, {}), **normalized}
+            if reset_memo_template:
+                users[user_key].pop("memo_template", None)
         else:
             payload["preferences"] = {**payload.get("preferences", {}), **normalized}
+            if reset_memo_template:
+                payload["preferences"].pop("memo_template", None)
         _write_yaml(payload)
     changed = sorted({**normalized, **global_only})
+    if reset_memo_template:
+        changed = sorted({*changed, "memo_template"})
     analytics_store.record_event("settings_updated", user_email=email, keys=changed)
     return get_preferences(email)
 

@@ -85,6 +85,37 @@ describe("LoginView Summit Glass Component", () => {
     expect(wrapper.text()).toContain("Invalid email or password");
   });
 
+  it("says the server is unreachable rather than showing a raw 500", async () => {
+    // Vite's dev proxy answers an unreachable backend with a bare 500, and
+    // "500 Internal Server Error" over a password field reads as "your
+    // password broke something".
+    vi.mocked(auth.signIn).mockRejectedValueOnce({
+      status: 500,
+      message: "500 Internal Server Error",
+    });
+    const wrapper = mount(LoginView);
+
+    await wrapper.find("input[type='text']").setValue("bilel@harrat.org");
+    await wrapper.find("input[type='password']").setValue("hunter2");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Can't reach the research server");
+    expect(wrapper.text()).not.toContain("500");
+  });
+
+  it("says the same when the request never got a response at all", async () => {
+    vi.mocked(auth.signIn).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const wrapper = mount(LoginView);
+
+    await wrapper.find("input[type='text']").setValue("bilel@harrat.org");
+    await wrapper.find("input[type='password']").setValue("hunter2");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Can't reach the research server");
+  });
+
   it("sends a must_reset sign-in to the password screen and nowhere else", async () => {
     vi.mocked(auth.signIn).mockResolvedValueOnce({ token: "t", must_reset: true });
     const wrapper = mount(LoginView);

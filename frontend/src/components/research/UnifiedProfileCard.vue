@@ -6,6 +6,7 @@ import { ref, computed, watch } from "vue";
 import { useT } from "../../i18n.js";
 import api from "../../api.js";
 import { formatCompactNumber } from "../../formatters.js";
+import { inferredMetricSourceKey } from "../../companyMetrics.js";
 import { RotateCw, Layers } from "lucide-vue-next";
 
 const props = defineProps({
@@ -68,9 +69,17 @@ function asOfLabel(asOf) {
   return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 7) : raw;
 }
 
+// The hover line under a reported figure: label · as of · where it came
+// from. A known source class reads in the UI language (the ZaiNar demo
+// values say they are demo values, in Chinese too).
 function reportedTitle(fact) {
   if (!fact) return "";
-  return [fact.label, fact.as_of && `as of ${fact.as_of}`, fact.source_class]
+  const sourceKey = inferredMetricSourceKey(fact.source_class);
+  return [
+    fact.label,
+    fact.as_of && t("company.metric_as_of", { when: fact.as_of }),
+    sourceKey ? t(sourceKey) : fact.source_class,
+  ]
     .filter(Boolean)
     .join(" · ");
 }

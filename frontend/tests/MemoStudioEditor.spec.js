@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { ZAINAR_WARNINGS, runningReport, withReport } from "./fixtures/reportSummaries.js";
 
 const m = vi.hoisted(() => ({
   get: vi.fn(),
@@ -20,9 +22,10 @@ const m = vi.hoisted(() => ({
 }));
 
 const ma = vi.hoisted(() => ({ get: vi.fn(), getEvidenceMatrix: vi.fn() }));
+const studioGenerate = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/api.js", () => ({
-  api: { memoEditor: m, memoAnalysis: ma },
+  api: { memoEditor: m, memoAnalysis: ma, studioGenerate },
 }));
 
 import MemoStudioEditor from "../src/components/MemoStudioEditor.vue";
@@ -653,5 +656,72 @@ describe("MemoStudioEditor focus", () => {
 
     expect(scrolled.map((s) => s.el.id)).toEqual(["memo-sec-conclusion"]);
     wrapper.unmount();
+  });
+});
+
+// The workbench's two report shortcuts read the dossier's real report list
+// (GET /api/companies/{id}/reports): the API sends no `title` or `can_open`,
+// and a memo with quality warnings opens like any other.
+describe("MemoStudioEditor report shortcuts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    m.get.mockResolvedValue(baseState());
+    m.history.mockResolvedValue({ versions: [], audit_records: [] });
+    ma.getEvidenceMatrix.mockResolvedValue({ claims: [] });
+  });
+
+  async function mountWith(reports) {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/", component: { template: "<div />" } },
+        { path: "/reports", name: "reports", component: { template: "<div />" } },
+      ],
+    });
+    await router.push("/");
+    await router.isReady();
+    const wrapper = mount(MemoStudioEditor, {
+      props: { companyId: "zainar-inc", reports },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+    return { wrapper, router };
+  }
+
+  const openMemoButton = (wrapper) =>
+    wrapper.findAll("button").find((b) => b.text().includes("Open Memo View"));
+
+  it("opens the newest memo on file, a complete_with_warnings one included", async () => {
+    const older = withReport(ZAINAR_WARNINGS, { id: "older", created_at: "2026-08-01T00:00:00Z" });
+    const newer = withReport(ZAINAR_WARNINGS, { id: "newer", created_at: "2026-09-01T00:00:00Z" });
+    const { wrapper, router } = await mountWith([older, newer, runningReport()]);
+
+    await openMemoButton(wrapper).trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe("reports");
+    expect(router.currentRoute.value.query).toEqual({ id: "newer", company: "zainar-inc" });
+  });
+
+  it("offers no memo view when nothing on file has a document", async () => {
+    const { wrapper } = await mountWith([
+      // A finished placeholder record with no document, a run in flight and
+      // a dismissed memo: none can be opened.
+      withReport(ZAINAR_WARNINGS, { id: "stub", status: "complete", download_urls: null, preview_urls: null }),
+      runningReport(),
+      withReport(ZAINAR_WARNINGS, { id: "gone", dismissed_at: "2026-09-02T00:00:00Z" }),
+    ]);
+    expect(openMemoButton(wrapper)).toBeUndefined();
+  });
+
+  it("synthesizes a parked investigation from its real status", async () => {
+    studioGenerate.mockResolvedValue({ id: "parked" });
+    const parked = runningReport({ id: "parked", status: "awaiting_studio", stage: "Awaiting studio review" });
+    const { wrapper } = await mountWith([parked]);
+
+    expect(wrapper.text()).toContain("Investigation Parked");
+    await wrapper.findAll("button").find((b) => b.text().includes("Synthesize Phase 3 Memo")).trigger("click");
+    await flushPromises();
+    expect(studioGenerate).toHaveBeenCalledWith("parked");
+    expect(wrapper.emitted("synthesized")).toEqual([["parked"]]);
   });
 });

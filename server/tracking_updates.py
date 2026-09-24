@@ -522,6 +522,10 @@ def execute_auto_run(
                 memo_mode="studio",
                 trigger="tracking_auto_run",
                 auto_run_id=run_id,
+                # A Memo Studio investigation writes the standard memo (its
+                # spine is composed from the v1 studio cards).
+                structure_version="v1",
+                structure_version_source="studio",
             )
         except ValueError as exc:
             _patch_auto_run(
@@ -550,6 +554,7 @@ def execute_auto_run(
                 "auto_run": list_updates(company_id).get("latest_auto_run"),
             }
         report_id = str(result.get("report_id") or "")
+        _snapshot_report_identity(report_id)
         _retire_stale_memo_runs(company_id, report_id)
         updated = _patch_auto_run(
             company_id,
@@ -572,13 +577,18 @@ def execute_auto_run(
         }
 
     if action == ACTION_REPORT:
-        from . import memo_prep
+        from . import memo_prep, product_store
 
+        # No person started this run: the template is the workspace default
+        # (BSH_MEMO_STRUCTURE_V2), on the record before the worker starts.
+        template, template_source = product_store.effective_memo_template(None)
         try:
             result = memo_prep.bootstrap_memo_run(
                 company_id,
                 trigger="tracking_auto_run",
                 auto_run_id=run_id,
+                structure_version=product_store.MEMO_TEMPLATE_STRUCTURE_VERSIONS[template],
+                structure_version_source=template_source,
             )
         except ValueError as exc:
             _patch_auto_run(
@@ -607,6 +617,7 @@ def execute_auto_run(
                 "auto_run": list_updates(company_id).get("latest_auto_run"),
             }
         report_id = str(result.get("report_id") or "")
+        _snapshot_report_identity(report_id)
         _retire_stale_memo_runs(company_id, report_id)
         updated = _patch_auto_run(
             company_id,
@@ -621,6 +632,21 @@ def execute_auto_run(
         return {"executed": True, "action": action, "auto_run": updated, "report_id": report_id}
 
     return {"executed": False, "reason": "unknown_action", "auto_run": target}
+
+
+def _snapshot_report_identity(report_id: str) -> None:
+    """Keep the company's identity (name, ticker, logo domain) with an
+    auto-run's report, as a person-started report does
+    (``report_reader.snapshot_company_identity``). Best-effort: a snapshot
+    failure never stops the run."""
+    if not report_id:
+        return
+    try:
+        from . import report_reader
+
+        report_reader.snapshot_company_identity(report_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("identity snapshot failed for auto-run report %s", report_id, exc_info=True)
 
 
 def complete_auto_run_for_job(

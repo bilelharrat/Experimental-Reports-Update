@@ -38,6 +38,14 @@ TWINNED = [
     "structures/late_compact.md",
     "structures/growth.md",
     "structures/early.md",
+    # The Buffett-method memo skill (claude_runner loads the English file).
+    "buffett.md",
+    # The Chinese style guide and glossary every Chinese-writing prompt
+    # carries (claude_runner._memo_zh_style loads the English file).
+    "zh_style.md",
+    # Jurisdiction overlays for the Phase 2 passes (memo_prompts.
+    # load_jurisdiction; injected into the passes' shared context).
+    "jurisdictions/cn.md",
 ]
 
 _STAMP_RE = re.compile(r"^---\nen_sha256: ([0-9a-f]{64})\n---\n", re.S)

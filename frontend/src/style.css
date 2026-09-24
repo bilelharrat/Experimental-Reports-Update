@@ -880,6 +880,57 @@ select.field-sm.reports-filter {
   box-shadow: var(--shadow-hover);
 }
 
+/* The collapsed Reports list: one company logo per report — the sidebar's
+   collapsed rail, for documents. No box around anything: a logo lifts when
+   pointed at, and the open report's logo stays lifted, with a soft shadow
+   under it. */
+.reports-rail {
+  @apply flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto pt-1.5 pb-2;
+  scrollbar-width: none;
+}
+
+.reports-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.reports-rail-mark {
+  @apply rounded-[9px] p-[3px];
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.reports-rail-mark .monogram {
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.reports-rail-mark:hover {
+  transform: scale(1.1);
+}
+
+.reports-rail-mark:active {
+  transform: scale(1.04);
+}
+
+.reports-rail-mark[data-selected="true"] {
+  transform: scale(1.14);
+}
+
+/* The lift's shadow sits on the logo tile itself, so it follows the tile's
+   rounded corners. A filter on the button got clipped by the rail's scroll
+   edges and drew a grey rectangle — the box this replaced. */
+.reports-rail-mark[data-selected="true"] .monogram,
+.reports-rail-mark[data-selected="true"] .monogram.monogram-has-logo {
+  box-shadow:
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 2px 5px rgb(0 0 0 / 0.2) !important;
+}
+
+.dark .reports-rail-mark[data-selected="true"] .monogram,
+.dark .reports-rail-mark[data-selected="true"] .monogram.monogram-has-logo {
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.15),
+    0 2px 6px rgb(0 0 0 / 0.55) !important;
+}
+
 .desk-card-header {
   @apply flex items-center gap-2.5;
 }
@@ -4634,4 +4685,102 @@ body.is-resizing-copilot .copilot-resize::after {
   color: rgb(var(--color-accent));
   font-size: 0.75rem;
   line-height: 1.2;
+}
+
+/* Reports viewer, full screen: the same viewer (zoom, language, place in
+   the document) moved to a layer over the whole window. It sits above the
+   jobs rail (z-20) and below sheets and the transcript modal (z-50). */
+.reports-viewer-fullscreen {
+  position: fixed !important;
+  inset: 0;
+  z-index: 45;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  border-radius: 0 !important;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background-color: rgb(var(--color-surface));
+}
+
+/* Reports list: an older version of a memo, folded open under its latest.
+   Indented along a hairline guide, the way the sidebar nests a company's
+   pages. */
+.reports-row-nested {
+  margin-left: 1.1rem;
+  width: calc(100% - 1.1rem);
+}
+
+.reports-row-nested::before {
+  content: "";
+  position: absolute;
+  left: -0.55rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 1px;
+  background-color: rgb(var(--color-text-primary) / 0.12);
+}
+
+/* A menu near the bottom of a scrolling list opens upward. */
+.toolbar-menu[data-up="true"] {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
+  transform-origin: bottom right;
+}
+
+/* Printing a report from the Reports viewer (its web render or a working
+   paper; a PDF prints itself). While the viewer prints, <html> carries
+   data-bsh-print="document": everything that does not hold the document
+   drops out, and the containers that scroll it on screen let it run
+   across pages at its own size. */
+@media print {
+  html[data-bsh-print="document"] body *:not(:has(.doc-print-target)):not(.doc-print-target):not(.doc-print-target *) {
+    display: none !important;
+  }
+
+  html[data-bsh-print="document"],
+  html[data-bsh-print="document"] body,
+  html[data-bsh-print="document"] body :has(.doc-print-target) {
+    position: static !important;
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    transform: none !important;
+  }
+
+  html[data-bsh-print="document"] body :has(.doc-print-target)::before,
+  html[data-bsh-print="document"] body :has(.doc-print-target)::after {
+    display: none !important;
+  }
+
+  html[data-bsh-print="document"] .doc-print-target {
+    zoom: 1 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+
+  html[data-bsh-print="document"] .doc-print-target .docx-wrapper {
+    padding: 0 !important;
+    background: none !important;
+  }
+
+  html[data-bsh-print="document"] .doc-print-target section.docx {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    break-after: page;
+  }
+
+  html[data-bsh-print="document"] .doc-print-target section.docx:last-child {
+    break-after: auto;
+  }
 }

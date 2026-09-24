@@ -3904,3 +3904,103 @@ def test_research_task_evidence_is_copied_onto_the_parent_risk(
     ]
     assert "A second site is still a paid pilot." in contradicting
     assert parent["status"] in {"researched", "needs_review"}
+
+
+# ---- company ids that are not plain ASCII (R14) -------------------------------
+# ``_safe_id`` stripped every id to ``[a-z0-9_-]``: a Chinese-only id became ""
+# (ValueError on every Studio session and memo run) and ``brk.b`` became
+# ``brkb`` (completed runs never found, catalog paths off by one directory).
+
+CJK_ONLY_ID = "中经网数据有限公司"
+
+
+def test_memo_studio_session_opens_for_a_chinese_only_company_id(tmp_path, monkeypatch):
+    from server import company_paths
+
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": CJK_ONLY_ID,
+            "name": "中经网数据有限公司",
+            "status": "private",
+            "description": "China Economic Information Network data services.",
+        },
+    )
+    session = serena_analysis.get_current_session(CJK_ONLY_ID)
+    assert session["company_id"] == CJK_ONLY_ID
+    key = company_paths.storage_key(CJK_ONLY_ID)
+    assert serena_analysis.session_path(CJK_ONLY_ID, session["id"]).is_file()
+    assert serena_analysis.session_dir(CJK_ONLY_ID, session["id"]).parent == (
+        serena_analysis.ANALYSIS_ROOT / key
+    )
+    fetched = serena_analysis.get_session(CJK_ONLY_ID, session["id"])
+    assert fetched is not None and fetched["id"] == session["id"]
+    assert fetched["completed_memo_runs"] == []
+    assert serena_analysis.training_dir(CJK_ONLY_ID) == serena_analysis.TRAINING_ROOT / key
+
+    catalog = serena_analysis.memo_work_product_catalog(CJK_ONLY_ID)
+    assert catalog["company_id"] == CJK_ONLY_ID
+    prefix = f"data/serena_analysis/{key}/{session['id']}/"
+    session_row = next(
+        row for row in catalog["work_products"] if row["artifact_type"] == "analysis_session"
+    )
+    assert session_row["location"] == prefix
+    lessons_row = next(row for row in catalog["work_products"] if row["artifact_id"] == "memo_lessons")
+    assert lessons_row["location"] == f"data/serena_training/{key}/serena_memo_lessons.md"
+    boundaries = {row["id"]: row["path"] for row in catalog["source_boundaries"]}
+    assert boundaries["research_library"] == f"data/research/{key}/"
+    assert boundaries["memo_analysis_session"] == prefix
+    # The version records land in the same session directory session_dir uses.
+    assert serena_analysis.memo_work_product_versions_path(CJK_ONLY_ID, session["id"]).is_file()
+
+    ledger = serena_analysis.list_run_ledger(CJK_ONLY_ID)
+    assert all(row["company_id"] == CJK_ONLY_ID for row in ledger)
+
+
+@pytest.mark.parametrize("company_id", ["brk.b", "ceinet-data-co-ltd-中经网数据有限公司", CJK_ONLY_ID, "generalist"])
+def test_completed_memo_runs_find_reports_for_any_company_id(tmp_path, monkeypatch, company_id):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {"id": company_id, "name": company_id, "status": "private"},
+    )
+    report = _create_completed_memo_report(company_id, tmp_path)
+    # A complete memo for the stripped look-alike id must not leak in.
+    storage.create_report_record(
+        company_id="brkb" if company_id == "brk.b" else f"{company_id}-other",
+        kind="investment_memo_latestage",
+        status="complete",
+        run_id="run-lookalike",
+    )
+
+    rows = serena_analysis.completed_memo_runs(company_id)
+
+    assert [row["id"] for row in rows] == [report["id"]]
+    session = serena_analysis.get_current_session(company_id)
+    assert [row["id"] for row in session["completed_memo_runs"]] == [report["id"]]
+
+
+def test_completed_memo_runs_skip_reports_with_unusable_company_ids(tmp_path, monkeypatch):
+    _seed_company(tmp_path, monkeypatch, {"id": "brk.b", "name": "Berkshire", "status": "public"})
+    good = _create_completed_memo_report("brk.b", tmp_path)
+    # Rows whose company id has no letters or digits (storage_key raises)
+    # or none at all are skipped, not fatal.
+    storage.create_report_record(company_id="---", kind="investment_memo_latestage", status="complete")
+    storage.create_report_record(kind="investment_memo_latestage", status="complete")
+
+    assert [row["id"] for row in serena_analysis.completed_memo_runs("brk.b")] == [good["id"]]
+
+
+def test_legacy_stripped_lessons_folder_moves_to_the_storage_key(tmp_path, monkeypatch):
+    from server import company_paths
+
+    _seed_company(tmp_path, monkeypatch, {"id": "brk.b", "name": "Berkshire", "status": "public"})
+    legacy = serena_analysis.TRAINING_ROOT / "brkb"
+    legacy.mkdir(parents=True)
+    (legacy / "serena_memo_lessons.md").write_text("# lessons\n- keep\n", encoding="utf-8")
+
+    moved = company_paths.migrate_legacy_dirs()
+
+    assert (legacy, serena_analysis.training_dir("brk.b")) in moved
+    assert serena_analysis.memo_lessons_path("brk.b").read_text(encoding="utf-8").endswith("- keep\n")

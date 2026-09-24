@@ -77,6 +77,17 @@ describe("companySummaryMetrics", () => {
     );
   });
 
+  it("labels the seeded demo values as a placeholder that is not evidence", () => {
+    // server/seed_data/company_records.yaml: the class on the value, the
+    // longer label on its source ref.
+    expect(inferredMetricSourceKey("demo placeholder (v2 design mock)")).toBe(
+      "company.metric_source_demo_placeholder",
+    );
+    expect(inferredMetricSourceKey("Demo placeholder (v2 design mock) — not evidence")).toBe(
+      "company.metric_source_demo_placeholder",
+    );
+  });
+
   it("builds chart series from metric_history when available", () => {
     const series = companyMetricHistories({
       metric_history: [

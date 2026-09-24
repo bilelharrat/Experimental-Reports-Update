@@ -1,15 +1,31 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronsLeftRight, Download, Loader2, X } from "lucide-vue-next";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ChevronsLeftRight, Download, Flag, Loader2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import { renderAsync } from "docx-preview";
 import { useT } from "../i18n.js";
+import { api, withApiToken } from "../api.js";
+import { hasPermission, sourceLabel, sourceLanguage } from "../reportStatus.js";
+import ReportFlagForm from "./reports/ReportFlagForm.vue";
+import {
+  loadReportPermissions,
+  recordReportDownloaded,
+  sessionPermissions,
+} from "./reports/reportSession.js";
+import { documentHeadings, headingBefore, reportIdFromUrl, selectionIn } from "./reports/docxAnchors.js";
 
 const props = defineProps({
   title: { type: String, default: "" },
-  // [{ key, url, kind }] — kind: "docx" | "md" | "text". Multiple sources
-  // render as tabs (e.g. a memo's EN / ZH / INTERNAL documents).
+  // [{ key, url, kind, label? }] — kind: "docx" | "md" | "text". Multiple
+  // sources render as tabs (e.g. a memo's EN / ZH / INTERNAL documents; the
+  // internal one is the IC memo and is labelled so).
   sources: { type: Array, default: () => [] },
+  // The tab to open on (a viewer handing its current language over).
+  initialIndex: { type: Number, default: 0 },
+  // The memo these documents belong to. Optional: a memo download URL
+  // (/api/reports/<id>/download) names it too. With one, a reader can flag
+  // a passage (memo:edit) and Export is an explicit, logged export.
+  reportId: { type: String, default: "" },
 });
 
 const emit = defineEmits(["close"]);
@@ -18,7 +34,12 @@ const t = useT();
 // html: false keeps raw HTML in markdown inert, so v-html below stays safe.
 const markdown = new MarkdownIt({ html: false, linkify: true });
 
-const activeIndex = ref(0);
+function clampIndex(index) {
+  const max = Math.max(0, props.sources.length - 1);
+  return Math.min(max, Math.max(0, Number(index) || 0));
+}
+
+const activeIndex = ref(clampIndex(props.initialIndex));
 const loading = ref(false);
 const loadError = ref(false);
 const renderedKind = ref("");
@@ -30,11 +51,42 @@ function activeSource() {
   return props.sources[activeIndex.value] || null;
 }
 
+const sourceKeys = computed(() => props.sources.map((source) => String(source?.key || "")));
+
+function tabLabel(source) {
+  return source?.label || sourceLabel(source?.key, sourceKeys.value, t);
+}
+
+// ---- The memo behind the documents ------------------------------------------------
+
+const memoReportId = computed(
+  () => props.reportId || reportIdFromUrl(activeSource()?.url) || reportIdFromUrl(props.sources[0]?.url),
+);
+const canFlag = computed(
+  () => Boolean(memoReportId.value) && hasPermission(sessionPermissions.value, "memo:edit"),
+);
+// A memo's download is an explicit export: gated on memo:export and logged.
+const exportHref = computed(() => {
+  const url = activeSource()?.url;
+  if (!url) return "";
+  if (!memoReportId.value || !reportIdFromUrl(url)) return withApiToken(url);
+  if (!hasPermission(sessionPermissions.value, "memo:export")) return "";
+  return withApiToken(/[?&]purpose=/.test(url) ? url : `${url}${url.includes("?") ? "&" : "?"}purpose=export`);
+});
+
+function onExport() {
+  const source = activeSource();
+  if (memoReportId.value && reportIdFromUrl(source?.url)) {
+    recordReportDownloaded(memoReportId.value, sourceLanguage(source?.key), "drawer:docx");
+  }
+}
+
 async function loadSource() {
   const source = activeSource();
   renderedKind.value = "";
   markdownHtml.value = "";
   textContent.value = "";
+  flagButton.value = null;
   if (docxContainer.value) docxContainer.value.innerHTML = "";
   if (!source?.url) {
     loadError.value = true;
@@ -43,7 +95,9 @@ async function loadSource() {
   loading.value = true;
   loadError.value = false;
   try {
-    const response = await fetch(source.url);
+    // withApiToken adds the /research prefix when the app is mounted
+    // under one; already-prefixed and absolute URLs pass through.
+    const response = await fetch(withApiToken(source.url));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     if (source.kind === "docx") {
       const buffer = await response.arrayBuffer();
@@ -77,13 +131,89 @@ watch(activeIndex, loadSource);
 watch(
   () => props.sources,
   () => {
-    activeIndex.value = 0;
+    activeIndex.value = clampIndex(props.initialIndex);
     loadSource();
   },
 );
 
+// ---- Flag a passage (G7) --------------------------------------------------------
+
+const flagButton = ref(null); // { x, y, quote, label, language } in viewport px
+const flagDraft = ref(null);
+const flagBusy = ref(false);
+const flagError = ref("");
+const flagSent = ref(false);
+let flagSentTimer = null;
+
+function onSelectionEnd() {
+  if (renderedKind.value !== "docx" || !canFlag.value || flagDraft.value) {
+    flagButton.value = null;
+    return;
+  }
+  const found = selectionIn(docxContainer.value);
+  if (!found) {
+    flagButton.value = null;
+    return;
+  }
+  const rect = typeof found.range.getBoundingClientRect === "function" ? found.range.getBoundingClientRect() : null;
+  flagButton.value = {
+    x: rect ? rect.left + rect.width / 2 : 80,
+    y: rect ? Math.max(8, rect.top - 34) : 80,
+    quote: found.quote,
+    label: headingBefore(documentHeadings(docxContainer.value), found.range.startContainer),
+    language: sourceLanguage(activeSource()?.key),
+  };
+}
+
+function startFlag() {
+  const draft = flagButton.value;
+  if (!draft) return;
+  flagDraft.value = { quote: draft.quote, label: draft.label, language: draft.language };
+  flagButton.value = null;
+  flagError.value = "";
+  try {
+    window.getSelection?.()?.removeAllRanges?.();
+  } catch {
+    // nothing selected any more
+  }
+}
+
+async function submitFlag({ flag, note }) {
+  const id = memoReportId.value;
+  const draft = flagDraft.value;
+  if (!id || !draft || flagBusy.value) return;
+  flagBusy.value = true;
+  flagError.value = "";
+  try {
+    await api.addReportComment(id, {
+      text: note || "",
+      kind: draft.label ? "section" : "report",
+      label: draft.label || "",
+      flag,
+      quote: draft.quote,
+      ...(draft.language ? { language: draft.language } : {}),
+    });
+    flagDraft.value = null;
+    flagSent.value = true;
+    clearTimeout(flagSentTimer);
+    flagSentTimer = setTimeout(() => {
+      flagSent.value = false;
+    }, 2500);
+  } catch {
+    flagError.value = t("comments.save_failed");
+  } finally {
+    flagBusy.value = false;
+  }
+}
+
 function onKeydown(event) {
-  if (event.key === "Escape") emit("close");
+  if (event.key !== "Escape") return;
+  if (flagButton.value || flagDraft.value) {
+    flagButton.value = null;
+    flagDraft.value = null;
+    return;
+  }
+  emit("close");
 }
 
 // ---- Horizontal resize ----------------------------------------------------
@@ -158,11 +288,16 @@ function resetWidth() {
 
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
+  // A selection often ends with the pointer outside the page it started on.
+  document.addEventListener("mouseup", onSelectionEnd);
+  if (memoReportId.value) loadReportPermissions();
   loadSource();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
+  document.removeEventListener("mouseup", onSelectionEnd);
   stopResize();
+  clearTimeout(flagSentTimer);
 });
 </script>
 
@@ -202,22 +337,25 @@ onBeforeUnmount(() => {
               v-for="(source, index) in sources"
               :key="source.key"
               type="button"
-              class="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase focus-ring"
+              class="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold focus-ring"
               :class="
                 index === activeIndex
                   ? 'border-accent bg-accent-soft text-accent-ink'
                   : 'border-subtle bg-surface text-ink-muted hover:bg-surface-muted'
               "
+              :data-testid="`drawer-source-${String(source.key).toLowerCase()}`"
               @click="selectSource(index)"
             >
-              {{ source.key }}
+              {{ tabLabel(source) }}
             </button>
           </div>
         </div>
         <a
-          v-if="activeSource()?.url"
-          :href="activeSource().url"
+          v-if="exportHref"
+          :href="exportHref"
           class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+          data-testid="drawer-export"
+          @click="onExport"
         >
           <Download class="h-3.5 w-3.5" />
           {{ t("documents.export") }}
@@ -231,7 +369,23 @@ onBeforeUnmount(() => {
           <X class="h-4 w-4" />
         </button>
       </header>
-      <div class="flex-1 overflow-y-auto bg-surface-muted">
+      <div
+        class="relative flex-1 overflow-y-auto bg-surface-muted"
+        data-testid="drawer-scroll"
+        @keyup="onSelectionEnd"
+        @scroll="flagButton = null"
+      >
+        <div v-if="flagDraft" class="sticky top-0 z-10 bg-surface-muted/95 p-3">
+          <ReportFlagForm
+            :quote="flagDraft.quote"
+            :section-label="flagDraft.label || ''"
+            :language="flagDraft.language || ''"
+            :busy="flagBusy"
+            :error="flagError"
+            @submit="submitFlag"
+            @cancel="flagDraft = null"
+          />
+        </div>
         <div
           v-if="loading"
           class="flex items-center gap-2 p-6 text-sm text-ink-muted"
@@ -262,6 +416,27 @@ onBeforeUnmount(() => {
           >{{ textContent }}</pre
         >
       </div>
+      <button
+        v-if="flagButton"
+        type="button"
+        class="fixed z-[60] inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-ink-primary px-2.5 py-1 text-caption1 font-semibold text-surface shadow-card-raised focus-ring"
+        :style="{ left: `${flagButton.x}px`, top: `${flagButton.y}px` }"
+        :title="t('comments.flag_hint')"
+        data-testid="drawer-flag-selection"
+        @mousedown.prevent
+        @click="startFlag"
+      >
+        <Flag class="h-3 w-3" />
+        {{ t("comments.flag") }}
+      </button>
+      <p
+        v-if="flagSent"
+        class="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-ink-primary px-3 py-1 text-caption1 font-medium text-surface shadow-card-raised"
+        role="status"
+        data-testid="drawer-flag-sent"
+      >
+        {{ t("comments.flag_sent") }}
+      </p>
     </aside>
   </div>
   </Teleport>
@@ -331,12 +506,12 @@ onBeforeUnmount(() => {
 }
 .doc-viewer-markdown :deep(th),
 .doc-viewer-markdown :deep(td) {
-  border: 1px solid rgb(0 0 0 / 0.12);
+  border: 1px solid rgb(var(--color-border-subtle));
   padding: 0.35rem 0.5rem;
   text-align: left;
 }
 .doc-viewer-markdown :deep(code) {
-  background: rgb(0 0 0 / 0.06);
+  background: rgb(var(--color-fill-secondary));
   border-radius: 0.25rem;
   font-size: 0.85em;
   padding: 0.1rem 0.3rem;
@@ -347,7 +522,7 @@ onBeforeUnmount(() => {
   padding: 0.6rem;
 }
 .doc-viewer-markdown :deep(blockquote) {
-  border-left: 3px solid rgb(0 0 0 / 0.15);
+  border-left: 3px solid rgb(var(--color-border-strong));
   margin: 0.6rem 0;
   padding-left: 0.8rem;
 }

@@ -1,0 +1,2545 @@
+{
+ "schema_version": 1,
+ "company": {
+  "id": "cienet-technologies-beijing-co-ltd",
+  "name": "CIeNET Technologies",
+  "legal_name": "Cienet International, LLC",
+  "ticker": null,
+  "exchange": null,
+  "sector": {
+   "en": "Information Technology",
+   "zh": ""
+  },
+  "industry": {
+   "en": "IT Services and IT Consulting",
+   "zh": ""
+  },
+  "hq": {
+   "en": "Oak Brook, Illinois, USA",
+   "zh": ""
+  },
+  "founded_year": 2000,
+  "parent_company": "ALTEN S.A. (Euronext Paris: ATE)",
+  "website": "https://www.cienet.com",
+  "employee_band": "1001-5000",
+  "description": {
+   "en": "CIeNET Technologies is a global software and AI engineering services firm that earns revenue from outsourced technical consulting, product development, and testing for automotive, telecom, healthcare, financial services, and semiconductor clients. It has been a wholly owned subsidiary of the Euronext-listed ALTEN…",
+   "zh": ""
+  }
+ },
+ "run": {
+  "run_id": "2026-08-20__234154",
+  "as_of": "2026-08-20",
+  "language": "en",
+  "memo_type": {
+   "en": "LP-facing sell-side investment memo",
+   "zh": ""
+  },
+  "prepared_by": {
+   "en": "BSH Research Center",
+   "zh": ""
+  }
+ },
+ "sections": [
+  {
+   "id": "executive_summary",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "BSH invests in the engineering capability that turns software into working physical products, and outsourced automotive and telecom software engineering sits squarely in that path. CIeNET Technologies is the kind of asset that path leads to: founded in 2000, 2,400 or more engineers across 17 delivery centres in…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "That leaves one priceable route to the asset, and it is a different mandate. We would be participating through ALTEN listed equity, which trades at roughly 5.7x to 6.0x EV/EBITDA on a market capitalisation near $2.47bn, with the shares down about 16% year to date against a consensus target of EUR 101.10 versus a EUR…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "title": {
+      "en": "Investment View",
+      "zh": ""
+     },
+     "body": {
+      "en": "We do not recommend participating. The business is real and the credentials are scarce, but the security is not available and the parent-anchored mark is a fifth of the figures circulating for this company elsewhere.",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "Core bet: that CIeNET's Google-gated automotive validation position and blue-chip client base compound faster than AI compresses its billable testing hours. That bet is currently unpurchasable.",
+       "zh": ""
+      },
+      {
+       "en": "Entry tension: any price would have to rest on a December 2020 revenue anchor of $80M and a contested headcount, which together produce an enterprise value band from $20M to $60M on the same asset.",
+       "zh": ""
+      },
+      {
+       "en": "Proven today: 26 years of operation, 17 delivery centres, 100+ customers with 90% Forbes 2000, Google-accredited third-party laboratory status for Android Automotive OS, and 100% ALTEN ownership since 8 November 2021.",
+       "zh": ""
+      },
+      {
+       "en": "Modelable but unproven: 2026 revenue of $85M to $105M from $36.4k of revenue per head applied to 2,400 staff, and 1% to 3% nominal growth from a headcount CAGR near 1.5% since 2020.",
+       "zh": ""
+      },
+      {
+       "en": "Risk sensitivity: 600 testers are roughly a quarter of the workforce and sit in the most automatable work in the category, while automotive, the lead vertical, fell 16% at the parent in FY2025.",
+       "zh": ""
+      },
+      {
+       "en": "Action: we do not recommend participating, and we hold CIeNET as a watch item that becomes live only on an ALTEN-sponsored carve-out with audited entity statements.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "table",
+     "component": "key_metrics_snapshot",
+     "title": {
+      "en": "Key Metrics Snapshot",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Figure",
+       "zh": ""
+      },
+      {
+       "en": "Source class and treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Ownership",
+        "zh": ""
+       },
+       {
+        "en": "100% owned by ALTEN S.A. since 8 November 2021",
+        "zh": ""
+       },
+       {
+        "en": "Acquirer disclosure. This is the fact that removes the security and it outranks every business-quality finding.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Investable security",
+        "zh": ""
+       },
+       {
+        "en": "None",
+        "zh": ""
+       },
+       {
+        "en": "Company record. No round, cap table, or instrument exists, so the valuation work below produces a hypothetical carve-out mark rather than a price.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Revenue, last disclosed",
+        "zh": ""
+       },
+       {
+        "en": "USD 80M for FY2020",
+        "zh": ""
+       },
+       {
+        "en": "Independent secondary reporting of the acquisition; the primary release was not retrievable. Figures are as of December 2020 and are used as an anchor, not as current revenue.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Revenue, 2026 modelled",
+        "zh": ""
+       },
+       {
+        "en": "USD 85M to USD 105M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. USD 36.4k of revenue per head applied to 2,400 staff gives ~USD 87M flat, and ~USD 100M with 2% to 3% annual rate inflation. Carried as a band with the arithmetic visible.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Revenue growth",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; modelled at 1% to 3% nominal",
+        "zh": ""
+       },
+       {
+        "en": "Internal model anchored to a ~1.5% annual headcount CAGR since 2020 and to parent International revenue of -0.5% in H1 2026. Treated as a valuation sensitivity, with upside reserved for evidenced mix shift.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Operating margin",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; modelled at 5% to 8.5%",
+        "zh": ""
+       },
+       {
+        "en": "Internal model using ALTEN's FY2025 operating margin on activity of 8.5% as the ceiling and 5% to 6% as the low case, reflecting below-group revenue per head. The largest single lever on value.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Headcount",
+        "zh": ""
+       },
+       {
+        "en": "2,400+ company-reported; 923 per a third-party tracker at 30 April 2026",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported against third-party aggregator. The denominator is contested, which widens every per-head figure and is treated as a named valuation sensitivity.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Customers",
+        "zh": ""
+       },
+       {
+        "en": "100+, with 90% reported as Forbes 2000 companies",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. Credited qualitatively for client quality and diversification; no revenue or multiple credit attached.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Customer concentration",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; treated as the largest unbounded downside for a services book",
+        "zh": ""
+       },
+       {
+        "en": "Company absence. The bear case assumes flat volume and a 5% margin rather than a sized account loss, because the top-10 share is unavailable.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Implied enterprise value",
+        "zh": ""
+       },
+       {
+        "en": "USD 20M to USD 60M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. Parent-anchored on 8.5% margin and ALTEN's own ~6x EV/EBITDA. A hypothetical carve-out mark, not a live price.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Parent valuation",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN at ~5.7x to 6.0x EV/EBITDA, EUR 74.00 close against a EUR 101.10 consensus target",
+        "zh": ""
+       },
+       {
+        "en": "Third-party market data as of August 2026. Sets the multiple used for the mark and defines the only live route to any exposure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Last entity financials",
+        "zh": ""
+       },
+       {
+        "en": "FY2020",
+        "zh": ""
+       },
+       {
+        "en": "Company absence. No standalone statements have been published since the November 2021 acquisition, and at roughly 2% of parent revenue CIeNET will not be segment-reported. Treated as a structural gap, not a retrieval failure.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "deal_terms",
+     "title": {
+      "en": "Transaction and Deal Mechanics",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Term",
+       "zh": ""
+      },
+      {
+       "en": "Position",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Instrument offered to us",
+        "zh": ""
+       },
+       {
+        "en": "None. No SPV, SAFE, primary round, or secondary block exists in CIeNET.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Round and stage",
+        "zh": ""
+       },
+       {
+        "en": "No financing. The stage signal was indeterminate on intake and resolves to a wholly owned subsidiary of a listed parent, which is not a late-stage private financing.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Price and valuation",
+        "zh": ""
+       },
+       {
+        "en": "Not applicable, because no priced security exists. Our hypothetical carve-out mark is USD 20M to USD 60M enterprise value.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Sponsor channel",
+        "zh": ""
+       },
+       {
+        "en": "None identified. No intermediary, banker, or seller mandate was found, so the mark is arithmetic rather than a bid against a live process.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Route to any exposure",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN listed equity on Euronext Paris. CIeNET is roughly 2% of ALTEN's EUR 4,099m FY2025 revenue, so this delivers group exposure rather than the asset we set out to buy.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Reporting an investor would receive",
+        "zh": ""
+       },
+       {
+        "en": "Nothing at entity level. CIeNET publishes no accounts and ALTEN reports by geography and sector rather than by acquired entity, so an investor sees only group figures with no visibility into this business.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Governance and oversight",
+        "zh": ""
+       },
+       {
+        "en": "None available. Group management controls every decision at the CIeNET level, and there is no board seat, no consent right, and no economic mechanism for an outside investor to influence the asset.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Transaction precedent",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN acquired 100% of CIeNET Group effective 8 November 2021 with consideration undisclosed. CIeNET retained its brand and continues to operate independently within the group.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Our action",
+        "zh": ""
+       },
+       {
+        "en": "We do not recommend participating. We hold CIeNET as a watch item that becomes live only if ALTEN sponsors a carve-out or separate listing with audited entity statements.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "company_overview",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "CIeNET sells outsourced technical consulting, product development and testing. Delivery runs from 17 technology and delivery centres across Greater China, the United States and Canada, staffed by 2,400 or more employees as of the company's August 2026 disclosure. The company reports more than 100 global customers and…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The economics are labour economics. Revenue is billable heads multiplied by utilization multiplied by rate, sold under what the company calls five flexible business service models, and bought by client engineering leadership and vendor management against headcount-substitution budgets. That structure has two…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The most valuable work is automotive. CIeNET markets C-ATS AUTO for automated test, C-IVI for Android in-vehicle infotainment, and COTA for over-the-air updates, with delivery scope spanning smart cockpit, cloud-connected telematics, V2X and ADAS safety, MCU and SoC development, and global automation test labs.…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Ownership is the fact that governs everything else. ALTEN acquired 100% of CIeNET Group effective 8 November 2021 for undisclosed consideration, citing offshore China capability for worldwide group projects, and CIeNET retained its brand. At acquisition the business carried roughly 2,200 employees and USD 80M of…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "One identity question remains open and it affects every number. The record for this company names a Beijing entity while the legal name on file is Cienet International, LLC of Oak Brook, Illinois, and both carry the same headcount band. That pattern is the signature of a United States sales front end over a China…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "key_operating_metrics",
+     "title": {
+      "en": "Key Operating Metrics",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Figure",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Employees",
+        "zh": ""
+       },
+       {
+        "en": "2,400+",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported August 2026. Order of magnitude only, because the measurement date is unstated and a third-party tracker gives 923 at 30 April 2026.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Delivery centres",
+        "zh": ""
+       },
+       {
+        "en": "17 across Greater China, United States and Canada",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. Centre count expanded after the 2021 acquisition, which is behaviour consistent with investment rather than run-off.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "AI engineers, data specialists and MLOps staff",
+        "zh": ""
+       },
+       {
+        "en": "180+, roughly 7.5% of disclosed staff",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. Treated as staffed optionality with zero revenue or multiple credit until attach rates or named paid engagements exist.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Professional testers",
+        "zh": ""
+       },
+       {
+        "en": "600+, roughly 25% of disclosed staff",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. The largest single capability block and the one most exposed to AI substitution, which is why it carries an 8/10 risk rating.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Customers",
+        "zh": ""
+       },
+       {
+        "en": "100+, 90% reported as Forbes 2000",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. Credited for client quality; concentration is unavailable so churn cannot be bounded.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Named clients",
+        "zh": ""
+       },
+       {
+        "en": "Google, Ericsson, Qualcomm, Nokia",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported. Long-cycle embedded programmes with high switching cost from toolchain, safety and homologation knowledge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Years in operation",
+        "zh": ""
+       },
+       {
+        "en": "26, founded 2000",
+        "zh": ""
+       },
+       {
+        "en": "Durable fact. Supports a prior of real repeat production delivery, though it is not a substitute for renewal data.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Revenue per head, FY2020 implied",
+        "zh": ""
+       },
+       {
+        "en": "~USD 36.4k",
+        "zh": ""
+       },
+       {
+        "en": "Internal model from USD 80M on 2,200 staff. Compares to roughly USD 77k at ALTEN group level in FY2025, a gap that is partly a genuine discount and partly a geography artifact.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Headcount CAGR 2020 to 2026",
+        "zh": ""
+       },
+       {
+        "en": "~1.5% per year",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. Below inflation, which implies flat to declining real revenue unless bill rates outpaced it. Anchors the 1% to 3% nominal base case.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Utilization, bill rates and billable share",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; modelled through the revenue-per-head band",
+        "zh": ""
+       },
+       {
+        "en": "Company absence. These three inputs would turn the revenue estimate from a band into a figure, so their absence is the reason the band spans 3x.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Contract tenure and renewal rates",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; treated as a valuation sensitivity on revenue durability",
+        "zh": ""
+       },
+       {
+        "en": "Company absence. Rate-carded master agreements subject to periodic rebid make tenure the key durability input, and it is unavailable.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "board",
+     "title": {
+      "en": "Leadership and Governance",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Position",
+       "zh": ""
+      },
+      {
+       "en": "Holder",
+       "zh": ""
+      },
+      {
+       "en": "What it means economically",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Chief Executive Officer",
+        "zh": ""
+       },
+       {
+        "en": "Jarter Fang",
+        "zh": ""
+       },
+       {
+        "en": "The only named executive in available materials. Operating leadership continuity is a positive; the absence of a wider disclosed management bench limits any read on succession depth.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Board of Directors",
+        "zh": ""
+       },
+       {
+        "en": "Not separately constituted for outside investors",
+        "zh": ""
+       },
+       {
+        "en": "As a wholly owned subsidiary, CIeNET has no board an investor could join. Every decision that would matter to a shareholder sits with group management, and there is no path to influence it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Ultimate oversight",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN S.A. board and group management, Boulogne-Billancourt",
+        "zh": ""
+       },
+       {
+        "en": "An investor's only governance exposure is as a minority holder of a EUR 4.1bn listed parent, where CIeNET is roughly 2% of revenue and carries no distinct voice.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Independent directors",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed at entity level",
+        "zh": ""
+       },
+       {
+        "en": "There is no independent check on entity-level decisions and no mechanism for an outside investor to obtain one. This is a structural limitation of the ownership form, not a management failing.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Audit and reporting",
+        "zh": ""
+       },
+       {
+        "en": "Consolidated into ALTEN group accounts since 8 November 2021",
+        "zh": ""
+       },
+       {
+        "en": "Audited entity financials almost certainly exist inside group consolidation packs, but they are not public and will not become public. Only a sponsored process would surface them.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_highlights",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Business quality and availability are separate questions, and CIeNET scores considerably better on the first. What follows is the genuine case for the asset, stated at the strength the evidence supports and no higher.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "items": [
+      {
+       "en": "Google-accredited third-party laboratory status for Android Automotive OS is scarce, expensive to obtain, and puts CIeNET in a gatekeeping position in in-vehicle infotainment validation. It is the strongest defensibility line in the business.",
+       "zh": ""
+      },
+      {
+       "en": "The client base is better than the company's scale would predict: 100 or more customers with 90% reported as Forbes 2000, and named long-cycle programmes at Google, Ericsson, Qualcomm and Nokia in work where toolchain, safety and homologation knowledge makes switching expensive.",
+       "zh": ""
+      },
+      {
+       "en": "Twenty-six years of continuous operation with more than 2,000 engineers is not a pilot-stage business. Firms do not sustain that headcount on trial work, and repeat selection to the IAOP Global Outsourcing 100 supports continued client standing.",
+       "zh": ""
+      },
+      {
+       "en": "A China-weighted cost base at roughly USD 36.4k of revenue per head serves largely Western clients, and China holds the most cost-competitive electric vehicle software ecosystem. That spread is what makes the delivery model work.",
+       "zh": ""
+      },
+      {
+       "en": "ALTEN ownership supplies a balance sheet, cross-sell access into a EUR 4.1bn client base, and delivery-centre investment CIeNET could not have funded standalone. Delivery centres expanded after the acquisition, including a Canadian technology and development centre.",
+       "zh": ""
+      },
+      {
+       "en": "Category tailwind is real: APAC automotive engineering services was estimated at roughly USD 92.8bn in 2025 growing near 9% annually to 2035, and rising software content per vehicle expands total billable scope.",
+       "zh": ""
+      },
+      {
+       "en": "Productized assets exist in C-ATS AUTO for automated test, C-IVI for Android infotainment, and COTA for over-the-air updates. They carry no disclosed licence revenue, so they enter this package as services-sales enablers rather than product revenue.",
+       "zh": ""
+      },
+      {
+       "en": "The 180 or more AI engineers represent genuine staffed capability rather than marketing repositioning alone, which is a stronger starting position than a pure staffing firm confronting the same technology shift.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "table",
+     "component": "moat",
+     "title": {
+      "en": "Defensibility",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Source of defensibility",
+       "zh": ""
+      },
+      {
+       "en": "What supports it",
+       "zh": ""
+      },
+      {
+       "en": "What limits it",
+       "zh": ""
+      },
+      {
+       "en": "Credit in our base case",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Google Android Automotive OS third-party laboratory accreditation",
+        "zh": ""
+       },
+       {
+        "en": "A gated credential held by few firms, conferring a validation gatekeeping role in a growing infotainment category.",
+        "zh": ""
+       },
+       {
+        "en": "Conferred by Google and revocable by Google. It is licensed access, not owned intellectual property. The accreditation page was not retrievable at primary source, so it rests on secondary summary.",
+        "zh": ""
+       },
+       {
+        "en": "Featured as the single strongest line and credited as access rather than as an annuity. No multiple premium attached.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Embedded client relationships",
+        "zh": ""
+       },
+       {
+        "en": "Twenty-six years of operation, 100+ customers at 90% Forbes 2000, and named programmes at Google, Ericsson, Qualcomm and Nokia where safety and homologation knowledge raises switching cost.",
+        "zh": ""
+       },
+       {
+        "en": "Tenure, renewal rates and top-10 concentration are not disclosed, so durability cannot be sized. Rate-carded master agreements face periodic rebid.",
+        "zh": ""
+       },
+       {
+        "en": "Credited qualitatively for revenue durability. No valuation premium, because the data that would justify one is unavailable.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Productized platforms C-ATS AUTO, C-IVI and COTA",
+        "zh": ""
+       },
+       {
+        "en": "Named, marketed platforms in test automation, Android infotainment and over-the-air updates, which is more than most services peers carry.",
+        "zh": ""
+       },
+       {
+        "en": "No licence revenue, recurring revenue figure, or attach rate is disclosed anywhere. They may be delivery accelerators rather than sold products.",
+        "zh": ""
+       },
+       {
+        "en": "Zero product revenue credited. Treated as services-sales enablers and as a valuation sensitivity if attach rates ever emerge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "China cost base",
+        "zh": ""
+       },
+       {
+        "en": "Roughly USD 36.4k of revenue per head against roughly USD 77k at group, inside the most cost-competitive electric vehicle software ecosystem.",
+        "zh": ""
+       },
+       {
+        "en": "A cost advantage shared with Chinasoft, Neusoft and every other regional delivery firm is not a moat. Western client de-risking can remove it outright.",
+        "zh": ""
+       },
+       {
+        "en": "Credited as margin support in the base case only, and reversed in the bear case where client de-risking bites.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Owned intellectual property and patents",
+        "zh": ""
+       },
+       {
+        "en": "No supporting evidence found.",
+        "zh": ""
+       },
+       {
+        "en": "Work-for-hire engineering typically assigns deliverable intellectual property to the client, and no patent register check was performed for this review, so the absence is inferred from the business model rather than proven.",
+        "zh": ""
+       },
+       {
+        "en": "No credit given. Value accrues per billable head at procurement-set rates, which is why services multiples rather than software multiples apply.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Scale",
+        "zh": ""
+       },
+       {
+        "en": "2,400+ staff and 17 delivery centres is a real operating footprint.",
+        "zh": ""
+       },
+       {
+        "en": "EPAM, Luxoft within DXC, KPIT, Tata Elxsi, Globant, Chinasoft International and Neusoft all operate at multiples of this size, and no rate premium or scarcity pricing was found.",
+        "zh": ""
+       },
+       {
+        "en": "Positions CIeNET as a capability tuck-in inside a larger group rather than a category-defining asset, which caps the multiple.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "competitive_analysis",
+     "title": {
+      "en": "Competitive Position",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Competitive set",
+       "zh": ""
+      },
+      {
+       "en": "Relative position",
+       "zh": ""
+      },
+      {
+       "en": "Implication for value",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "EPAM and Globant",
+        "zh": ""
+       },
+       {
+        "en": "Premium digital engineering at multiples of CIeNET's scale, with brand-led pricing power CIeNET does not demonstrate.",
+        "zh": ""
+       },
+       {
+        "en": "Sets the ceiling CIeNET does not reach. Their multiples are the wrong reference set for a sub-scale offshore delivery unit.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Luxoft within DXC",
+        "zh": ""
+       },
+       {
+        "en": "The closest structural analogue: an automotive-heavy engineering services book absorbed into a larger listed parent.",
+        "zh": ""
+       },
+       {
+        "en": "The most instructive precedent for what happens to an acquired automotive engineering asset inside a group, and it argues for a services multiple.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "KPIT and Tata Elxsi",
+        "zh": ""
+       },
+       {
+        "en": "Direct automotive software engineering rivals with deeper OEM penetration and larger delivery bases.",
+        "zh": ""
+       },
+       {
+        "en": "They compete for the same Android Automotive and ADAS validation scope, which limits CIeNET's ability to raise rates.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Chinasoft International and Neusoft",
+        "zh": ""
+       },
+       {
+        "en": "Regional rivals sharing the same China cost structure at materially larger scale.",
+        "zh": ""
+       },
+       {
+        "en": "Confirms the cost base is not proprietary. Price competition inside China caps the margin the base case can assume.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ALTEN internal delivery",
+        "zh": ""
+       },
+       {
+        "en": "The parent operates its own 57,400-person delivery organisation across 30 countries.",
+        "zh": ""
+       },
+       {
+        "en": "CIeNET's role is offshore China capability for group projects, which is a captive strength inside ALTEN and a dependency outside it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "AI-native managed testing vendors",
+        "zh": ""
+       },
+       {
+        "en": "Contract at roughly USD 60k to USD 250k or more per year for scope that staff augmentation bills at USD 18 to USD 45 per hour offshore.",
+        "zh": ""
+       },
+       {
+        "en": "The sharpest pricing threat and the direct substitution path for the 600-tester book. This is the competitor that matters most.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Client in-sourcing",
+        "zh": ""
+       },
+       {
+        "en": "The real alternative to outsourced engineering is the client hiring its own team, which is what this category substitutes for.",
+        "zh": ""
+       },
+       {
+        "en": "Makes revenue cyclical against client research and development budgets and exposes it to procurement-led price pressure at every rebid.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "component": "replacement_coexistence",
+     "text": {
+      "en": "CIeNET does not replace an incumbent product and it does not coexist alongside one. It is additive by construction: capacity attached to a client's own engineering organisation, substituting for internal hiring rather than displacing a vendor. That means the usual replacement question does not apply, and the right…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "title": {
+      "en": "The Replacement Question Runs the Other Way",
+      "zh": ""
+     },
+     "body": {
+      "en": "The more useful version of this analysis inverts the subject. CIeNET's billable core in test automation, quality assurance, porting and validation labs is precisely the work AI coding and test-generation tooling compresses, and the repositioning to global AI engineering partner reads at least partly as a defence of…",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "investment_risk",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Risk here does not concentrate where it normally does in a growth review. The operating risks are ordinary for an engineering services firm of this size, and several are well mitigated by 26 years of trading and a listed parent. The risk that dominates is structural and it sits above all of them: there is nothing to buy. The cards below are ordered by how much each one moves the outcome.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 1: There is no CIeNET security to buy, so no participation is available at any price",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Structural",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "ALTEN acquired 100% of CIeNET Group effective 8 November 2021 and CIeNET has had no independent capital structure since. There is no round, no cap table, and no instrument, so the valuation work in this package produces a hypothetical carve-out mark of roughly USD 20M to USD 60M rather than a price anyone can pay. The only live route to the asset is ALTEN listed equity at roughly 6x EV/EBITDA, where CIeNET is about 2% of EUR 4,099m of FY2025 revenue and delivers almost none of the exposure we wanted. Every business-quality finding below is preparation for a transaction that does not exist.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "An ALTEN-announced divestment, carve-out mandate, or separate listing of CIeNET. Any held-for-sale designation naming CIeNET in ALTEN's next annual report or Universal Registration Document. Approach from a banker or intermediary carrying a seller mandate.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "10/10: it removes the investment entirely rather than reducing the return.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 2: AI test generation compresses the 600-person testing base that carries a quarter of the workforce",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Technology",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "CIeNET reports 600 or more professional testers, roughly 25% of its 2,400 staff, and markets C-ATS AUTO directly into automated testing. Testing and quality assurance are the most automatable work in the category. AI-native managed testing vendors contract at roughly USD 60k to USD 250k or more per year for scope that offshore staff augmentation bills at USD 18 to USD 45 per hour. Revenue here is billable heads times rate with no product cushion, so per-hour deflation lands straight on revenue and on a margin the parent already runs at 8.5%. A 3% to 5% annual rate decline in the testing book alone moves the enterprise value mark from roughly USD 37M to roughly USD 25M.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Any shift of testing scope to outcome-based or fixed-fee pricing, which would signal an offset. ALTEN's FY2026 operating margin against its approximately 9% guidance. Any disclosed AI attach rate or named paid AI engagement at CIeNET.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "8/10: it attacks the largest disclosed capability block and no evidenced offset exists.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 3: Automotive is the lead vertical and the parent's automotive book fell 16% in FY2025",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Market",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "ALTEN reported FY2025 revenue of EUR 4,099m, down 4.5% organic, driven by a 16% decline in automotive with telecom also down. Automotive and telecom are the two verticals CIeNET names first. CIeNET publishes no vertical revenue split, so the exposure cannot be bounded, and a book more than half weighted to automotive would push the outcome below the base case on its own. This compression is already realised at group level rather than prospective, which is why the base case models 1% to 3% nominal growth instead of a recovery.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "ALTEN's FY2026 automotive disclosure against the raised 1.4% to 1.8% organic guidance. Korean and Chinese automotive commentary in the next quarterly results, after Korea fell sharply on automotive in the Q1 2026 call. Any CIeNET vertical revenue split.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "8/10: it drives the revenue band and the exit multiple at the same time.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 4: Every figure rests on a 2020 anchor and a contested headcount, so the valuation band spans 3x",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Valuation",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "The last entity revenue figure is USD 80M for FY2020, reported at acquisition and available only through secondary coverage because the primary release was not retrievable. Headcount is 2,400 or more by company report and 923 by a third-party tracker at 30 April 2026. Those two inputs drive everything downstream, and they open a parent-anchored enterprise value from roughly USD 20M to roughly USD 60M on the same asset. Figures circulating for this company elsewhere reach USD 175M to USD 250M of revenue, which is 3x to 5x above a parent-anchored mark and carries no weight here.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Audited entity statements from ALTEN covering FY2023 through FY2025. Resolution of the legal entity between Cienet Technologies (Beijing) Co., Ltd. and Cienet International, LLC. Confirmation of the FY2020 anchor at primary source.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "7/10: it does not break the case but it prevents any defensible price.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 5: Western clients pulling engineering out of China would strand the cost advantage",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Geopolitical",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "Delivery is anchored in Greater China while clients are largely Western, including named work with Google, Ericsson, Qualcomm and Nokia. The economics depend on a China cost base at roughly USD 36.4k of revenue per head against the ALTEN group's roughly USD 77k. Automotive and semiconductor buyers are tightening restrictions on China-based engineering delivery, and data-localization rules cut against cross-border work from the other direction. The China share of revenue and headcount is not disclosed, so this is a named sensitivity rather than a sized one, and the bear case reverses the cost-base margin credit rather than modelling a specific client exit.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Any client-mandated relocation of scope out of Greater China. New delivery centre openings in North America, Canada or India relative to China. ALTEN commentary on the China portion of its Asia zone, described as stable and roughly a third of the zone in the Q1 2026 call.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "6/10: structural and real, but slow-moving and partly offset by the parent's global footprint.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 6: Customer concentration is unbounded, so a single account loss cannot be sized",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Commercial",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "CIeNET reports 100 or more customers and says 90% are Forbes 2000 names, which is genuine quality. No top-10 share, contract tenure, or renewal rate is published anywhere. In a services book sold under rate-carded master agreements subject to periodic rebid, one large account moving at recompete can take several percent of revenue with it in a single year. Without that split the downside cannot be bounded, which is why the bear case assumes flat volume and a 5% margin rather than a specific account loss.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Top-10 customer share and revenue per client. Contract tenure and renewal rates. Any publicly visible win or loss at a named account such as Google, Ericsson, Qualcomm or Nokia.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "6/10: meaningful and monitorable, mitigated by 26 years of repeat blue-chip delivery.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "callout",
+     "component": "disconfirming_evidence",
+     "title": {
+      "en": "Evidence Against Our Read",
+      "zh": ""
+     },
+     "body": {
+      "en": "The strongest counters to the position above, stated at full strength rather than summarised away.",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "The evidence gap is a collection failure, not a company fact. No research corpus was populated for this review. A 26-year-old firm with more than 2,000 engineers and repeat Forbes 2000 work has substantial audited history inside ALTEN's consolidation packs, and reading empty fields as weak traction is a category error.",
+       "zh": ""
+      },
+      {
+       "en": "Services firms commonly operate under client confidentiality that bars naming logos, so an empty contract record reflects policy at least as much as thin commercial traction.",
+       "zh": ""
+      },
+      {
+       "en": "ALTEN raised FY2026 organic guidance to 1.4% to 1.8% with margin guided to approximately 9%, above the 8.5% FY2025 actual, and Q2 2026 grew 3.3%. The flat read may be a trough rather than a trend.",
+       "zh": ""
+      },
+      {
+       "en": "Within Asia, India grew more than 10% and Japan 6% while China was described as stable, so a stable China does not mechanically imply a flat CIeNET given its North American and European delivery.",
+       "zh": ""
+      },
+      {
+       "en": "ALTEN trades near EUR 74.00 against a EUR 101.10 consensus target. If the parent is mispriced rather than structurally de-rated, every carve-out mark derived from its roughly 6x multiple is too low.",
+       "zh": ""
+      },
+      {
+       "en": "Revenue per head below the group is substantially a geography artifact. A China cost base can deliver equal or better gross margin at half the bill rate, so the discount applied for low revenue per head may double-count the advantage that makes the model work.",
+       "zh": ""
+      },
+      {
+       "en": "Safety-critical automotive validation, physical test labs and homologation are among the hardest categories to automate, and rising software content per vehicle expands total billable scope. The 600 testers may sit in growing rather than compressing work.",
+       "zh": ""
+      },
+      {
+       "en": "CIeNET retained its brand, continues to run independently, and expanded delivery centres after the acquisition. That separability is exactly the precondition for the carve-out that would make this actionable.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Downside Scenario",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "In the downside, ALTEN keeps CIeNET inside the group, automotive stays weak after the FY2025 decline of 16%, AI tooling continues to compress per-hour pricing in the testing book, one or two large accounts move at recompete, and Western client de-risking pulls incremental scope out of Greater China. Headcount holds flat at 2,400 or drifts toward 2,300. Bill rates fall 3% to 5% per year in testing and hold elsewhere. Revenue settles near USD 80M, below the FY2020 anchor in nominal terms and materially below it in real terms, and margin compresses to 5% against the parent's 8.5%. That is roughly USD 4.0M of operating profit, which marks at roughly USD 20M to USD 25M at the parent's own 5x to 6x. Anyone who committed capital on the USD 175M to USD 250M revenue figures circulating for this company would be marked at about a fifth of the implied value, and that gap is not a market move but the difference between a parent-anchored mark and an unanchored headcount extrapolation.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The downside that actually applies to us is different in kind. We hold no instrument and none is being offered, so no capital is at risk. What the downside costs is preparation against a position that never becomes available, and the credibility cost of carrying a figure into an LP conversation that a parent-anchored mark contradicts by 3x to 5x. Three findings would make the modelled downside worse: a vertical split showing automotive above half the book, a top-10 concentration above 60%, or confirmation that the 923-employee third-party count rather than the 2,400 company figure describes the entity that would ever be sold.",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "financial_forecast_valuation",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "No contracted revenue, backlog, bookings, memorandum of understanding, letter of intent, or pipeline is disclosed at any level, and none structurally exists in a business that bills capacity rather than shipping an order book. The estimate below is built the only way the evidence allows: from delivery capacity. USD…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Valuation anchors to the parent, not to services or AI comparables. ALTEN reported FY2025 operating profit from ordinary activities of EUR 346.5m on EUR 4,099m of revenue, an 8.5% margin, and trades at roughly 5.7x to 6.0x EV/EBITDA. Applying 8.5% to USD 87M to USD 100M gives USD 7.4M to USD 8.5M of operating profit…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "revenue",
+     "title": {
+      "en": "Revenue Picture",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Line",
+       "zh": ""
+      },
+      {
+       "en": "Figure",
+       "zh": ""
+      },
+      {
+       "en": "Basis and treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "FY2020 revenue, last disclosed",
+        "zh": ""
+       },
+       {
+        "en": "USD 80M",
+        "zh": ""
+       },
+       {
+        "en": "Reported in acquisition coverage. Figures are as of December 2020. Secondary-sourced because the primary release was not retrievable, and the whole band rests on it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "FY2020 headcount",
+        "zh": ""
+       },
+       {
+        "en": "~2,200",
+        "zh": ""
+       },
+       {
+        "en": "Reported in the same acquisition coverage and used only as the denominator for revenue per head.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Implied revenue per head, FY2020",
+        "zh": ""
+       },
+       {
+        "en": "~USD 36.4k",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. Consistent with China-centric offshore delivery rather than premium consulting, which caps the multiple.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2026 headcount",
+        "zh": ""
+       },
+       {
+        "en": "2,400+",
+        "zh": ""
+       },
+       {
+        "en": "Company-reported August 2026. A third-party tracker gives 923 at 30 April 2026, so the denominator is treated as contested.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2026 revenue at flat productivity",
+        "zh": ""
+       },
+       {
+        "en": "~USD 87M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. USD 36.4k per head applied to 2,400 staff with no rate inflation.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2026 revenue with rate inflation",
+        "zh": ""
+       },
+       {
+        "en": "~USD 100M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model at 2% to 3% annual rate inflation. Corroborated loosely by a third-party estimate near USD 100M.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2026 revenue band carried",
+        "zh": ""
+       },
+       {
+        "en": "USD 85M to USD 105M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. Presented as a band with its width shown, never as a point estimate and never as disclosed revenue.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Rejected third-party figure",
+        "zh": ""
+       },
+       {
+        "en": "USD 750M",
+        "zh": ""
+       },
+       {
+        "en": "Excluded outright. It is contradicted by the company's own headcount disclosure and by every other anchor available.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Contracted revenue and backlog",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed and none structurally exists",
+        "zh": ""
+       },
+       {
+        "en": "Company and parent absence. A capacity-billed services model carries no order book, so zero value is credited to backlog and forward visibility runs weeks to a quarter.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Pipeline and bookings",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; no conversion range can be tested",
+        "zh": ""
+       },
+       {
+        "en": "Company absence. No conversion assumption enters the model, since there is no pipeline figure to apply one to.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "AI-attributable revenue",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; treated as unpriced optionality at zero credit",
+        "zh": ""
+       },
+       {
+        "en": "Company absence despite 180+ AI engineers being disclosed. Moves from zero credit to a modelled contribution only on attach rates or named paid engagements.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "growth_bridge",
+     "title": {
+      "en": "Growth Bridge, FY2020 to 2026",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Step",
+       "zh": ""
+      },
+      {
+       "en": "Effect",
+       "zh": ""
+      },
+      {
+       "en": "Note",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "FY2020 base",
+        "zh": ""
+       },
+       {
+        "en": "USD 80M",
+        "zh": ""
+       },
+       {
+        "en": "The single anchor, secondary-sourced and now five and a half years old.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Headcount growth 2020 to 2026",
+        "zh": ""
+       },
+       {
+        "en": "+9% total, roughly 1.5% per year, adding ~USD 7M",
+        "zh": ""
+       },
+       {
+        "en": "From ~2,200 to 2,400+. Below inflation, which implies flat to declining real revenue unless rates outpaced it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Rate inflation",
+        "zh": ""
+       },
+       {
+        "en": "+USD 0M to USD 13M",
+        "zh": ""
+       },
+       {
+        "en": "Modelled at 0% to 3% per year. Bill rates are not disclosed, so this is the widest step in the bridge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Mix shift toward AI and higher-rate work",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; modelled at zero credit",
+        "zh": ""
+       },
+       {
+        "en": "180+ AI engineers is real capacity, but with no attach rate or named paid engagement it earns no revenue in the bridge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Automotive vertical drag",
+        "zh": ""
+       },
+       {
+        "en": "Not quantifiable at entity level",
+        "zh": ""
+       },
+       {
+        "en": "Parent automotive fell 16% in FY2025 and is treated as the base case for CIeNET's book until a vertical split exists. Carried as a valuation sensitivity rather than a modelled deduction.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2026 modelled revenue",
+        "zh": ""
+       },
+       {
+        "en": "USD 85M to USD 105M",
+        "zh": ""
+       },
+       {
+        "en": "Internal model. The band width is the honest output of the two contested inputs above.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Forward growth 2026 to 2028",
+        "zh": ""
+       },
+       {
+        "en": "1% to 3% nominal in the base case",
+        "zh": ""
+       },
+       {
+        "en": "Anchored to the headcount CAGR and to parent International revenue of -0.5% in H1 2026. Upside reserved for evidenced North American, European or Indian mix shift rather than China.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "time_base_integrity",
+     "title": {
+      "en": "Data Vintage",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Data point",
+       "zh": ""
+      },
+      {
+       "en": "As of",
+       "zh": ""
+      },
+      {
+       "en": "Age",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "CIeNET revenue of USD 80M and 2,200 staff",
+        "zh": ""
+       },
+       {
+        "en": "December 2020",
+        "zh": ""
+       },
+       {
+        "en": "~5.7 years",
+        "zh": ""
+       },
+       {
+        "en": "A stale mark used strictly as the revenue-per-head anchor. Its age is the main reason the 2026 band is 3x wide.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ALTEN acquisition of CIeNET Group",
+        "zh": ""
+       },
+       {
+        "en": "8 November 2021",
+        "zh": ""
+       },
+       {
+        "en": "~4.8 years",
+        "zh": ""
+       },
+       {
+        "en": "Dates control rather than value, since consideration was undisclosed. The only hard event in the record.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ALTEN FY2025 results",
+        "zh": ""
+       },
+       {
+        "en": "February 2026",
+        "zh": ""
+       },
+       {
+        "en": "~6 months",
+        "zh": ""
+       },
+       {
+        "en": "Supplies the 8.5% margin ceiling and the automotive read-through. Secondary-sourced because the primary results file was not retrievable.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ALTEN H1 2026 results and FY guidance",
+        "zh": ""
+       },
+       {
+        "en": "July 2026",
+        "zh": ""
+       },
+       {
+        "en": "~1 month",
+        "zh": ""
+       },
+       {
+        "en": "The freshest growth read available and the basis for the 1% to 3% base case and the bull-case counter.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ALTEN trading multiple and share price",
+        "zh": ""
+       },
+       {
+        "en": "August 2026",
+        "zh": ""
+       },
+       {
+        "en": "Current",
+        "zh": ""
+       },
+       {
+        "en": "Sets the 5x to 7x range around the parent's own 5.7x to 6.0x used for the carve-out mark.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "CIeNET headcount and capability counts",
+        "zh": ""
+       },
+       {
+        "en": "Retrieved 20 August 2026, measurement date unstated",
+        "zh": ""
+       },
+       {
+        "en": "Unknown",
+        "zh": ""
+       },
+       {
+        "en": "Order of magnitude only. Cannot be placed before or after the 2021 acquisition, so it is never used as a growth or efficiency input.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Third-party headcount of 923",
+        "zh": ""
+       },
+       {
+        "en": "30 April 2026",
+        "zh": ""
+       },
+       {
+        "en": "~4 months",
+        "zh": ""
+       },
+       {
+        "en": "Contested against the company figure. Carried explicitly because it widens every per-head calculation rather than being resolved away.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Founded 2000",
+        "zh": ""
+       },
+       {
+        "en": "2000",
+        "zh": ""
+       },
+       {
+        "en": "Durable",
+        "zh": ""
+       },
+       {
+        "en": "Permanently valid and the one field with an unambiguous time base.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "scenario_analysis",
+     "title": {
+      "en": "Scenario Analysis",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Scenario",
+       "zh": ""
+      },
+      {
+       "en": "2026 revenue",
+       "zh": ""
+      },
+      {
+       "en": "Margin",
+       "zh": ""
+      },
+      {
+       "en": "Implied EV",
+       "zh": ""
+      },
+      {
+       "en": "What has to be true",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Bear",
+        "zh": ""
+       },
+       {
+        "en": "~USD 80M",
+        "zh": ""
+       },
+       {
+        "en": "5%",
+        "zh": ""
+       },
+       {
+        "en": "~USD 20M at 5x",
+        "zh": ""
+       },
+       {
+        "en": "Automotive stays down at the parent, AI pricing compresses testing rates 3% to 5% per year, and one large account is lost at recompete.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Base",
+        "zh": ""
+       },
+       {
+        "en": "USD 87M to USD 100M",
+        "zh": ""
+       },
+       {
+        "en": "8.5%, the parent's FY2025 actual",
+        "zh": ""
+       },
+       {
+        "en": "USD 37M to USD 60M at 5x to 7x",
+        "zh": ""
+       },
+       {
+        "en": "Headcount holds at 2,400 or more, rates inflate 2% to 3%, and vertical mix roughly tracks the parent.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Bull",
+        "zh": ""
+       },
+       {
+        "en": "USD 110M to USD 120M",
+        "zh": ""
+       },
+       {
+        "en": "9% to 10%",
+        "zh": ""
+       },
+       {
+        "en": "USD 60M to USD 84M at 6x to 7x",
+        "zh": ""
+       },
+       {
+        "en": "AI engagements convert to paid attach at premium rates, Indian and North American mix shift offsets China, and the parent re-rates toward the EUR 101.10 consensus.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Actionable",
+        "zh": ""
+       },
+       {
+        "en": "Not applicable",
+        "zh": ""
+       },
+       {
+        "en": "Not applicable",
+        "zh": ""
+       },
+       {
+        "en": "Not applicable",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN runs a sponsored carve-out with audited entity statements and a resolved legal entity. Without this lane none of the three above is purchasable, which is why it carries the probability that matters.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Sensitivity ranking",
+        "zh": ""
+       },
+       {
+        "en": "30% EV swing across the band",
+        "zh": ""
+       },
+       {
+        "en": "40% EV swing across the band",
+        "zh": ""
+       },
+       {
+        "en": "40% EV swing across the multiple",
+        "zh": ""
+       },
+       {
+        "en": "Margin is the largest lever. Moving from 8.5% to 5% cuts enterprise value roughly 40% at constant revenue, which is more than the entire revenue band achieves.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "evidence_thresholds",
+     "title": {
+      "en": "What Would Support a Higher Mark",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Evidence",
+       "zh": ""
+      },
+      {
+       "en": "Effect on valuation support",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Audited entity statements for FY2023 through FY2025",
+        "zh": ""
+       },
+       {
+        "en": "These replace a 3x-wide modelled band with a mark. Valuation support currently rests on a single December 2020 anchor, and nothing else compresses the band as much.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Top-10 customer concentration and revenue per client",
+        "zh": ""
+       },
+       {
+        "en": "This bounds the largest unquantified downside in a services book and would let the bear case model a specific account loss rather than assume flat volume at a 5% margin.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Vertical revenue split across automotive, telecom, healthcare, financial services and semiconductor",
+        "zh": ""
+       },
+       {
+        "en": "This sizes the exposure to the parent's 16% FY2025 automotive decline. A book weighted away from automotive would support the upper half of the base case.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Billable headcount, utilization and bill rates",
+        "zh": ""
+       },
+       {
+        "en": "These three inputs turn revenue per head from a band into a figure and are the difference between a USD 85M and a USD 105M revenue read.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "A resolved legal entity between the Beijing company and Cienet International, LLC",
+        "zh": ""
+       },
+       {
+        "en": "Until this settles, no figure attaches to a specific balance sheet, so any price would be attached to an undefined subject.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "AI engagement attach rates and named paid wins",
+        "zh": ""
+       },
+       {
+        "en": "These move the 180-plus AI engineer build from zero credit to a modelled contribution and are the only route to the bull case margin of 9% to 10%.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "An ALTEN-sponsored carve-out or separate listing",
+        "zh": ""
+       },
+       {
+        "en": "This is the one item that makes the situation actionable at all. It outranks every business-quality finding, because without it the other six change the mark without creating anything to buy.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 2,
+     "text": {
+      "en": "Investment Decision",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "We do not recommend participating. CIeNET has been wholly owned by ALTEN since 8 November 2021, there is no round, instrument, or priced security, and we are being offered nothing in the asset itself. The only route to exposure is ALTEN listed equity, where CIeNET is roughly 2% of a EUR 4.1bn revenue group, which is a…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "On the merits, this is a competent 26-year-old engineering services firm with a scarce Google accreditation in Android Automotive validation, more than 100 customers of which 90% are reported as Forbes 2000, and a China cost base delivering to Western clients. The valuation case rests on a December 2020 revenue anchor…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "We hold CIeNET as a watch item. It becomes live on one signal and one only: ALTEN sponsoring a carve-out or separate listing with audited entity statements and a resolved legal entity. If that happens we would revisit at a price anchored to the parent's own multiple rather than to services or AI comparables, and we…",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "sources_and_disclosures",
+   "title": {
+    "en": "Sources, Source Classes, and Fact Reference Index",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "component": "source_index",
+     "text": {
+      "en": "Every figure in this package traces to one of the sources below. Parent disclosure carries the most weight and sets the margin and multiple. Company-reported capability counts are accepted for footprint and headcount but carry no revenue credit. Third-party aggregators are used only to establish that the headcount…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "source_index",
+     "title": {
+      "en": "Source Classes and Weight",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Class",
+       "zh": ""
+      },
+      {
+       "en": "What it carries here",
+       "zh": ""
+      },
+      {
+       "en": "Weight applied",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Parent and acquirer primary disclosure",
+        "zh": ""
+       },
+       {
+        "en": "Ownership, acquisition date, group growth, FY2026 guidance",
+        "zh": ""
+       },
+       {
+        "en": "Highest. Load-bearing for the recommendation.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Parent results via secondary coverage",
+        "zh": ""
+       },
+       {
+        "en": "FY2025 revenue, 8.5% margin, automotive down 16%, Asia zone commentary",
+        "zh": ""
+       },
+       {
+        "en": "High for direction, flagged as unconfirmed at primary source.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Third-party market data",
+        "zh": ""
+       },
+       {
+        "en": "ALTEN trading multiple, APAC market sizing, 2026 quality assurance price points",
+        "zh": ""
+       },
+       {
+        "en": "Medium. Sets the multiple and the substitution price.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Company-reported",
+        "zh": ""
+       },
+       {
+        "en": "Headcount, delivery centres, customers, AI engineers, testers, products, named clients",
+        "zh": ""
+       },
+       {
+        "en": "Medium. Accepted for capability, given zero revenue credit.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Third-party aggregators",
+        "zh": ""
+       },
+       {
+        "en": "923-employee count, USD 100M revenue estimate, a rejected USD 750M figure",
+        "zh": ""
+       },
+       {
+        "en": "Low. Used only to show the denominator is contested.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "BSH primary record and model",
+        "zh": ""
+       },
+       {
+        "en": "Ownership record, revenue-per-head bridge, parent-anchored enterprise value",
+        "zh": ""
+       },
+       {
+        "en": "Medium. Structural facts and the arithmetic, with the width of every band shown.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "component": "disclosures",
+     "text": {
+      "en": "This document is prepared by BSH Research Center for existing and prospective limited partners and is provided for information only. It is not an offer to sell or a solicitation of an offer to buy any security, and no security in CIeNET Technologies is available. CIeNET is a wholly owned subsidiary of ALTEN S.A. and…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "component": "disclosures",
+     "title": {
+      "en": "Use of Estimates",
+      "zh": ""
+     },
+     "body": {
+      "en": "The revenue band of USD 85M to USD 105M and the enterprise value band of USD 20M to USD 60M are internal estimates derived from a December 2020 revenue anchor of USD 80M, a company-reported headcount of 2,400 or more, and ALTEN's disclosed FY2025 operating margin of 8.5% and trading multiple near 6x EV/EBITDA. Each…",
+      "zh": ""
+     }
+    }
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "id": "S1",
+   "title": {
+    "en": "ALTEN press release announcing the acquisition of CIeNET Group",
+    "zh": ""
+   },
+   "class": "investor materials",
+   "treatment": {
+    "en": "Load-bearing for the ownership fact that drives the recommendation, and the origin of the FY2020 revenue and headcount anchor.",
+    "zh": ""
+   },
+   "as_of": "2021-11-08"
+  },
+  {
+   "id": "S2",
+   "title": {
+    "en": "ALTEN FY2025 annual results",
+    "zh": ""
+   },
+   "class": "public filings",
+   "treatment": {
+    "en": "Supplies the 8.5% operating margin ceiling and the 16% automotive decline; carried as secondary coverage because the primary results file was not retrievable.",
+    "zh": ""
+   },
+   "as_of": "2026-02-28"
+  },
+  {
+   "id": "S3",
+   "title": {
+    "en": "ALTEN H1 2026 business press release",
+    "zh": ""
+   },
+   "class": "public filings",
+   "treatment": {
+    "en": "The freshest growth read available and the basis for the 1% to 3% base case and for the counter that the parent may be inflecting upward.",
+    "zh": ""
+   },
+   "as_of": "2026-07-31"
+  },
+  {
+   "id": "S4",
+   "title": {
+    "en": "ALTEN Q1 2026 earnings call transcript",
+    "zh": ""
+   },
+   "class": "investor materials",
+   "treatment": {
+    "en": "Used for Asia zone commentary describing China as stable and roughly a third of the zone, with India above 10% and Korea down sharply on automotive.",
+    "zh": ""
+   },
+   "as_of": "2026-04-30"
+  },
+  {
+   "id": "S5",
+   "title": {
+    "en": "CIeNET corporate website: homepage, about page, and engineering services page",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "Accepted for headcount, delivery centres, customer count, AI engineer and tester counts, and product names; given zero revenue or multiple credit.",
+    "zh": ""
+   },
+   "as_of": "2026-08-20"
+  },
+  {
+   "id": "S6",
+   "title": {
+    "en": "CIeNET news item announcing that it joined the ALTEN Group",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "Corroborates the 8 November 2021 effective date and the retention of the CIeNET brand and independent operation, which is the precondition for any future carve-out.",
+    "zh": ""
+   },
+   "as_of": "2021-11-08"
+  },
+  {
+   "id": "S7",
+   "title": {
+    "en": "Announcement of CIeNET accreditation as a Google third-party laboratory for Android Automotive OS",
+    "zh": ""
+   },
+   "class": "third-party validation",
+   "treatment": {
+    "en": "Featured as the single strongest defensibility line and explicitly treated as revocable access rather than owned intellectual property; the page was not retrievable at primary source.",
+    "zh": ""
+   },
+   "as_of": "2026-08-20"
+  },
+  {
+   "id": "S8",
+   "title": {
+    "en": "ALTEN (Euronext Paris: ATE) market data covering multiple, market capitalisation, share price and consensus target",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Sets the 5x to 7x range around the parent's own 5.7x to 6.0x EV/EBITDA used for the carve-out mark, and supplies the re-rating counter at a EUR 101.10 consensus against a EUR 74.00 close.",
+    "zh": ""
+   },
+   "as_of": "2026-08-20"
+  },
+  {
+   "id": "S9",
+   "title": {
+    "en": "MarketScreener coverage of the ALTEN acquisition of CIeNET",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "The accessible route to the FY2020 figures of USD 80M revenue and 2,200 employees; flagged as unconfirmed at primary because the entire revenue band rests on it.",
+    "zh": ""
+   },
+   "as_of": "2021-11-08"
+  },
+  {
+   "id": "S10",
+   "title": {
+    "en": "Third-party company profiles from RocketReach, Tracxn and 6sense",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Used only to establish that the headcount denominator is contested at 923 against the company's 2,400 or more; the accompanying USD 750M revenue profile is excluded outright.",
+    "zh": ""
+   },
+   "as_of": "2026-04-30"
+  },
+  {
+   "id": "S11",
+   "title": {
+    "en": "APAC automotive engineering services market sizing",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Carried as category context at roughly USD 92.8bn in 2025 growing near 9% annually to 2035; not used as a company growth assumption.",
+    "zh": ""
+   },
+   "as_of": "2025-12-31"
+  },
+  {
+   "id": "S12",
+   "title": {
+    "en": "2026 quality assurance and testing outsourcing pricing surveys",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Quantifies the substitution threat to the 600-tester book at USD 18 to USD 45 per hour offshore against AI-native managed testing at USD 60k to USD 250k or more per year.",
+    "zh": ""
+   },
+   "as_of": "2026-06-30"
+  },
+  {
+   "id": "S13",
+   "title": {
+    "en": "BSH company registry entry for CIeNET Technologies and for ALTEN",
+    "zh": ""
+   },
+   "class": "BSH primary diligence",
+   "treatment": {
+    "en": "Confirms subsidiary status, parent ownership, the empty funding and earnings fields, and the unresolved identity between the Beijing entity and Cienet International, LLC.",
+    "zh": ""
+   },
+   "as_of": "2026-08-20"
+  },
+  {
+   "id": "S14",
+   "title": {
+    "en": "BSH parent-anchored valuation model for CIeNET",
+    "zh": ""
+   },
+   "class": "BSH primary diligence",
+   "treatment": {
+    "en": "Produces the revenue-per-head bridge, the USD 85M to USD 105M revenue band, and the USD 20M to USD 60M enterprise value mark, each presented as a labelled estimate with its width visible.",
+    "zh": ""
+   },
+   "as_of": "2026-08-20"
+  }
+ ],
+ "_fixture": {
+  "copied_from": "data/memos/cienet-technologies-beijing-co-ltd/2026-08-20__234154__cienet-technologies-beijing-co-ltd__memo-run/logs/memo_package.en.attempt-1.json",
+  "trimmed": "strings over 320 characters cut at a word boundary, except in investment_risk"
+ }
+}

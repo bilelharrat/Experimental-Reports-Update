@@ -39,6 +39,7 @@ import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import ReportCustomizerModal from "./components/ReportCustomizerModal.vue";
+import { reportsCompanyFilter } from "./reportStatus.js";
 import PitchDeckIntakeModal from "./components/research/PitchDeckIntakeModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
@@ -241,9 +242,15 @@ const reportCustomizerMode = ref("");
 
 // `mode: "studio_review"` opens it on Memo Studio review, which is how the
 // desk's "Run Deep Investigate" gets there; anything else keeps the default.
+//
+// With no company named by the caller (⌘N, the app menu, the sidebar), the
+// page decides: a company's own page, or the Reports desk filtered to one
+// (`/reports?company=`). Anywhere else the dialog opens on no company and
+// asks, rather than on whichever company happened to be picked last.
 function openReportCustomizer(companyId = null, { mode = "" } = {}) {
   const resolved = typeof companyId === "string" ? companyId : companyId?.companyId || null;
-  reportCustomizerCompanyId.value = resolved || currentCompany.value?.id || null;
+  reportCustomizerCompanyId.value =
+    resolved || currentCompany.value?.id || reportsCompanyFilter(route) || null;
   reportCustomizerMode.value = mode;
   reportCustomizerOpen.value = true;
 }
@@ -561,6 +568,12 @@ const breadcrumbs = computed(() => {
   if (name === "weekly-summary") return [root, t("pulse.title")];
   if (name === "trader-stats") return [root, t("nav.markets"), t("sidebar.markets_stats")];
   if (name === "research") {
+    // The desk shows "Company not found" for an id that matches nothing
+    // once the list has loaded; the toolbar says the same instead of the
+    // raw id over an "Overview" it is not showing.
+    if (currentCompanyId.value && lastSyncAt.value && !currentCompany.value) {
+      return [root, t("desk.company_not_found_title")];
+    }
     return [
       root,
       currentCompany.value?.name || currentCompanyId.value || t("app.company"),

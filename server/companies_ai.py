@@ -349,7 +349,16 @@ def deep_search(
             m for m in raw
             if storage.resolve_company_match(m) == only_company_id
         ]
-    enriched = [storage.upsert_company_from_match(m) for m in raw]
+    # Only the explicit Refresh (``only_company_id``) may overwrite a
+    # record's identity fields; an ordinary search fills them when empty.
+    enriched = _dedupe_by_id(
+        [
+            storage.upsert_company_from_match(
+                m, overwrite_identity=only_company_id is not None
+            )
+            for m in raw
+        ]
+    )
     if enriched:
         cache.put("companies_ai", q.lower(), enriched)
         # Invalidate the autocomplete researched index so new hits are
@@ -362,6 +371,21 @@ def deep_search(
         "matches": enriched,
         "cached_at": fresh["stored_at_iso"] if fresh else None,
     }
+
+
+def _dedupe_by_id(rows: list[dict]) -> list[dict]:
+    """One row per local id, in first-seen order, holding the LAST upsert
+    result for that id. Two hits the model returns can reconcile to one
+    record (name variants, a host match); listing it twice showed the same
+    company twice and gave the search list a duplicate ``:key``."""
+    order: list[str] = []
+    latest: dict[str, dict] = {}
+    for index, row in enumerate(rows):
+        key = str((row or {}).get("id") or "") or f"\0row{index}"
+        if key not in latest:
+            order.append(key)
+        latest[key] = row
+    return [latest[key] for key in order]
 
 
 def _local_to_match(c: dict) -> dict:

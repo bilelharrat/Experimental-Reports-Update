@@ -74,6 +74,7 @@ const STATUS_LABELS = {
   completed: "Ready",
   awaiting_studio: "Cards ready",
   complete_with_warnings: "Needs attention",
+  english_ready_paused: "English ready — paused",
   failed: "Failed",
   failed_during_analysis: "Failed",
   failed_scope_check: "Failed",
@@ -93,6 +94,7 @@ const STATUS_LABELS_ZH = {
   completed: "已就绪",
   awaiting_studio: "卡片已就绪",
   complete_with_warnings: "待处理",
+  english_ready_paused: "英文版已就绪——已暂停",
   failed: "失败",
   failed_during_analysis: "失败",
   failed_scope_check: "失败",
@@ -147,14 +149,30 @@ export function isTerminalReportStatus(status) {
   );
 }
 
+// A memo run's in-flight statuses (memo_prep → memo_analysis). Left out,
+// they fell through to "complete" and a run still writing read "Ready".
+const IN_FLIGHT_REPORT_STATUSES = new Set([
+  "queued",
+  "investigating",
+  "generating",
+  "prepping",
+  "ready_for_analysis",
+  "analyzing",
+  "rendering",
+  "translating",
+  "resuming",
+]);
+
 // The four buckets the Reports page sorts a report into.
 export function normalizeReportStatus(status) {
   const s = String(status || "").toLowerCase();
   if (s === "complete" || s === "ready") return "complete";
-  if (s.includes("running") || s === "queued" || s === "investigating" || s === "generating") {
+  if (s.includes("running") || s.startsWith("analyzing") || IN_FLIGHT_REPORT_STATUSES.has(s)) {
     return "running";
   }
-  if (s.includes("warn") || s === "cards_ready" || s === "awaiting_studio") {
+  // A run paused after its English memo is not running: someone has to
+  // continue it, so it files with the reports that need a hand.
+  if (s.includes("warn") || s === "cards_ready" || s === "awaiting_studio" || s === "english_ready_paused") {
     return "needs_attention";
   }
   if (s.includes("fail") || s === "error") {

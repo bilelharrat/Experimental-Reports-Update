@@ -38,6 +38,14 @@ describe("user-facing formatters", () => {
     expect(normalizeReportStatus("awaiting_studio")).toBe("needs_attention");
     expect(normalizeReportStatus("failed_during_analysis")).toBe("failed");
     expect(normalizeReportStatus("queued")).toBe("running");
+    // A run still writing must never read as done.
+    expect(normalizeReportStatus("prepping")).toBe("running");
+    expect(normalizeReportStatus("ready_for_analysis")).toBe("running");
+    expect(normalizeReportStatus("analyzing")).toBe("running");
+    // Paused after the English memo: nothing runs until someone continues it.
+    expect(normalizeReportStatus("english_ready_paused")).toBe("needs_attention");
+    expect(humanizeStatus("english_ready_paused")).toBe("English ready — paused");
+    expect(humanizeStatus("english_ready_paused", "Pending", "zh")).toBe("英文版已就绪——已暂停");
   });
 
   it("builds display names and initials from emails", () => {

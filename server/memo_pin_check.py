@@ -70,6 +70,9 @@ class PinFinding:
     location: str
     pin: str
     detail: str
+    # "P0" for the gate's findings (fed to the repair); "P1" for the
+    # warnings in ``PinCheckResult.warnings`` (recorded, never a gate).
+    severity: str = "P0"
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +80,7 @@ class PinFinding:
             "location": self.location,
             "pin": self.pin,
             "detail": self.detail,
+            "severity": self.severity,
         }
 
 
@@ -85,6 +89,10 @@ class PinCheckResult:
     findings: list[PinFinding] = field(default_factory=list)
     pins_checked: int = 0
     pins_skipped: int = 0
+    # Report-only findings (2026-09-23): the optional v1 pins whose echo
+    # is a warning, not a respin. ``ok`` and ``summary_lines`` ignore them;
+    # ``warning_lines`` is for the run's quality_warning_items.
+    warnings: list[PinFinding] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -96,7 +104,15 @@ class PinCheckResult:
             "pins_checked": self.pins_checked,
             "pins_skipped": self.pins_skipped,
             "findings": [finding.to_dict() for finding in self.findings],
+            "warnings": [finding.to_dict() for finding in self.warnings],
         }
+
+    def warning_lines(self) -> list[str]:
+        """The warnings as feedback strings, shaped like ``summary_lines``."""
+        return [
+            f"pin check {finding.code} in section {finding.location}: {finding.detail}"
+            for finding in self.warnings
+        ]
 
     def summary_lines(self) -> list[str]:
         """Findings as feedback strings.
@@ -185,6 +201,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
     section_risk = structure.section_for_role("risk").id
     section_finance = structure.section_for_role("valuation").id
     findings: list[PinFinding] = []
+    warnings: list[PinFinding] = []
     pins_checked = 0
     pins_skipped = 0
 
@@ -382,6 +399,36 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                     )
                 )
 
+    # 4b. The optional base-case outcome sentence (v1 spine, 2026-09-23)
+    #     must read the same in the executive summary and the scenarios
+    #     (financial) section. A WARNING, never a gate: the sentence is
+    #     the writer's, and a missing echo is a note for the reader, not a
+    #     reason to respin.
+    base_case = _pin_sentence(
+        shared_facts.get(memo_structure.SPINE_BASE_CASE_OUTCOME_FIELD)
+    )
+    if base_case:
+        pins_checked += 1
+        for section_id, norm_text, squashed_text, where in (
+            (section_exec, exec_norm, exec_squashed, "executive summary"),
+            (section_finance, finance_norm, finance_squashed, "scenarios / financial section"),
+        ):
+            if _contains(norm_text, squashed_text, base_case):
+                continue
+            warnings.append(
+                PinFinding(
+                    code="base_case_not_echoed",
+                    location=section_id,
+                    pin=base_case,
+                    detail=(
+                        f'the pinned base-case outcome "{base_case}" does not '
+                        f"appear verbatim in the {where} — the executive summary "
+                        "and the scenarios table must state the same base case"
+                    ),
+                    severity="P1",
+                )
+            )
+
     # 5. v2 pins (verdict, scorecard, fair value): the owning sections and
     #    the decision section must echo them. Absent pins mean no checks,
     #    so v1 packages are untouched.
@@ -397,6 +444,62 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
     decision_text = _section_text(package, decision_id)
     decision_norm = _norm(decision_text)
     decision_squashed = _squash(decision_text)
+
+    # 4c. The prior-view pin (what BSH's previous memo concluded, pinned by
+    #     the pipeline) is stated where the recommendation is: the decision
+    #     section, or the executive summary in a memo without one (late v1).
+    #     A WARNING, never a gate: the sentence is history, and a missing
+    #     echo is a note for the reader, not a reason to respin.
+    prior_view = _pin_sentence(shared_facts.get("prior_view_sentence"))
+    if prior_view:
+        pins_checked += 1
+        if decision_section is not None:
+            prior_target, prior_norm, prior_squashed = (
+                decision_id, decision_norm, decision_squashed
+            )
+        else:
+            prior_target, prior_norm, prior_squashed = (
+                section_exec, exec_norm, exec_squashed
+            )
+        if not _contains(prior_norm, prior_squashed, prior_view):
+            warnings.append(
+                PinFinding(
+                    code="prior_view_not_echoed",
+                    location=prior_target,
+                    pin=prior_view,
+                    detail=(
+                        f'the pinned prior view "{prior_view}" does not appear '
+                        f"verbatim in {prior_target} — state it beside the "
+                        "recommendation and say what changed since"
+                    ),
+                    severity="P1",
+                )
+            )
+        # The previous memo's score restated outside its own sentence reads
+        # as this memo's evaluation ("BSH evaluates ZaiNar at Pass — 58/100"
+        # in a v1 memo that has no scorecard). Unless this run's own total
+        # is the same number, every "NN/100" beyond the pinned sentences is
+        # a restatement.
+        prior_score = re.search(r"\b(\d{1,3})/100\b", prior_view)
+        current_total = scorecard.get("total") if isinstance(scorecard, dict) else None
+        if prior_score and str(current_total) != prior_score.group(1):
+            raw_text = _package_text(package)
+            extra = raw_text.count(prior_score.group(0)) - raw_text.count(prior_view)
+            if extra > 0:
+                warnings.append(
+                    PinFinding(
+                        code="prior_score_restated",
+                        location=prior_target,
+                        pin=prior_score.group(0),
+                        detail=(
+                            f'the previous memo\'s score "{prior_score.group(0)}" appears '
+                            f"{extra} more time(s) outside the pinned prior-view sentence, "
+                            "where it reads as this memo's own evaluation — state it only "
+                            "as the previous memo's"
+                        ),
+                        severity="P1",
+                    )
+                )
     if weights and isinstance(scorecard, dict) and verdict:
         total = scorecard.get("total")
         verdict_token = f"{verdict} — {total}/100"
@@ -517,6 +620,40 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                         ),
                     )
                 )
+    # 7. The firm's return hurdle (pinned only when a policy is saved): the
+    #    decision section — the executive summary on v1, which has none —
+    #    states the bar it judges against. Matched by the hurdle's figures
+    #    ("2x", "20%"), not verbatim: the prose states the comparison
+    #    ("against our 2.0x / 20% late-stage hurdle").
+    hurdle = str(shared_facts.get("return_hurdle") or "").strip()
+    if hurdle:
+        figures = _hurdle_figures(hurdle)
+        if not figures:
+            pins_skipped += 1
+        else:
+            if decision_section is not None:
+                target, target_text = decision_id, decision_text
+            else:
+                target, target_text = section_exec, exec_text
+            pins_checked += 1
+            missing = [
+                label for label, kind, value in figures
+                if not _states_figure(target_text, kind, value)
+            ]
+            if missing:
+                findings.append(
+                    PinFinding(
+                        code="return_hurdle_not_echoed",
+                        location=target,
+                        pin=hurdle,
+                        detail=(
+                            f"the pinned return hurdle \"{hurdle}\" is not stated "
+                            f"in {target} (missing {', '.join(missing)}) — state "
+                            "the base case against the firm's hurdle there"
+                        ),
+                    )
+                )
+
     pinned_risks = shared_facts.get("risks")
     if weights and isinstance(pinned_risks, list):
         for index, risk in enumerate(pinned_risks, start=1):
@@ -548,6 +685,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
         findings=findings,
         pins_checked=pins_checked,
         pins_skipped=pins_skipped,
+        warnings=warnings,
     )
 
 
@@ -603,6 +741,72 @@ def _parse_money(text: str) -> float | None:
     if suffix.startswith("k"):
         return value * 1_000
     return value
+
+
+_HURDLE_MOIC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*x\b", re.IGNORECASE)
+_HURDLE_PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _hurdle_figures(hurdle: str) -> list[tuple[str, str, float]]:
+    """The figures a hurdle line commits to: ``[(label, kind, value)]`` for
+    its MOIC ("2x") and IRR ("20%"); the hold years are not required."""
+    figures: list[tuple[str, str, float]] = []
+    moic = _HURDLE_MOIC_RE.search(hurdle)
+    if moic:
+        figures.append((f"{moic.group(1)}x", "x", float(moic.group(1))))
+    pct = _HURDLE_PCT_RE.search(hurdle)
+    if pct:
+        figures.append((f"{pct.group(1)}%", "%", float(pct.group(1))))
+    return figures
+
+
+def _states_figure(text: str, kind: str, value: float) -> bool:
+    """Whether ``text`` states ``value`` as a multiple ("2x", "2.0x") or a
+    percentage ("20%"), whatever its decimals."""
+    pattern = _HURDLE_MOIC_RE if kind == "x" else _HURDLE_PCT_RE
+    return any(
+        abs(float(match.group(1)) - value) < 1e-9
+        for match in pattern.finditer(_CITATION_TOKEN_RE.sub("", str(text or "")))
+    )
+
+
+def spine_warnings_v2(
+    shared_facts: dict,
+    structure,
+    *,
+    policy: dict | None = None,
+    as_of_year: int | None = None,
+    deal_terms: dict | None = None,
+    fund_size_usd: float | None = None,
+) -> list[dict]:
+    """Warnings on a v2 pin sheet — recorded on the report, NEVER a respin
+    (``check_spine_pins_v2`` is the gate): the returns arithmetic
+    recomputed in Python (server/memo_returns.py) — an exit value that does
+    not follow from its revenue and multiple, a MOIC or IRR that does not
+    follow from the other pins, probabilities that do not sum to 100, a
+    "below entry" label on a case that exits above the entry — and a
+    commit price in the recommendation sentence above the walk-away price
+    the firm's hurdle implies (max entry = base exit value × dilution
+    retention ÷ the stricter of the hurdle MOIC and (1 + hurdle IRR)^hold).
+    ``[{"code", "scenario"?, "detail"}]``; [] for structures without a
+    scorecard (late v1)."""
+    if not structure.scorecard_weights() or not isinstance(shared_facts, dict):
+        return []
+    from server import memo_returns
+
+    result = memo_returns.compute(
+        shared_facts,
+        policy=policy,
+        as_of_year=as_of_year,
+        deal_terms=deal_terms,
+        fund_size_usd=fund_size_usd,
+    )
+    return memo_returns.check(
+        result,
+        recommendation_sentence=str(
+            shared_facts.get("recommendation_sentence") or ""
+        ),
+    )
 
 
 def _pin_sentence(value: object) -> str:
@@ -904,6 +1108,12 @@ def render_markdown_report(result: PinCheckResult, *, attempt: int | None = None
         lines.append("All pinned facts are echoed by the package.")
     else:
         for finding in result.findings:
+            lines.append(
+                f"- **{finding.code}** ({finding.location}): {finding.detail}"
+            )
+    if result.warnings:
+        lines.extend(["", f"Warnings (report only): {len(result.warnings)}", ""])
+        for finding in result.warnings:
             lines.append(
                 f"- **{finding.code}** ({finding.location}): {finding.detail}"
             )

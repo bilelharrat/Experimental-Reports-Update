@@ -180,9 +180,14 @@ def test_package_calculations_become_bilingual_slots():
         {
             "id": "C1",
             "label": {"en": "Base-case MOIC", "zh": ""},
-            "inputs": [{"name": "revenue", "value": "$200B", "ref": "S2"}],
+            # Input names and values and the result are translated too: as
+            # plain strings they reached every Chinese 计算说明 table in
+            # English ("4.47 years", "About 1.7x ... roughly 13% a year").
+            "inputs": [
+                {"name": {"en": "revenue", "zh": ""}, "value": {"en": "$200B", "zh": ""}, "ref": "S2"}
+            ],
             "formula": "13 × $200B = $2.6T",
-            "result": "$2.6T",
+            "result": {"en": "$2.6T", "zh": ""},
             "meaning": {"en": "Worth 1.5x the entry.", "zh": ""},
         }
     ]
@@ -271,3 +276,62 @@ def test_contracts_describe_urls_and_citations():
         "items"
     ]["properties"]
     assert "url" in pass_props
+
+
+def test_calculation_result_and_input_values_render_in_the_memo_language():
+    """ZaiNar 2026-09-23__071431: every Chinese 计算说明 row showed its
+    result ("About 1.7x over four and a half years, roughly 13% a year")
+    and input values ("4.47 years") in English, because both were plain
+    strings no translation pass saw. Localized, each locale shows its own;
+    a plain string still renders in both."""
+    package = _package()
+    calc = package["calculations"][0]
+    calc["result"] = {"en": "About 1.5x, roughly 15% a year", "zh": "约 1.5x，年化约 15%"}
+    calc["inputs"][1]["value"] = {"en": "13x (our assumption)", "zh": "13x（我们的假设）"}
+    assert memo_docx_renderer._calculation_errors(package) == []
+    en = memo_docx_renderer._build_document(package, "en").element.xml
+    zh = memo_docx_renderer._build_document(package, "zh").element.xml
+    assert "About 1.5x, roughly 15% a year" in en and "13x (our assumption)" in en
+    assert "约 1.5x，年化约 15%" in zh and "13x（我们的假设）" in zh
+    assert "roughly 15% a year" not in zh and "our assumption" not in zh
+    # The plain-string input value beside it is unchanged in both.
+    assert "$200B" in en and "$200B" in zh
+    # A localized result with no English is still a missing result.
+    calc["result"] = {"en": "", "zh": "约 1.5x"}
+    assert any("result is required" in e for e in memo_docx_renderer._calculation_errors(package))
+
+
+def test_writer_built_calculations_get_result_and_value_slots():
+    """The stamping pass localizes a package the writer built itself (the
+    Gemini path, and notes the spine did not produce), not only the ones
+    _package_calculations built; an existing {en, zh} value is kept."""
+    from server import memo_analysis
+
+    package = {
+        "calculations": [
+            {
+                "id": "C1",
+                "inputs": [
+                    {"name": "Elapsed time", "value": "4.47 years", "ref": "assumption"},
+                    {"name": {"en": "Entry", "zh": "入场"}, "value": {"en": "$1B", "zh": "$1B"}, "ref": "S1"},
+                    "junk",
+                ],
+                "formula": "1.73^(1/4.47) - 1 = 12.9%",
+                "result": "About 1.7x over four and a half years",
+            },
+            {"id": "C2", "formula": "1 + 1 = 2"},
+        ]
+    }
+    memo_analysis._localize_calculation_input_names(package)
+    first, second = package["calculations"]
+    assert first["result"] == {"en": "About 1.7x over four and a half years", "zh": ""}
+    assert first["inputs"][0] == {
+        "name": {"en": "Elapsed time", "zh": ""},
+        "value": {"en": "4.47 years", "zh": ""},
+        "ref": "assumption",
+    }
+    assert first["inputs"][1]["value"] == {"en": "$1B", "zh": "$1B"}
+    assert first["inputs"][2] == "junk"
+    # The formula stays as written, and a note without a result gains none.
+    assert first["formula"] == "1.73^(1/4.47) - 1 = 12.9%"
+    assert "result" not in second

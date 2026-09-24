@@ -47,7 +47,7 @@ def test_console_language_directive_includes_chinese_style():
 def test_markdown_skill_prompts_have_chinese_localization_rules():
     files = [
         "server/skills/bsh_investment_memo_latestage.md",
-        "server/skills/bsh_buffett_investment_memo.md",
+        "skills/memo/buffett.md",
         "server/skills/bsh_company_console.md",
         "server/skills/bsh_company_console_public.md",
         "server/skills/bsh_hormuz_console.md",
@@ -70,7 +70,7 @@ def test_investment_memo_skill_has_chinese_localization_rules():
 
 
 def test_buffett_memo_skill_has_chinese_localization_rules():
-    text = _repo_text("server/skills/bsh_buffett_investment_memo.md")
+    text = _repo_text("skills/memo/buffett.md")
     assert "Chinese Localization Quality Bar" in text
     assert "tailwind" in text
     assert "顺风" in text
@@ -79,3 +79,21 @@ def test_buffett_memo_skill_has_chinese_localization_rules():
     assert "Warren" in text
     assert "Buy" in text
     assert "Too Hard" in text
+    # BSH Research's voice, not Buffett's: "we" is BSH, 我们 in Chinese.
+    assert "The first person is 我们 (BSH 研究)" in text
+    assert "no 奥马哈 dateline" in text
+    assert "暂不买入（买入价 ≤ X）" in text
+    assert "台积电（TSMC）" in text
+    # The Chinese team's editing surface exists and is loaded nowhere.
+    twin = _repo_text("skills/memo/zh/buffett.md")
+    assert twin.startswith("---\nen_sha256: ")
+    assert "中文本地化质量标准" in twin
+
+
+def test_buffett_skill_is_loaded_from_skills_memo_without_front_matter():
+    text = claude_runner._load_buffett_skill_text()
+    assert claude_runner._BUFFETT_SKILL_PATH.parent.name == "memo"
+    assert not text.startswith("---")
+    assert "name: bsh-buffett-investment-memo-v1" not in text
+    assert text.lstrip().startswith("# Buffett-Method Memo")
+    assert not (Path(__file__).resolve().parents[1] / "server/skills/bsh_buffett_investment_memo.md").exists()

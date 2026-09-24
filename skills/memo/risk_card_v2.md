@@ -37,7 +37,9 @@ table. Structure, in order:
           9 times the $190-200B of revenue the company plans for 2028"),
           the arithmetic is shown in-line ("2.6T divided by 1.75T is
           1.5x"), and each comparison names the rule it is judged
-          against ("below our 1.5x hurdle"). Never a chain of figures
+          against ("below our hurdle — the pinned return_hurdle";
+          with no hurdle pinned, the entry price or the peers, never
+          an invented bar). Never a chain of figures
           the reader must decode; never a fact-to-conclusion jump with
           the middle step missing. End with the "so what" for the
           return in one sentence.

@@ -24,6 +24,7 @@ import httpx
 import yaml
 
 from . import storage
+from .company_names import clean_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,11 @@ def _edgar_search(q: str, limit: int) -> list[dict]:
         {
             "source": "edgar",
             "ticker": row["ticker"],
-            "name": row["name"].title() if row["name"].isupper() else row["name"],
+            # EDGAR filer names carry state tokens ("CORP /DE/"); suggest the
+            # clean display name so they never reach titles or filenames.
+            "name": clean_display_name(
+                row["name"].title() if row["name"].isupper() else row["name"]
+            ),
             "exchange": None,
             "status": "public",
             "company_type": "public",

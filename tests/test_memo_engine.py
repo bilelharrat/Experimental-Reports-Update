@@ -377,6 +377,8 @@ def test_the_claude_tier_model_never_reaches_gemini(tmp_path, monkeypatch):
         progress_message="m", timeout_label="t", timeout_sec=60,
         model="sonnet", effort="medium",
     )
+    # With no Pro model configured every role runs on the flash default;
+    # what matters here is that "sonnet" never reached Google.
     assert seen["model"] == "gemini-3.8-flash"
 
 

@@ -101,7 +101,7 @@ def test_history_endpoint_enriches_memo_and_replays_generic_logs():
     assert memo_row["report_ready_at"] == "2026-09-10T00:32:00+00:00"
     assert memo_row["run_finished_at"] == "2026-09-10T00:36:00+00:00"
     assert memo_row["claude_cost_usd"] == 12.5
-    assert memo_row["primary_route"]["params"]["reportId"] == report["id"]
+    assert memo_row["primary_route"] == {"name": "reports", "query": {"id": report["id"]}}
 
     generic_row = next(r for r in rows if r["kind"] == "weekly_stocks")
     assert generic_row["terminal_type"] == "error"

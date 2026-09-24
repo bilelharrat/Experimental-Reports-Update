@@ -128,6 +128,8 @@ def summary() -> dict:
     if section_reruns + section_reused:
         reuse_ratio = section_reused / (section_reruns + section_reused)
 
+    reports_read = _reports_read_block(rows)
+
     return {
         "generated_at": _now(),
         "event_counts": counts,
@@ -154,5 +156,51 @@ def summary() -> dict:
             "regenerated": section_reruns,
             "reuse_ratio": reuse_ratio,
         },
+        "reports_read": reports_read,
         "recent_events": rows[:25],
+    }
+
+
+def _reports_read_block(rows: list[dict]) -> dict:
+    """Reports read / flagged: report_opened and report_downloaded events
+    (one per reader session, see POST /api/reports/{id}/events) and the
+    reader flags on report comments. Readers are counted by a hash, never
+    named."""
+    opened = [r for r in rows if r.get("event") == "report_opened"]
+    downloaded = [r for r in rows if r.get("event") == "report_downloaded"]
+    readers = {str(r.get("reader")) for r in opened + downloaded if r.get("reader")}
+    flags_total = 0
+    flags_open = 0
+    flags_by_type: dict[str, int] = {}
+    flagged_reports: set[str] = set()
+    try:
+        from . import firm
+
+        for item in firm.all_comments():
+            if not isinstance(item, dict) or not item.get("flag"):
+                continue
+            target = item.get("target") or {}
+            if target.get("kind") not in firm.REPORT_TARGET_KINDS:
+                continue
+            flags_total += 1
+            flag = str(item.get("flag"))
+            flags_by_type[flag] = flags_by_type.get(flag, 0) + 1
+            if not item.get("resolved_at"):
+                flags_open += 1
+            if target.get("ref"):
+                flagged_reports.add(str(target.get("ref")))
+    except Exception:  # noqa: BLE001 — a summary block must not break Settings
+        pass
+    return {
+        "opened": len(opened),
+        "reports_opened": len({str(r.get("report_id")) for r in opened if r.get("report_id")}),
+        "downloaded": len(downloaded),
+        "reports_downloaded": len(
+            {str(r.get("report_id")) for r in downloaded if r.get("report_id")}
+        ),
+        "readers": len(readers),
+        "flags_total": flags_total,
+        "flags_open": flags_open,
+        "flags_by_type": flags_by_type,
+        "reports_flagged": len(flagged_reports),
     }

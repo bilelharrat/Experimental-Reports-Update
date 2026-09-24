@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 
 const docx = vi.hoisted(() => ({ renderAsync: vi.fn(() => Promise.resolve()) }));
 vi.mock("docx-preview", () => docx);
 
 import DocumentViewerWindow from "../src/components/DocumentViewerWindow.vue";
+import { jobLogRequest } from "../src/reportStatus.js";
+import { ANTHROPIC_COMPLETE, FAILED_DISMISSED, pausedReport, runningReport, withReport } from "./fixtures/reportSummaries.js";
+import { setAppLanguage } from "../src/state.js";
 
 function fetchResponse({ text = "", buffer = new ArrayBuffer(8), ok = true } = {}) {
   return {
@@ -224,5 +227,312 @@ describe("DocumentViewerWindow", () => {
 
     expect(wrapper.emitted("open-fullscreen")).toBeTruthy();
     expect(wrapper.emitted("open-fullscreen")[0][0].title).toBe("Report Popout");
+  });
+});
+
+// jsdom has no layout: paragraphs carry their page position in data-y, and
+// the scroll area (at the top of the viewport) reports them relative to its
+// own scroll offset, which is what the outline and the anchors measure.
+function layoutByDataY() {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (this.dataset && this.dataset.y !== undefined) {
+      const area = this.closest('[data-testid="viewer-scroll"]');
+      const top = Number(this.dataset.y) - (area ? area.scrollTop : 0);
+      return { top, bottom: top + 20, left: 0, right: 600, width: 600, height: 20, x: 0, y: top };
+    }
+    return original.call(this);
+  };
+  return () => {
+    HTMLElement.prototype.getBoundingClientRect = original;
+  };
+}
+
+function page(body) {
+  return (_buffer, container) => {
+    container.innerHTML = `<div class="docx-wrapper"><section class="docx" style="width: 612pt">${body}</section></div>`;
+    return Promise.resolve();
+  };
+}
+
+const settle = async () => {
+  await flushPromises();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await flushPromises();
+};
+
+const BOOKMARKED_EN = `
+  <p data-y="0">Cover</p>
+  <p data-y="100"><span id="bsh_sec_1"></span><span>I. EXECUTIVE SUMMARY</span></p>
+  <p data-y="900"><span id="bsh_sec_2"></span><span>II. COMPANY OVERVIEW</span></p>
+  <p data-y="2000"><span id="bsh_sec_3"></span><span>III. INVESTMENT RISK</span></p>
+  <p data-y="2500"><a href="#bsh_sec_2">Back to II</a> <a href="https://example.com/source">Source</a></p>`;
+const BOOKMARKED_ZH = `
+  <p data-y="0">封面</p>
+  <p data-y="150"><span id="bsh_sec_1"></span><span>一、执行摘要</span></p>
+  <p data-y="1300"><span id="bsh_sec_2"></span><span>二、公司概览</span></p>
+  <p data-y="2600"><span id="bsh_sec_3"></span><span>三、投资风险</span></p>`;
+
+describe("DocumentViewerWindow navigation", () => {
+  let restoreLayout;
+
+  beforeEach(() => {
+    docx.renderAsync.mockReset();
+    docx.renderAsync.mockImplementation(() => Promise.resolve());
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fetchResponse())));
+    window.localStorage.removeItem("bsh.docViewerZoom");
+    window.localStorage.removeItem("bsh.docViewerOutline");
+    restoreLayout = layoutByDataY();
+  });
+
+  afterEach(() => {
+    restoreLayout();
+    jobLogRequest.value = null;
+  });
+
+  function mountViewer(props = {}) {
+    return mount(DocumentViewerWindow, {
+      attachTo: document.body,
+      props: {
+        title: "Memo",
+        sources: [
+          { key: "EN", url: "/memo_en.docx", kind: "docx" },
+          { key: "ZH", url: "/memo_zh.docx", kind: "docx" },
+        ],
+        ...props,
+      },
+      global: { stubs: { RouterLink: true } },
+    });
+  }
+
+  it("builds the outline from the renderer's section bookmarks and jumps to a section", async () => {
+    docx.renderAsync.mockImplementation(page(BOOKMARKED_EN));
+    const wrapper = mountViewer();
+    await settle();
+
+    await wrapper.get('[data-testid="viewer-outline-toggle"]').trigger("click");
+    const outline = wrapper.get('[data-testid="viewer-outline"]');
+    const entries = outline.findAll("button");
+    expect(entries.map((b) => b.text())).toEqual([
+      "I. EXECUTIVE SUMMARY",
+      "II. COMPANY OVERVIEW",
+      "III. INVESTMENT RISK",
+    ]);
+    expect(window.localStorage.getItem("bsh.docViewerOutline")).toBe("1");
+
+    await wrapper.get('[data-testid="viewer-outline-bsh_sec_2"]').trigger("click");
+    const area = wrapper.get('[data-testid="viewer-scroll"]').element;
+    expect(area.scrollTop).toBe(892);
+    expect(wrapper.emitted("change-section")[0]).toEqual(["bsh_sec_2"]);
+    expect(wrapper.get('[data-testid="viewer-outline-bsh_sec_2"]').attributes("aria-current")).toBe("location");
+    wrapper.unmount();
+  });
+
+  it("scrolls in-document links inside the viewer and opens web links in a new tab", async () => {
+    docx.renderAsync.mockImplementation(page(BOOKMARKED_EN));
+    const wrapper = mountViewer();
+    await settle();
+
+    const area = wrapper.get('[data-testid="viewer-scroll"]').element;
+    const internal = area.querySelector('a[href="#bsh_sec_2"]');
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    internal.dispatchEvent(click);
+    // The hash never reaches the router; the viewer scrolls itself.
+    expect(click.defaultPrevented).toBe(true);
+    expect(area.scrollTop).toBe(892);
+
+    const external = area.querySelector('a[href^="https://"]');
+    expect(external.getAttribute("target")).toBe("_blank");
+    expect(external.getAttribute("rel")).toBe("noopener noreferrer");
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const outward = new MouseEvent("click", { bubbles: true, cancelable: true });
+    external.dispatchEvent(outward);
+    expect(outward.defaultPrevented).toBe(true);
+    expect(open).toHaveBeenCalledWith("https://example.com/source", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+    wrapper.unmount();
+  });
+
+  it("keeps the reader in the same section when switching EN to ZH", async () => {
+    docx.renderAsync
+      .mockImplementationOnce(page(BOOKMARKED_EN))
+      .mockImplementationOnce(page(BOOKMARKED_ZH));
+    const wrapper = mountViewer();
+    await settle();
+
+    const area = wrapper.get('[data-testid="viewer-scroll"]').element;
+    // Halfway through section II in English (900 → 2000).
+    area.scrollTop = 1450;
+    await wrapper.get('[data-testid="viewer-source-zh"]').trigger("click");
+    await settle();
+
+    expect(docx.renderAsync).toHaveBeenCalledTimes(2);
+    // Halfway through section II in Chinese (1300 → 2600).
+    expect(area.scrollTop).toBe(1950);
+    expect(wrapper.emitted("change-source").at(-1)[0]).toMatchObject({ key: "ZH", userInitiated: true });
+    wrapper.unmount();
+  });
+
+  it("opens at the ?section= a link names", async () => {
+    docx.renderAsync.mockImplementation(page(BOOKMARKED_EN));
+    const wrapper = mountViewer({ initialSection: "bsh_sec_3" });
+    await settle();
+    expect(wrapper.get('[data-testid="viewer-scroll"]').element.scrollTop).toBe(1992);
+    wrapper.unmount();
+  });
+
+  it("falls back to Word headings, then to an older memo's bold section titles", async () => {
+    docx.renderAsync.mockImplementationOnce(
+      page(`
+        <p class="docx_heading1" data-y="100">I. Investment Decision</p>
+        <p data-y="200">Body</p>
+        <p class="docx_heading1" data-y="500">II. The Business</p>`),
+    );
+    const buffett = mountViewer({ sources: [{ key: "EN", url: "/buffett.docx", kind: "docx" }] });
+    await settle();
+    await buffett.get('[data-testid="viewer-outline-toggle"]').trigger("click");
+    expect(buffett.findAll('[data-testid="viewer-outline"] button').map((b) => b.text())).toEqual([
+      "I. Investment Decision",
+      "II. The Business",
+    ]);
+    buffett.unmount();
+
+    // A 2026-08 late-stage memo: plain paragraphs, the titles bold at 15pt,
+    // the cover lines bold but larger, the sub-heads bold but body-sized.
+    docx.renderAsync.mockImplementationOnce(
+      page(`
+        <p data-y="0"><span style="font-weight: bold; font-size: 18pt">BERKELEY SUMMIT HOUSE</span></p>
+        <p data-y="20"><span style="font-weight: bold; font-size: 26pt">Anthropic, PBC</span></p>
+        <p data-y="100"><span style="font-weight: bold; font-size: 15pt">I. EXECUTIVE SUMMARY</span></p>
+        <p data-y="200"><span style="font-weight: bold; font-size: 10pt">Key Metrics Snapshot</span></p>
+        <p data-y="300"><span style="font-weight: bold; font-size: 15pt">II. COMPANY OVERVIEW</span></p>
+        <p data-y="400"><span>Body text that is not a heading.</span></p>
+        <p data-y="500"><span style="font-weight: bold; font-size: 15pt">III. INVESTMENT HIGHLIGHTS</span></p>`),
+    );
+    const older = mountViewer({ sources: [{ key: "EN", url: "/older.docx", kind: "docx" }] });
+    await settle();
+    expect(older.findAll('[data-testid="viewer-outline"] button').map((b) => b.text())).toEqual([
+      "I. EXECUTIVE SUMMARY",
+      "II. COMPANY OVERVIEW",
+      "III. INVESTMENT HIGHLIGHTS",
+    ]);
+    older.unmount();
+  });
+
+  it("lists a pass the server marks failed as not run, and never fetches its stub", async () => {
+    docx.renderAsync.mockImplementation(page(BOOKMARKED_EN));
+    const detail = {
+      analysis_artifacts: [
+        { label: "Countercase analysis", filename: "countercase.md", download_url: "/papers/countercase.md" },
+        { label: "Growth bridge", filename: "growth_bridge.md", download_url: "/papers/growth_bridge.md", failed: true },
+      ],
+    };
+    const wrapper = mountViewer({ detail, activePaper: "growth_bridge.md" });
+    await settle();
+
+    expect(wrapper.get('[data-testid="viewer-paper-not-run"]').text()).toContain("Pass did not run");
+    expect(fetch).not.toHaveBeenCalledWith("/papers/growth_bridge.md");
+    await wrapper.get('[data-testid="viewer-papers"]').trigger("click");
+    const item = wrapper.get('[data-testid="viewer-paper-growth_bridge.md"]');
+    expect(item.text()).toContain("Pass did not run");
+    wrapper.unmount();
+  });
+
+  it("explains a failure in the server's words, with what it spent", async () => {
+    const report = withReport(FAILED_DISMISSED, {
+      dismissed_at: null,
+      failure_kind: "provider_limit",
+      failure_summary_en: "Claude reached its usage limit, so the run stopped.",
+      failure_summary_zh: "Claude 已达到使用上限，运行因此停止。",
+      failure_spend_usd: 3.456,
+    });
+    const wrapper = mountViewer({ sources: [], report });
+    await settle();
+    const card = wrapper.get('[data-testid="viewer-status"]');
+    expect(card.get('[data-testid="viewer-status-title"]').text()).toBe("Stopped at the model's usage limit");
+    expect(card.get('[data-testid="viewer-status-summary"]').text()).toBe(
+      "Claude reached its usage limit, so the run stopped.",
+    );
+    expect(card.get('[data-testid="viewer-status-spend"]').text()).toBe(
+      "Spent before it stopped: $3.46 (API-equivalent)",
+    );
+
+    setAppLanguage("zh");
+    await flushPromises();
+    expect(card.get('[data-testid="viewer-status-summary"]').text()).toBe("Claude 已达到使用上限，运行因此停止。");
+    setAppLanguage("en");
+    wrapper.unmount();
+  });
+
+  it("asks the jobs rail to open a running report's live log", async () => {
+    const report = runningReport();
+    const wrapper = mountViewer({
+      sources: [],
+      report,
+      detail: { ...report, log_url: `/api/jobs/log?path=memo:${report.id}`, stream_url: `/api/memos/${report.id}/stream` },
+    });
+    await settle();
+    expect(wrapper.get('[data-testid="viewer-status"]').attributes("data-state")).toBe("running");
+    await wrapper.get('[data-testid="viewer-status-log"]').trigger("click");
+    expect(jobLogRequest.value.job).toMatchObject({
+      kind: "memo",
+      report_id: report.id,
+      log_url: `/api/jobs/log?path=memo:${report.id}`,
+    });
+    wrapper.unmount();
+  });
+
+  it("shows a paused run without its document as a card whose action continues it", async () => {
+    const report = pausedReport({ download_urls: null });
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+      text: async () => "",
+      arrayBuffer: async () => new ArrayBuffer(8),
+    });
+    const wrapper = mountViewer({ sources: [], report });
+    await settle();
+
+    const card = wrapper.get('[data-testid="viewer-status"]');
+    expect(card.attributes("data-state")).toBe("paused");
+    expect(card.get('[data-testid="viewer-status-title"]').text()).toBe("English ready — paused");
+    expect(card.text()).toContain("Stage: English ready — review before Chinese");
+    expect(card.get('[data-testid="viewer-quality-metrics"]').text()).toBe("Quality72% traced1 over cap0 conflicting4% repeated");
+    expect(card.findAll('[data-testid="viewer-quality-metric"]')[0].attributes("title")).toBe(
+      "The share of the memo's figures traced to a source on file or on the web.",
+    );
+    expect(wrapper.find('[data-testid="viewer-status-cancel"]').exists()).toBe(false);
+
+    const resume = card.get('[data-testid="viewer-status-resume"]');
+    expect(resume.text()).toBe("Continue (Chinese + IC memo)");
+    await resume.trigger("click");
+    expect(resume.text()).toBe("Click again to continue — this runs the model");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/resume"))).toBe(false);
+    await resume.trigger("click");
+    await settle();
+    const call = fetch.mock.calls.find(([url]) => String(url).endsWith(`/api/reports/${report.id}/resume`));
+    expect(call?.[1]?.method).toBe("POST");
+    expect(wrapper.emitted("report-changed")?.[0]?.[0]).toMatchObject({ action: "resume", id: report.id });
+    wrapper.unmount();
+  });
+
+  it("puts a finished memo's quality line beside its verdict and review", async () => {
+    docx.renderAsync.mockImplementation(page("<p>Memo</p>"));
+    const report = withReport(ANTHROPIC_COMPLETE, { quality_metrics: pausedReport().quality_metrics });
+    const wrapper = mountViewer({
+      report,
+      sources: [{ key: "EN", url: "/memo_en.docx", kind: "docx" }],
+    });
+    await settle();
+    const line = wrapper.get('[data-testid="viewer-meta"]').get('[data-testid="viewer-quality-metrics"]');
+    expect(line.text()).toBe("Quality72% traced1 over cap0 conflicting4% repeated");
+    expect(line.findAll('[data-testid="viewer-quality-metric"]')[3].attributes("title")).toBe(
+      "The share of sentences that repeat another sentence of the memo.",
+    );
+    // No metrics recorded: no line.
+    await wrapper.setProps({ report: withReport(ANTHROPIC_COMPLETE, {}) });
+    expect(wrapper.find('[data-testid="viewer-quality-metrics"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });

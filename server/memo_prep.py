@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from . import claude_runner, job_progress, memo_structure, serena_analysis, storage
+from .company_names import clean_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +95,36 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _internal_diligence_memo_enabled() -> bool:
-    return _env_flag("BSH_MEMO_GENERATE_INTERNAL", default=False)
+# Who a memo run is written for (POST /api/reports ``audience``). The LP
+# offer memo is written for every audience; the internal IC decision memo
+# (walk-away, kill criteria, conditions, the debate) is written alongside it
+# for the firm's own readers only — never for an LP-audience run.
+AUDIENCES = ("LP", "Assistant", "Partner", "Internal")
+DEFAULT_AUDIENCE = "Internal"
+IC_MEMO_AUDIENCES = frozenset({"Internal", "Partner", "Assistant"})
+
+# The per-run memo template (Settings → Reports → Memo template, or the
+# Generate dialog's override): "v1" is the standard late v1 memo, "v2" the
+# IC template (memo_structure.active_structure(version=...)).
+STRUCTURE_VERSIONS = ("v1", "v2")
+
+
+def normalize_audience(audience: str | None) -> str:
+    value = str(audience or "").strip()
+    return value if value in AUDIENCES else DEFAULT_AUDIENCE
+
+
+def _internal_diligence_memo_enabled(audience: str | None = None) -> bool:
+    """Whether a run writes the internal IC decision memo.
+
+    ``BSH_MEMO_GENERATE_INTERNAL`` set to a value is an override either way
+    (1 = every run, 0 = none). Unset, the run's audience decides: Internal,
+    Partner and Assistant runs get the IC memo next to the LP memo; an LP
+    run gets the LP memo only."""
+    raw = os.environ.get("BSH_MEMO_GENERATE_INTERNAL")
+    if raw is not None and raw.strip():
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return normalize_audience(audience) in IC_MEMO_AUDIENCES
 
 
 class AnalysisSessionNotReadyError(ValueError):
@@ -163,7 +192,9 @@ def _assess_stage(company: dict, *, calibrate_only: bool = False) -> dict:
     assessment = _classify_stage(company)
     if calibrate_only:
         assessment = {**assessment, "calibrate_only": True}
-        if assessment["outcome"] == "warn":
+        # A subsidiary's reason names the security that would own it —
+        # keep it; the generic calibration text is about stage alone.
+        if assessment["outcome"] == "warn" and assessment.get("classification") != "subsidiary":
             classification = assessment.get("classification") or "indeterminate"
             signals = ", ".join(assessment.get("signals") or []) or "none"
             assessment["reason"] = (
@@ -174,6 +205,96 @@ def _assess_stage(company: dict, *, calibrate_only: bool = False) -> dict:
                 "unit economics, and valuation framing to it."
             )
     return assessment
+
+
+def _assess_buffett_scope(company: dict) -> dict:
+    """Scope check for the Buffett-method memo: only the nonprofit hard
+    failure. There is no venture stage gate — an owner's analysis judges a
+    business at a price at any stage — so every other company passes, with
+    the security facts (ticker, exchange, registry status, parent) recorded
+    as signals. The run's prompt carries them as a "## Security" block
+    instead of the late-stage "stage note"."""
+    status = (company.get("status") or "").strip().lower()
+    if status == "nonprofit":
+        return _classify_stage(company)
+    ticker = str(company.get("ticker") or "").strip()
+    exchange = str(company.get("exchange") or "").strip()
+    parent = str(company.get("parent_company") or company.get("parent") or "").strip()
+    if status == "subsidiary":
+        classification = "subsidiary"
+    else:
+        classification = storage.infer_company_type(company)
+    signals = [f"registry status: {status or 'not recorded'}"]
+    if ticker:
+        signals.append(f"ticker: {ticker}")
+    if exchange:
+        signals.append(f"exchange: {exchange}")
+    if parent:
+        signals.append(f"parent: {parent}")
+    return {
+        "outcome": "pass",
+        "classification": classification,
+        "reason": (
+            "Buffett-method memo: no stage gate. The memo judges the business "
+            "at a price and names the security that would own it."
+        ),
+        "signals": signals,
+    }
+
+
+def _parent_name(company: dict) -> str:
+    return str(company.get("parent_company") or company.get("parent") or "").strip()
+
+
+def _subsidiary_security(parent: str) -> str:
+    return f"parent ({parent})" if parent else "parent (unknown until researched)"
+
+
+def _public_signal(company: dict) -> str:
+    """Why the registry says this company is listed ("" when it does not):
+    an exchange, or the registry's own public/private rule (status public,
+    else a ticker) — the exchange is blank on most listed records, which
+    left AMD, KO, OXY and Google "indeterminate"."""
+    exchange = str(company.get("exchange") or "").strip()
+    if exchange:
+        return f"public on {exchange}"
+    if storage.infer_company_type(company) != "public":
+        return ""
+    ticker = str(company.get("ticker") or "").strip()
+    return f"public (ticker {ticker})" if ticker else "public (registry status)"
+
+
+def classify_actionability(company: dict) -> dict:
+    """What an outside investor could actually buy, from the registry alone
+    (R29 A(b)): ``{kind, investable_security, parent?, ticker?, source}``.
+    ``kind``: ``private_round`` | ``listed`` | ``subsidiary`` | ``nonprofit``.
+    Recorded on the report next to ``scope_check`` so the UI can say
+    "Listed: consider the Buffett memo" or "Subsidiary of X"."""
+    status = str(company.get("status") or "").strip().lower()
+    out: dict[str, Any] = {"source": "registry"}
+    if status == "nonprofit":
+        out.update(kind="nonprofit", investable_security="none (nonprofit)")
+    elif status == "subsidiary" and not str(company.get("exchange") or "").strip():
+        parent = _parent_name(company)
+        out.update(kind="subsidiary", investable_security=_subsidiary_security(parent))
+        if parent:
+            out["parent"] = parent
+    elif _public_signal(company):
+        ticker = str(company.get("ticker") or "").strip()
+        exchange = str(company.get("exchange") or "").strip()
+        listing = " on ".join(part for part in (ticker, exchange) if part)
+        out.update(
+            kind="listed",
+            investable_security=f"listed equity ({listing})" if listing else "listed equity",
+        )
+        if ticker:
+            out["ticker"] = ticker
+    else:
+        out.update(
+            kind="private_round",
+            investable_security="private shares (a primary round or a secondary; terms to be confirmed)",
+        )
+    return out
 
 
 def _classify_stage(company: dict) -> dict:
@@ -191,9 +312,32 @@ def _classify_stage(company: dict) -> dict:
 
     signals: list[str] = []
 
-    exchange = (company.get("exchange") or "").strip()
-    if exchange:
-        signals.append(f"public on {exchange}")
+    if status == "subsidiary" and not str(company.get("exchange") or "").strip():
+        # Nothing to buy directly: the investable security is the parent.
+        # (A subsidiary with its own listing is listed: see below.)
+        parent = _parent_name(company)
+        security = _subsidiary_security(parent)
+        signals.append("status: subsidiary")
+        if parent:
+            signals.append(f"parent: {parent}")
+        return {
+            "outcome": "warn",
+            "classification": "subsidiary",
+            "investable_security": security,
+            "reason": (
+                "Company is recorded as a subsidiary"
+                + (f" of {parent}" if parent else "")
+                + f"; the investable security is the {security}. Name the "
+                "security that would own this business and say whether "
+                "owning it is a meaningful way to own this one; do not "
+                "value a round that does not exist."
+            ),
+            "signals": signals,
+        }
+
+    public_signal = _public_signal(company)
+    if public_signal:
+        signals.append(public_signal)
         return {
             "outcome": "pass",
             "classification": "public",
@@ -301,12 +445,12 @@ def classify_structure_stage(company: dict) -> dict:
     """
     signals: list[str] = []
 
-    exchange = (company.get("exchange") or "").strip()
-    if exchange:
+    public_signal = _public_signal(company)
+    if public_signal:
         return {
             "stage": "late",
             "source": "public listing",
-            "signals": [f"public on {exchange}"],
+            "signals": [public_signal],
         }
 
     lf = company.get("latest_funding") or {}
@@ -402,6 +546,25 @@ def stream_path(run_dir: Path | str) -> Path:
 
 # --- Manifest writers ------------------------------------------------------
 
+def company_display_name(company: dict | None, *, fallback: str = "") -> str:
+    """The name a memo run shows for ``company``: the registry name minus
+    EDGAR state/suffix tokens (" /De/", "/NEW/", …), with path separators
+    and control characters replaced (``company_names.clean_display_name``).
+    It feeds the prompts, the Word cover/header and ``_memo_filename``; the
+    company id (the slug) is never changed."""
+    record = company if isinstance(company, dict) else {}
+    for raw in (record.get("name"), record.get("id"), fallback):
+        cleaned = clean_display_name(raw)
+        if cleaned:
+            return cleaned
+    return ""
+
+
+# Display/file labels. The wire and storage values stay "Buffett Investment
+# Memo" / "buffett_investment_memo"; only what a reader sees is renamed.
+BUFFETT_FILE_LABEL = {"en": "Buffett-Method Memo", "zh": "巴菲特方法备忘录"}
+
+
 def _memo_filename(
     company_name: str,
     run_id: str,
@@ -409,17 +572,55 @@ def _memo_filename(
     *,
     buffett: bool = False,
 ) -> str:
+    # One path component, always: an EDGAR name such as "Occidental
+    # Petroleum Corp /De/" once nested the docx under a "/De/" folder.
+    name = clean_display_name(company_name) or "Company"
     if buffett:
-        if language == "zh":
-            return f"{company_name} - 巴菲特投资备忘录 - {run_id}.docx"
-        return f"{company_name} - Buffett Investment Memo - {run_id}.docx"
+        label = BUFFETT_FILE_LABEL["zh" if language == "zh" else "en"]
+        return f"{name} - {label} - {run_id}.docx"
     if language == "zh":
-        return f"{company_name} - 投资备忘录 - {run_id}.docx"
-    return f"{company_name} - Investment Memo - {run_id}.docx"
+        return f"{name} - 投资备忘录 - {run_id}.docx"
+    return f"{name} - Investment Memo - {run_id}.docx"
 
 
-def _internal_memo_filename(company_name: str, run_id: str, suffix: str) -> str:
-    return f"{company_name} - Internal Diligence Memo - {run_id}.{suffix}"
+def _internal_memo_filename(
+    company_name: str, run_id: str, suffix: str, *, language: str = "en"
+) -> str:
+    # One path component, like _memo_filename: an EDGAR "/De/" must never
+    # nest the file under a folder.
+    name = clean_display_name(company_name) or "Company"
+    if language == "zh":
+        return f"{name} - 投委会决策备忘录 - {run_id}.{suffix}"
+    return f"{name} - Internal Diligence Memo - {run_id}.{suffix}"
+
+
+def internal_memo_files_for_run(
+    run_dir: Path, company_name: str, run_id: str
+) -> tuple[list[dict], dict[str, str]]:
+    """The IC decision memo's predicted files (English and Chinese), as the
+    report's ``internal_memo_files`` entries (one per language, kind
+    ``internal_diligence_memo``) and the manifest's absolute paths."""
+    entries: list[dict] = []
+    paths: dict[str, str] = {}
+    for language in ("en", "zh"):
+        md = run_dir / "memo" / _internal_memo_filename(
+            company_name, run_id, "md", language=language
+        )
+        docx = run_dir / "memo" / _internal_memo_filename(
+            company_name, run_id, "docx", language=language
+        )
+        entries.append(
+            {
+                "kind": "internal_diligence_memo",
+                "language": language,
+                "markdown_path": _rel(md),
+                "path": _rel(docx),
+            }
+        )
+        suffix = "" if language == "en" else f"_{language}"
+        paths[f"internal_md{suffix}"] = str(md)
+        paths[f"internal_docx{suffix}"] = str(docx)
+    return entries, paths
 
 
 def _rel(path: Path | str) -> str:
@@ -476,10 +677,9 @@ def _write_manifest_skeleton(
     lines += ["", "## Predicted artifacts", ""]
     lines.append(f"- {_rel(memo_paths['en'])}")
     lines.append(f"- {_rel(memo_paths['zh'])}")
-    if internal_memo_paths and internal_memo_paths.get("internal_md"):
-        lines.append(f"- {_rel(internal_memo_paths['internal_md'])}")
-    if internal_memo_paths and internal_memo_paths.get("internal_docx"):
-        lines.append(f"- {_rel(internal_memo_paths['internal_docx'])}")
+    for key in ("internal_md", "internal_docx", "internal_md_zh", "internal_docx_zh"):
+        if internal_memo_paths and internal_memo_paths.get(key):
+            lines.append(f"- {_rel(internal_memo_paths[key])}")
     lines += ["", "## Validation", ""]
     lines.append("- english: pending")
     lines.append("- chinese: pending")
@@ -489,6 +689,23 @@ def _write_manifest_skeleton(
     path = run_dir / "logs" / "run_manifest.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def append_manifest_inputs(run_dir: Path, lines: list[str]) -> None:
+    """Record, in ``logs/run_manifest.md``, the inputs the worker actually
+    staged for the run (reference-call notes, founder updates, deal terms,
+    reader flags) under the prep-time "Inputs the skill will read" list.
+    Best-effort."""
+    if not lines:
+        return
+    path = run_dir / "logs" / "run_manifest.md"
+    try:
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        block = "\n## Inputs staged for this run\n\n" + "\n".join(f"- {line}" for line in lines) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(existing.rstrip() + "\n" + block, encoding="utf-8")
+    except OSError:
+        logger.warning("could not list the staged inputs in %s", path, exc_info=True)
 
 
 def _write_scope_failure(run_dir: Path, *, company: dict, stage: dict) -> Path:
@@ -554,8 +771,20 @@ def bootstrap_memo_run(
     evidence_files: list[str] | None = None,
     trigger: str | None = None,
     auto_run_id: str | None = None,
+    audience: str | None = None,
+    structure_version: str | None = None,
+    structure_version_source: str | None = None,
+    pause_after_english: bool = False,
+    cost_ceiling_usd: float | None = None,
 ) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
+
+    ``pause_after_english`` stops the run once its English memo is accepted
+    and rendered (status ``english_ready_paused``); Resume writes the
+    Chinese. ``cost_ceiling_usd`` caps this run's spend (the pipeline stops
+    before the next paid phase once it is reached and delivers what is
+    finished); unset, the server default applies (BSH_MEMO_COST_CEILING_USD,
+    60). Both are stored on the record only when set.
 
     Returns a result dict. Hard scope failures (for example nonprofit /
     out-of-scope) mark the report ``failed_scope_check``. Early-stage
@@ -566,9 +795,24 @@ def bootstrap_memo_run(
     ``memo_mode="studio"`` dispatches the Memo Studio investigation worker
     (Phase 1-2 + standalone spine, then park at ``awaiting_studio``)
     instead of the full One-Click pipeline.
+
+    ``audience`` is who the run is written for (``AUDIENCES``; unknown or
+    absent → Internal). It is stored on the record and decides whether the
+    internal IC decision memo is written next to the LP memo
+    (``_internal_diligence_memo_enabled``).
+
+    ``structure_version`` ("v1" | "v2") is the memo template the caller
+    resolved (per-run override, Settings, or the env default) for a
+    late-stage / Auto run; it is on the record BEFORE the worker starts, so
+    the pipeline resolves the structure from it
+    (``memo_structure.active_structure(version=...)``). Buffett runs and
+    ``None`` store nothing (the pipeline then follows the env flag).
     """
     if memo_mode not in ("auto", "studio"):
         raise ValueError(f"Unknown memo_mode: {memo_mode}")
+    if structure_version is not None and structure_version not in STRUCTURE_VERSIONS:
+        raise ValueError(f"Unknown structure_version: {structure_version}")
+    audience = normalize_audience(audience)
     # "full" is the complete IC report; "compact" prefers the stage's
     # short profile (memo_structure.active_structure resolves it, and
     # falls back to full when the stage has no compact profile yet).
@@ -579,6 +823,13 @@ def bootstrap_memo_run(
     # table in claude_runner (env overrides still win).
     if quality not in claude_runner.MEMO_QUALITY_LEVELS:
         raise ValueError(f"Unknown quality: {quality}")
+    if cost_ceiling_usd is not None:
+        try:
+            cost_ceiling_usd = float(cost_ceiling_usd)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid cost_ceiling_usd: {cost_ceiling_usd!r}") from exc
+        if cost_ceiling_usd <= 0:
+            raise ValueError("cost_ceiling_usd must be a positive amount")
     company = storage.get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company_id: {company_id}")
@@ -603,7 +854,7 @@ def bootstrap_memo_run(
     selected_skill_version = BUFFETT_SKILL_VERSION if buffett else SKILL_VERSION
 
     slug = _company_slug(company)
-    company_name = company.get("name") or slug
+    company_name = company_display_name(company, fallback=slug) or slug
     job_title = (
         f"Buffett memo — {company_name}"
         if buffett
@@ -655,41 +906,28 @@ def bootstrap_memo_run(
     }
     internal_memo_files: list[dict] = []
     internal_memo_paths: dict[str, str] | None = None
-    if (not buffett) and _internal_diligence_memo_enabled():
-        internal_md = run_dir / "memo" / _internal_memo_filename(
-            company_name,
-            run_id,
-            "md",
+    if (not buffett) and _internal_diligence_memo_enabled(audience):
+        # The IC decision memo: English and Chinese from one call, each
+        # rendered to its own docx (kind internal_diligence_memo, one entry
+        # per language — the API exposes them as `internal` / `internal_zh`).
+        internal_memo_files, internal_memo_paths = internal_memo_files_for_run(
+            run_dir, company_name, run_id
         )
-        internal_docx = run_dir / "memo" / _internal_memo_filename(
-            company_name,
-            run_id,
-            "docx",
-        )
-        internal_memo_files = [
-            {
-                "kind": "internal_diligence_memo",
-                "language": "en",
-                "markdown_path": _rel(internal_md),
-                "path": _rel(internal_docx),
-            }
-        ]
-        internal_memo_paths = {
-            "internal_md": str(internal_md),
-            "internal_docx": str(internal_docx),
-        }
 
     # Mint the report record up front so the run is browseable even if
     # we fail downstream.
     report = storage.create_report(
         company_id=slug,
         report_type=selected_report_type,
-        audience="Internal",
+        audience=audience,
         language="en",
     )
     storage.update_report(
         report["id"],
         kind=selected_kind,
+        # The clean display name (no EDGAR " /De/" tokens) is what the
+        # analysis workers put in prompts, covers and headers.
+        company_name=company_name,
         status="prepping",
         stage="Preparing run",
         run_dir=_rel(run_dir),
@@ -710,9 +948,28 @@ def bootstrap_memo_run(
             if analysis_session
             else False
         ),
+        # The memo template, written before any worker can read the record
+        # (it used to land a moment after the worker had started, so a fast
+        # worker resolved its structure without it). Late-stage / Auto only.
+        **(
+            {
+                "structure_version": structure_version,
+                "structure_version_source": structure_version_source or "request",
+            }
+            if structure_version and not buffett
+            else {}
+        ),
         # Provenance for runs launched by tracked-news auto-runs; manual
         # runs keep their record shape unchanged (no null keys).
         **({"trigger": trigger, "auto_run_id": auto_run_id} if trigger else {}),
+        # Per-run pipeline controls, stored only when set (see the
+        # docstring): the worker reads them from the record.
+        **({"pause_after_english": True} if pause_after_english and not buffett else {}),
+        **(
+            {"cost_ceiling_usd": cost_ceiling_usd}
+            if cost_ceiling_usd is not None and not buffett
+            else {}
+        ),
     )
 
     stream.emit(
@@ -756,7 +1013,12 @@ def bootstrap_memo_run(
         memo_paths=memo_paths,
     )
 
-    stage_assessment = _assess_stage(company, calibrate_only=auto_stage)
+    if buffett:
+        # Owner's analysis: only the nonprofit hard failure; no venture
+        # stage warning reaches the Buffett prompt.
+        stage_assessment = _assess_buffett_scope(company)
+    else:
+        stage_assessment = _assess_stage(company, calibrate_only=auto_stage)
     stream.emit(
         "stage",
         stage="scope_check",
@@ -773,6 +1035,7 @@ def bootstrap_memo_run(
             status="failed_scope_check",
             stage="Scope check failed",
             scope_check=stage_assessment,
+            actionability=classify_actionability(company),
         )
         stream.emit(
             "error",
@@ -845,6 +1108,11 @@ def bootstrap_memo_run(
     # (`vertical`). Otherwise the pipeline's Phase 1 thread runs the
     # classifier and publishes the result the same way.
     company_type = classify_company_type(company) if not buffett else None
+    # Where the company is domiciled, for the research overlay (Chinese
+    # registries, filings and press for a mainland company).
+    from . import memo_inputs
+
+    jurisdiction = memo_inputs.detect_jurisdiction(company) if not buffett else None
     if company_type is not None:
         type_label = memo_structure.COMPANY_TYPE_LABELS[company_type["type"]]["en"]
         stream.emit(
@@ -862,12 +1130,16 @@ def bootstrap_memo_run(
         progress=10,
         warnings=warnings,
         scope_check=stage_assessment,
+        # What an outside investor could buy (listed, a subsidiary's
+        # parent, a private round) — registry-based, next to the scope check.
+        actionability=classify_actionability(company),
         **(
             {"structure_stage": structure_stage}
             if structure_stage is not None
             else {}
         ),
         **({"company_type": company_type} if company_type is not None else {}),
+        **({"jurisdiction": jurisdiction} if jurisdiction else {}),
         **(
             {"structure_mode": report_mode}
             if not buffett and report_mode != "full"

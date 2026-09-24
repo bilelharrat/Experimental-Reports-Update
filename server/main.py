@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -125,9 +126,17 @@ async def _security_headers(request, call_next):
     return response
 
 
+_READER_EVENT_PATH_RE = re.compile(r"/api/reports/[^/]+/events/?$")
+
+
 @app.middleware("http")
 async def _audit_mutations(request, call_next):
-    """Append every mutating /api call (who, what, status) to the firm audit trail."""
+    """Append every mutating /api call (who, what, status) to the firm audit trail.
+
+    Reader telemetry (POST /api/reports/{id}/events) is a read signal, not a
+    change, so it stays out of the trail; report downloads and exports are
+    recorded by the download routes themselves (server/report_access.py).
+    """
     response = await call_next(request)
     try:
         path = request.url.path
@@ -138,6 +147,7 @@ async def _audit_mutations(request, call_next):
             and "/stream" not in path
             and "/copilot" not in path
             and "/console" not in path
+            and not _READER_EVENT_PATH_RE.search(path)
         ):
             from server import firm
 

@@ -9,6 +9,16 @@ from pathlib import Path
 from server import claude_runner
 
 
+def _fake_zh(en: str) -> str:
+    """A fake translation: "中文:" + the English. A long English sentence
+    kept that way is what the untranslated-slot rule catches (Gemini,
+    2026-09-23), so its words are joined with the ideographic space."""
+    from server import memo_chinese_parity
+
+    text = f"中文:{en}"
+    return text.replace(" ", "\u3000") if memo_chinese_parity.embedded_english_sentence(text) else text
+
+
 def test_silence_constant_is_long():
     assert claude_runner.MEMO_PACKAGE_SILENCE_TIMEOUT_SEC >= 600
 
@@ -142,7 +152,7 @@ def test_parallel_bilingual_pass_reassembles_sections(monkeypatch, tmp_path):
         def fill(node):
             if isinstance(node, dict):
                 if "en" in node and "zh" in node and not node["zh"]:
-                    node["zh"] = f"中文:{node['en']}"
+                    node["zh"] = _fake_zh(node["en"])
                 for v in node.values():
                     fill(v)
             elif isinstance(node, list):
@@ -314,7 +324,7 @@ def _translated_package():
     def fill(node):
         if isinstance(node, dict):
             if "en" in node and "zh" in node and not node["zh"]:
-                node["zh"] = f"中文:{node['en']}"
+                node["zh"] = _fake_zh(node["en"])
             for value in node.values():
                 fill(value)
         elif isinstance(node, list):

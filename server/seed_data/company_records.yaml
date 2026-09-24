@@ -52,24 +52,35 @@
       - label: ZaiNar company record
         source_class: company
         as_of: "2026-02-19"
+  # The ARR, growth and TAM figures below, the industry-view metrics, the
+  # cap table and the expert stances are placeholder values from the v2
+  # design mock / PRD (generated 2026-06-13). They are kept so the company
+  # page shows the designed layout, and labelled as demo data so nothing
+  # downstream presents them as diligence: no BSH document backs them.
+  demo_data_note: Placeholder values from the v2 design mock (2026-06-13),
+    not diligence and not evidence — ARR, YoY growth and TAM in metrics,
+    every industry_view metric, the cap table and the expert stances. Do not
+    cite them as facts about ZaiNar.
   metrics:
     - label: ARR
       value: ~$24M
       unit: USD
       as_of: "2026-06-13"
-      confidence: medium
-      source_class: BSH diligence
+      confidence: low
+      source_class: demo placeholder (v2 design mock)
+      note: Placeholder from the v2 design mock; no document backs it.
       source_refs:
-        - label: BSH PRD reference package
-          source_class: BSH primary diligence
+        - label: Demo placeholder (v2 design mock) — not evidence
+          source_class: demo placeholder (v2 design mock)
     - label: YoY Growth
       value: +180%
       as_of: "2026-06-13"
-      confidence: medium
-      source_class: BSH diligence
+      confidence: low
+      source_class: demo placeholder (v2 design mock)
+      note: Placeholder from the v2 design mock; no document backs it.
       source_refs:
-        - label: BSH PRD reference package
-          source_class: BSH primary diligence
+        - label: Demo placeholder (v2 design mock) — not evidence
+          source_class: demo placeholder (v2 design mock)
     - label: Valuation
       value: $1.0B+
       unit: USD
@@ -83,11 +94,12 @@
       value: ~$45B
       unit: USD
       as_of: "2030"
-      confidence: medium
-      source_class: third-party market data
+      confidence: low
+      source_class: demo placeholder (v2 design mock)
+      note: Placeholder from the v2 design mock; no market model backs it.
       source_refs:
-        - label: BSH market model reference
-          source_class: third-party market data
+        - label: Demo placeholder (v2 design mock) — not evidence
+          source_class: demo placeholder (v2 design mock)
   team_profiles:
     - name: Daniel Jacker
       role: Co-founder / CEO
@@ -177,13 +189,13 @@
   cap_table_lineage:
     - name: Koch Disruptive Technologies
       ownership: 18.5%
-      source_class: BSH primary diligence
+      source_class: demo placeholder (v2 design mock)
     - name: Foundation Capital
       ownership: 12.0%
-      source_class: BSH primary diligence
+      source_class: demo placeholder (v2 design mock)
     - name: Founders
       ownership: 65.0%
-      source_class: BSH primary diligence
+      source_class: demo placeholder (v2 design mock)
   recent_news:
     - headline: ZaiNar opens Tokyo office and is selected by the Tokyo
         Metropolitan Government for the GX Innovation Program
@@ -246,19 +258,19 @@
     metrics:
       - label: Sector TAM
         value: ~$45B
-        source_class: third-party market data
+        source_class: demo placeholder (v2 design mock)
         as_of: "2030"
       - label: 5-year CAGR
         value: ~24%
-        source_class: third-party market data
+        source_class: demo placeholder (v2 design mock)
         as_of: "2026"
       - label: Tracked comps
         value: "5"
-        source_class: BSH comp set
+        source_class: demo placeholder (v2 design mock)
         as_of: "2026-06-13"
       - label: Median EV/NTM revenue
         value: ~12x
-        source_class: public comps
+        source_class: demo placeholder (v2 design mock)
         as_of: "2026-06-13"
     sector_signals:
       - category: demand
@@ -271,20 +283,20 @@
         implication: Patent claim-chart diligence remains required before
           underwriting moat durability.
   expert_opinions:
-    - speaker: BSH Research
-      affiliation: Internal diligence
+    - speaker: Demo stance (v2 design mock)
+      affiliation: Placeholder — not an analyst view
       stance: Bullish
       date: "2026-06-13"
       summary: Software-only deployment over existing 5G and Wi-Fi networks is
         the lowest-friction path to broad spatial sensing adoption.
-      source_class: BSH primary diligence
-    - speaker: BSH Research
-      affiliation: Internal diligence
+      source_class: demo placeholder (v2 design mock)
+    - speaker: Demo stance (v2 design mock)
+      affiliation: Placeholder — not an analyst view
       stance: Cautious
       date: "2026-06-13"
       summary: Revenue quality and markup credibility require independent
         evidence before relying on the $1B+ post-money mark.
-      source_class: BSH primary diligence
+      source_class: demo placeholder (v2 design mock)
   disclosures:
     - label: BSH position disclosure
       body: BSH may hold or seek a position in the company.

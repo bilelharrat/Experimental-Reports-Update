@@ -171,6 +171,17 @@ def normalize_source_class(value: Any) -> str:
     return _SOURCE_CLASS_ALIASES.get(raw, "unknown/pending")
 
 
+def _shared_source_class(metrics: list) -> str:
+    """The class a card of metrics can honestly carry: the one all its
+    metrics share, otherwise unknown/pending."""
+    classes = {
+        normalize_source_class(metric.get("source_class"))
+        for metric in metrics
+        if isinstance(metric, dict) and _metric_line(metric)
+    }
+    return classes.pop() if len(classes) == 1 else "unknown/pending"
+
+
 def normalize_source_ref(
     value: Any,
     *,
@@ -608,7 +619,10 @@ def _fallback_thesis_cards(company: dict) -> list[dict]:
                 )
             ],
             source_refs=metric_refs,
-            source_class="BSH primary diligence",
+            # The card is only as strong as the metrics under it. Stamping
+            # it "BSH primary diligence" let registry and demo figures pass
+            # as the firm's own work.
+            source_class=_shared_source_class(metrics[:4]),
             confidence="medium",
         ),
         _card(
@@ -642,9 +656,11 @@ def _fallback_thesis_cards(company: dict) -> list[dict]:
 
 
 def _fallback_risk_cards(company: dict) -> list[dict]:
+    # These cards list work still to do, so they cite an open item — not a
+    # "BSH PRD reference package" filed as diligence the firm never did.
     diligence_refs = normalize_source_refs(
-        [{"title": "BSH PRD reference package", "source_class": "BSH primary diligence"}],
-        fallback_title="BSH diligence source",
+        [{"title": "BSH open diligence item", "source_class": "internal note"}],
+        fallback_title="BSH open diligence item",
     )
     industry = company.get("industry_view") if isinstance(company.get("industry_view"), dict) else {}
     signals = [s for s in _list(industry.get("sector_signals")) if isinstance(s, dict)]
@@ -666,12 +682,12 @@ def _fallback_risk_cards(company: dict) -> list[dict]:
                     "Booked ARR, contract terms, and pilot-to-production conversion should be independently verified before export.",
                     index=1,
                     source_refs=diligence_refs,
-                    source_class="BSH primary diligence",
+                    source_class="internal note",
                     confidence="medium",
                 )
             ],
             source_refs=diligence_refs,
-            source_class="BSH primary diligence",
+            source_class="internal note",
             confidence="medium",
         ),
         _card(
@@ -707,12 +723,12 @@ def _fallback_risk_cards(company: dict) -> list[dict]:
                     or "Valuation support is incomplete and should stay sensitivity-weighted.",
                     index=1,
                     source_refs=valuation_refs,
-                    source_class=valuation.get("source_class") if valuation else "BSH primary diligence",
+                    source_class=valuation.get("source_class") if valuation else "unknown/pending",
                     confidence=valuation.get("confidence") if valuation else "medium",
                 )
             ],
             source_refs=valuation_refs,
-            source_class=valuation.get("source_class") if valuation else "BSH primary diligence",
+            source_class=valuation.get("source_class") if valuation else "unknown/pending",
             confidence=valuation.get("confidence") if valuation else "medium",
         ),
     ]

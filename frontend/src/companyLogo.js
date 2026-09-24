@@ -80,8 +80,6 @@ const SLUG_DOMAIN_MAP = {
   anthropic: "anthropic.com",
   "anthropic-pbc": "anthropic.com",
   openai: "openai.com",
-  "open-artificial-intelligence": "openai.com",
-  "open-artificial-intelligence-inc": "openai.com",
   "google-llc": "google.com",
   google: "google.com",
   "coca-cola": "coca-cola.com",
@@ -155,8 +153,125 @@ export function normalizeDomain(raw) {
   return "";
 }
 
+// Corporate words a name may end in without changing whose name it is:
+// "Anthropic PBC" and "Databricks Inc." are still Anthropic and Databricks.
+const NAME_SUFFIXES = new Set([
+  "inc",
+  "incorporated",
+  "corp",
+  "corporation",
+  "co",
+  "company",
+  "ltd",
+  "limited",
+  "llc",
+  "pbc",
+  "plc",
+  "sa",
+  "ag",
+  "gmbh",
+  "holdings",
+  "holding",
+  "group",
+  "technologies",
+  "technology",
+  "systems",
+  "labs",
+  "ai",
+  "de",
+]);
+
+/**
+ * A name reduced to the letters that identify it: lower case, punctuation
+ * and trailing corporate words dropped ("Coca Cola Co" → "cocacola").
+ * Latin letters only, so a Chinese name reduces to "" and never matches.
+ */
+function nameSlug(name) {
+  const words = String(name || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  while (words.length > 1 && NAME_SUFFIXES.has(words[words.length - 1])) words.pop();
+  return words.join("");
+}
+
+/**
+ * A key two spellings of one company's name share ("Microsoft" and
+ * "Microsoft Corp"; "Anthropic, PBC" and "Anthropic"). A name with no Latin
+ * letters (a Chinese name) is its own key, trimmed and lower-cased.
+ */
+export function companyNameKey(name) {
+  return nameSlug(name) || String(name || "").trim().toLowerCase();
+}
+
+function nameIndex(map) {
+  const index = new Map();
+  for (const [key, value] of Object.entries(map)) {
+    const slug = nameSlug(key);
+    if (slug && !index.has(slug)) index.set(slug, value);
+  }
+  return index;
+}
+
+let slugDomainByName = null;
+let highResByName = null;
+
+// A name counts only when it IS a mapped name once its corporate suffix is
+// dropped — never when it merely contains one. Substring matching gave
+// "Anthropics Technology" Anthropic's mark, "Walten" ALTEN's and anything
+// with "scale" in it Scale AI's.
+function domainForName(name) {
+  const slug = nameSlug(name);
+  if (!slug) return "";
+  if (!slugDomainByName) slugDomainByName = nameIndex(SLUG_DOMAIN_MAP);
+  return slugDomainByName.get(slug) || "";
+}
+
+function highResLogoForName(name) {
+  const slug = nameSlug(name);
+  if (!slug) return "";
+  if (!highResByName) highResByName = nameIndex(HIGH_RES_LOGOS);
+  return highResByName.get(slug) || "";
+}
+
+// What a report snapshotted of its company when it was created
+// (server/report_reader.py IDENTITY_FIELDS). It wins over the live record,
+// which may have been edited — or re-pointed at another entity — since.
+const SNAPSHOT_FIELDS = ["ticker", "website", "logo_domain", "logo_url", "legal_name"];
+
+function logoIdentity(company) {
+  const snapshot = company?.company_identity;
+  if (!snapshot || typeof snapshot !== "object") return company;
+  const merged = { ...company };
+  for (const key of SNAPSHOT_FIELDS) {
+    if (snapshot[key]) merged[key] = snapshot[key];
+  }
+  return merged;
+}
+
+/**
+ * What tells a company from its lookalikes, for a line under its name: the
+ * legal entity (when it reads differently from the display name), the
+ * one-line disambiguator the company search wrote, and the company's own
+ * domain. Empty when the record carries none of them.
+ */
+export function companyIdentityParts(company) {
+  if (!company || typeof company !== "object") return [];
+  const parts = [];
+  const name = String(company.name || "").trim().toLowerCase();
+  const legal = String(company.legal_name || "").trim();
+  if (legal && legal.toLowerCase() !== name) parts.push(legal);
+  const disambiguator = String(company.disambiguator || "").trim();
+  if (disambiguator) parts.push(disambiguator);
+  const domain = normalizeDomain(company.website) || normalizeDomain(company.logo_domain);
+  if (domain) parts.push(domain);
+  return parts;
+}
+
 /**
  * Deterministically resolve a bare domain for a company object or string without any LLM/API calls.
+ * The record's own domain and ticker come first; the maps only fill in for
+ * an exact id, or an exact name (see `domainForName`).
  */
 export function resolveCompanyDomain(company) {
   if (!company) return "";
@@ -169,43 +284,32 @@ export function resolveCompanyDomain(company) {
     if (TICKER_DOMAIN_MAP[ticker]) return TICKER_DOMAIN_MAP[ticker];
     return "";
   }
+  const identity = logoIdentity(company);
 
   // 1. Explicit logo_domain
-  const fromLogoDomain = normalizeDomain(company.logo_domain);
+  const fromLogoDomain = normalizeDomain(identity.logo_domain);
   if (fromLogoDomain) return fromLogoDomain;
 
   // 2. Explicit website
-  const fromWebsite = normalizeDomain(company.website);
+  const fromWebsite = normalizeDomain(identity.website);
   if (fromWebsite) return fromWebsite;
 
   // 3. Ticker mapping
-  const ticker = String(company.ticker || "").trim().toUpperCase();
+  const ticker = String(identity.ticker || "").trim().toUpperCase();
   if (ticker && TICKER_DOMAIN_MAP[ticker]) {
     return TICKER_DOMAIN_MAP[ticker];
   }
 
   // 4. Company id mapping
-  const id = String(company.id || "").trim().toLowerCase();
+  const id = String(identity.id || "").trim().toLowerCase();
   if (id) {
     if (SLUG_DOMAIN_MAP[id]) return SLUG_DOMAIN_MAP[id];
     const fromIdTicker = id.toUpperCase();
     if (TICKER_DOMAIN_MAP[fromIdTicker]) return TICKER_DOMAIN_MAP[fromIdTicker];
   }
 
-  // 5. Company name slug mapping
-  const name = String(company.name || "").trim().toLowerCase();
-  const cleanName = name.replace(/[^a-z0-9]/g, "");
-  if (name) {
-    if (SLUG_DOMAIN_MAP[cleanName]) return SLUG_DOMAIN_MAP[cleanName];
-    for (const [key, domain] of Object.entries(SLUG_DOMAIN_MAP)) {
-      const cleanKey = key.replace(/[^a-z0-9]/g, "");
-      if (name.includes(key) || (cleanKey && cleanName.includes(cleanKey))) {
-        return domain;
-      }
-    }
-  }
-
-  return "";
+  // 5. The name, when it is exactly a mapped name
+  return domainForName(identity.name);
 }
 
 /**
@@ -216,8 +320,6 @@ export const HIGH_RES_LOGOS = {
   anthropic: "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
   "anthropic-pbc": "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
   openai: "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
-  "open-artificial-intelligence": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
-  "open-artificial-intelligence-inc": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
   "google-llc": "https://assets.parqet.com/logos/symbol/GOOG",
   ko: "https://assets.parqet.com/logos/symbol/KO",
   oxy: "https://assets.parqet.com/logos/symbol/OXY",
@@ -292,47 +394,51 @@ export function duckduckgoFaviconUrl(domain) {
 
 /**
  * Return the primary company logo URL.
- * Prioritizes crisp vector SVGs and 256px CDN assets over scaled favicons.
+ *
+ * Whose logo it is comes first: a report's identity snapshot, then the
+ * record's own logo, ticker and domain (the same order as the server's
+ * _company_logo_url). The curated marks and slug maps only fill in for an
+ * exact id or an exact name — no name patterns, so a lookalike company never
+ * wears a famous company's logo. Nothing found means initials.
  */
 export function companyLogoUrl(company) {
   if (!company) return "";
-  if (typeof company === "object" && company.logo_url) {
-    return company.logo_url;
+  const identity = typeof company === "object" ? logoIdentity(company) : null;
+  if (identity?.logo_url) {
+    return identity.logo_url;
   }
 
-  // 1. Curated vector / 256px high-res assets by id or clean name
-  const id = String((typeof company === "object" ? company.id : company) || "").trim().toLowerCase();
+  // 1. The record's own ticker: a vector SVG.
+  const ownTicker = String(identity?.ticker || "").trim().toUpperCase();
+  if (ownTicker) {
+    return parqetLogoUrl(ownTicker);
+  }
+
+  // 2. The record's own domain.
+  const ownDomain = identity
+    ? normalizeDomain(identity.logo_domain) || normalizeDomain(identity.website)
+    : "";
+  if (ownDomain) {
+    return googleFaviconUrl(ownDomain);
+  }
+
+  // 3. Curated vector / 256px high-res assets by exact id or exact name
+  const id = String((identity ? identity.id : company) || "").trim().toLowerCase();
   if (id && HIGH_RES_LOGOS[id]) {
     return HIGH_RES_LOGOS[id];
   }
-  const name = typeof company === "object" ? String(company.name || "").trim().toLowerCase() : "";
-  const cleanName = name.replace(/[^a-z0-9]/g, "");
-  if (cleanName && HIGH_RES_LOGOS[cleanName]) {
-    return HIGH_RES_LOGOS[cleanName];
+  const curatedByName = identity ? highResLogoForName(identity.name) : "";
+  if (curatedByName) {
+    return curatedByName;
   }
 
-  // 2. Intelligent name pattern matching for common entities
-  if (/coca[\s-]?cola/i.test(name)) return parqetLogoUrl("KO");
-  if (/open\s*(?:ai|artificial\s*intelligence)/i.test(name)) return HIGH_RES_LOGOS.openai;
-  if (/occidental(?:\s*petroleum)?/i.test(name)) return parqetLogoUrl("OXY");
-  if (/google|alphabet/i.test(name)) return parqetLogoUrl("GOOG");
-  if (/anthropic/i.test(name)) return HIGH_RES_LOGOS.anthropic;
-  if (/taiwan\s*semiconductor|tsmc/i.test(name)) return parqetLogoUrl("TSM");
-  if (/c[il]enet(?:\s*tech)?/i.test(name)) return HIGH_RES_LOGOS.cienet;
-  if (/c[el]inet(?:\s*data)?|中经网/i.test(name)) return HIGH_RES_LOGOS.ceinet;
-  if (/alten/i.test(name)) return HIGH_RES_LOGOS.alten;
-
-  // 3. Public stock symbol: infinite-resolution vector SVG
-  let ticker = (typeof company === "object" ? String(company.ticker || "") : "").trim().toUpperCase();
-  if (!ticker && id && id.length <= 5 && TICKER_DOMAIN_MAP[id.toUpperCase()]) {
-    ticker = id.toUpperCase();
-  }
-  if (ticker) {
-    return parqetLogoUrl(ticker);
+  // 4. An id that is itself a ticker ("ko", "oxy").
+  if (id && id.length <= 5 && TICKER_DOMAIN_MAP[id.toUpperCase()]) {
+    return parqetLogoUrl(id.toUpperCase());
   }
 
-  // 4. Google 128px edge favicon CDN
-  const domain = resolveCompanyDomain(company);
+  // 5. Google 128px edge favicon CDN for a mapped domain
+  const domain = resolveCompanyDomain(identity || company);
   if (!domain) return "";
   return googleFaviconUrl(domain);
 }
@@ -341,10 +447,11 @@ export function companyLogoUrl(company) {
  * Return the secondary fallback logo URL.
  */
 export function companyFallbackLogoUrl(company) {
-  const domain = resolveCompanyDomain(company);
+  const identity = typeof company === "object" && company ? logoIdentity(company) : company;
+  const domain = resolveCompanyDomain(identity);
   if (!domain) return "";
-  const ticker = (typeof company === "object" ? String(company.ticker || "") : "").trim().toUpperCase();
-  const id = String((typeof company === "object" ? company.id : company) || "").trim().toLowerCase();
+  const ticker = (typeof identity === "object" ? String(identity.ticker || "") : "").trim().toUpperCase();
+  const id = String((typeof identity === "object" ? identity.id : identity) || "").trim().toLowerCase();
   // If primary was high-res Parqet SVG or curated mark, fallback to Google CDN
   if (ticker || HIGH_RES_LOGOS[id]) {
     return googleFaviconUrl(domain);

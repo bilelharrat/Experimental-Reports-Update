@@ -9,10 +9,12 @@ a field:
   ``employee_band``, ``github_url``/``repo_url``). Nothing is inferred: a
   founder with no recorded education has ``education`` ``None``.
 - **The research layer** (``deep_search_founder_dossier``) is the Refresh
-  button. It runs a web-grounded Gemini Flash pass — Gemini only, whatever
-  engine the desk is set to, with no Claude fallback — and fills in what the
-  record left blank: backgrounds, prior companies, board seats, headcount
-  and hiring signals, with the source URLs the model actually read.
+  button. It runs a web-grounded pass on Gemini's cheapest, fastest tier
+  (``RESEARCH_MODEL``) — Gemini only, whatever engine the desk is set to,
+  with no Claude fallback — and fills in what the record left blank:
+  backgrounds, prior companies, board seats, headcount and hiring signals,
+  with the source URLs the model actually read. Cheap enough that the button
+  runs it without a confirmation (``frontend/src/confirmTokens.js``).
 
 Curated record values always win over researched ones: research fills
 holes, it never overwrites what a human put on the record. Researched
@@ -198,6 +200,12 @@ RESEARCH_TIMEOUT_SEC = 240
 # tab shows, where the Claude fallback returned none and took up to fifteen
 # minutes behind a spinner. A Gemini failure comes back as `research_error`.
 RESEARCH_ENGINE_POLICY = "gemini-only"
+# The desk's own Gemini setting (Settings -> Research engine) picks the
+# quality tier for memos and Pulse; this one call is intentionally not that
+# tier. A team roster is a short, well-defined lookup, not an open-ended
+# research task, so the cheapest, fastest Gemini model does it — quick
+# enough, and cheap enough, that the button runs it without asking first.
+RESEARCH_MODEL = "gemini-3.8-flash-lite"
 
 PERSON_PROPERTIES: dict[str, Any] = {
     "name": {"type": "string", "description": "Full name as it appears in sources."},
@@ -505,6 +513,7 @@ def deep_search_founder_dossier(company_id: str) -> dict:
         schema=RESEARCH_SCHEMA,
         name="founder_dossier",
         gemini_timeout_sec=RESEARCH_TIMEOUT_SEC,
+        gemini_model=RESEARCH_MODEL,
         policy_override=RESEARCH_ENGINE_POLICY,
     )
     if error is not None or not isinstance(data, dict):

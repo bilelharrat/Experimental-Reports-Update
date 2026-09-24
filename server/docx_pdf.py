@@ -7,7 +7,11 @@ both the English and the Simplified-Chinese (CJK) memo correctly, and
 osascript automation of Office is already the sanctioned pattern in this
 codebase, so we reuse it here rather than introducing LibreOffice/pandoc.
 
-macOS only. On any other platform, or if Word/automation isn't available,
+Word is the primary converter (macOS only). Word jobs are serialized with a
+process-wide lock: two concurrent automations of the same Word instance
+collide. When Word is unavailable or fails and LibreOffice's ``soffice`` is
+on PATH, ``soffice --headless --convert-to pdf`` is tried instead (its
+fidelity differs from Word's for YaHei / Aptos). With neither,
 ``convert_docx_to_pdf`` returns ``(False, reason)`` and the caller is
 expected to treat the PDF as optional (the ``.docx`` is the real
 deliverable; the preview just won't be offered).
@@ -21,11 +25,53 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 CONVERSION_TIMEOUT = float(os.environ.get("DOCX_PDF_TIMEOUT", "45"))
+
+# One Word (or soffice) conversion at a time, process-wide. Waiting callers
+# give up after this long rather than stacking behind a stuck automation.
+_CONVERSION_LOCK = threading.Lock()
+LOCK_WAIT_SECONDS = float(os.environ.get("DOCX_PDF_LOCK_WAIT", "120"))
+
+_WORD_APP_PATHS = (
+    Path("/Applications/Microsoft Word.app"),
+    Path.home() / "Applications" / "Microsoft Word.app",
+)
+
+
+def word_available() -> bool:
+    """Word automation is possible here: macOS, osascript, and Word installed."""
+    if sys.platform != "darwin" or shutil.which("osascript") is None:
+        return False
+    return any(path.exists() for path in _WORD_APP_PATHS)
+
+
+def soffice_path() -> str | None:
+    """LibreOffice's command-line converter, when installed."""
+    return shutil.which("soffice") or shutil.which("libreoffice")
+
+
+_AVAILABLE_TTL_SECONDS = 60.0
+_available_cache: tuple[float, bool] | None = None
+
+
+def converter_available() -> bool:
+    """Word or LibreOffice is present. Cached for a minute: the Reports list
+    asks once per document, and PATH lookups add up."""
+    global _available_cache
+    import time
+
+    now = time.monotonic()
+    cached = _available_cache
+    if cached is not None and now - cached[0] < _AVAILABLE_TTL_SECONDS:
+        return cached[1]
+    value = word_available() or soffice_path() is not None
+    _available_cache = (now, value)
+    return value
 
 # Word runs in macOS's App Sandbox and can't read project paths
 # (data/memos/...) or per-process tempdirs (/var/folders/...). /tmp is
@@ -115,20 +161,72 @@ def _run_osascript(args: list[str]) -> subprocess.CompletedProcess[bytes]:
 
 
 def convert_docx_to_pdf(src: Path, dst: Path) -> tuple[bool, str | None]:
-    """Render ``src`` (.docx) to ``dst`` (.pdf) via Word.
+    """Render ``src`` (.docx) to ``dst`` (.pdf): Word first, then LibreOffice
+    when ``soffice`` is on PATH.
 
     Returns ``(success, error_message)``. Idempotent — a fast no-op if
-    ``dst`` already exists. macOS only.
+    ``dst`` already exists. Conversions are serialized process-wide.
     """
     if dst.exists():
         return True, None
     if not src.exists():
         return False, f"Source file missing: {src.name}"
-    if sys.platform != "darwin":
-        msg = f"Word conversion is macOS-only (running on {sys.platform})."
-        logger.warning("%s Skipping %s", msg, src)
-        return False, msg
+    if not _CONVERSION_LOCK.acquire(timeout=LOCK_WAIT_SECONDS):
+        return False, (
+            f"Another document conversion is still running after "
+            f"{LOCK_WAIT_SECONDS:.0f}s; try again shortly."
+        )
+    try:
+        if dst.exists():  # finished by the caller we waited behind
+            return True, None
+        word_error: str | None = None
+        if sys.platform == "darwin":
+            ok, word_error = _convert_with_word(src, dst)
+            if ok:
+                return True, None
+        else:
+            word_error = f"Word conversion is macOS-only (running on {sys.platform})."
+        soffice = soffice_path()
+        if soffice:
+            ok, soffice_error = _convert_with_soffice(soffice, src, dst)
+            if ok:
+                return True, None
+            return False, f"{word_error} LibreOffice: {soffice_error}"
+        logger.warning("%s Skipping %s", word_error, src)
+        return False, word_error
+    finally:
+        _CONVERSION_LOCK.release()
 
+
+def _convert_with_soffice(soffice: str, src: Path, dst: Path) -> tuple[bool, str | None]:
+    """``soffice --headless --convert-to pdf`` into a private temp dir."""
+    out_dir = Path(tempfile.mkdtemp(prefix="bsh-soffice-"))
+    try:
+        try:
+            proc = subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(src)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=CONVERSION_TIMEOUT,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return False, f"LibreOffice conversion timed out after {CONVERSION_TIMEOUT:.0f}s."
+        except OSError as exc:
+            return False, f"LibreOffice could not start: {exc}"
+        produced = out_dir / f"{src.stem}.pdf"
+        if proc.returncode or not produced.exists():
+            detail = (proc.stderr or proc.stdout or b"").decode("utf-8", "ignore").strip()
+            return False, (detail or f"exit {proc.returncode}")[:300]
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(produced), str(dst))
+        return True, None
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def _convert_with_word(src: Path, dst: Path) -> tuple[bool, str | None]:
+    """The Word/osascript conversion (macOS). The caller holds the lock."""
     script_file: Path | None = None
     stage_dir: Path | None = None
     try:

@@ -215,6 +215,10 @@ def _now() -> str:
 
 
 def _safe_id(value: str) -> str:
+    """Session, task and revision ids only. Company ids go through
+    ``company_paths.storage_key``: this ASCII strip turns a Chinese-only
+    company id into "" (ValueError — every memo run and Studio session for
+    such a company crashed) and folds ``brk.b`` into ``brkb``."""
     cleaned = re.sub(r"[^a-z0-9_-]", "", (value or "").lower())
     if not cleaned:
         raise ValueError("Invalid company id")
@@ -242,7 +246,7 @@ def memo_work_product_version_files_root(company_id: str, session_id: str) -> Pa
 
 
 def training_dir(company_id: str) -> Path:
-    return TRAINING_ROOT / _safe_id(company_id)
+    return TRAINING_ROOT / company_paths.storage_key(company_id)
 
 
 def memo_lessons_path(company_id: str) -> Path:
@@ -250,10 +254,16 @@ def memo_lessons_path(company_id: str) -> Path:
 
 
 def completed_memo_runs(company_id: str) -> list[dict]:
-    safe_company = _safe_id(company_id)
+    # Compare storage keys on both sides: a report's company_id is the raw
+    # id ("brk.b", "中经网数据有限公司"), and comparing it to anything
+    # stripped or keyed on one side only never matches.
+    key = company_paths.storage_key(company_id)
     rows: list[dict] = []
     for report in storage.list_reports():
-        if report.get("company_id") != safe_company:
+        try:
+            if company_paths.storage_key(report.get("company_id")) != key:
+                continue
+        except ValueError:
             continue
         if report.get("status") != "complete":
             continue
@@ -6180,7 +6190,10 @@ def _memo_versionable_row(row: dict) -> bool:
 
 
 def _sync_memo_catalog_versions(session: dict, rows: list[dict]) -> None:
-    company_id = _safe_id(str(session.get("company_id") or ""))
+    # The raw company id: session_dir / memo_work_product_versions_path key
+    # it with storage_key themselves (validating it on the way).
+    company_id = str(session.get("company_id") or "")
+    company_paths.storage_key(company_id)
     session_id = _safe_id(str(session.get("id") or ""))
     records = _memo_version_records(company_id, session_id)
     records_by_artifact: dict[str, list[dict]] = {}
@@ -6505,9 +6518,13 @@ def _memo_evidence_matrix_snapshot(
 
 
 def _memo_work_product_catalog(session: dict) -> dict:
-    company_id = _safe_id(str(session.get("company_id") or ""))
+    # The raw company id for lookups (session_dir and friends key it with
+    # storage_key); the storage key for the display paths, which name the
+    # directories on disk.
+    company_id = str(session.get("company_id") or "")
+    company_key = company_paths.storage_key(company_id)
     session_id = _safe_id(str(session.get("id") or ""))
-    analysis_prefix = f"data/serena_analysis/{company_id}/{session_id}/"
+    analysis_prefix = f"data/serena_analysis/{company_key}/{session_id}/"
     artifacts = session.get("artifacts") if isinstance(session.get("artifacts"), dict) else {}
     work_products: list[dict] = [
         _memo_catalog_row(
@@ -6663,9 +6680,9 @@ def _memo_work_product_catalog(session: dict) -> dict:
             artifact_type="memo_lessons",
             title="Memo Lessons File",
             value=lessons_value,
-            location=f"data/serena_training/{company_id}/serena_memo_lessons.md",
+            location=f"data/serena_training/{company_key}/serena_memo_lessons.md",
             export_paths=(
-                [f"data/serena_training/{company_id}/serena_memo_lessons.md"]
+                [f"data/serena_training/{company_key}/serena_memo_lessons.md"]
                 if lessons_value
                 else []
             ),
@@ -6721,7 +6738,7 @@ def _memo_work_product_catalog(session: dict) -> dict:
         {
             "id": "research_library",
             "label": "Research Library",
-            "path": f"data/research/{company_id}/",
+            "path": f"data/research/{company_key}/",
             "status": "included",
             "scope": "source_input",
             "notes": "Analyst-curated research files are available to Memo Studio.",
@@ -6737,7 +6754,7 @@ def _memo_work_product_catalog(session: dict) -> dict:
         {
             "id": "document_library_uploads",
             "label": "Document Library Uploads",
-            "path": f"data/uploads/{company_id}/",
+            "path": f"data/uploads/{company_key}/",
             "status": "excluded",
             "scope": "out_of_scope",
             "notes": "Legacy document-library uploads are not memo-analysis inputs.",
@@ -6823,7 +6840,8 @@ def _memo_task_evidence_coverage(task: dict) -> float:
 
 
 def _memo_run_ledger(session: dict) -> list[dict]:
-    company_id = _safe_id(str(session.get("company_id") or ""))
+    company_id = str(session.get("company_id") or "")
+    company_paths.storage_key(company_id)  # validates, as _safe_id did
     session_id = _safe_id(str(session.get("id") or ""))
     artifacts = session.get("artifacts") if isinstance(session.get("artifacts"), dict) else {}
     rows: list[dict] = []

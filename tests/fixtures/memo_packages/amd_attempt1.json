@@ -1,0 +1,2655 @@
+{
+ "schema_version": 1,
+ "company": {
+  "id": "amd",
+  "name": "Advanced Micro Devices Inc",
+  "ticker": "AMD",
+  "exchange": "NASDAQ",
+  "status": "public",
+  "company_type": "public",
+  "description": {
+   "en": "Advanced Micro Devices designs x86 server and client processors, Instinct AI accelerators, and Helios rack-scale AI systems. It is the second credible source of merchant AI compute and the share gainer in x86 server CPUs.",
+   "zh": ""
+  }
+ },
+ "run": {
+  "run_id": "2026-09-10__014109",
+  "company_id": "amd",
+  "prepared": "2026-09-10",
+  "market_data_as_of": "2026-09-09",
+  "latest_reported_period": "2026-06-27",
+  "language": "en"
+ },
+ "sections": [
+  {
+   "id": "executive_summary",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "BSH invests in the physical infrastructure of computation — the silicon, the systems, and the supply chains that decide what gets built and what it costs to run. Advanced Micro Devices sits at the center of that layer twice over. It designs the second credible source of merchant AI compute, and it sells the x86 server…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "There is no private vehicle here. AMD is a liquid mega-cap, outside the priced growth financings and pre-IPO situations BSH sponsors, so the question in front of LPs is an open-market entry rather than a subscription. The screen price is $850.67B of market capitalization. The real price is close to $1.02 trillion.…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The operating case is genuinely strong. Second-quarter revenue was $11.536B, up 50% year over year, with Data Center at $6.718B, up 107%, and Data Center segment operating income of $2.103B against a $155M loss a year earlier. Non-GAAP gross margin held at 56% straight through that expansion, and the third quarter is…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "title": {
+      "en": "The Case in Six Lines",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "Core bet. AMD converts fourteen gigawatts of announced anchor commitments into shipped Helios racks through 2027 while holding gross margin in the mid-50s, and per-share value keeps pace with revenue despite the warrants.",
+       "zh": ""
+      },
+      {
+       "en": "Entry tension. At $521.10 the price already pays for that outcome. Roughly 40x fully diluted 2027 earnings assumes revenue roughly doubles and margin holds. Both have to land.",
+       "zh": ""
+      },
+      {
+       "en": "Proven today. Q2 FY2026 revenue of $11.536B and Data Center revenue of $6.718B, up 107%. EPYC at 46.2% of x86 server CPU revenue. Non-GAAP gross margin at 56% through the ramp. $13.111B of cash and short-term investments against $3.226B of debt.",
+       "zh": ""
+      },
+      {
+       "en": "Unproven. There is no disclosed backlog behind the gigawatt agreements. AMD discloses neither gigawatts shipped nor revenue per gigawatt. Instinct revenue, units, ASP and margin are not broken out from the Data Center segment. No third-party production benchmarks exist for Helios or for Nvidia's Vera Rubin.",
+       "zh": ""
+      },
+      {
+       "en": "What breaks it. A one- to two-quarter Helios slip. $17.386B of purchase commitments fall due in the remainder of 2026 against implied second-half cost of sales near $12.2–12.9B, on top of $8.468B of inventory at about 159 days. A delay becomes writedowns, not merely deferred revenue.",
+       "zh": ""
+      },
+      {
+       "en": "Action. BSH is not committing capital. The base case returns about −14% from $521.10 and the ramp-slip case returns −54% to −66%, against a bull case of +23% to +30% in which the warrants dilute hardest.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "table",
+     "component": "key_metrics_snapshot",
+     "title": {
+      "en": "Key Metrics",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Figure",
+       "zh": ""
+      },
+      {
+       "en": "As of",
+       "zh": ""
+      },
+      {
+       "en": "Note",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Share price",
+        "zh": ""
+       },
+       "$521.10",
+       "2026-09-09",
+       {
+        "en": "NASDAQ close. Continuously marked, so every multiple below carries this same date.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Market capitalization (as quoted)",
+        "zh": ""
+       },
+       "$850.67B",
+       "2026-09-09",
+       {
+        "en": "On 1.631B shares outstanding. This is the screen number and it understates the entry.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Fully diluted capitalization",
+        "zh": ""
+       },
+       "~$1.02T",
+       "2026-09-09",
+       {
+        "en": "1.951B shares including 320M penny warrants. About 16.4% of diluted value sits with OpenAI and Meta at spot.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Enterprise value",
+        "zh": ""
+       },
+       "$841.84B",
+       "2026-09-09",
+       {
+        "en": "Net cash of roughly $9.9B is immaterial at this scale.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Forward P/E on 2027 consensus",
+        "zh": ""
+       },
+       {
+        "en": "~33.7x undiluted / ~40.3x diluted",
+        "zh": ""
+       },
+       "2026-09-09",
+       {
+        "en": "Consensus 2027 EPS of $15.45 scales to about $12.92 on 1.951B shares. Vendor forward P/E prints range from 32x to 64x, so the EPS basis in the market is unsettled.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "LTM revenue",
+        "zh": ""
+       },
+       "$41.31B",
+       "2026-09-09",
+       {
+        "en": "Price/sales of 20.6x on the quoted cap; roughly 24.7x fully diluted.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Q2 FY2026 revenue",
+        "zh": ""
+       },
+       {
+        "en": "$11.536B, +50% y/y",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "Reported August 4, 2026. Q3 FY2026 closes in late September 2026 and is unreported.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Data Center revenue",
+        "zh": ""
+       },
+       {
+        "en": "$6.718B, +107% y/y",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "58% of group revenue. Instinct and EPYC are not split within it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Non-GAAP gross margin",
+        "zh": ""
+       },
+       "56%",
+       "2026-06-27",
+       {
+        "en": "GAAP 54%. Q3 guided flat at about 56%. This is the number that carries the thesis.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "GAAP operating margin",
+        "zh": ""
+       },
+       "17.3%",
+       "2026-06-27",
+       {
+        "en": "GAAP operating income of $1.990B. Segment operating income sums to $3.071B, so $1.081B — 9.4% of revenue — leaks out below the segment line.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Diluted EPS",
+        "zh": ""
+       },
+       {
+        "en": "$1.38 GAAP / $1.66 non-GAAP",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "First-half GAAP EPS of $2.22 normalizes to roughly $1.93 after stripping $549M of investment gains and a ~12% tax rate.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Cash and short-term investments",
+        "zh": ""
+       },
+       "$13.111B",
+       "2026-06-27",
+       {
+        "en": "Against $3.226B of total debt. Q2 free cash flow was $1.558B, 13.5% of revenue, already positive during the ramp.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Remaining performance obligations (>1 year)",
+        "zh": ""
+       },
+       "$222M",
+       "2026-06-27",
+       {
+        "en": "$144M recognizes within twelve months. This is the only contracted revenue disclosure against roughly fourteen gigawatts of announced partnerships.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Future purchase commitments",
+        "zh": ""
+       },
+       {
+        "en": "$30.276B total, $17.386B due in the remainder of 2026",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "Plus $9.5B of data center leases signed after quarter end. This is AMD's own supply-side conviction, not a customer order book.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Warrants outstanding to customers",
+        "zh": ""
+       },
+       {
+        "en": "320M shares at $0.01",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "160M to OpenAI, 160M to Meta. Liability-classified. None vested and no financial-statement impact as of June 27, 2026.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "deal_terms",
+     "title": {
+      "en": "Entry Terms",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Term",
+       "zh": ""
+      },
+      {
+       "en": "What it is",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Instrument",
+        "zh": ""
+       },
+       {
+        "en": "Common stock, NASDAQ: AMD. There is no SPV, no SAFE, no priced round, and no subscription. LPs who want the exposure buy it in the open market.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Entry price",
+        "zh": ""
+       },
+       {
+        "en": "$521.10 at the September 9, 2026 close. A public quote moves intraday, so any entry decision carries its own date rather than this one.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Implied entry valuation",
+        "zh": ""
+       },
+       {
+        "en": "About $1.02 trillion fully diluted — roughly 20x FY2026 estimated revenue and roughly 40x 2027 estimated earnings. The $850.67B screen figure is about 20% too cheap.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Dilution already agreed",
+        "zh": ""
+       },
+       {
+        "en": "320M shares at a $0.01 strike, 19.6% of the current count. OpenAI's warrant dates from October 6, 2025 and runs to October 5, 2030; Meta's dates from February 24, 2026 and runs to February 23, 2031. Tranches vest against Instinct purchase milestones and share-price thresholds, with OpenAI's final tranche gated at $600.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Liquidity",
+        "zh": ""
+       },
+       {
+        "en": "Daily, on exchange. No lock-up, no transfer restriction, no gate. This is the one term that is unambiguously better than anything in a private vehicle.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Information rights",
+        "zh": ""
+       },
+       {
+        "en": "Public filings only. Quarterly reports, the annual report, current reports, and the earnings call. No management access, no board seat, no data room.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Governance",
+        "zh": ""
+       },
+       {
+        "en": "One vote per common share in a company with roughly 1.6 billion shares outstanding. A position of any size BSH would take carries no influence.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Capital events to expect",
+        "zh": ""
+       },
+       {
+        "en": "Public debt, buybacks and equity issuance. A $90B revenue year implies inventory of $18–20B at current days against roughly $9.9B of net cash, so the bull case likely carries an external financing event of its own.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Fees and carry",
+        "zh": ""
+       },
+       {
+        "en": "None. BSH is not sponsoring a vehicle in this name.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "company_overview",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "AMD runs two businesses that are frequently discussed as one. The first is a mature x86 processor franchise that has spent a decade taking share from Intel and now generates the cash that funds everything else. EPYC reached 46.2% of x86 server CPU revenue in the first quarter of 2026 on 33.2% of units, and unit share…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The second business is AI acceleration, and it is four years younger. Instinct MI300X and MI355X are in production inference at Microsoft Azure, Oracle, Meta, IBM Cloud and AT&T. AMD says seven of the ten largest AI model builders run production workloads on Instinct. In July 2026 the company launched Helios, an Open…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The anchor commitments arrived over eleven months. OpenAI signed for six gigawatts on October 6, 2025, with the first gigawatt of MI450 deploying in the second half of 2026. Meta signed for six gigawatts on February 24, 2026, disclosed at up to $60B across five years, with custom MI450-architecture Instinct silicon…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Everything at the leading edge is bought, not built. MI450 uses TSMC N2 chiplets, CoWoS advanced packaging and HBM4 memory. N2 is booked into 2028 with Apple taking more than half the initial supply. CoWoS is fully booked with Nvidia holding roughly 60%. HBM4 is led by SK hynix at roughly 62% share. AMD has no…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "board",
+     "title": {
+      "en": "Governance and Board",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Item",
+       "zh": ""
+      },
+      {
+       "en": "Position",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Board composition",
+        "zh": ""
+       },
+       {
+        "en": "Director-level composition is not documented in this run's evidence base. No proxy statement was read. For a NASDAQ-listed issuer the directors are a matter of public record in the annual proxy, and an LP who wants that detail can obtain it directly.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters here",
+        "zh": ""
+       },
+       {
+        "en": "Less than it would in a private financing. A public-market position carries no board access, no observer seat, and no consent rights, so board composition is a monitoring input rather than a negotiable term.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Shareholder rights",
+        "zh": ""
+       },
+       {
+        "en": "One vote per common share against roughly 1.631 billion shares outstanding. Any position BSH would take is non-influential.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Reporting",
+        "zh": ""
+       },
+       {
+        "en": "Quarterly and annual reports on the standard SEC calendar, current reports on material events, and a quarterly earnings call. No private information channel exists.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Governance item that does carry weight",
+        "zh": ""
+       },
+       {
+        "en": "The board approved warrants for 320 million shares at a $0.01 strike to two customers. That is 19.6% of the company transferred to buyers in exchange for deployment commitments carrying no disclosed minimum volumes or take-or-pay terms. It is the single most consequential capital-allocation decision visible in the…",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Customer concentration disclosure",
+        "zh": ""
+       },
+       {
+        "en": "No customer reached 10% of consolidated net revenue in fiscal 2025 or fiscal 2024, per the annual report filed February 4, 2026. That clean record predates the anchor ramps and will not survive them.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_highlights",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Four things are true about this business that were not true two years ago, and they are the reason the stock re-rated.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Margin held through a doubling",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The standard objection to AMD's AI ramp was that GPU mix would destroy gross margin. It has not. Data Center revenue rose 107% to $6.718B in the second quarter of 2026 and non-GAAP gross margin still printed 56%, with the third quarter guided flat at about 56% on roughly $13.0B. Data Center segment operating income…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "The CPU franchise is an annuity, and it is winning on price",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "EPYC took 46.2% of x86 server CPU revenue on 33.2% of units in the first quarter of 2026, with unit share rising to 34.5% in the second. Growth was about 70% year over year across five generations of hyperscaler standardization. This is genuine share transfer from Intel, it is the highest-confidence part of the story…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Rack-level parity with Nvidia, on paper",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Helios with MI450 claims 15% more peak FP4 throughput, 50% more memory capacity at 432GB of HBM4 against roughly 288GB, and up to 30% more tokens per dollar than Nvidia's Vera Rubin NVL72. This is the first AMD generation entering at rack-level parity rather than a step behind. Both racks ship in the second half of…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Anchor demand from five counterparties who build frontier models",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "OpenAI at six gigawatts, Meta at six gigawatts and up to $60B, Anthropic at up to two gigawatts from the first half of 2027, Oracle at 50,000 MI450 GPUs from the third quarter of 2026, and Microsoft deploying Helios on Azure. Oracle and Microsoft carry no equity sweetener, which matters: the demand is broader than the…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "items": [
+      {
+       "en": "Balance sheet supports the pre-build. $13.111B of cash and short-term investments against $3.226B of total debt, with $1.558B of free cash flow in the second quarter of 2026 — 13.5% of revenue — generated during the ramp rather than after it.",
+       "zh": ""
+      },
+      {
+       "en": "Supply is secured early. $30.276B of future purchase commitments with $17.386B due in the remainder of 2026, plus $9.5B of data center leases signed after quarter end. In a market where CoWoS is sold out and N2 is booked into 2028, paying early for allocation is a competitive act.",
+       "zh": ""
+      },
+      {
+       "en": "The open-standards coalition is real. UALink 1.0 is backed by AMD, Intel, Broadcom, Google, Microsoft, Meta and AWS, with production silicon arriving on the MI400 series in the second half of 2026 and volume systems in 2027. Nvidia opened NVLink Fusion to Arm, Fujitsu and Qualcomm in response — incumbents do not open…",
+       "zh": ""
+      },
+      {
+       "en": "Software has closed most of the gap on the fastest-growing workload. ROCm reaches roughly 90–95% of CUDA throughput on mainstream PyTorch and vLLM inference, and AMD offers ROCm Enterprise AI free against Nvidia's paid AI Enterprise tier. Inference is the pool that is growing fastest and where switching costs are…",
+       "zh": ""
+      },
+      {
+       "en": "Consensus is revising up, not down. 2027 EPS moved from $12.96 to $15.45 over the ninety days to September 7, 2026, with a high estimate of $19.96, and analysts making those revisions were explicitly modeling roughly 20% warrant dilution. Average price targets sit near $614–622.",
+       "zh": ""
+      },
+      {
+       "en": "China is optionality rather than exposure. AMD obtained US export licenses for MI308 shipments at a point when Nvidia remained blocked. Roughly $800M of fiscal 2025 charges tied to that regime were later reversed by about $360M. Base-case value here is zero, so anything that arrives is upside.",
+       "zh": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "competitive_position",
+   "title": {
+    "en": "Competitive Position and Defensibility",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "AMD is not one competitor. It is a proven replacement in one market and a sponsored second source in another, and conflating the two is the most common error made about this company.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Replacement in x86, coexistence in accelerators",
+      "zh": ""
+     },
+     "component": "replacement_coexistence"
+    },
+    {
+     "type": "paragraph",
+     "component": "replacement_coexistence",
+     "text": {
+      "en": "In x86 server processors AMD has replaced Intel share, and the evidence is unambiguous. From low single digits a decade ago to 46.2% of server CPU revenue and 34.5% of units by mid-2026. Revenue share twelve points above unit share means AMD is taking the premium high-core sockets and charging for them. This leg is…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "replacement_coexistence",
+     "text": {
+      "en": "In AI accelerators AMD coexists. Nvidia holds an estimated 75–86% of data center GPU revenue and AMD roughly 5–7% of accelerator units, and that share has stayed mid-single-digit across two Instinct generations. Hyperscalers are multi-sourcing, not switching. AMD's upside is a share of the second-source budget, not…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "component": "replacement_coexistence",
+     "items": [
+      {
+       "en": "Proven replacement: x86 server CPU. High confidence, high margin, decelerating category.",
+       "zh": ""
+      },
+      {
+       "en": "Sponsored coexistence: Instinct inference at named accounts. Real revenue, real production breadth, no disclosed renewal or repeat-order evidence.",
+       "zh": ""
+      },
+      {
+       "en": "Contracted but undeployed: fourteen gigawatts of anchor frameworks. $222M of remaining performance obligations stands behind all of it.",
+       "zh": ""
+      },
+      {
+       "en": "Unclaimed: frontier training. Optionality, not base case.",
+       "zh": ""
+      },
+      {
+       "en": "Generation continuity is weaker than the customer list suggests. MI325X was a low-volume interim part that large buyers largely skipped, moving MI300X to MI355X to MI450. Each generation is closer to a fresh win requiring re-qualification than to a renewal.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "table",
+     "component": "competitive_analysis",
+     "title": {
+      "en": "Competitive Position",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Competitor",
+       "zh": ""
+      },
+      {
+       "en": "Where they win",
+       "zh": ""
+      },
+      {
+       "en": "Where AMD wins",
+       "zh": ""
+      },
+      {
+       "en": "Direction of travel",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Nvidia",
+        "zh": ""
+       },
+       {
+        "en": "75–86% of data center GPU revenue. CUDA's developer base anchors training. NVLink 5.0 at 1.8TB/s is the only production-proven scale-up fabric. Roughly 60% of CoWoS packaging allocation.",
+        "zh": ""
+       },
+       {
+        "en": "Helios claims 15% more peak FP4, 432GB of HBM4 against ~288GB, and up to 30% more tokens per dollar than Vera Rubin NVL72. First AMD generation at rack-level spec parity.",
+        "zh": ""
+       },
+       {
+        "en": "Narrowing on silicon, unresolved on software. Nvidia opening NVLink Fusion is a defensive move. No third-party benchmark exists for either rack.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Hyperscaler custom ASICs (TPU, Trainium, MTIA, Maia) and Broadcom",
+        "zh": ""
+       },
+       {
+        "en": "Custom ASIC AI-server shipments forecast +44.6% in 2026 against +16.1% for merchant GPUs, reaching about 27.8% of shipments. Broadcom serves all five hyperscalers with a reported ~$73B AI backlog.",
+        "zh": ""
+       },
+       {
+        "en": "Merchant supply that is available now, workload-general, and does not require a captive design team. In a shortage, credible supply sells.",
+        "zh": ""
+       },
+       {
+        "en": "The sharpest compression, and the most underrated. ASICs compete for the identical non-Nvidia slot AMD is targeting. AMD can gain share of merchant GPU while merchant GPU shrinks as a share of the market.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Intel",
+        "zh": ""
+       },
+       {
+        "en": "Installed base, enterprise relationships, and a foundry roadmap that could recover on 18A or 14A.",
+        "zh": ""
+       },
+       {
+        "en": "46.2% of x86 server CPU revenue on 33.2% of units in the first quarter of 2026, growing about 70% year over year. Price realization, not discounting.",
+        "zh": ""
+       },
+       {
+        "en": "AMD's most durable advantage. The risk is Intel price response against AMD's premium SKU concentration, not Intel product leadership.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Arm-based server entrants",
+        "zh": ""
+       },
+       {
+        "en": "Well over 45% of data center server revenue on AI-cluster head nodes.",
+        "zh": ""
+       },
+       {
+        "en": "x86 compatibility for the existing enterprise and cloud estate, backed by the Intel cross-license.",
+        "zh": ""
+       },
+       {
+        "en": "Erodes the x86 category itself. AMD's share gains are real and the pool they are taken from is under pressure.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "moat",
+     "title": {
+      "en": "Defensibility",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Asset",
+       "zh": ""
+      },
+      {
+       "en": "What it protects",
+       "zh": ""
+      },
+      {
+       "en": "Durability",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "EPYC price realization",
+        "zh": ""
+       },
+       {
+        "en": "Gross margin and cash generation independent of the AI outcome. 46.2% of server CPU revenue on 33.2% of units.",
+        "zh": ""
+       },
+       {
+        "en": "Strong. Multi-generation hyperscaler standardization is genuine switching cost. Rests on the Intel cross-license and on Intel not recovering at the leading edge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Secured supply allocation",
+        "zh": ""
+       },
+       {
+        "en": "The ability to ship at all in 2026 and 2027. $30.276B of purchase commitments and $9.5B of leases against a market where CoWoS is sold out and N2 is booked into 2028.",
+        "zh": ""
+       },
+       {
+        "en": "Real but temporary. Allocation is bought, not owned, and it is a liability if the ramp slips.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Anchor customer co-design",
+        "zh": ""
+       },
+       {
+        "en": "Multi-year visibility with OpenAI, Meta, Anthropic, Oracle and Microsoft. Meta co-engineered Helios through the Open Compute Project.",
+        "zh": ""
+       },
+       {
+        "en": "Moderate. Co-design raises switching cost, but two of the five relationships were bought with equity and none carries a disclosed minimum volume.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "UALink and Ultra Ethernet coalition",
+        "zh": ""
+       },
+       {
+        "en": "Scale-up interconnect that is not Nvidia's. Backed by AMD, Intel, Broadcom, Google, Microsoft, Meta and AWS.",
+        "zh": ""
+       },
+       {
+        "en": "Option value for 2027, not a 2026 moat. Third-party switches arrive around the fourth quarter of 2026, and UALink 1.0 runs up to 800GB/s per accelerator against NVLink 5.0 at 1.8TB/s.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "ROCm",
+        "zh": ""
+       },
+       {
+        "en": "Inference workload portability. Roughly 90–95% of CUDA throughput on mainstream PyTorch and vLLM.",
+        "zh": ""
+       },
+       {
+        "en": "Weak as a moat. It is open source and given away free, which makes it a distribution subsidy rather than a defensive asset. Its value is removing a reason not to buy.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Patents and standards-essential position",
+        "zh": ""
+       },
+       {
+        "en": "Nothing that generates pricing leverage in the evidence.",
+        "zh": ""
+       },
+       {
+        "en": "Not present. Defensibility here is execution, supply allocation and coalition scale. None of it is rights-protected, and the memo does not claim otherwise.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_risk",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The risk in this name is not that AMD fails. It is that AMD succeeds on a schedule the price does not permit. Six failure paths follow, ordered by how much damage each does to the return case.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 1: Entry price. At roughly 40x fully diluted 2027 earnings, the base case still loses money.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Valuation",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "The quoted $850.67B cap excludes 320 million penny warrants; the real basis is about $1.02 trillion, which turns $15.45 of 2027 consensus EPS into roughly $12.92 and 33.7x into roughly 40.3x. Even if the ramp lands mid-range, a 35x multiple on that EPS implies about $450 against $521.10 on September 9, 2026 — a 14% loss with the thesis intact.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "The share count consensus actually publishes once tranches vest — vendor forward P/E prints already range from 32x to 64x on the same price. Warrant vesting disclosures in the Q3 and Q4 FY2026 filings, given none had vested as of June 27, 2026.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "High: this is arithmetic on disclosed figures, not a forecast. The gap between the screen multiple and the diluted multiple exists today.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "9/10: it removes the margin of safety from every other risk on this list. At 40x there is no cushion between a disappointing quarter and a halved share price.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 1",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 2: Ramp slip. $17.4B of 2026 purchase commitments become writedowns if Helios is late.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Execution",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "$17.386B of purchase commitments fall due in the remainder of 2026 against implied second-half cost of sales of roughly $12.2–12.9B, on top of $8.468B of inventory at about 159 days with $5.265B in work in process. Take-or-pay obligations do not re-phase with shipments, so a one- to two-quarter delay converts secured supply into inventory charges and pushes non-GAAP gross margin from 56% toward the low 50s while revenue defers into 2028.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "Helios rack shipment volume in the Q3 FY2026 print, from a quarter closing in late September 2026 against a guided end-of-quarter start. Inventory days moving above 159. Oracle's 50,000-GPU MI450 supercluster reaching live status on its stated Q3 2026 schedule.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "Medium: Helios is the first rack-scale system AMD has delivered itself, and independent reporting points to internal cluster capacity for software validation an order of magnitude below Nvidia's.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "8/10: it is the specific mechanism that converts a rich multiple into a 54% to 66% drawdown, and it hits margin and revenue in the same quarter.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 2",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 3: Concentration. Five counterparties carry the 2027 bridge and $222M of it is contracted.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Commercial",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "Remaining performance obligations beyond one year were $222M at June 27, 2026 against roughly fourteen gigawatts of announced frameworks with OpenAI, Meta, Anthropic, Oracle and Microsoft, and no disclosed minimum volumes, pricing or take-or-pay language. One anchor deferring a single gigawatt tranche by two quarters is a material revision to fiscal 2027 revenue and gross profit, and there is no mid-market base underneath to absorb it. The FY2025 annual report showing no customer above 10% of revenue describes a company that no longer exists.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "The customer-concentration percentage disclosed in the FY2026 annual report, the first filing that will reflect the anchor ramps. Anthropic's first gigawatt starting in the first half of 2027 as stated. Any re-phasing language in OpenAI's or Meta's own capital-expenditure disclosures.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "Medium: multi-gigawatt AI capex programs have re-phased before, and these buyers are simultaneously funding internal accelerator roadmaps.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "8/10: the absence of contractual protection means a single counterparty decision moves the entire 2027 case.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 3",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 4: Custom ASICs. AMD can gain share of merchant GPU while merchant GPU shrinks.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Competition",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "Custom ASIC AI-server shipments are forecast to grow 44.6% in 2026 against 16.1% for merchant GPUs, reaching about 27.8% of AI server shipments, with Broadcom serving all five hyperscalers on a reported ~$73B backlog. The same buyers anchoring AMD's gigawatt commitments fund TPU, Trainium, MTIA and Maia, which compete for the identical non-Nvidia slot. AMD's ceiling is a share of merchant spend, and merchant spend is losing share of total accelerator spend — which caps 2027 accelerator revenue below consensus regardless of how AMD performs against Nvidia.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "Merchant-versus-captive shipment mix in the 2027 TrendForce forecast series. Whether Meta's Helios co-design through the Open Compute Project sits alongside or displaces MTIA volume. Broadcom's disclosed AI backlog trajectory at its next reporting date.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "Medium: the substitution is already underway in the shipment forecasts, though captive silicon stays workload-specific and is not sold merchantly.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "7/10: it compresses the addressable pool slowly rather than breaking the case at once, but it caps the terminal share the current price assumes.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 4",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 5: Margin mix and the training gap. Rack-scale revenue transfers value to HBM suppliers.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Technology",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "Management concedes Data Center AI gross margin runs below the company average, and Helios racks at $5.0–5.5M carry more of that cost in HBM and system bill of materials than Nvidia's $3.5–4.0M Vera Rubin. Revenue doubling therefore does not double gross profit. Four hundred basis points of margin on a $70B year is roughly $2.8B of gross profit, about $1.15 of diluted EPS. Separately, ROCm's roughly 90–95% of CUDA throughput holds on mainstream inference but has no full equivalent to TensorRT-LLM or FlashAttention 3, so AMD discounts to win sockets outside its anchor accounts.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "Non-GAAP gross margin in the Q4 FY2026 print, the first quarter with meaningful Helios rack mix, against the 56% run-rate. Publication of third-party production benchmarks for Helios and Vera Rubin, of which none exist. A named ROCm frontier-training win rather than an inference deployment.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "Medium: margin has held at 56% for two quarters, but neither of those quarters carried material rack-scale mix.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "6/10: monitorable and gradual, and the CPU franchise offsets part of it — but gross margin, not revenue, is the number that decides this case.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 5",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 6: Supply and export policy. AMD has no fab and China is a revocable license.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": ""
+       },
+       {
+        "en": "Regulatory",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": ""
+       },
+       {
+        "en": "MI450 depends on TSMC N2 chiplets booked into 2028, CoWoS packaging that is fully booked with Nvidia holding roughly 60%, and HBM4 led by SK hynix at roughly 62% — none of it internal, all of it allocated by parties AMD does not control. On the demand side, MI308 China sales run on revocable export licenses that changed twice in a year, produced roughly $800M of fiscal 2025 charges with about $360M later reversed, and carry a mooted 15% revenue remittance. An allocation cut caps revenue at the source; a licensing reversal writes off inventory built against it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": ""
+       },
+       {
+        "en": "TSMC N2 and CoWoS allocation commentary at its next quarterly disclosure. Any inventory or commitment charge line in the Q3 or Q4 FY2026 statements resembling the fiscal 2025 MI308 pattern. Changes to the MI308 license regime or the remittance condition.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": ""
+       },
+       {
+        "en": "Medium: the export rules have already changed twice inside twelve months, though AMD held licenses at a point when Nvidia did not.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": ""
+       },
+       {
+        "en": "6/10: China contributes nothing to the base case, so the real exposure is upstream allocation rather than downstream policy.",
+        "zh": ""
+       }
+      ]
+     ],
+     "title": {
+      "en": "Risk 6",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "component": "disconfirming_evidence",
+     "title": {
+      "en": "What argues against this view",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "The dilution is largely self-funding. Warrant tranches vest against share-price thresholds, with OpenAI's final tranche gated at $600. Full dilution only lands in worlds where the stock is materially above $521.10, so the transfer of roughly $167B is paid out of gains that do not exist unless the thesis works.",
+       "zh": ""
+      },
+      {
+       "en": "The margin objection has now failed twice. Data Center revenue rose 107% and non-GAAP gross margin still printed 56%, with the third quarter guided flat. Data Center segment operating income swung to $2.103B from a $155M loss.",
+       "zh": ""
+      },
+      {
+       "en": "Consensus is chasing the deals, not fading them. 2027 EPS moved from $12.96 to $15.45 in ninety days with a $19.96 high, and the analysts revising were explicitly modeling the warrant dilution. Average targets sit near $614–622.",
+       "zh": ""
+      },
+      {
+       "en": "The pre-build reads as a moat in a shortage. $17.386B of near-term commitments and $9.5B of leases are stranded cost only if the ramp slips; with CoWoS sold out and N2 booked into 2028, secured allocation is the scarce asset.",
+       "zh": ""
+      },
+      {
+       "en": "Demand exists outside the warrant relationships. Oracle's 50,000-GPU Helios supercluster and Microsoft's Azure deployment carry no equity sweetener, and Anthropic's up-to-2GW commitment starts in the first half of 2027.",
+       "zh": ""
+      },
+      {
+       "en": "This is not a roadmap story. MI300-series revenue is shipping and hyperscaler-qualified, seven of the ten largest model builders run production workloads on Instinct, and the EPYC franchise generates cash independent of any AI outcome. The downside is a valuation reset, not a capital loss on a pre-revenue bet.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "The downside case in full",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The way this breaks is timing, not demand. Suppose MI450 and Helios slip one to two quarters — an integration defect, an HBM4 allocation miss, or a UALink switch dependency landing after the fourth quarter of 2026. Three things happen together. Revenue defers, and fiscal 2027 Data Center lands near the Visible Alpha consensus of $33.9B rather than the guided doubling, holding group revenue around $55–60B against a bull path of $90–100B. Margin absorbs the pre-build, because take-or-pay obligations do not re-phase with shipments: $17.386B of commitments and 159 days of inventory become charges, and non-GAAP gross margin falls from 56% toward the low 50s. AMD has done exactly this before, taking roughly $800M of MI308 inventory and related charges in fiscal 2025 when China licensing shifted. And the multiple resets faster than the earnings, because at 40x there is nothing holding it up. Diluted 2027 EPS near $7.00–8.00 at 25–30x is $175–240 per share against $521.10 — a 54% to 66% drawdown from a two-quarter delay with the long-term thesis fully intact.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Cash is not the constraint. $13.111B of cash and short-term investments against $3.226B of debt, with positive free cash flow through the ramp, means the company absorbs this comfortably. The entry price does not. And the bull case carries its own financing event: a $90B revenue year implies $18–20B of inventory at current days against roughly $9.9B of net cash, which points to debt issuance and further pressure on the same per-share math the warrants already compress.",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "financial_forecast_valuation",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Two numbers govern this valuation and they pull in opposite directions. Revenue has to roughly double by 2027 for consensus earnings to be reachable. Per-share value has to survive a 19.6% increase in the share count while that happens.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "revenue",
+     "title": {
+      "en": "Revenue by Segment — Q2 FY2026, quarter ended June 27, 2026",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Segment",
+       "zh": ""
+      },
+      {
+       "en": "Revenue",
+       "zh": ""
+      },
+      {
+       "en": "Year over year",
+       "zh": ""
+      },
+      {
+       "en": "Read",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Data Center",
+        "zh": ""
+       },
+       "$6.718B",
+       "+107%",
+       {
+        "en": "58% of group revenue. Segment operating income $2.103B against a $155M loss a year earlier. Instinct and EPYC are not disclosed separately, so AI attach rate and AI-specific gross margin cannot be computed from disclosure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Client",
+        "zh": ""
+       },
+       "$3.062B",
+       "+23%",
+       {
+        "en": "Sold through PC OEMs, distributors and add-in-board partners. Ballast and cash, not growth.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Embedded",
+        "zh": ""
+       },
+       "$0.977B",
+       "+19%",
+       {
+        "en": "The former Xilinx franchise, recovering more slowly and shallowly than originally underwritten. Goodwill and intangible balances from that 2022 acquisition are an unmeasured impairment sensitivity in this evidence base.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Gaming",
+        "zh": ""
+       },
+       "$0.779B",
+       "−31%",
+       {
+        "en": "Console-cycle decline. The only segment contracting.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Total",
+        "zh": ""
+       },
+       "$11.536B",
+       "+50%",
+       {
+        "en": "GAAP gross margin 54%, non-GAAP 56%. GAAP operating income $1.990B, a 17.3% margin.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Q3 FY2026 guidance",
+        "zh": ""
+       },
+       {
+        "en": "~$13.0B ±$300M",
+        "zh": ""
+       },
+       "+41%",
+       {
+        "en": "At about 56% non-GAAP gross margin. The quarter closes in late September 2026 and is unreported. Helios shipments began at the end of it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "First half FY2026",
+        "zh": ""
+       },
+       "$21.789B",
+       {
+        "en": "from $15.123B",
+        "zh": ""
+       },
+       {
+        "en": "Operating income $3.466B; other income $763M including $549M of investment gains; tax $490M at about a 12% effective rate; net income $3.680B; diluted EPS $2.22 on 1,655M shares; capital expenditure $1.197B.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "key_operating_metrics",
+     "title": {
+      "en": "Key Operating Metrics",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Value",
+       "zh": ""
+      },
+      {
+       "en": "Why it carries weight",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Non-GAAP gross margin",
+        "zh": ""
+       },
+       {
+        "en": "56%, guided flat at ~56%",
+        "zh": ""
+       },
+       {
+        "en": "Held through a 107% Data Center expansion. This is the tracked number for the whole case — revenue growth without margin is not the thesis.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Segment-to-GAAP reconciliation",
+        "zh": ""
+       },
+       {
+        "en": "$3.071B segment operating income vs $1.990B GAAP; $1.081B unallocated",
+        "zh": ""
+       },
+       {
+        "en": "About 940 basis points of revenue leaks below the segment line. A 31% Data Center segment margin is not a 31% corporate margin.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Normalized first-half EPS",
+        "zh": ""
+       },
+       {
+        "en": "~$1.93 against $2.22 reported",
+        "zh": ""
+       },
+       {
+        "en": "Reported earnings are inflated about 13% by $549M of investment gains and a ~12% effective tax rate. A normalized 15–18% rate is a further headwind to 2027.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Remaining performance obligations (>1 year)",
+        "zh": ""
+       },
+       {
+        "en": "$222M, of which $144M inside twelve months",
+        "zh": ""
+       },
+       {
+        "en": "The only contracted revenue disclosure. Fourteen gigawatts of announced partnerships stand outside it entirely.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Future purchase commitments",
+        "zh": ""
+       },
+       {
+        "en": "$30.276B: $17.386B remainder-2026, $5.474B 2027, $2.851B 2028, $2.528B 2029, $1.471B 2030, $566M 2031+",
+        "zh": ""
+       },
+       {
+        "en": "AMD's own supply-side conviction and the best hard proxy for near-term output. The 2027 line is not yet built out, so it is a floor rather than a ceiling.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Inventory",
+        "zh": ""
+       },
+       {
+        "en": "$8.468B, ~159 days, $5.265B work in process",
+        "zh": ""
+       },
+       {
+        "en": "The leading indicator. Days rising ahead of a shipment miss is how a slip becomes visible before it reaches revenue.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Free cash flow",
+        "zh": ""
+       },
+       {
+        "en": "$1.558B, 13.5% of revenue",
+        "zh": ""
+       },
+       {
+        "en": "Positive during the ramp, not after it. Capital expenditure was $1.197B across the first half.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Net cash",
+        "zh": ""
+       },
+       {
+        "en": "~$9.9B ($13.111B cash and short-term investments less $3.226B debt)",
+        "zh": ""
+       },
+       {
+        "en": "Comfortable today. A $90B revenue year implies $18–20B of inventory at current days, which points to external financing in the bull case.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Warrant dilution",
+        "zh": ""
+       },
+       {
+        "en": "320M shares at $0.01, 19.6% of the current count",
+        "zh": ""
+       },
+       {
+        "en": "Liability-classified with no financial-statement impact as of June 27, 2026. Each 160M tranche carries about $83B of intrinsic value at $521.10, so mark-to-market movement can swamp operating earnings once vesting begins.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "EPYC server CPU share",
+        "zh": ""
+       },
+       {
+        "en": "46.2% of revenue, 33.2% of units (Q1 2026); 34.5% of units (Q2 2026)",
+        "zh": ""
+       },
+       {
+        "en": "Revenue share twelve points above unit share is price realization. The highest-confidence evidence in the file.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Accelerator share",
+        "zh": ""
+       },
+       {
+        "en": "~5–7% of units against Nvidia at 75–86% of revenue",
+        "zh": ""
+       },
+       {
+        "en": "Flat across two Instinct generations. Aggregator estimates disperse widely, so this is a band rather than a figure.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "time_base_integrity",
+     "title": {
+      "en": "Data Vintage",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Figure class",
+       "zh": ""
+      },
+      {
+       "en": "As of",
+       "zh": ""
+      },
+      {
+       "en": "Basis",
+       "zh": ""
+      },
+      {
+       "en": "Consequence",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Share price, market capitalization, enterprise value, multiples",
+        "zh": ""
+       },
+       "2026-09-09",
+       {
+        "en": "NASDAQ close, continuously marked",
+        "zh": ""
+       },
+       {
+        "en": "For a listed issuer the valuation base is same-day, so staleness tolerance is days rather than quarters. An undated multiple is unusable, not merely old.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Reported operating results and balance sheet",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "Quarterly report for the period ended June 27, 2026, results released August 4, 2026",
+        "zh": ""
+       },
+       {
+        "en": "The newest reported base. The run date of September 10, 2026 sits mid-Q3 FY2026, so nothing after June 27 is actual.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Q3 FY2026 revenue and margin",
+        "zh": ""
+       },
+       "2026-08-04",
+       {
+        "en": "Company guidance of ~$13.0B ±$300M at ~56% non-GAAP gross margin",
+        "zh": ""
+       },
+       {
+        "en": "Forward, not trailing. The quarter closes in late September 2026. Helios first shipped at the end of it, so the first real ramp quarter is unverified.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "2027 Data Center outlook and segment growth",
+        "zh": ""
+       },
+       {
+        "en": "2026-07 to 2026-08",
+        "zh": ""
+       },
+       {
+        "en": "Company guidance: Data Center revenue more than doubling, server CPU +70%, Data Center AI well over 100%, with coverage citing a ~$70B figure",
+        "zh": ""
+       },
+       {
+        "en": "Company forward statements, never blended into a trailing series. Visible Alpha 2027 Data Center consensus of $33.9B sits at roughly half the guided path.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Consensus earnings and price targets",
+        "zh": ""
+       },
+       {
+        "en": "2026-09-07 to 2026-09-09",
+        "zh": ""
+       },
+       {
+        "en": "Sell-side aggregation; 2027 EPS $15.45 (high $19.96), targets ~$614–622",
+        "zh": ""
+       },
+       {
+        "en": "Revised from $12.96 ninety days earlier. Pre-dilution, so it requires the 1.631/1.951 adjustment before any multiple is taken.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Warrant terms and accounting",
+        "zh": ""
+       },
+       "2026-06-27",
+       {
+        "en": "Quarterly report footnote; OpenAI warrant dated October 6, 2025, Meta warrant dated February 24, 2026",
+        "zh": ""
+       },
+       {
+        "en": "None vested and no financial-statement impact as of June 27, 2026. Exercisable through October 5, 2030 and February 23, 2031.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Market share figures",
+        "zh": ""
+       },
+       {
+        "en": "2026-Q1 to 2026-08",
+        "zh": ""
+       },
+       {
+        "en": "Mercury Research via trade press; accelerator share from aggregators",
+        "zh": ""
+       },
+       {
+        "en": "CPU share is well-sourced and dated. Accelerator share disperses across sources — 75%, 80% and 86% all appear for Nvidia — so it is banded rather than point-quoted.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Funding history",
+        "zh": ""
+       },
+       {
+        "en": "Not applicable",
+        "zh": ""
+       },
+       {
+        "en": "No priced rounds exist",
+        "zh": ""
+       },
+       {
+        "en": "AMD's capital events are public debt, buybacks and equity issuance. Round-mark and dilution-schedule fields are a category error here and were left empty rather than back-filled.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "growth_bridge",
+     "title": {
+      "en": "FY2026 to FY2027 Bridge",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Step",
+       "zh": ""
+      },
+      {
+       "en": "Amount",
+       "zh": ""
+      },
+      {
+       "en": "Basis and caveat",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "FY2026 group revenue (estimated)",
+        "zh": ""
+       },
+       {
+        "en": "~$48–51B",
+        "zh": ""
+       },
+       {
+        "en": "First-half actual $21.789B plus the ~$13.0B Q3 guide plus a modeled Q4. Q3 is unreported.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "FY2026 Data Center (estimated)",
+        "zh": ""
+       },
+       {
+        "en": "~$29–32B",
+        "zh": ""
+       },
+       {
+        "en": "Run-rated from $6.718B in Q2 with the guided second-half step-up. Instinct is not split out from EPYC within it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Helios and MI450 contribution in 2026",
+        "zh": ""
+       },
+       {
+        "en": "A stub — roughly a quarter and a half",
+        "zh": ""
+       },
+       {
+        "en": "First shipments at the end of Q3 2026, a step-up in Q4, a further step-up in Q1 2027. Any 2026 case that annualizes Helios is unsupported.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "EPYC contribution to 2027",
+        "zh": ""
+       },
+       {
+        "en": "Guided +70%",
+        "zh": ""
+       },
+       {
+        "en": "The most reliable line in the bridge. Multi-generation hyperscaler standardization, currently growing about 70% year over year.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Gigawatt commitments converted to revenue",
+        "zh": ""
+       },
+       {
+        "en": "~$24B/year blended at $10B per gigawatt; $48B at $20B per gigawatt",
+        "zh": ""
+       },
+       {
+        "en": "The only disclosed dollar anchor is Meta's up-to-$60B across 6GW over five years. OpenAI's agreement carries no disclosed value, so its arithmetic inherits Meta's pricing. AMD discloses neither gigawatts shipped nor revenue per gigawatt.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Contracted portion of the above",
+        "zh": ""
+       },
+       "$222M",
+       {
+        "en": "Remaining performance obligations beyond one year at June 27, 2026. The gigawatt frameworks carry no disclosed minimum volumes, pricing or take-or-pay language.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "FY2027 Data Center — consensus anchor",
+        "zh": ""
+       },
+       "$33.9B",
+       {
+        "en": "Visible Alpha. Implies almost no incremental gigawatt revenue lands in 2027.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "FY2027 Data Center — guidance anchor",
+        "zh": ""
+       },
+       {
+        "en": "~$65–70B",
+        "zh": ""
+       },
+       {
+        "en": "Management guiding the segment to more than double, with coverage framing 2027 AI sales toward $70B. Roughly twice the consensus. The gap is the entire debate.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "FY2027 group revenue implied by consensus EPS",
+        "zh": ""
+       },
+       {
+        "en": "~$85–100B",
+        "zh": ""
+       },
+       {
+        "en": "$15.45 EPS on ~1.66B shares is about $25.6B of net income; at a 26–30% net margin that back-solves to $85–100B. Consensus earnings require revenue to roughly double and margin to expand 700–1,000 basis points at the same time.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "scenario_analysis",
+     "title": {
+      "en": "Scenarios — FY2027, on 1.951B fully diluted shares",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "",
+       "zh": ""
+      },
+      {
+       "en": "Bear — ramp slips",
+       "zh": ""
+      },
+      {
+       "en": "Base — between consensus and guidance",
+       "zh": ""
+      },
+      {
+       "en": "Bull — guidance lands",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Data Center revenue",
+        "zh": ""
+       },
+       {
+        "en": "~$34B",
+        "zh": ""
+       },
+       {
+        "en": "~$45–50B",
+        "zh": ""
+       },
+       {
+        "en": "~$65–70B",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Group revenue",
+        "zh": ""
+       },
+       {
+        "en": "~$55–60B",
+        "zh": ""
+       },
+       {
+        "en": "~$70–75B",
+        "zh": ""
+       },
+       {
+        "en": "~$90–100B",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Non-GAAP gross margin",
+        "zh": ""
+       },
+       {
+        "en": "Low 50s — rack mix plus writedowns off $17.386B of commitments and 159 days of inventory",
+        "zh": ""
+       },
+       {
+        "en": "~55–56%, flat with the Q2 print and the Q3 guide",
+        "zh": ""
+       },
+       {
+        "en": "56%+ if EPYC mix and realized price per gigawatt hold",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Diluted EPS",
+        "zh": ""
+       },
+       {
+        "en": "~$7.00–8.00",
+        "zh": ""
+       },
+       {
+        "en": "~$12.92",
+        "zh": ""
+       },
+       {
+        "en": "~$16.00–17.00",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Multiple",
+        "zh": ""
+       },
+       {
+        "en": "25–30x",
+        "zh": ""
+       },
+       "35x",
+       "40x"
+      ],
+      [
+       {
+        "en": "Implied price",
+        "zh": ""
+       },
+       {
+        "en": "~$175–240",
+        "zh": ""
+       },
+       {
+        "en": "~$450",
+        "zh": ""
+       },
+       {
+        "en": "~$640–680",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Against $521.10 on 2026-09-09",
+        "zh": ""
+       },
+       {
+        "en": "−54% to −66%",
+        "zh": ""
+       },
+       "−14%",
+       {
+        "en": "+23% to +30%",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What confirms the lane",
+        "zh": ""
+       },
+       {
+        "en": "Q3 FY2026 Helios units below plan, gross margin under 56%, inventory days above 159",
+        "zh": ""
+       },
+       {
+        "en": "Q4 FY2026 gross margin holding near 56% with the guided Helios step-up landing",
+        "zh": ""
+       },
+       {
+        "en": "Oracle's 50,000-GPU cluster live, a named ROCm training win, and disclosed revenue per gigawatt above $10B",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Read across those lanes and the shape is the problem. The base case does not clear the entry price — it returns about −14%. The upside is roughly +25%, and it arrives in exactly the states where the warrants dilute hardest, since OpenAI's final tranche is gated at a $600 share price. The downside is −60% and it is a…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "One further point on the earnings basis. Once warrant tranches vest, GAAP earnings per share stop being comparable year to year — mark-to-market movement on roughly $83B of intrinsic value per tranche, and any treatment as consideration payable to a customer, can dominate operating results in the same year the thesis…",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "investment_decision",
+   "title": {
+    "en": "Investment Decision",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "BSH is not committing capital to Advanced Micro Devices. There is no private vehicle to sponsor — this is a listed mega-cap, outside the priced growth financings, secondaries and pre-IPO situations BSH underwrites — and at $521.10 on September 9, 2026 the open-market entry does not compensate for the risk being taken.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "The reasoning is short. The screen shows $850.67B and roughly 34x forward earnings. The actual basis is about $1.02 trillion and roughly 40x, because 320 million penny warrants issued to OpenAI and Meta sit outside the share count and carry about $167B of intrinsic value at spot. At that multiple, a mid-range 2027…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "None of this is a judgment against the company. Data Center revenue grew 107% to $6.718B with segment operating income of $2.103B against a prior-year loss, and non-GAAP gross margin held at 56% straight through it. EPYC took 46.2% of x86 server CPU revenue on a third of the units, which is price realization in a…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "The named risks are the entry multiple on a fully diluted basis, a Helios ramp whose slip becomes writedowns rather than deferred revenue, five counterparties carrying the 2027 bridge against $222M of contracted obligations, custom ASICs shrinking the merchant pool AMD competes in, rack-scale mix pulling gross margin…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "component": "evidence_thresholds",
+     "title": {
+      "en": "What would change the number",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "Revenue per gigawatt is not disclosed. Meta's up-to-$60B across six gigawatts is the only dollar anchor across roughly fourteen gigawatts of agreements, and it implies about $10B per gigawatt — well short of what a $70B 2027 Data Center year needs. A disclosed figure above $15B per gigawatt would close most of the gap…",
+       "zh": ""
+      },
+      {
+       "en": "Contracted backlog stands at $222M. The gigawatt frameworks carry no disclosed minimum volumes, pricing or take-or-pay language. Remaining performance obligations moving into the billions would convert the largest single unpriced element of the case.",
+       "zh": ""
+      },
+      {
+       "en": "The fourth quarter of 2026 is the first with material Helios rack mix. Non-GAAP gross margin holding at 56% through it would retire the mix-dilution objection that has already failed twice. A print in the low 50s confirms it instead.",
+       "zh": ""
+      },
+      {
+       "en": "No third-party production benchmarks exist for Helios or Vera Rubin. Every performance and tokens-per-dollar claim on both sides is vendor-supplied, and independent results would settle whether spec parity survives contact with real workloads.",
+       "zh": ""
+      },
+      {
+       "en": "Instinct revenue, units, ASP and gross margin are not broken out from the Data Center segment. Without that split, AI-specific unit economics cannot be computed and the segment's 31% operating margin cannot be attributed.",
+       "zh": ""
+      },
+      {
+       "en": "ROCm's wins are inference wins. A named frontier-training deployment would extend the addressable pool beyond the beachhead and reduce the discount AMD carries outside its anchor accounts.",
+       "zh": ""
+      },
+      {
+       "en": "Customer concentration is not yet visible in the filings. No customer reached 10% of revenue in fiscal 2025 or 2024, and the fiscal 2026 annual report is the first that will reflect the anchor ramps.",
+       "zh": ""
+      },
+      {
+       "en": "A materially lower entry price would do most of this work on its own. At 30x the base-case diluted earnings of $12.92, the arithmetic clears near $390.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "LPs who want this exposure can buy it on exchange any day, at a price they choose, with no fee, no carry and no lock-up. That is the honest form of the answer: BSH adds nothing here that an LP cannot do more cheaply alone, and the price is not attractive enough to argue otherwise.",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "sources_and_disclosures",
+   "title": {
+    "en": "Sources and Disclosures",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "component": "source_index",
+     "text": {
+      "en": "Figures below are traced to the source list that follows. Market data carries a September 9, 2026 as-of. Reported operating figures come from the quarter ended June 27, 2026. Anything describing 2027 is company guidance or sell-side consensus, dated and labeled as such.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "source_index",
+     "title": {
+      "en": "Fact Reference Index",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Fact",
+       "zh": ""
+      },
+      {
+       "en": "Source",
+       "zh": ""
+      },
+      {
+       "en": "As of",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "$521.10 close; $850.67B market cap; $841.84B enterprise value; 1.631B shares; $41.31B LTM revenue; ~$614 consensus target",
+        "zh": ""
+       },
+       "S8",
+       "2026-09-09"
+      ],
+      [
+       {
+        "en": "Q2 FY2026 revenue $11.536B; Data Center $6.718B; Client $3.062B; Embedded $977M; Gaming $779M; GAAP/non-GAAP gross margin 54%/56%; GAAP operating income $1.990B; diluted EPS $1.38/$1.66; free cash flow $1.558B; Q3 guide ~$13.0B ±$300M",
+        "zh": ""
+       },
+       "S1",
+       "2026-08-04"
+      ],
+      [
+       {
+        "en": "Remaining performance obligations $222M; purchase commitments $30.276B with $17.386B due in the remainder of 2026; inventory $8.468B with $5.265B work in process; cash and short-term investments $13.111B; total debt $3.226B; warrant liability classification and non-vesting; $9.5B of post-quarter data center leases",
+        "zh": ""
+       },
+       "S2",
+       "2026-06-27"
+      ],
+      [
+       {
+        "en": "First-half FY2026 revenue $21.789B; operating income $3.466B; other income $763M including $549M of investment gains; tax $490M; net income $3.680B; diluted EPS $2.22; capital expenditure $1.197B",
+        "zh": ""
+       },
+       "S2",
+       "2026-06-27"
+      ],
+      [
+       {
+        "en": "No customer at 10% or more of consolidated net revenue in fiscal 2025 or 2024; segment channel structure; MI308 export-license regime and the ~$800M charge with ~$360M reversal",
+        "zh": ""
+       },
+       "S3",
+       "2026-02-04"
+      ],
+      [
+       {
+        "en": "Helios production and shipment schedule; 2027 Data Center guidance to more than double, server CPU +70%, Data Center AI well over 100%; Data Center AI gross margin below company average; supply-chain commentary",
+        "zh": ""
+       },
+       "S4",
+       "2026-08-04"
+      ],
+      [
+       {
+        "en": "OpenAI six-gigawatt agreement; first gigawatt of MI450 in the second half of 2026; warrant for up to 160M shares at $0.01 with tranche vesting to October 5, 2030 and a final tranche at $600",
+        "zh": ""
+       },
+       "S5",
+       "2025-10-06"
+      ],
+      [
+       {
+        "en": "Meta six-gigawatt partnership valued at up to $60B over five years; custom MI450-architecture Instinct with sixth-generation EPYC Venice; 160M-share performance warrant to February 23, 2031",
+        "zh": ""
+       },
+       "S6",
+       "2026-02-24"
+      ],
+      [
+       {
+        "en": "Helios rack specifications and pricing; Oracle's 50,000 MI450 deployment; Anthropic up to two gigawatts from the first half of 2027; Microsoft Helios on Azure; ROCm 7.2 and free ROCm Enterprise AI; seven of the top ten model builders in production",
+        "zh": ""
+       },
+       "S7",
+       "2026-07-24"
+      ],
+      [
+       {
+        "en": "2027 consensus EPS $15.45 (high $19.96, up from $12.96 ninety days earlier); Visible Alpha 2027 Data Center consensus $33.9B; ~19.6% warrant dilution in revised models; average target ~$622",
+        "zh": ""
+       },
+       "S9",
+       "2026-09-09"
+      ],
+      [
+       {
+        "en": "EPYC at 46.2% of x86 server CPU revenue and 33.2% of units in Q1 2026, rising to 34.5% of units in Q2 2026",
+        "zh": ""
+       },
+       "S10",
+       "2026-06"
+      ],
+      [
+       {
+        "en": "Custom ASIC shipments +44.6% in 2026 against +16.1% for merchant GPUs, ~27.8% of AI server shipments; Broadcom ~$73B AI backlog; Nvidia 75–86% of data center GPU revenue against AMD at 5–7% of units; TSMC N2 booked into 2028, CoWoS fully booked with Nvidia ~60%, HBM4 led by SK hynix ~62%",
+        "zh": ""
+       },
+       "S11",
+       "2026-05"
+      ],
+      [
+       {
+        "en": "Helios and Vera Rubin NVL72 spec comparison; ROCm at 90–95% of CUDA throughput with no TensorRT-LLM or FlashAttention 3 equivalent; UALink 1.0 at up to 800GB/s against NVLink 5.0 at 1.8TB/s; Nvidia opening NVLink Fusion",
+        "zh": ""
+       },
+       "S12",
+       "2026-07"
+      ],
+      [
+       {
+        "en": "Fully diluted share count of 1.951B and ~$1.02T basis; ~$12.92 diluted 2027 EPS; ~940bp segment-to-GAAP reconciliation gap; ~$1.93 normalized first-half EPS; implied 2H26 cost of sales of $12.2–12.9B; $10–20B per gigawatt range; all scenario arithmetic",
+        "zh": ""
+       },
+       "S13",
+       "2026-09-10"
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Disclosures",
+      "zh": ""
+     },
+     "component": "disclosures"
+    },
+    {
+     "type": "paragraph",
+     "component": "disclosures",
+     "text": {
+      "en": "This document is prepared by Berkeley Summit House for its limited partners and co-investment participants. It concerns a publicly listed security and does not constitute an offer to sell or a solicitation to buy any security, interest, or fund vehicle. BSH is not sponsoring a special purpose vehicle, a fund, or any…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "component": "disclosures",
+     "items": [
+      {
+       "en": "Market data reflects the NASDAQ close of September 9, 2026. Prices, capitalization and multiples move continuously and will differ from the figures shown by the time this is read.",
+       "zh": ""
+      },
+      {
+       "en": "Operating figures are drawn from Advanced Micro Devices' public filings for the quarter ended June 27, 2026 and the fiscal year ended in 2025. The third quarter of fiscal 2026 closes in late September 2026 and was unreported when this was prepared.",
+       "zh": ""
+      },
+      {
+       "en": "Statements about 2027 revenue, Data Center growth and earnings are company guidance or sell-side consensus. They are forward-looking, they are not contracted, and actual results will differ.",
+       "zh": ""
+      },
+      {
+       "en": "Scenario prices, the fully diluted share count, normalized earnings, the segment-to-GAAP reconciliation and revenue-per-gigawatt figures are BSH calculations on disclosed inputs, not company disclosures.",
+       "zh": ""
+      },
+      {
+       "en": "No curated research corpus was assembled for this analysis. Evidence was gathered from primary filings, company releases and market data retrieved on September 9, 2026, without a second independent verification pass.",
+       "zh": ""
+      },
+      {
+       "en": "Third-party market-share and shipment forecasts are estimates from commercial research providers and disperse materially between sources. They are presented as ranges for that reason.",
+       "zh": ""
+      },
+      {
+       "en": "BSH and its principals may hold positions in securities discussed. Past performance does not indicate future results, and the value of any investment can fall as well as rise.",
+       "zh": ""
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "id": "S1",
+   "title": {
+    "en": "Advanced Micro Devices Q2 fiscal 2026 results release and earnings materials",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "Reported actuals are used at face value for revenue, segment detail, margin and cash flow; the third-quarter outlook is carried as forward guidance with its date attached and is never blended into a trailing series.",
+    "zh": ""
+   },
+   "as_of": "2026-08-04"
+  },
+  {
+   "id": "S2",
+   "title": {
+    "en": "Advanced Micro Devices Form 10-Q for the quarter ended June 27, 2026",
+    "zh": ""
+   },
+   "class": "public filings",
+   "treatment": {
+    "en": "Load-bearing throughout. Every balance-sheet figure, the remaining performance obligation, the purchase-commitment schedule, inventory detail and the warrant accounting footnote come from here and are used without adjustment.",
+    "zh": ""
+   },
+   "as_of": "2026-06-27"
+  },
+  {
+   "id": "S3",
+   "title": {
+    "en": "Advanced Micro Devices Form 10-K for fiscal 2025, filed February 4, 2026",
+    "zh": ""
+   },
+   "class": "public filings",
+   "treatment": {
+    "en": "Used for the customer-concentration statement, segment channel structure and the MI308 export-control charge history; the concentration disclosure is treated as a historical record that predates the anchor ramps rather than as forward protection.",
+    "zh": ""
+   },
+   "as_of": "2026-02-04"
+  },
+  {
+   "id": "S4",
+   "title": {
+    "en": "Advanced Micro Devices Q2 fiscal 2026 earnings call transcript",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "Management's 2027 segment outlook and Helios shipment schedule are carried as guidance with the guidance date, forming the high anchor of the scenario range; the concession that Data Center AI gross margin runs below company average is used against the bull case.",
+    "zh": ""
+   },
+   "as_of": "2026-08-04"
+  },
+  {
+   "id": "S5",
+   "title": {
+    "en": "Advanced Micro Devices and OpenAI partnership announcement and related Form 8-K",
+    "zh": ""
+   },
+   "class": "public filings",
+   "treatment": {
+    "en": "Gigawatt scope and warrant terms are taken as disclosed; because no dollar value was disclosed, all OpenAI revenue arithmetic is derived from Meta's pricing and labeled as an inference rather than a disclosure.",
+    "zh": ""
+   },
+   "as_of": "2025-10-06"
+  },
+  {
+   "id": "S6",
+   "title": {
+    "en": "Advanced Micro Devices and Meta expanded six-gigawatt partnership announcement",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "The up-to-$60B figure is the only disclosed dollar value across the gigawatt agreements and is used as the sole anchor for revenue per gigawatt; it is treated as a ceiling across five years, not an annual run-rate.",
+    "zh": ""
+   },
+   "as_of": "2026-02-24"
+  },
+  {
+   "id": "S7",
+   "title": {
+    "en": "Advancing AI 2026 launch materials for Helios, Instinct MI450 and EPYC Venice",
+    "zh": ""
+   },
+   "class": "company-reported",
+   "treatment": {
+    "en": "Customer names, deployment scales and product schedules are used as disclosed; performance and tokens-per-dollar claims are flagged as vendor-supplied and are not credited as underwriting inputs.",
+    "zh": ""
+   },
+   "as_of": "2026-07-24"
+  },
+  {
+   "id": "S8",
+   "title": {
+    "en": "Market statistics and quote data for AMD (stockanalysis.com)",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Provides the timestamped price, capitalization, enterprise value and share count that anchor every valuation figure; used only with an explicit as-of because a listed-issuer valuation base is same-day.",
+    "zh": ""
+   },
+   "as_of": "2026-09-09"
+  },
+  {
+   "id": "S9",
+   "title": {
+    "en": "Sell-side earnings consensus and Visible Alpha segment estimates",
+    "zh": ""
+   },
+   "class": "investor materials",
+   "treatment": {
+    "en": "Supplies the low anchor of the 2027 range and the starting earnings figure, which is adjusted for warrant dilution before any multiple is taken; the ninety-day revision history is used as evidence that the estimate base is unsettled.",
+    "zh": ""
+   },
+   "as_of": "2026-09-09"
+  },
+  {
+   "id": "S10",
+   "title": {
+    "en": "Mercury Research x86 server processor share data reported through trade press",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Treated as the highest-confidence competitive evidence in the file; the gap between revenue share and unit share is read as price realization rather than volume discounting.",
+    "zh": ""
+   },
+   "as_of": "2026-06"
+  },
+  {
+   "id": "S11",
+   "title": {
+    "en": "TrendForce and Tom's Hardware accelerator shipment forecasts and supply-chain analysis",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Custom-ASIC growth, accelerator share and foundry, packaging and memory allocation figures are presented as bands rather than point estimates because aggregator sources disperse widely.",
+    "zh": ""
+   },
+   "as_of": "2026-05"
+  },
+  {
+   "id": "S12",
+   "title": {
+    "en": "Futurum, HPCwire and consortium coverage of Helios, ROCm and UALink",
+    "zh": ""
+   },
+   "class": "third-party market data",
+   "treatment": {
+    "en": "Used to corroborate spec parity and to size the software gap; because no third-party production benchmarks exist for either rack, these are treated as informed analysis rather than measurement.",
+    "zh": ""
+   },
+   "as_of": "2026-07"
+  },
+  {
+   "id": "S13",
+   "title": {
+    "en": "BSH fast-path analysis for run 2026-09-10__014109",
+    "zh": ""
+   },
+   "class": "BSH primary diligence",
+   "treatment": {
+    "en": "Supplies all dilution arithmetic, earnings normalization, the segment-to-GAAP reconciliation, the revenue-per-gigawatt derivation and the scenario construction; every calculation is stated as BSH arithmetic on disclosed inputs, and it discloses that no curated research corpus existed for this run.",
+    "zh": ""
+   },
+   "as_of": "2026-09-10"
+  }
+ ],
+ "_fixture": {
+  "copied_from": "data/memos/amd/2026-09-10__014109__amd__memo-run/logs/memo_package.en.attempt-1.json",
+  "trimmed": "strings over 320 characters cut at a word boundary, except in investment_risk"
+ }
+}

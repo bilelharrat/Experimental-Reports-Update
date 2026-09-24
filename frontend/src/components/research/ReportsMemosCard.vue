@@ -1,12 +1,29 @@
 <script setup>
 // Web twin of the "Research Reports & Memos" card and MemoRowView in
-// MacResearchDeskView.swift: doc icon, title with NEW/language/status chips,
-// "Updated … · Audience" line, and the per-state action buttons.
+// MacResearchDeskView.swift: doc icon, title with language/status chips,
+// "Updated … · Audience" line, and the per-state action buttons. Rows read
+// the real ReportSummary the way MacReport does (ResearchDeskModels.swift):
+// the title is the report type, complete means a finished status, and a row
+// opens when a document is on file.
 import { computed } from "vue";
 import { useT } from "../../i18n.js";
 import { FileText, FileCog, Sparkles, BookOpen, Activity, Compass } from "lucide-vue-next";
 import AiMark from "../AiMark.vue";
 import { formatIsoDate } from "../../formatters.js";
+import {
+  reportCanOpen,
+  reportIsComplete,
+  reportIsDocless,
+  reportIsFailed,
+  reportIsHidden,
+  reportState,
+  reportStatusLabel,
+  reportTypeLabel,
+  reviewChip,
+  useTwoStepArm,
+  verdictChip,
+} from "../../reportStatus.js";
+import { appLanguage } from "../../state.js";
 
 const props = defineProps({
   companyId: {
@@ -21,40 +38,112 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  // The report whose Synthesize the desk is starting, and why it failed.
+  synthesizingId: {
+    type: String,
+    default: "",
+  },
+  synthesizeError: {
+    type: String,
+    default: "",
+  },
 });
 
 const emit = defineEmits(["open-memo", "open-customizer", "synthesize"]);
 const t = useT();
 
+// Cleared failures and runs a newer run replaced stay off the desk, as they
+// do on the Reports list.
 const sortedReports = computed(() => {
-  return [...props.reports].sort((a, b) => {
-    const da = new Date(a.created_at || a.date || 0).getTime();
-    const db = new Date(b.created_at || b.date || 0).getTime();
-    return db - da;
-  });
+  return [...props.reports]
+    .filter((rep) => !reportIsHidden(rep))
+    .sort((a, b) => {
+      const da = new Date(a.created_at || a.date || 0).getTime();
+      const db = new Date(b.created_at || b.date || 0).getTime();
+      return db - da;
+    });
 });
 
-function isComplete(rep) {
-  return rep.status === "complete";
+const isComplete = reportIsComplete;
+const isFailed = reportIsFailed;
+const canOpen = reportCanOpen;
+
+function isAwaitingStudio(rep) {
+  return reportState(rep) === "cards_ready";
 }
 
-function isFailed(rep) {
-  return rep.status === "failed" || rep.status === "error";
-}
-
-function canOpen(rep) {
-  return isComplete(rep) || rep.can_open === true;
-}
-
-// StatusTag tone: complete → green, failed → red, everything else → orange.
+// StatusTag tone: complete → green, failed → red, a finished record with
+// nothing to read → gray, everything else → orange.
 function statusTone(rep) {
-  if (isComplete(rep)) return "var(--mac-green)";
+  if (reportIsDocless(rep)) return "var(--mac-gray)";
+  if (reportState(rep) === "complete") return "var(--mac-green)";
   if (isFailed(rep)) return "var(--mac-red)";
   return "var(--mac-orange)";
 }
 
 function statusText(rep) {
-  return rep.status_label || rep.status || "";
+  return reportIsDocless(rep) ? t("reports.status_no_document") : reportStatusLabel(rep, t);
+}
+
+// The memo's call and its review, tinted the way the Reports list tints them.
+const MAC_TINTS = {
+  success: "var(--mac-green)",
+  notice: "var(--mac-orange)",
+  teal: "var(--mac-teal)",
+  purple: "var(--mac-purple)",
+  info: "var(--mac-indigo)",
+  warning: "var(--mac-orange)",
+  danger: "var(--mac-red)",
+  accent: "var(--mac-blue)",
+  neutral: "var(--mac-gray)",
+};
+
+function macTint(tone) {
+  return MAC_TINTS[tone] || MAC_TINTS.neutral;
+}
+
+function verdict(rep) {
+  return verdictChip(rep, t, appLanguage.value);
+}
+
+function review(rep) {
+  return reviewChip(rep, t, appLanguage.value);
+}
+
+function typeLabel(rep) {
+  return reportTypeLabel(rep, t);
+}
+
+// The documents on file, as language chips (every memo run writes both).
+function languages(rep) {
+  return Object.keys(rep.download_urls || {}).filter((key) => key === "en" || key === "zh");
+}
+
+const AUDIENCE_KEYS = {
+  Internal: "customizer.aud_internal_title",
+  Partner: "customizer.aud_partner_title",
+  LP: "customizer.aud_lp_title",
+  Assistant: "customizer.aud_assistant_title",
+};
+
+function audienceLabel(rep) {
+  const key = AUDIENCE_KEYS[rep.audience];
+  return key ? t(key) : rep.audience || t("research_desk.internal_audience");
+}
+
+// Synthesize starts a paid run, so it asks twice: the first click arms it
+// for four seconds, the second starts the memo.
+const arm = useTwoStepArm();
+
+function synthesizeLabel(rep) {
+  if (props.synthesizingId === rep.id) return t("research_desk.synthesizing");
+  if (arm.armed.value === rep.id) return t("research_desk.synthesize_confirm");
+  return t("research_desk.synthesize_memo");
+}
+
+function requestSynthesize(rep) {
+  if (props.synthesizingId) return;
+  if (arm.trigger(rep.id)) emit("synthesize", rep);
 }
 
 function openMemoWeb(rep) {
@@ -71,8 +160,8 @@ function openMemoWeb(rep) {
       <span class="mac-cardheader-icon"><FileText class="h-[13px] w-[13px]" stroke-width="2.4" /></span>
       <div class="flex min-w-0 flex-col gap-0.5">
         <span class="mac-t-headline">{{ t("research_desk.reports_title") }}</span>
-        <span v-if="reports.length" class="mac-t-caption mac-c-secondary">
-          {{ t("research_desk.dossiers_on_file", { count: reports.length }) }}
+        <span v-if="sortedReports.length" class="mac-t-caption mac-c-secondary">
+          {{ t("research_desk.dossiers_on_file", { count: sortedReports.length }) }}
         </span>
       </div>
       <span class="min-w-2 flex-1" />
@@ -88,7 +177,7 @@ function openMemoWeb(rep) {
     </div>
 
     <!-- Empty state -->
-    <div v-if="reports.length === 0" class="flex flex-col items-center gap-2 py-6">
+    <div v-if="sortedReports.length === 0" class="flex flex-col items-center gap-2 py-6">
       <p class="mac-t-subhead mac-c-secondary">{{ t("research_desk.no_reports") }}</p>
       <button
         type="button"
@@ -107,6 +196,7 @@ function openMemoWeb(rep) {
         :key="rep.id"
         class="mac-tile flex items-center gap-3 p-2.5"
         style="border-radius: 10px"
+        :data-report-id="rep.id"
       >
         <span class="flex w-8 shrink-0 justify-center">
           <component
@@ -118,34 +208,55 @@ function openMemoWeb(rep) {
 
         <div class="flex min-w-0 flex-col gap-[3px]">
           <div class="flex min-w-0 items-center gap-2">
-            <span class="mac-t-body truncate" style="font-weight: 600">
-              {{ rep.title || rep.id }}
+            <span class="mac-t-body truncate" style="font-weight: 600" data-testid="memo-row-title">
+              {{ typeLabel(rep) }}
             </span>
 
             <span
-              v-if="rep.is_new"
-              class="shrink-0 rounded-full px-[5px] py-[1.5px] text-[10px] font-bold text-white"
-              :style="{ background: 'var(--mac-accent)' }"
-            >
-              {{ t("research_desk.new_badge") }}
-            </span>
-
-            <span
-              v-if="rep.language"
+              v-for="lang in languages(rep)"
+              :key="lang"
               class="mac-mono mac-c-secondary shrink-0 rounded-[3px] px-1 py-px text-[10px] uppercase"
               style="background: color-mix(in srgb, var(--mac-secondary) 12%, transparent)"
             >
-              {{ rep.language }}
+              {{ lang }}
             </span>
 
-            <span class="mac-status-tag shrink-0" :style="{ '--tint': statusTone(rep) }">
+            <span class="mac-status-tag shrink-0" :style="{ '--tint': statusTone(rep) }" data-testid="memo-row-status">
               {{ statusText(rep) }}
             </span>
           </div>
 
           <span class="mac-t-caption10 mac-mono mac-c-secondary truncate">
-            {{ t("research_desk.updated_at") }} {{ formatIsoDate(rep.created_at || rep.date) }}
-            · {{ rep.audience || t("research_desk.internal_audience") }}
+            {{ t("research_desk.updated_at") }} {{ formatIsoDate(rep.updated_at || rep.created_at || rep.date) }}
+            · {{ audienceLabel(rep) }}
+          </span>
+          <span v-if="verdict(rep) || review(rep)" class="flex min-w-0 flex-wrap items-center gap-1">
+            <span
+              v-if="verdict(rep)"
+              class="mac-status-tag shrink-0"
+              :style="{ '--tint': macTint(verdict(rep).tone) }"
+              :title="verdict(rep).title"
+              data-testid="memo-row-verdict"
+            >
+              {{ verdict(rep).label }}
+            </span>
+            <span
+              v-if="review(rep)"
+              class="mac-status-tag shrink-0"
+              :style="{ '--tint': macTint(review(rep).tone) }"
+              :title="review(rep).title"
+              data-testid="memo-row-review"
+            >
+              {{ review(rep).label }}
+            </span>
+          </span>
+          <span
+            v-if="synthesizeError && isAwaitingStudio(rep)"
+            class="mac-t-caption10"
+            style="color: var(--mac-red)"
+            role="alert"
+          >
+            {{ synthesizeError }}
           </span>
         </div>
 
@@ -153,29 +264,33 @@ function openMemoWeb(rep) {
 
         <!-- Per-state action, then the open-on-web button -->
         <button
-          v-if="rep.status === 'awaiting_studio'"
+          v-if="isAwaitingStudio(rep)"
           type="button"
           class="mac-btn mac-btn--sm mac-btn--prominent mac-btn--tinted shrink-0"
           :style="{ '--tint': 'var(--mac-orange)' }"
           :title="t('memo.synthesize_help')"
-          @click="emit('synthesize', rep)"
+          :disabled="Boolean(synthesizingId)"
+          data-testid="memo-row-synthesize"
+          @click="requestSynthesize(rep)"
         >
           <Sparkles class="h-3 w-3" />
-          <span>{{ t("research_desk.synthesize_memo") }}</span>
+          <span>{{ synthesizeLabel(rep) }}</span>
         </button>
         <button
           v-else-if="canOpen(rep)"
           type="button"
           class="mac-btn mac-btn--sm mac-btn--prominent shrink-0"
+          data-testid="memo-row-read"
           @click="emit('open-memo', rep)"
         >
           <BookOpen class="h-3 w-3" />
           <span>{{ t("research_desk.read_memo") }}</span>
         </button>
         <button
-          v-else-if="!isFailed(rep)"
+          v-else-if="!isFailed(rep) && !isComplete(rep)"
           type="button"
           class="mac-btn mac-btn--sm shrink-0"
+          data-testid="memo-row-follow"
           @click="emit('open-memo', rep)"
         >
           <Activity class="h-3 w-3" />
@@ -186,6 +301,7 @@ function openMemoWeb(rep) {
           type="button"
           class="mac-btn mac-btn--sm shrink-0"
           :title="t('research_desk.open_memo_web')"
+          :aria-label="t('research_desk.open_memo_web')"
           @click="openMemoWeb(rep)"
         >
           <Compass class="h-3 w-3" />

@@ -412,7 +412,7 @@ def test_chart_renders_as_image_with_localized_caption(tmp_path):
 def test_chart_falls_back_to_table_when_render_fails(tmp_path, monkeypatch):
     from server import memo_charts
 
-    def _boom(_block):
+    def _boom(_block, *_args):
         raise RuntimeError("no backend")
 
     monkeypatch.setattr(memo_charts, "chart_png", _boom)
@@ -528,3 +528,234 @@ def test_section_prompt_carries_subsection_scaffold(monkeypatch, tmp_path):
         structure=memo_structure.LATE,
     )
     assert "## Subsection scaffold" not in captured["prompt"]
+
+
+# ---- chart craft (R26 FIX 1 and 3) -------------------------------------------
+
+
+def _scenario_chart(**overrides) -> dict:
+    block = _chart_block(
+        chart_type="bar",
+        unit={"en": "x capital", "zh": "资本倍数"},
+        reading={"en": "Bars below 1.0x lose money.", "zh": "低于 1.0 倍即亏损。"},
+        series=[
+            {
+                "label": {"en": "Gross MOIC", "zh": "总回报倍数"},
+                "points": [
+                    {"x": {"en": "Bear", "zh": "悲观"}, "y": 0.45},
+                    {"x": {"en": "Base", "zh": "基准"}, "y": 1.5},
+                    {"x": {"en": "Bull", "zh": "乐观"}, "y": 2.7, "estimate": True},
+                ],
+            }
+        ],
+        reference_lines=[{"y": 1.0, "label": {"en": "1.0x: capital back", "zh": "1.0 倍：收回本金"}}],
+    )
+    block.update(overrides)
+    return block
+
+
+def test_optional_chart_fields_validate():
+    package = _package_with_chart(_scenario_chart())
+    assert memo_docx_renderer.english_package_validation_errors(package) == []
+    memo_docx_renderer.validate_package(package)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"reference_lines": [{"y": "one"}]},
+        {"reference_lines": [{"y": 1}] * 5},
+        {"reference_lines": "1.0x"},
+        {"reference_lines": [{"y": 1, "label": {"en": "Breakeven", "zh": ""}}]},
+    ],
+)
+def test_malformed_drawing_fields_never_block_the_package(overrides):
+    """reference_lines / estimate / a blank Chinese label only change the
+    drawing: a malformed one is skipped (or drawn in English), never a
+    validation error that would cost a regeneration."""
+    from server import memo_charts
+
+    block = _scenario_chart(**overrides)
+    block["series"][0]["points"][0]["estimate"] = "yes"
+    block["series"][0]["label"] = {"en": "Gross MOIC", "zh": ""}
+    block["series"][0]["points"][1]["x"] = {"en": "Base", "zh": ""}
+    errors: list[str] = []
+    memo_docx_renderer._validate_chart_block(block, "chart", errors)
+    assert errors == []
+    spec = memo_charts.chart_spec(block, "zh")
+    assert spec["series"][0]["label"] == "Gross MOIC"  # English when zh is blank
+    assert spec["series"][0]["points"][1]["x"] == "Base"
+    assert spec["series"][0]["points"][0]["estimate"] is True  # "yes"
+    assert len(spec["reference_lines"]) <= memo_charts.MAX_REFERENCE_LINES
+    assert all(isinstance(rule["y"], float) for rule in spec["reference_lines"])
+    assert memo_charts.chart_png(block, "zh").startswith(b"\x89PNG")
+
+
+def test_bilingual_x_labels_share_categories_by_their_english():
+    block = _scenario_chart(chart_type="grouped_bar")
+    block["series"].append(
+        {"label": "Net", "points": [{"x": "Bear", "y": 0.4}, {"x": "Base", "y": 1.3}, {"x": "Bull", "y": 2.4}]}
+    )
+    errors: list[str] = []
+    memo_docx_renderer._validate_chart_block(block, "chart", errors)
+    assert errors == []
+
+
+def test_chart_spec_resolves_labels_per_locale_and_keeps_the_reading_out():
+    from server import memo_charts
+
+    en = memo_charts.chart_spec(_scenario_chart(), "en")
+    zh = memo_charts.chart_spec(_scenario_chart(), "zh")
+    assert [p["x"] for p in en["series"][0]["points"]] == ["Bear", "Base", "Bull"]
+    assert [p["x"] for p in zh["series"][0]["points"]] == ["悲观", "基准", "乐观"]
+    assert zh["unit"] == "资本倍数" and zh["series"][0]["label"] == "总回报倍数"
+    assert zh["reference_lines"] == [{"y": 1.0, "label": "1.0 倍：收回本金"}]
+    assert [p["estimate"] for p in en["series"][0]["points"]] == [False, False, True]
+    assert en["locale"] == "en" and zh["locale"] == "zh"
+    assert "reading" not in en  # the caption carries it, once
+    # a plain label serves both languages; a blank zh half falls back to en
+    plain = memo_charts.chart_spec(_chart_block(), "zh")
+    assert [p["x"] for p in plain["series"][0]["points"]] == ["TAM", "SAM", "SOM"]
+
+
+def test_each_language_gets_its_own_image():
+    from server import memo_charts
+
+    block = _scenario_chart()
+    en, zh = memo_charts.chart_png(block, "en"), memo_charts.chart_png(block, "zh")
+    assert en.startswith(b"\x89PNG") and zh.startswith(b"\x89PNG")
+    assert en != zh
+    assert memo_charts.chart_png(dict(block), "zh") == zh  # cached per locale
+
+
+def test_the_reading_is_never_drawn_inside_the_image(monkeypatch):
+    import matplotlib.figure
+
+    from server import memo_charts
+
+    drawn: list[str] = []
+    real = matplotlib.figure.Figure.text
+
+    def spy(self, x, y, s, *args, **kwargs):
+        drawn.append(s)
+        return real(self, x, y, s, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "text", spy)
+    memo_charts._render(memo_charts.chart_spec(_scenario_chart(), "en"))
+    assert drawn == []
+
+
+def test_font_stack_is_the_memo_face_then_cjk_then_the_bundled_face():
+    from server import memo_charts
+
+    assert memo_charts.FONT_STACK == (
+        "Arial",
+        "Hiragino Sans GB",
+        "Arial Unicode MS",
+        "Noto Sans CJK SC",
+        "DejaVu Sans",
+    )
+    stack = memo_charts.installed_font_stack()
+    assert stack and set(stack) <= set(memo_charts.FONT_STACK)
+    assert stack[-1] == "DejaVu Sans"  # matplotlib always ships it
+
+
+def test_dated_x_values_sit_on_a_true_time_axis():
+    from server import memo_charts
+
+    assert memo_charts.time_positions(["2023", "2024", "2026E"]) == [2023.0, 2024.0, 2026.0]
+    monthly = memo_charts.time_positions(["2026-01", "2026-02", "2026-04"])
+    assert monthly[2] - monthly[1] == pytest.approx(2 * (monthly[1] - monthly[0]))  # the gap shows
+    assert memo_charts.time_positions(["Q1 2026", "2026-Q2", "FY2027"]) == [2026.0, 2026.25, 2027.0]
+    assert memo_charts.time_positions(["TAM", "SAM"]) is None
+    assert memo_charts.time_positions(["2026", "2025"]) is None  # not in time order
+    assert memo_charts.time_positions(["2026"]) is None
+
+
+def test_e_and_f_suffixed_periods_are_estimates():
+    from server import memo_charts
+
+    block = _chart_block(
+        chart_type="line",
+        series=[{"label": "Revenue", "points": [{"x": "2025", "y": 86}, {"x": "2026E", "y": 118}, {"x": "FY2027F", "y": 170}]}],
+    )
+    spec = memo_charts.chart_spec(block)
+    assert [p["estimate"] for p in spec["series"][0]["points"]] == [False, True, True]
+    assert memo_charts.chart_png(block).startswith(b"\x89PNG")
+
+
+def test_x_labels_rotate_only_when_they_overflow():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from server import memo_charts
+
+    def overflow(labels):
+        fig, ax = plt.subplots(figsize=(6.6, 3.3), dpi=160)
+        try:
+            ax.bar(range(len(labels)), [1] * len(labels))
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels)
+            fig.tight_layout()
+            return memo_charts.x_labels_overflow(fig, ax)
+        finally:
+            plt.close(fig)
+
+    # longer than nine characters, but they fit: no rotation (the old rule
+    # rotated these)
+    assert not overflow(["Growth factor", "Multiple factor", "Base MOIC"])
+    assert overflow([f"Comparable company number {n}" for n in range(8)])
+
+
+def test_reference_lines_draw_inside_the_plot_and_join_the_legend():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from server import memo_charts
+
+    fig, ax = plt.subplots()
+    try:
+        ax.bar([0, 1], [2.0, 3.0])
+        rules = memo_charts._draw_reference_lines(
+            ax, [{"y": 5.0, "label": "Hurdle 3.0x"}, {"y": 1.0, "label": ""}], vertical=False
+        )
+        assert len(rules) == 1  # only a labelled rule is a legend entry
+        assert ax.get_ylim()[1] >= 5.0
+    finally:
+        plt.close(fig)
+
+
+def test_the_chinese_document_draws_the_chinese_chart(tmp_path):
+    from docx import Document
+
+    package = _package_with_chart(_scenario_chart())
+    memo_docx_renderer.render_memos(
+        package, out_en=tmp_path / "memo" / "en.docx", out_zh=tmp_path / "memo" / "zh.docx"
+    )
+    blobs = {}
+    for locale in ("en", "zh"):
+        doc = Document(tmp_path / "memo" / f"{locale}.docx")
+        assert len(doc.inline_shapes) == 1
+        rel_id = doc.inline_shapes[0]._inline.graphic.graphicData.pic.blipFill.blip.embed
+        blobs[locale] = doc.part.related_parts[rel_id].blob
+        text = "\n".join(p.text for p in doc.paragraphs)
+        # the reading is in the caption, once
+        needle = "Reading: Bars below 1.0x lose money." if locale == "en" else "读法：低于 1.0 倍即亏损。"
+        assert text.count(needle) == 1
+    assert blobs["en"] != blobs["zh"]
+
+
+def test_a_blank_chinese_chart_label_is_a_recorded_fallback(tmp_path):
+    block = _scenario_chart()
+    block["series"][0]["points"][1]["x"] = {"en": "Base", "zh": ""}
+    package = _package_with_chart(block)
+    memo_docx_renderer.render_memos(
+        package, out_en=tmp_path / "memo" / "en.docx", out_zh=tmp_path / "memo" / "zh.docx"
+    )
+    report = (tmp_path / "logs" / "validation_cn.txt").read_text(encoding="utf-8")
+    assert "- zh_fallback_count: 1" in report
+    assert "zh_blank_translation · market_industry: “Base”" in report

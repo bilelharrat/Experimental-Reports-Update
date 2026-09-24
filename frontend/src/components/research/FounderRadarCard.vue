@@ -26,7 +26,6 @@ import {
   BarChartHorizontal,
 } from "lucide-vue-next";
 import { api } from "../../api.js";
-import { confirmTokenSpend } from "../../confirmTokens.js";
 import { researchTeam, researchingCompanies } from "../../founderResearch.js";
 
 const t = useT();
@@ -73,12 +72,13 @@ async function loadFounders() {
 
 async function researchTeamNow() {
   // This spends a Gemini call: web-grounded research merged over the record
-  // (server/founder_dossier.py), so it carries the token-spend confirmation
-  // every paid button carries. It degrades rather than throwing — a failed
-  // pass returns 200 with `research_error` set, shown below the grid.
+  // (server/founder_dossier.py). It runs the cheapest, fastest Gemini tier
+  // (flash-lite), so unlike the desk's other paid buttons it doesn't stop to
+  // confirm — the tooltip already says it searches the web. It degrades
+  // rather than throwing — a failed pass returns 200 with `research_error`
+  // set, shown below the grid.
   const companyId = props.companyId;
   if (!companyId || searching.value) return;
-  if (!confirmTokenSpend(t("research_desk.founders_research_cost"))) return;
   refreshError.value = null;
   ownRun.value = companyId;
   try {

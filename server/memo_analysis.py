@@ -30,7 +30,8 @@ import atexit
 import itertools
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import inspect
 import json
 import logging
 import os
@@ -209,6 +210,141 @@ def _write_known_sources_file(company_id: str, research_dir: Path) -> None:
         logger.exception("known-sources digest write failed for %s", company_id)
 
 
+RUN_INPUTS_FILENAME = "run_inputs.json"
+
+
+def _stage_run_inputs(
+    report: dict, run_dir: Path, research_dir: Path, stream
+) -> dict:
+    """Stage the firm's own material for this run (reference-call notes,
+    founder updates and KPIs, the deal terms on file, open reader flags;
+    see ``memo_inputs``), record what the run is built from on the report
+    and in ``logs/run_inputs.json`` (stamped into the package at
+    acceptance), and list the staged files in the run manifest.
+    Best-effort: staging never fails a run."""
+    company_id = str(report.get("company_id") or run_dir.parent.name)
+    try:
+        from . import memo_inputs
+
+        staged = memo_inputs.stage_run_inputs(company_id, research_dir, run_dir)
+    except Exception:  # noqa: BLE001
+        logger.exception("run input staging failed for %s", company_id)
+        return {}
+    excluded = list(staged.get("registry_placeholders_excluded") or [])
+    record = {
+        "built_from": staged.get("built_from"),
+        "deal_terms_on_file": bool(staged.get("deal_terms_on_file")),
+        "deal_terms_source": staged.get("deal_terms_source"),
+        "reader_flags": staged.get("reader_flags") or 0,
+        "staged": list(staged.get("staged") or []),
+        "registry_entry": (
+            memo_prep._rel(Path(staged["registry_entry"]))
+            if staged.get("registry_entry")
+            else None
+        ),
+        "registry_placeholders_excluded": len(excluded),
+        "registry_placeholders": excluded[:20],
+    }
+    try:
+        _write_json(run_dir / "logs" / RUN_INPUTS_FILENAME, record)
+    except OSError:
+        logger.warning("could not record the run inputs", exc_info=True)
+    if excluded:
+        stream.emit(
+            "stage",
+            stage="memo_registry_placeholders_excluded",
+            message=(
+                f"{len(excluded)} registry field(s) excluded from the run: "
+                "placeholders with no document"
+            ),
+            excluded=excluded[:20],
+        )
+    try:
+        _update_report(
+            str(report.get("id")),
+            built_from=record["built_from"],
+            deal_terms_on_file=record["deal_terms_on_file"],
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("could not record built_from on the report", exc_info=True)
+    memo_prep.append_manifest_inputs(
+        run_dir,
+        [f"`{memo_prep._rel(research_dir / name)}`" for name in record["staged"]]
+        + (
+            [f"`{memo_prep._rel(run_dir / 'logs' / 'open_reader_flags.md')}` (inlined)"]
+            if record["reader_flags"]
+            else []
+        ),
+    )
+    built = record["built_from"] or {}
+    stream.emit(
+        "stage",
+        stage="memo_inputs_staged",
+        message=(
+            f"Built from {built.get('research_docs', 0)} research document(s), "
+            f"{built.get('calls', 0)} call(s), "
+            f"{built.get('founder_updates', 0)} founder update(s)"
+            + ("; deal terms on file" if record["deal_terms_on_file"] else "")
+            + (
+                f"; {record['reader_flags']} open reader flag(s)"
+                if record["reader_flags"]
+                else ""
+            )
+        ),
+        **record,
+    )
+    return record
+
+
+def _run_inputs(run_dir: Path) -> dict:
+    try:
+        payload = json.loads(
+            (run_dir / "logs" / RUN_INPUTS_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _run_companies_yaml(run_dir: Path | None) -> Path:
+    """The registry file this run's agents read: the run's own
+    placeholder-free copy of the company's entry
+    (``logs/registry_entry.yaml``, staged by ``memo_inputs``) when it
+    exists, else ``data/companies.yaml`` as before."""
+    if run_dir is not None:
+        try:
+            from . import memo_inputs
+
+            staged = Path(run_dir) / "logs" / memo_inputs.REGISTRY_ENTRY_FILENAME
+            if staged.is_file():
+                return staged
+        except Exception:  # noqa: BLE001
+            logger.warning("could not resolve the staged registry entry", exc_info=True)
+    return memo_prep.COMPANIES_FILE
+
+
+def _reader_flags_block(run_dir: Path) -> str:
+    """The open reader flags staged for this run, as inline text for the
+    analysis passes' shared context ('' when there are none)."""
+    try:
+        return (run_dir / "logs" / "open_reader_flags.md").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _research_dir_for(company_id: str) -> Path:
+    """The company's research folder as the research store keys it
+    (``company_paths.storage_key``): a dotted or CJK id's uploads live under
+    the hashed key, so building the path from the raw id missed them."""
+    from . import company_paths
+
+    try:
+        key = company_paths.storage_key(company_id)
+    except ValueError:
+        key = str(company_id)
+    return research_store.RESEARCH_ROOT / key
+
+
 def _register_source_capture(report: dict, run_dir: Path) -> None:
     """Point the subprocess funnel's source capture at this report's
     company, for the resume and investigate entry points that do not go
@@ -220,7 +356,7 @@ def _register_source_capture(report: dict, run_dir: Path) -> None:
             run_dir,
             company_id=company_id,
             run_id=str(report.get("run_id") or run_dir.name),
-            research_dir=research_store.RESEARCH_ROOT / company_slug,
+            research_dir=_research_dir_for(company_slug),
         )
     except Exception:  # noqa: BLE001
         logger.exception("source capture registration failed for %s", company_id)
@@ -395,6 +531,122 @@ def _as_int(value: Any) -> int:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---- Warnings a delivered memo carries -------------------------------------
+# ``quality_warnings`` (English strings) stays what tests and Warren read;
+# ``quality_warnings_zh`` is its aligned Chinese twin, and
+# ``quality_warning_items`` the structured form the web banner renders:
+# [{gate, language "EN"|"ZH", section, severity, code, summary_en,
+# summary_zh, detail_path?}]. New wording must never contain "quality gate"
+# or "memo quality": Resume reads those words as "the English failed its
+# gate" and regenerates the whole English package
+# (_english_quality_gate_needs_package_regen).
+
+ENGLISH_READY_STAGE = (
+    "English memo ready — Chinese in progress / 英文版已就绪，中文版生成中"
+)
+CHINESE_FAILED_WARNING = (
+    "Chinese version failed — English delivered",
+    "中文版生成失败，已交付英文版",
+)
+CHINESE_CANCELLED_WARNING = (
+    "Chinese version cancelled — English delivered",
+    "中文版已取消，已交付英文版",
+)
+CHINESE_PACKAGE_PHASE = "chinese_package"
+# A run launched with ``pause_after_english`` stops here once its English
+# memo is accepted and rendered; Resume ("Retry Chinese" mechanics) writes
+# the Chinese from the accepted English package.
+PAUSED_AFTER_ENGLISH_STATUS = "english_ready_paused"
+ENGLISH_PAUSED_STAGE = (
+    "English ready — review before Chinese / 英文版已就绪，请审阅后再生成中文版"
+)
+_MAX_WARNING_ITEMS_PER_GATE = 12
+
+
+def _warning_item(
+    *,
+    gate: str,
+    language: str,
+    summary_en: str,
+    summary_zh: str,
+    section: str | None = None,
+    severity: str = "warning",
+    code: str | None = None,
+    detail_path: str | None = None,
+) -> dict:
+    item = {
+        "gate": gate,
+        "language": language,
+        "section": section,
+        "severity": severity,
+        "code": code or gate,
+        "summary_en": summary_en,
+        "summary_zh": summary_zh,
+    }
+    if detail_path:
+        item["detail_path"] = detail_path
+    return item
+
+
+class _RunWarnings:
+    """The warnings a run delivers with: the English strings, their aligned
+    Chinese twins and the structured items, kept in step."""
+
+    def __init__(self) -> None:
+        self.en: list[str] = []
+        self.zh: list[str] = []
+        self.items: list[dict] = []
+
+    def add(self, en: str, zh: str, items: list[dict] | None = None) -> None:
+        self.en.append(en)
+        self.zh.append(zh)
+        self.items.extend(items or [])
+
+    def __bool__(self) -> bool:
+        return bool(self.en)
+
+    def record_fields(self) -> dict:
+        return {
+            "quality_warnings": list(self.en) or None,
+            "quality_warnings_zh": list(self.zh) or None,
+            "quality_warning_items": list(self.items) or None,
+        }
+
+
+def _finding_items(
+    findings, *, gate: str, language: str, detail_path: str | None
+) -> list[dict]:
+    """One structured item per blocking finding (lint / parity), capped.
+    Findings may be the gates' dataclasses or their ``to_dict()`` form."""
+
+    def field(finding, name: str) -> str:
+        if isinstance(finding, dict):
+            return str(finding.get(name) or "")
+        return str(getattr(finding, name, "") or "")
+
+    items: list[dict] = []
+    for finding in list(findings or [])[:_MAX_WARNING_ITEMS_PER_GATE]:
+        snippet = re.sub(r"\s+", " ", field(finding, "snippet")).strip()
+        suggestion = field(finding, "suggestion").strip()
+        code = field(finding, "code") or gate
+        summary_en = f"{code}: \"{snippet[:160]}\"" + (
+            f" — {suggestion[:200]}" if suggestion else ""
+        )
+        items.append(
+            _warning_item(
+                gate=gate,
+                language=language,
+                section=field(finding, "location") or None,
+                severity=field(finding, "severity") or "P0",
+                code=code,
+                summary_en=summary_en,
+                summary_zh=f"{code}：“{snippet[:160]}”",
+                detail_path=detail_path,
+            )
+        )
+    return items
 
 
 def _emit_phase_timing(
@@ -583,17 +835,30 @@ def _memo_paths_abs(report: dict) -> dict[str, Path]:
 
 
 def _internal_memo_paths_abs(report: dict) -> dict[str, Path]:
-    entries = report.get("internal_memo_files") or []
+    """The IC decision memo's files: ``md`` / ``docx`` / ``pdf`` for the
+    English entry (or the only entry of an older record) and ``md_zh`` /
+    ``docx_zh`` / ``pdf_zh`` for the Chinese one."""
+    entries = [
+        entry
+        for entry in report.get("internal_memo_files") or []
+        if isinstance(entry, dict)
+    ]
     if not entries:
         return {}
-    entry = entries[0]
     paths: dict[str, Path] = {}
-    if entry.get("markdown_path"):
-        paths["md"] = memo_prep.DATA_DIR.parent / entry["markdown_path"]
-    if entry.get("path"):
-        paths["docx"] = memo_prep.DATA_DIR.parent / entry["path"]
-    if entry.get("pdf_path"):
-        paths["pdf"] = memo_prep.DATA_DIR.parent / entry["pdf_path"]
+    english = next(
+        (e for e in entries if str(e.get("language") or "en") == "en"), entries[0]
+    )
+    chinese = next((e for e in entries if e.get("language") == "zh"), None)
+    for entry, suffix in ((english, ""), (chinese, "_zh")):
+        if not entry:
+            continue
+        if entry.get("markdown_path"):
+            paths[f"md{suffix}"] = memo_prep.DATA_DIR.parent / entry["markdown_path"]
+        if entry.get("path"):
+            paths[f"docx{suffix}"] = memo_prep.DATA_DIR.parent / entry["path"]
+        if entry.get("pdf_path"):
+            paths[f"pdf{suffix}"] = memo_prep.DATA_DIR.parent / entry["pdf_path"]
     return paths
 
 
@@ -616,6 +881,17 @@ def _analysis_session_path_for_report(
 
 def _memo_package_path(run_dir: Path) -> Path:
     return run_dir / "logs" / "memo_package.json"
+
+
+def _package_on_disk(path: Path) -> dict | None:
+    """A package file's JSON object, or None (missing, unreadable, not an
+    object) — for checks that are more precise with the package and still
+    run without it."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 # A handful of paragraphs can come back from the translation wave with an
@@ -706,6 +982,1409 @@ def _only_envelope_or_budget_errors(
     )
 
 
+# ---- Small word-cap overruns are delivered, not failed -------------------
+# ZaiNar 2026-09-23__023008 died at the final English check with `risks`
+# 69 words (1.3%) over its 5,200-word cap, after the per-section repair of
+# that section could not fit its answer in one call and the whole-package
+# repair timed out. A section within LENGTH_TOLERANCE of its cap now ships
+# with a warning (gate "length", code section_over_cap); a larger overrun
+# keeps the repair-or-fail path.
+LENGTH_TOLERANCE = 0.10
+LENGTH_WARNINGS_FILENAME = "length_warnings.json"
+_WORD_BUDGET_ERROR_RE = re.compile(
+    r"section (\S+) runs (\d+) English words against its (\d+)-word target "
+    r"and its (\d+)-word hard cap"
+)
+
+
+def _over_cap_sections(package: dict | None) -> list[dict]:
+    """Every budgeted section over its hard cap, with the SAME arithmetic
+    as ``memo_docx_renderer._word_budget_errors``: the package's own
+    structure (so a company type's emphasis re-cut is in the budgets), the
+    renderer's word counter, and its grace multiple for a section that
+    declares no hard multiple of its own."""
+    if not isinstance(package, dict):
+        return []
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        return []
+    try:
+        structure = memo_structure.for_package(package)
+    except Exception:  # noqa: BLE001
+        return []
+    grace = float(getattr(memo_docx_renderer, "_BUDGET_GRACE", 1.10))
+    by_id = {str(s.get("id") or ""): s for s in sections if isinstance(s, dict)}
+    out: list[dict] = []
+    for sdef in structure.sections:
+        if not sdef.budget_words:
+            continue
+        section = by_id.get(sdef.id)
+        if section is None:
+            continue
+        words = memo_docx_renderer.section_en_word_count(section)
+        hard_cap = sdef.budget_words * (sdef.budget_hard_multiple or grace)
+        if words > hard_cap:
+            cap = int(hard_cap)
+            out.append(
+                {
+                    "section": sdef.id,
+                    "words": words,
+                    "cap": cap,
+                    "target": sdef.budget_words,
+                    "over_pct": round((words - cap) / cap * 100, 1) if cap else 0.0,
+                }
+            )
+    return out
+
+
+def _word_budget_overrun(error: str, package: dict | None) -> dict | None:
+    """The ``{section, words, cap, target, over_pct}`` a word-cap error
+    describes (parsed from the renderer's own message; recomputed from the
+    package when the wording does not parse), or None for any other
+    error."""
+    text = str(error or "")
+    if _WORD_BUDGET_ERROR_MARKER not in text:
+        return None
+    match = _WORD_BUDGET_ERROR_RE.search(text)
+    if match:
+        cap = int(match.group(4))
+        words = int(match.group(2))
+        if cap > 0:
+            return {
+                "section": match.group(1),
+                "words": words,
+                "cap": cap,
+                "target": int(match.group(3)),
+                "over_pct": round((words - cap) / cap * 100, 1),
+            }
+    for item in _over_cap_sections(package):
+        if re.search(rf"\bsection {re.escape(item['section'])}\b", text):
+            return item
+    return None
+
+
+def _overrun_within_tolerance(item: dict) -> bool:
+    cap = int(item.get("cap") or 0)
+    words = int(item.get("words") or 0)
+    return cap > 0 and words <= cap * (1 + LENGTH_TOLERANCE)
+
+
+def _blocking_validation_errors(
+    errors: list[str], package: dict | None
+) -> list[str]:
+    """The validation errors that still fail the package once word-cap
+    overruns within ``LENGTH_TOLERANCE`` are tolerated. Everything else —
+    larger overruns included — keeps today's behaviour."""
+    blocking: list[str] = []
+    for err in errors or []:
+        item = _word_budget_overrun(err, package)
+        if item is not None and _overrun_within_tolerance(item):
+            continue
+        blocking.append(err)
+    return blocking
+
+
+def _tolerated_overruns(errors: list[str], package: dict | None) -> list[dict]:
+    """The small overruns among ``errors`` (one entry per section)."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for err in errors or []:
+        item = _word_budget_overrun(err, package)
+        if item is None or not _overrun_within_tolerance(item):
+            continue
+        if item["section"] in seen:
+            continue
+        seen.add(item["section"])
+        out.append(item)
+    return out
+
+
+def _accept_with_small_overruns(
+    *,
+    run_dir: Path,
+    package: dict | None,
+    errors: list[str],
+    progress,
+    attempt: int | None = None,
+) -> bool:
+    """True when ``errors`` are nothing but word-cap overruns within the
+    tolerance: the package is accepted, the overruns recorded in
+    ``logs/length_warnings.json`` and announced. Any other error, or a
+    larger overrun, returns False and changes nothing."""
+    if not errors or not isinstance(package, dict):
+        return False
+    if _blocking_validation_errors(errors, package):
+        return False
+    overruns = _tolerated_overruns(errors, package)
+    if not overruns:
+        return False
+    try:
+        _write_json(
+            run_dir / "logs" / LENGTH_WARNINGS_FILENAME,
+            {"accepted_at": _now_iso(), "tolerance": LENGTH_TOLERANCE, "sections": overruns},
+        )
+    except OSError:
+        logger.warning("could not record the length warnings", exc_info=True)
+    progress.emit(
+        "stage",
+        stage="memo_package_length_accepted",
+        message=(
+            "Accepting the English package with "
+            f"{len(overruns)} section(s) within {int(LENGTH_TOLERANCE * 100)}% "
+            "of the word cap; delivered with a length warning instead of "
+            "failing the run"
+        ),
+        sections=overruns,
+        attempt=attempt,
+    )
+    return True
+
+
+def _length_warning(
+    run_dir: Path, warnings: "_RunWarnings", package: dict | None = None
+) -> None:
+    """A section delivered over its hard cap ships as a warning (gate
+    "length", code section_over_cap: section, words, cap). Computed from
+    the delivered package, so it names what the reader actually has."""
+    package = package if isinstance(package, dict) else _delivered_package(run_dir)
+    try:
+        overruns = _over_cap_sections(package)
+    except Exception:  # noqa: BLE001
+        logger.warning("length check failed", exc_info=True)
+        return
+    if not overruns:
+        return
+    count = len(overruns)
+    warnings.add(
+        f"Length: {count} section{'' if count == 1 else 's'} over the word cap",
+        f"篇幅：{count} 个章节超出字数上限",
+        [
+            _warning_item(
+                gate="length",
+                language="EN",
+                section=item["section"],
+                severity="warning",
+                code="section_over_cap",
+                summary_en=(
+                    f"{item['section']}: {item['words']} words against a "
+                    f"{item['cap']}-word cap ({item['over_pct']}% over)"
+                ),
+                summary_zh=(
+                    f"{item['section']}：{item['words']} 词，上限 {item['cap']} 词"
+                    f"（超出 {item['over_pct']}%）"
+                ),
+            )
+            for item in overruns[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+# ---- Trim one subsection of an over-cap section -------------------------
+# Regenerating a section never shortened it (see _WORD_BUDGET_ERROR_MARKER),
+# and re-emitting a whole 5,000-word section to cut 69 words is what could
+# not fit in one call. The trim asks for ONE subsection — the largest — to
+# be rewritten to a target (claude_runner.run_section_trim, I1), then the
+# section is re-assembled here from its subsection slices.
+_TRIM_DIRNAME = "trim"
+
+
+def _trim_slices_dir(run_dir: Path, section_id: str) -> Path:
+    """The trim works on the section AS IT IS NOW (a repair may have
+    changed it since the wave), so it is cut into fresh slices here rather
+    than trimming the wave's own piece files in
+    ``claude_runner.memo_section_pieces_dir``."""
+    return claude_runner._memo_english_units_dir(run_dir) / _TRIM_DIRNAME / section_id
+
+
+def _subsection_slices(
+    run_dir: Path, section: dict, section_def
+) -> list[dict] | None:
+    """Cut an assembled section into its numbered subsections and write
+    each as ``{"id", "blocks"}`` under ``logs/english_units/trim/<id>/``.
+    Returns ``[{number, heading_en, path, words, blocks}]`` in document
+    order, or None when the headings do not line up with the structure."""
+    section_id = str(section.get("id") or "")
+    try:
+        plan = claude_runner._section_piece_plan(run_dir, section_id, section_def)
+        groups = claude_runner._split_section_draft(section, plan)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not slice section %s for a trim", section_id, exc_info=True)
+        return None
+    if not groups:
+        return None
+    slices_dir = _trim_slices_dir(run_dir, section_id)
+    out: list[dict] = []
+    for number, heading_en, _heading_zh, _path in plan:
+        blocks = list(groups.get(number) or [])
+        path = slices_dir / f"{number:02d}.json"
+        try:
+            _write_json(path, {"id": section_id, "blocks": blocks})
+        except OSError:
+            return None
+        out.append(
+            {
+                "number": number,
+                "heading_en": heading_en,
+                "path": path,
+                "words": memo_docx_renderer.section_en_word_count({"blocks": blocks}),
+                "blocks": blocks,
+            }
+        )
+    return out
+
+
+def _trim_section_once(
+    *,
+    run_dir: Path,
+    package: dict,
+    item: dict,
+    structure: memo_structure.MemoStructure,
+    progress,
+    role: str = "REPAIR",
+    company_name: str | None = None,
+) -> bool:
+    """One trim of the largest subsection of the over-cap section ``item``
+    names, then re-assembly in place. True when the section was rewritten."""
+    section_id = str(item.get("section") or "")
+    sections = package.get("sections") if isinstance(package, dict) else None
+    section = next(
+        (s for s in sections or [] if isinstance(s, dict) and s.get("id") == section_id),
+        None,
+    )
+    section_def = next((d for d in structure.sections if d.id == section_id), None)
+    if section is None or section_def is None or len(section_def.subsections) < 2:
+        return False
+    slices = _subsection_slices(run_dir, section, section_def)
+    if not slices:
+        progress.emit(
+            "stage",
+            stage="memo_section_trim_skipped",
+            message=(
+                f"Section {section_id} could not be cut into its subsections "
+                "for a trim; leaving it to the repair"
+            ),
+            section=section_id,
+        )
+        return False
+    largest = max(slices, key=lambda s: s["words"])
+    excess = int(item["words"]) - int(item["cap"])
+    margin = max(25, int(int(item["cap"]) * 0.03))
+    target = max(int(largest["words"] * 0.4), largest["words"] - excess - margin)
+    progress.emit(
+        "stage",
+        stage="memo_section_trim",
+        message=(
+            f"Section {section_id} runs {item['words']} words against its "
+            f"{item['cap']}-word cap; trimming its largest subsection "
+            f"({largest['heading_en']}, {largest['words']} words) to about "
+            f"{target}"
+        ),
+        section=section_id,
+        subsection=largest["number"],
+        words=item["words"],
+        cap=item["cap"],
+        target_words=target,
+    )
+    try:
+        result = claude_runner.run_section_trim(
+            run_dir,
+            section_id=section_id,
+            subsection_path=largest["path"],
+            target_words=target,
+            hard_cap_words=int(item["cap"]),
+            structure=structure,
+            progress=progress,
+            role=role,
+            company_name=company_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if not isinstance(result, dict) or not result.get("ok"):
+        progress.emit(
+            "stage",
+            stage="memo_section_trim_failed",
+            message=f"Trim of section {section_id} failed; leaving it to the repair",
+            section=section_id,
+            error=str((result or {}).get("error") if isinstance(result, dict) else result)[:500],
+        )
+        return False
+    try:
+        payload = json.loads(Path(largest["path"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        payload = None
+    blocks = payload.get("blocks") if isinstance(payload, dict) else payload
+    if not isinstance(blocks, list) or not blocks:
+        progress.emit(
+            "stage",
+            stage="memo_section_trim_failed",
+            message=f"Trim of section {section_id} returned no blocks; leaving it to the repair",
+            section=section_id,
+        )
+        return False
+    assembled: list = []
+    for piece in slices:
+        assembled.extend(blocks if piece["number"] == largest["number"] else piece["blocks"])
+    words_before = int(item["words"])
+    section["blocks"] = assembled
+    words_after = memo_docx_renderer.section_en_word_count(section)
+    progress.emit(
+        "stage",
+        stage="memo_section_trimmed",
+        message=(
+            f"Section {section_id}: {words_before} -> {words_after} words "
+            f"(cap {item['cap']})"
+        ),
+        section=section_id,
+        words_before=words_before,
+        words_after=words_after,
+        cap=item["cap"],
+        under_cap=words_after <= int(item["cap"]),
+    )
+    return True
+
+
+def _trim_oversized_sections(
+    *,
+    run_dir: Path,
+    package: dict | None,
+    progress,
+    trimmed: set[str],
+    only: set[str] | None = None,
+    company_name: str | None = None,
+) -> list[str]:
+    """After the wave assembled the sections (or a per-section repair
+    could not fit its answer), every section over its hard cap gets ONE
+    trim of its largest subsection — never a second one in the same
+    attempt (``trimmed`` remembers). Returns the ids that were rewritten."""
+    if not isinstance(package, dict):
+        return []
+    overruns = [
+        item
+        for item in _over_cap_sections(package)
+        if item["section"] not in trimmed
+        and (only is None or item["section"] in only)
+    ]
+    if not overruns:
+        return []
+    try:
+        structure = memo_structure.for_package(package)
+    except Exception:  # noqa: BLE001
+        return []
+    done: list[str] = []
+    for item in overruns:
+        trimmed.add(item["section"])
+        if _trim_section_once(
+            run_dir=run_dir,
+            package=package,
+            item=item,
+            structure=structure,
+            progress=progress,
+            company_name=company_name,
+        ):
+            done.append(item["section"])
+    return done
+
+
+# ---- Per-section repair that keeps what succeeded ------------------------
+# claude_runner.run_memo_package_sectional_repair returns nothing when ANY
+# section's repair fails: on ZaiNar 2026-09-23__023008 the envelope and
+# company_team repairs succeeded, the risks repair could not fit its answer
+# in one call, and all three were thrown away. This orchestrator drives
+# the same per-section and envelope repair calls, applies every success,
+# and names the failures — an "output too large" failure is then trimmed
+# instead of re-emitted.
+def _error_code(error: Any) -> str:
+    """The typed code of a repair error (``claude_runner.repair_error_code``:
+    a ``MemoStageError``'s ``code``, or the phrase it recognises)."""
+    if isinstance(error, dict):
+        return str(error.get("error_code") or error.get("code") or "")
+    return str(claude_runner.repair_error_code(error) or "")
+
+
+def _is_output_too_large(error: Any) -> bool:
+    return _error_code(error) == claude_runner.REPAIR_ERROR_OUTPUT_TOO_LARGE
+
+
+def _edits_mode_kwargs(func) -> dict:
+    """``{"mode": "edits"}`` for the repair runner (I2): the model returns
+    edits and the runner applies them, instead of re-emitting the whole
+    section. Passed explicitly so a fake in a test sees the contract."""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return {}
+    if "mode" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    ):
+        return {"mode": "edits"}
+    return {}
+
+
+@dataclass
+class _SectionalRepairOutcome:
+    package: dict
+    repaired: list[str] = field(default_factory=list)
+    failed: dict[str, str] = field(default_factory=dict)
+    too_large: list[str] = field(default_factory=list)
+    envelope_repaired: bool = False
+    envelope_error: str | None = None
+    unmapped: list[str] = field(default_factory=list)
+
+    @property
+    def any_success(self) -> bool:
+        return bool(self.repaired) or self.envelope_repaired
+
+
+def _repair_package_by_section(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    package: dict,
+    findings: list[str],
+    progress,
+    stream=None,
+    attempt: int | None = None,
+    timeout_sec: int = 900,
+) -> _SectionalRepairOutcome:
+    """Repair ``findings`` per section (and the envelope) in parallel and
+    keep every repair that succeeded (I3). Findings attributable to
+    neither are returned in ``unmapped`` and left for the caller."""
+    structure = memo_structure.for_package(package)
+    mapping, envelope_findings, unmapped = claude_runner._partition_repair_findings(
+        package, findings
+    )
+    outcome = _SectionalRepairOutcome(
+        package=json.loads(json.dumps(package)), unmapped=list(unmapped)
+    )
+    sections_by_id = {
+        section.get("id"): section
+        for section in package.get("sections") or []
+        if isinstance(section, dict)
+    }
+    mapping = {sid: errs for sid, errs in mapping.items() if sid in sections_by_id}
+    if not mapping and not envelope_findings:
+        return outcome
+    section_repair = claude_runner.run_memo_section_repair
+    envelope_repair = claude_runner.run_memo_envelope_repair
+    extra = _edits_mode_kwargs(section_repair)
+    suffix = f" (attempt {attempt})" if attempt and attempt > 1 else ""
+
+    def _row_events(row: str, phase_name: str, description: str, phase_index: float):
+        started_at = _now_iso()
+        started_monotonic = time.monotonic()
+        if stream is not None:
+            stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=phase_index,
+                parent_thread=claude_runner._MEMO_PHASE3_THREAD,
+                group="memo_repair",
+                estimate_ms=180_000,
+                description=description,
+            )
+            stream.emit("thread_started", thread=row, title=row)
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="started",
+                started_at=started_at,
+                thread=row,
+            )
+
+        def _close(result, error) -> None:
+            if stream is None:
+                return
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            finished_at = _now_iso()
+            if error is None and isinstance(result, dict):
+                stream.emit("thread_finished", thread=row, duration_ms=duration_ms)
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    cost_usd=result.get("claude_cost_usd"),
+                    claude_duration_ms=result.get("claude_duration_ms"),
+                )
+            else:
+                text = str(error or "no result")[:500]
+                stream.emit(
+                    "thread_failed", thread=row, duration_ms=duration_ms, error=text
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    error=text,
+                    error_code=_error_code(error) or None,
+                )
+
+        return _close
+
+    ordered = sorted(mapping)
+
+    def _repair_one(section_id: str):
+        close = _row_events(
+            f"Repair - {section_id}{suffix}",
+            f"english_repair:{section_id}",
+            f"Surgically repair the {section_id} section",
+            round(3.51 + ordered.index(section_id) / 100, 4),
+        )
+        try:
+            result, error = section_repair(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                section=sections_by_id[section_id],
+                section_id=section_id,
+                findings=mapping[section_id],
+                progress=progress,
+                timeout_sec=timeout_sec,
+                structure=structure,
+                **extra,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result, error = None, f"repair crashed: {exc}"
+        close(result, error)
+        return result, error
+
+    def _repair_envelope():
+        close = _row_events(
+            f"Repair - envelope{suffix}",
+            "english_repair:envelope",
+            "Surgically repair the package envelope",
+            3.50,
+        )
+        envelope = {k: v for k, v in package.items() if k != "sections"}
+        try:
+            result, error = envelope_repair(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                envelope=envelope,
+                findings=envelope_findings,
+                progress=progress,
+                timeout_sec=timeout_sec,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result, error = None, f"envelope repair crashed: {exc}"
+        close(result, error)
+        return result, error
+
+    max_procs = getattr(claude_runner, "_memo_run_max_procs", None)
+    try:
+        procs = int(max_procs()) if callable(max_procs) else 4
+    except Exception:  # noqa: BLE001
+        procs = 4
+    workers = max(1, min(len(ordered) + (1 if envelope_findings else 0), procs))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="memo-repair") as pool:
+        futures = {sid: pool.submit(_repair_one, sid) for sid in ordered}
+        envelope_future = pool.submit(_repair_envelope) if envelope_findings else None
+        for section_id, future in futures.items():
+            try:
+                result, error = future.result()
+            except Exception as exc:  # noqa: BLE001
+                result, error = None, f"repair crashed: {exc}"
+            section = result.get("section") if isinstance(result, dict) else None
+            if error is None and isinstance(section, dict):
+                outcome.repaired.append(section_id)
+                outcome.package["sections"] = [
+                    section if isinstance(s, dict) and s.get("id") == section_id else s
+                    for s in outcome.package.get("sections") or []
+                ]
+                continue
+            outcome.failed[section_id] = str(error or "no section returned")
+            if _is_output_too_large(error):
+                outcome.too_large.append(section_id)
+        if envelope_future is not None:
+            try:
+                env_result, env_error = envelope_future.result()
+            except Exception as exc:  # noqa: BLE001
+                env_result, env_error = None, f"envelope repair crashed: {exc}"
+            envelope = env_result.get("envelope") if isinstance(env_result, dict) else None
+            if env_error is None and isinstance(envelope, dict):
+                for key, value in envelope.items():
+                    if key != "sections":
+                        outcome.package[key] = value
+                outcome.envelope_repaired = True
+            else:
+                outcome.envelope_error = str(env_error or "no envelope returned")
+    return outcome
+
+
+# ---- Side agents on a failure path ---------------------------------------
+def _shutdown_side_agent(agent, *, cancel: bool = True) -> float:
+    """Shut a chaser or artifacts handle down — cancelling its pending
+    work and reaping its live subprocesses when the runner supports
+    ``shutdown(cancel=True)`` (I14) — and return the spend it reports
+    afterwards (``cost_usd``, 0 when it exposes none), so a failure path
+    can add what was spent after the failure to ``claude_cost_usd``."""
+    if agent is None:
+        return 0.0
+    outcome = None
+    try:
+        try:
+            outcome = agent.shutdown(cancel=cancel)
+        except TypeError:
+            outcome = agent.shutdown()
+    except Exception:  # noqa: BLE001
+        logger.warning("side agent shutdown failed", exc_info=True)
+    if isinstance(outcome, dict):
+        return _as_float(outcome.get("post_cancel_cost_usd"))
+    cost = getattr(agent, "cost_usd", 0.0)
+    return _as_float(cost) if isinstance(cost, (int, float)) else 0.0
+
+
+# ---- Cost guard -------------------------------------------------------------
+# The run stops BEFORE a paid phase starts once its accumulated cost has
+# passed the ceiling — the per-run ``cost_ceiling_usd`` on the record, else
+# BSH_MEMO_COST_CEILING_USD (default 60) — and delivers what is finished
+# (the English-only delivery path) with a warning (gate "cost"). A phase
+# already running is never interrupted.
+COST_CEILING_ENV = "BSH_MEMO_COST_CEILING_USD"
+DEFAULT_COST_CEILING_USD = 60.0
+COST_GUARD_FILENAME = "cost_guard.json"
+
+
+def _env_number(name: str, default: float) -> float:
+    """``memo_flags``-style read of a numeric switch: the environment when
+    it holds a number, else ``default``."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
+
+
+def _cost_ceiling_usd(report: dict | None) -> float:
+    raw = (report or {}).get("cost_ceiling_usd")
+    try:
+        value = float(raw) if raw is not None and raw != "" else None
+    except (TypeError, ValueError):
+        value = None
+    if value is not None and value > 0:
+        return value
+    return _env_number(COST_CEILING_ENV, DEFAULT_COST_CEILING_USD)
+
+
+def _cost_guard_stops(run_dir: Path) -> list[dict]:
+    try:
+        payload = json.loads(
+            (run_dir / "logs" / COST_GUARD_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return []
+    stops = payload.get("stops") if isinstance(payload, dict) else None
+    return [s for s in stops or [] if isinstance(s, dict)]
+
+
+def _cost_guard_stop(
+    *,
+    report_id: str | None,
+    run_dir: Path,
+    cost_usd: float,
+    phase: str,
+    stream,
+) -> dict | None:
+    """The stop record when the next paid phase (``phase``) must not
+    start because the run's cost has reached its ceiling, else None."""
+    report = storage.get_report(report_id) if report_id else None
+    ceiling = _cost_ceiling_usd(report)
+    if ceiling <= 0 or _as_float(cost_usd) < ceiling:
+        return None
+    stop = {
+        "phase": phase,
+        "cost_usd": round(_as_float(cost_usd), 6),
+        "ceiling_usd": ceiling,
+        "at": _now_iso(),
+    }
+    stops = _cost_guard_stops(run_dir) + [stop]
+    try:
+        _write_json(run_dir / "logs" / COST_GUARD_FILENAME, {"stops": stops})
+    except OSError:
+        logger.warning("could not record the cost guard stop", exc_info=True)
+    stream.emit(
+        "stage",
+        stage="memo_cost_ceiling",
+        message=(
+            f"Cost ceiling reached (US${stop['cost_usd']:.2f} of "
+            f"US${ceiling:.2f}) before the {phase}; delivering what is finished"
+        ),
+        **stop,
+    )
+    return stop
+
+
+def _cost_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    stops = _cost_guard_stops(run_dir)
+    if not stops:
+        return
+    phases = ", ".join(str(s.get("phase") or "?") for s in stops)
+    last = stops[-1]
+    warnings.add(
+        f"Cost ceiling reached — skipped: {phases}",
+        f"已达到费用上限——跳过：{phases}",
+        [
+            _warning_item(
+                gate="cost",
+                language="EN",
+                severity="warning",
+                code="cost_ceiling",
+                summary_en=(
+                    f"Run cost US${_as_float(last.get('cost_usd')):.2f} reached the "
+                    f"US${_as_float(last.get('ceiling_usd')):.2f} ceiling before the "
+                    f"{last.get('phase')}; raise cost_ceiling_usd or "
+                    f"{COST_CEILING_ENV} and resume to finish"
+                ),
+                summary_zh=(
+                    f"运行费用 US${_as_float(last.get('cost_usd')):.2f} 在"
+                    f"{last.get('phase')}之前达到 US${_as_float(last.get('ceiling_usd')):.2f} "
+                    "上限；提高上限后可继续"
+                ),
+                detail_path=memo_prep._rel(run_dir / "logs" / COST_GUARD_FILENAME),
+            )
+        ],
+    )
+
+
+def _skip_artifacts_for_cost(run_dir: Path) -> bool:
+    """Make the section wave treat the analysis artifacts as already
+    written (empty), so no artifacts agent starts: the wave reads
+    ``logs/english_units/analysis_artifacts.json`` as its cache. Stub
+    artifact files are written at delivery as on any degraded run."""
+    units_dir = getattr(claude_runner, "_memo_english_units_dir", None)
+    if not callable(units_dir):
+        return False
+    try:
+        _write_json(units_dir(run_dir) / "analysis_artifacts.json", {})
+    except OSError:
+        return False
+    return True
+
+
+# ---- Pause after the English ------------------------------------------------
+def _keep_chased_translations(run_dir: Path, english_package: dict, zh_chaser) -> float:
+    """When a run stops before its Chinese stage, adopt the chase units
+    that already finished (no waiting for the rest) into
+    ``logs/memo_package.en.chased.json``, which the resume reads first.
+    Returns their cost; never raises."""
+    if zh_chaser is None or not getattr(zh_chaser, "has_units", False):
+        return 0.0
+    try:
+        outcome = zh_chaser.collect(join_timeout_sec=0.0)
+        merged = json.loads(json.dumps(english_package))
+        zh_chaser.merge_into(merged, outcome["units"])
+        _write_json(run_dir / "logs" / "memo_package.en.chased.json", merged)
+        return _as_float(outcome.get("cost_usd"))
+    except Exception:  # noqa: BLE001
+        logger.warning("could not keep the chased translations", exc_info=True)
+        return 0.0
+
+
+def _pause_after_english_requested(report_id: str | None) -> bool:
+    if not report_id:
+        return False
+    report = storage.get_report(report_id) or {}
+    return bool(report.get("pause_after_english"))
+
+
+def _pause_run_after_english(
+    *,
+    report_id: str,
+    run_dir: Path,
+    english_package: dict,
+    memo_paths: dict[str, str],
+    stream,
+    zh_chaser,
+    cost_usd: float,
+    worker_duration_ms: int,
+    started_at: str,
+    started_monotonic: float,
+) -> dict:
+    """Stop the run after its English memo (I11): keep the chased Chinese
+    that already landed for the resume, record the paused state and close
+    the stream. The pipeline result says ``paused_after_english`` so no
+    caller finalizes."""
+    cost_usd += _keep_chased_translations(run_dir, english_package, zh_chaser)
+    cost_usd += _shutdown_side_agent(zh_chaser, cancel=True)
+    duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    _update_report(
+        report_id,
+        status=PAUSED_AFTER_ENGLISH_STATUS,
+        stage=ENGLISH_PAUSED_STAGE,
+        progress=80,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+        english_only=None,
+        paused_after_english_at=_now_iso(),
+        claude_cost_usd=round(cost_usd, 6),
+        claude_duration_ms=duration_ms,
+    )
+    en_path = memo_paths.get("en")
+    stream.emit(
+        "stage",
+        stage="memo_paused_after_english",
+        message=ENGLISH_PAUSED_STAGE,
+        english_memo=memo_prep._rel(Path(en_path)) if en_path else None,
+        paused_after_english=True,
+    )
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_pipeline",
+        status="finished",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        worker_duration_ms=worker_duration_ms,
+        cost_usd=round(cost_usd, 6),
+        paused_after_english=True,
+    )
+    stream.emit(
+        "done",
+        report_id=report_id,
+        memo_paths={"en": str(en_path)} if en_path else {},
+        english_only=True,
+        paused_after_english=True,
+        cost_usd=round(cost_usd, 6),
+        duration_ms=duration_ms,
+    )
+    report = storage.get_report(report_id) or {}
+    company = storage.get_company(str(report.get("company_id") or "")) or {}
+    name = company.get("name") or report.get("company_name") or "Memo"
+    _notify_memo(
+        report_id,
+        "English memo ready — paused",
+        f"{name} — review the English memo, then resume to write the Chinese",
+    )
+    return {
+        "ok": True,
+        "paused_after_english": True,
+        "english_only": True,
+        "cost_usd": round(cost_usd, 6),
+        "duration_ms": duration_ms,
+        "worker_duration_ms": worker_duration_ms,
+        "fast_pipeline": True,
+    }
+
+
+# ---- Red team -----------------------------------------------------------------
+# One cheap-tier call after the English is accepted that argues against
+# the memo's load-bearing claims (claude_runner.run_memo_red_team, I12).
+# Its challenges ride the surgical repair as findings; whatever the repair
+# did not address ships as a warning (gate "red_team"). Never a hard gate.
+RED_TEAM_FLAG = "BSH_MEMO_RED_TEAM"
+RED_TEAM_FILENAME = "red_team.json"
+
+
+def _memo_red_team_enabled() -> bool:
+    return claude_runner.memo_red_team_enabled()
+
+
+def _red_team_challenge_findings(challenges: list[dict]) -> list[str]:
+    findings: list[str] = []
+    for challenge in challenges:
+        section_id = str(challenge.get("section_id") or "").strip()
+        claim = re.sub(r"\s+", " ", str(challenge.get("claim") or "")).strip()
+        why = re.sub(r"\s+", " ", str(challenge.get("why") or "")).strip()
+        if not claim:
+            continue
+        head = f"section {section_id}: " if section_id else ""
+        findings.append(
+            f'{head}red-team challenge — "{claim[:200]}" — {why[:300] or "unsupported as written"}'
+            "; restate the claim only as far as the cited evidence carries it"
+        )
+    return findings
+
+
+def _normalized_text(text: Any) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _package_english_text(package: dict) -> str:
+    parts: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            en = value.get("en")
+            if isinstance(en, str):
+                parts.append(en)
+            for key, item in value.items():
+                if key != "en":
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(package.get("sections"))
+    return _normalized_text(" ".join(parts))
+
+
+def _unresolved_challenges(
+    before: dict, after: dict, challenges: list[dict]
+) -> list[dict]:
+    """A challenge is addressed once the claim it quotes — present in the
+    English before the repair — no longer appears after it. A challenge
+    whose claim was never quoted verbatim cannot be checked and stays
+    open for the reader."""
+    before_text = _package_english_text(before)
+    after_text = _package_english_text(after)
+    open_items: list[dict] = []
+    for challenge in challenges:
+        claim = _normalized_text(challenge.get("claim"))
+        if not claim or claim not in before_text or claim in after_text:
+            open_items.append(challenge)
+    return open_items
+
+
+def _run_red_team_pass(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    package: dict,
+    attempt: int,
+    progress,
+    stream,
+    report_id: str | None,
+    cost_so_far: float,
+) -> tuple[dict, float]:
+    """The red-team pass on the accepted English package: returns the
+    package (repaired where the challenges could be addressed) and the
+    pass's own reported cost (its calls also report through ``progress``;
+    the caller takes whichever is larger). Does nothing while the switch
+    is off; never fails the run."""
+    if not _memo_red_team_enabled():
+        return package, 0.0
+    runner = claude_runner.run_memo_red_team
+    if _cost_guard_stop(
+        report_id=report_id,
+        run_dir=run_dir,
+        cost_usd=cost_so_far,
+        phase="red-team pass",
+        stream=stream,
+    ):
+        return package, 0.0
+    progress.emit(
+        "stage",
+        stage="memo_red_team",
+        message="Red-teaming the accepted English memo's load-bearing claims",
+    )
+    try:
+        result = runner(
+            run_dir,
+            package,
+            role="SPINE_CHECK",
+            company_name=company_name,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "stage",
+            stage="memo_red_team_failed",
+            message="Red-team pass failed; continuing without it",
+            error=f"{type(exc).__name__}: {exc}"[:500],
+        )
+        return package, 0.0
+    result = result if isinstance(result, dict) else {}
+    challenges = [c for c in result.get("challenges") or [] if isinstance(c, dict)]
+    cost = _as_float(result.get("cost_usd"))
+    if result.get("error") and not challenges:
+        progress.emit(
+            "stage",
+            stage="memo_red_team_failed",
+            message="Red-team pass returned no challenges; continuing without it",
+            error=str(result.get("error"))[:500],
+            cost_usd=None,
+        )
+    record: dict[str, Any] = {
+        "ran_at": _now_iso(),
+        "cost_usd": round(cost, 6),
+        "challenges": challenges,
+        "repaired": False,
+        "unresolved": [],
+    }
+    if challenges:
+        original = package
+        repaired = _surgical_quality_repair(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            candidate=package,
+            findings=_red_team_challenge_findings(challenges),
+            attempt=attempt,
+            progress=progress,
+            stream=stream,
+        )
+        if repaired is not None:
+            package = repaired
+            record["repaired"] = True
+        record["unresolved"] = _unresolved_challenges(original, package, challenges)
+    try:
+        _write_json(run_dir / "logs" / RED_TEAM_FILENAME, record)
+    except OSError:
+        logger.warning("could not record the red-team pass", exc_info=True)
+    progress.emit(
+        "stage",
+        stage="memo_red_team_finished",
+        message=(
+            f"Red team raised {len(challenges)} challenge(s); "
+            f"{len(record['unresolved'])} left open for the reader"
+        ),
+        challenges=len(challenges),
+        unresolved=len(record["unresolved"]),
+        repaired=record["repaired"],
+        cost_usd=round(cost, 6),
+    )
+    return package, cost
+
+
+def _red_team_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    try:
+        payload = json.loads(
+            (run_dir / "logs" / RED_TEAM_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return
+    unresolved = [
+        c for c in (payload.get("unresolved") if isinstance(payload, dict) else None) or []
+        if isinstance(c, dict)
+    ]
+    if not unresolved:
+        return
+    count = len(unresolved)
+    warnings.add(
+        f"Red team: {count} challenge{'' if count == 1 else 's'} left open",
+        f"红队质疑：{count} 项未解决",
+        [
+            _warning_item(
+                gate="red_team",
+                language="EN",
+                section=str(c.get("section_id") or "") or None,
+                severity=str(c.get("severity") or "warning") or "warning",
+                code="red_team_challenge",
+                summary_en=(
+                    f"{str(c.get('claim') or '')[:160]} — "
+                    f"{str(c.get('why') or '')[:200]}"
+                ),
+                summary_zh="红队质疑未解决：" + str(c.get("claim") or "")[:160],
+                detail_path=memo_prep._rel(run_dir / "logs" / RED_TEAM_FILENAME),
+            )
+            for c in unresolved[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+# ---- Report-only gates from the fact check and the quality metrics -------
+PIN_WARNINGS_FILENAME = "pin_warnings.json"
+
+
+def _pins_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    """The pin check's P1 warnings (a spine fact the memo does not echo
+    where it should — base_case_not_echoed) ship as warnings, gate "pins";
+    the P0 pin gate itself is unchanged."""
+    try:
+        payload = json.loads(
+            (run_dir / "logs" / PIN_WARNINGS_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return
+    findings = [f for f in payload or [] if isinstance(f, dict)] if isinstance(payload, list) else []
+    if not findings:
+        return
+    count = len(findings)
+    warnings.add(
+        f"Pins: {count} spine fact{'' if count == 1 else 's'} not echoed where expected",
+        f"锚定事实：{count} 项未在应出现的位置复述",
+        [
+            _warning_item(
+                gate="pins",
+                language="EN",
+                section=str(f.get("location") or "").split(" ", 1)[0] or None,
+                severity="warning",
+                code=str(f.get("code") or "pin_warning"),
+                summary_en=(
+                    f"{f.get('code')}: {str(f.get('pin') or '')[:120]} — "
+                    f"{str(f.get('detail') or '')[:200]}"
+                ),
+                summary_zh="锚定事实未复述：" + str(f.get("pin") or "")[:120],
+                detail_path=memo_prep._rel(run_dir / "logs" / "pin_check.md"),
+            )
+            for f in findings[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _claims_warning(
+    run_dir: Path, warnings: "_RunWarnings", company_id: str | None = None
+) -> None:
+    """Evidence quotes the passes recorded that the cached source text does
+    not contain (memo_fact_check.check_quotes, I6) — gate "claims"."""
+    from . import memo_fact_check
+
+    check = getattr(memo_fact_check, "check_quotes", None)
+    if not callable(check):
+        return
+    try:
+        result = check(run_dir, company_id=company_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("quote check failed", exc_info=True)
+        return
+    unmatched = [
+        u for u in ((result or {}).get("unmatched") if isinstance(result, dict) else None) or []
+    ]
+    if not unmatched:
+        return
+    count = len(unmatched)
+    items: list[dict] = []
+    for entry in unmatched[:_MAX_WARNING_ITEMS_PER_GATE]:
+        entry = entry if isinstance(entry, dict) else {"quote": str(entry)}
+        quote = re.sub(r"\s+", " ", str(entry.get("quote") or "")).strip()
+        url = str(entry.get("url") or "").strip()
+        items.append(
+            _warning_item(
+                gate="claims",
+                language="EN",
+                severity="warning",
+                code="quote_unmatched",
+                summary_en=f'Quote not found in the cached source: "{quote[:140]}"'
+                + (f" ({url[:120]})" if url else ""),
+                summary_zh=f"引文未在缓存来源中找到：“{quote[:140]}”",
+                detail_path=memo_prep._rel(run_dir / "logs" / "evidence_quotes.json"),
+            )
+        )
+    warnings.add(
+        f"Claims: {count} evidence quote{'' if count == 1 else 's'} not found in the cached sources",
+        f"引证：{count} 条引文未在缓存来源中找到",
+        items,
+    )
+
+
+def _fact_check_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    """What the final fact check (``_final_fact_check``) found in the
+    delivered memo, gate "fact_check": calculation inputs that were cited
+    to a source that does not carry them (now shown as our assumptions), and
+    headline figures — executive summary, key metrics, recommendation — that
+    no source on file carries. Until now a run whose executive summary
+    rested on untraced numbers shipped with no warning saying so."""
+    from . import memo_fact_check
+
+    logs_dir = run_dir / "logs"
+    try:
+        relabelled = json.loads(
+            (logs_dir / memo_fact_check.CALCULATION_INPUTS_FILENAME).read_text(encoding="utf-8")
+        ).get("relabelled") or []
+    except (OSError, ValueError, AttributeError):
+        relabelled = []
+    relabelled = [r for r in relabelled if isinstance(r, dict)]
+    if relabelled:
+        count = len(relabelled)
+        warnings.add(
+            f"Calculations: {count} input{'' if count == 1 else 's'} cited to a source that "
+            "does not carry the figure — shown as our assumption",
+            f"计算说明：{count} 项输入所引来源并未载明该数字——已改标为我们的假设",
+            [
+                _warning_item(
+                    gate="fact_check",
+                    language="EN",
+                    section="calculations",
+                    code="calculation_input_unsourced",
+                    summary_en=(
+                        f"{r.get('calc_id')}: {str(r.get('name') or '')[:80]} = "
+                        f"{str(r.get('value') or '')[:60]} was cited to {r.get('ref')}, "
+                        "and no source on file carries it"
+                    ),
+                    summary_zh=(
+                        f"{r.get('calc_id')}：{str(r.get('name') or '')[:80]} = "
+                        f"{str(r.get('value') or '')[:60]}，所引 {r.get('ref')} 及任何在档来源均未载明"
+                    ),
+                    detail_path=memo_prep._rel(logs_dir / memo_fact_check.CALCULATION_INPUTS_FILENAME),
+                )
+                for r in relabelled[:_MAX_WARNING_ITEMS_PER_GATE]
+            ],
+        )
+    payload = _fact_check_payload(run_dir)
+    if not isinstance(payload, dict) or payload.get("error"):
+        return
+    comparisons = [f for f in payload.get("comparison_findings") or [] if isinstance(f, dict)]
+    if comparisons:
+        _add_comparison_warning(
+            warnings,
+            [(str(f.get("section_id") or "") or None, str(f.get("snippet") or ""), str(f.get("suggestion") or "")) for f in comparisons],
+            detail_path=memo_prep._rel(logs_dir / "fact_check.md"),
+            where_en="the memo",
+            where_zh="备忘录",
+            total=payload.get("comparison_count") if isinstance(payload.get("comparison_count"), int) else None,
+        )
+    if payload.get("thin_corpus"):
+        return
+    count = payload.get("unsupported_headline")
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        return
+    findings = [f for f in payload.get("headline_findings") or [] if isinstance(f, dict)]
+    warnings.add(
+        f"Fact check: {count} figure{'' if count == 1 else 's'} in the executive summary, "
+        "key metrics or recommendation not found in any source on file",
+        f"事实核查：执行摘要、关键指标或投资建议中有 {count} 个数字未在任何在档来源中找到",
+        [
+            _warning_item(
+                gate="fact_check",
+                language="EN",
+                section=str(f.get("section_id") or "") or None,
+                code="headline_figure_untraced",
+                summary_en=f"{f.get('figure')}: {str(f.get('snippet') or '')[:200]}",
+                summary_zh=f"{f.get('figure')}：未在任何在档来源中找到",
+                detail_path=memo_prep._rel(logs_dir / "fact_check.md"),
+            )
+            for f in findings[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _add_comparison_warning(
+    warnings: "_RunWarnings",
+    rows: list[tuple[str | None, str, str]],
+    *,
+    detail_path: str | None,
+    where_en: str,
+    where_zh: str,
+    total: int | None = None,
+) -> None:
+    # ``rows`` may be a cut list (the report keeps 20); ``total`` is the count.
+    count = max(len(rows), total or 0)
+    warnings.add(
+        f"Arithmetic: {count} comparison{'' if count == 1 else 's'} in {where_en} "
+        "contradicted by its own figures",
+        f"算术：{where_zh}中有 {count} 处比较与其自身数字相矛盾",
+        [
+            _warning_item(
+                gate="fact_check",
+                language="EN",
+                section=section,
+                code="comparison_error",
+                summary_en=f"{detail.split(';')[0]} — \"{snippet[:180]}\"",
+                summary_zh=f"比较方向与数字不符：{detail.split(';')[0]}",
+                detail_path=detail_path,
+            )
+            for section, snippet, detail in rows[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _ic_comparison_warning(md_path: Path | None, warnings: "_RunWarnings") -> None:
+    """The IC decision memo has no repair loop, so a comparison its own
+    figures contradict (ZaiNar 2026-09-23: "about $597M — still below …
+    $579.37M") is reported, gate "fact_check"."""
+    from . import memo_fact_check
+
+    if md_path is None:
+        return
+    try:
+        text = Path(md_path).read_text(encoding="utf-8")
+    except OSError:
+        return
+    rows = [
+        (None, error["snippet"], error["detail"])
+        for line in text.splitlines()
+        for error in memo_fact_check.comparison_errors(line)
+    ]
+    if rows:
+        _add_comparison_warning(
+            warnings,
+            rows,
+            detail_path=memo_prep._rel(Path(md_path)),
+            where_en="the IC decision memo",
+            where_zh="投委会决策备忘录",
+        )
+
+
+def _consistency_warning(
+    run_dir: Path, warnings: "_RunWarnings", package: dict | None = None
+) -> None:
+    """The same metric stated with different values in different places
+    (memo_fact_check.metric_conflicts, I7) — gate "consistency"."""
+    from . import memo_fact_check
+
+    conflicts_fn = getattr(memo_fact_check, "metric_conflicts", None)
+    if not callable(conflicts_fn):
+        return
+    package = package if isinstance(package, dict) else _delivered_package(run_dir)
+    if not isinstance(package, dict):
+        return
+    try:
+        conflicts = conflicts_fn(package)
+    except Exception:  # noqa: BLE001
+        logger.warning("metric conflict check failed", exc_info=True)
+        return
+    conflicts = [c for c in conflicts or [] if isinstance(c, dict)]
+    if not conflicts:
+        return
+    count = len(conflicts)
+    warnings.add(
+        f"Consistency: {count} metric{'' if count == 1 else 's'} stated with conflicting values",
+        f"一致性：{count} 项指标在不同位置数值不一致",
+        [
+            _warning_item(
+                gate="consistency",
+                language="EN",
+                severity="warning",
+                code="metric_conflict",
+                summary_en=(
+                    f"{c.get('metric')}: "
+                    + ", ".join(str(v) for v in (c.get("values") or [])[:6])
+                    + (
+                        " (" + ", ".join(str(loc) for loc in (c.get("locations") or [])[:4]) + ")"
+                        if c.get("locations")
+                        else ""
+                    )
+                )[:300],
+                summary_zh=f"{c.get('metric')}：数值不一致（"
+                + "、".join(str(v) for v in (c.get("values") or [])[:6])
+                + "）",
+            )
+            for c in conflicts[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _quality_metrics(run_dir: Path, package: dict | None, report: dict | None) -> dict | None:
+    """memo_quality_metrics.compute (I10), written to
+    ``logs/quality_metrics.json`` and returned for the record. None until
+    the module exists or when it fails; never raises."""
+    try:
+        import importlib
+
+        module = importlib.import_module("server.memo_quality_metrics")
+    except Exception:  # noqa: BLE001
+        return None
+    compute = getattr(module, "compute", None)
+    if not callable(compute):
+        return None
+    package = package if isinstance(package, dict) else _delivered_package(run_dir)
+    try:
+        metrics = compute(run_dir, package, report or {})
+    except Exception:  # noqa: BLE001
+        logger.warning("quality metrics failed", exc_info=True)
+        return None
+    if not isinstance(metrics, dict):
+        return None
+    try:
+        _write_json(run_dir / "logs" / "quality_metrics.json", metrics)
+    except (OSError, TypeError, ValueError):
+        logger.warning("could not write the quality metrics", exc_info=True)
+    return metrics
+
+
 def _memo_package_render_validation_error(
     package_path: Path,
     *,
@@ -749,10 +2428,208 @@ def _memo_package_render_validation_error(
     return None
 
 
+_PLACEHOLDER_THESIS_NAMES = frozenset({"t", "x", "test", "tmp", "todo", "placeholder", "name"})
+
+
+def prior_view_for_report(report: dict) -> dict | None:
+    """BSH's most recent delivered memo of the same kind on the same
+    company before this run — its verdict, score, entry mark and date — as
+    the sentence the pipeline pins (``sentence``), plus the recommendation
+    the spine prompt quotes. None for a company's first memo, or when no
+    earlier run left a v2 verdict to state (a v1 memo, a Buffett memo).
+    The previous memo's evidence never travels: a verdict is history, a
+    figure would be contamination."""
+    company_id = str(report.get("company_id") or "").strip()
+    if not company_id:
+        return None
+    from . import memo_diff, report_reader
+
+    def moment(value: Any) -> datetime | None:
+        # Compared as instants: "…+00:00" and "…Z" stamps do not sort as text.
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    this_id = str(report.get("id") or "")
+    created = moment(report.get("created_at")) if report.get("created_at") else None
+    for candidate in storage.list_reports_for(company_id):  # newest first
+        if str(candidate.get("id") or "") == this_id:
+            continue
+        if candidate.get("kind") != report.get("kind"):
+            continue
+        if not memo_diff.version_eligible(candidate):
+            continue
+        if created is not None:
+            when = moment(candidate.get("created_at"))
+            if when is None or when >= created:
+                continue
+        facts = report_reader.load_spine_facts(candidate)
+        if not facts:
+            continue
+        verdict = str(facts.get("verdict") or "").strip()
+        if not verdict:
+            continue
+        scorecard = facts.get("scorecard")
+        total = scorecard.get("total") if isinstance(scorecard, dict) else None
+        entry = facts.get("entry")
+        entry_text = (
+            str(entry.get("valuation") or "").strip() if isinstance(entry, dict) else ""
+        )
+        date = str(candidate.get("created_at") or "")[:10]
+        name = str(report.get("company_name") or company_id).strip()
+        head = f"BSH's previous memo on {name} ({date}) concluded {verdict}"
+        if isinstance(total, int) and not isinstance(total, bool):
+            head += f" — {total}/100"
+        # The pin's schema caps the sentence; one that would not fit is
+        # shortened here (the entry mark goes first), never silently left
+        # unpinned while the prompt says it is pinned.
+        sentence = f"{head} at {entry_text}." if entry_text else f"{head}."
+        limit = int(claude_runner.MEMO_PRIOR_VIEW_SCHEMA["maxLength"])
+        if len(sentence) > limit:
+            sentence = f"{head}."
+        if len(sentence) > limit:
+            return None
+        return {
+            "sentence": sentence,
+            "recommendation": str(facts.get("recommendation_sentence") or "").strip(),
+            "report_id": str(candidate.get("id") or ""),
+            "date": date,
+            "verdict": verdict,
+        }
+    return None
+
+
+def _register_prior_view(report: dict, run_dir: Path) -> None:
+    """Pin BSH's previous view for the run (``BSH_MEMO_PRIOR_VIEW=0``
+    disables it). Best-effort: a lookup failure means no prior view, never
+    a failed run."""
+    prior = None
+    if os.environ.get("BSH_MEMO_PRIOR_VIEW", "1") == "1":
+        try:
+            prior = prior_view_for_report(report)
+        except Exception:  # noqa: BLE001
+            logger.warning("prior view lookup failed", exc_info=True)
+    claude_runner.register_memo_run_prior_view(run_dir, prior)
+
+
+def _check_size_text() -> str | None:
+    """BSH's check size for a deal, as one sentence for the spine — only
+    when the owner set a real band in the thesis settings. The thesis file
+    on the machines today looks auto-written ("name: t"), so a placeholder
+    name, a missing save date or an inverted band count as unset."""
+    try:
+        from . import thesis_store
+
+        thesis = thesis_store.get_thesis()
+    except Exception:  # noqa: BLE001
+        return None
+    low = thesis.get("check_size_min_musd")
+    high = thesis.get("check_size_max_musd")
+    name = str(thesis.get("name") or "").strip().lower()
+    if not thesis.get("updated_at") or len(name) < 3 or name in _PLACEHOLDER_THESIS_NAMES:
+        return None
+    if not isinstance(low, (int, float)) and not isinstance(high, (int, float)):
+        return None
+    if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+        if low <= 0 or high <= 0 or low > high:
+            return None
+        band = f"US${low:g}–{high:g} million"
+    else:
+        value = low if isinstance(low, (int, float)) else high
+        if value <= 0:
+            return None
+        band = f"US${value:g} million"
+    return (
+        f"BSH's check size for a deal like this is {band} (the firm's thesis "
+        "settings)."
+    )
+
+
+def _spine_pinned_values(shared_facts: dict | None) -> list[str]:
+    """The figures and sentences the spine pinned — the recommendation, key
+    metric values, scenario strings, fair value, entry, hurdle — which the
+    lint's repetition check must not count (sections echo pins verbatim by
+    design)."""
+    values: list[str] = []
+    if not isinstance(shared_facts, dict):
+        return values
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text and text not in values:
+            values.append(text)
+
+    for key in ("recommendation_sentence", "decision_history_sentence", "return_hurdle"):
+        add(shared_facts.get(key))
+    for metric in shared_facts.get("key_metrics") or []:
+        if isinstance(metric, dict):
+            add(metric.get("value"))
+    scenarios = shared_facts.get("scenarios")
+    if isinstance(scenarios, dict):
+        for scenario in scenarios.values():
+            if isinstance(scenario, dict):
+                for key in ("exit_value", "exit_revenue", "exit_multiple", "moic", "irr"):
+                    add(scenario.get(key))
+            else:
+                add(scenario)
+    fair_value = shared_facts.get("fair_value_range")
+    if isinstance(fair_value, dict):
+        add(fair_value.get("low"))
+        add(fair_value.get("high"))
+    entry = shared_facts.get("entry")
+    if isinstance(entry, dict):
+        add(entry.get("valuation"))
+    return values
+
+
+def _hurdle_moic(run_dir: Path | None, structure=None) -> float | None:
+    """The firm's target MOIC for the run's stage, when the owner saved one."""
+    try:
+        from . import fund_policy
+
+        stage = getattr(structure, "declared_stage", None) or (
+            _structure_for_run(run_dir).declared_stage if run_dir is not None else "late"
+        )
+        entry = fund_policy.stage_policy(stage)
+    except Exception:  # noqa: BLE001
+        return None
+    value = (entry or {}).get("target_moic")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _lint_context(run_dir: Path | None, structure=None) -> dict:
+    """The run facts the quality lint's P1/P2 checks need (all optional):
+    whether BSH's check size was supplied, whether deal terms are on file,
+    the stage's hurdle MOIC and the spine's pinned values."""
+    if run_dir is None:
+        return {}
+    context: dict[str, Any] = {
+        "sizing_supplied": bool(claude_runner.memo_run_check_size(run_dir) or _check_size_text()),
+    }
+    inputs = _run_inputs(run_dir)
+    if "deal_terms_on_file" in inputs:
+        context["deal_terms_on_file"] = bool(inputs["deal_terms_on_file"])
+    hurdle = _hurdle_moic(run_dir, structure)
+    if hurdle is not None:
+        context["hurdle_moic"] = hurdle
+    pinned = _spine_pinned_values(_memo_shared_facts_from_disk(run_dir))
+    if pinned:
+        context["pinned_values"] = pinned
+    return context
+
+
+def _lint_memo(path: Path, structure, run_dir: Path | None = None):
+    """``memo_quality_lint.lint_memo_docx`` with the run's facts."""
+    return memo_quality_lint.lint_memo_docx(path, structure, **_lint_context(run_dir, structure))
+
+
 def _memo_package_prerender_quality_findings(
     package: dict | Path,
     *,
     check_parity: bool = True,
+    run_dir: Path | None = None,
 ) -> list[str]:
     """Render a package to a throwaway dir and run the finalize-time quality
     gates on it, so blocking findings feed the generation retry loop instead
@@ -788,7 +2665,7 @@ def _memo_package_prerender_quality_findings(
                 manifest_path=tmp_dir / "logs" / "run_manifest.md",
             )
             problems: list[str] = []
-            lint_result = memo_quality_lint.lint_memo_docx(out_en, structure)
+            lint_result = _lint_memo(out_en, structure, run_dir)
             for finding in lint_result.p0_findings[:12]:
                 problems.append(
                     f"quality gate {finding.code} at {finding.location}: "
@@ -799,6 +2676,8 @@ def _memo_package_prerender_quality_findings(
                     out_en,
                     out_zh,
                     structure,
+                    package=payload,
+                    run_dir=run_dir,
                 )
                 for finding in parity_result.p0_findings[:12]:
                     problems.append(
@@ -815,25 +2694,86 @@ def _memo_package_prerender_quality_error(
     package: dict | Path,
     *,
     check_parity: bool = True,
+    run_dir: Path | None = None,
 ) -> str | None:
     """Joined-string form of ``_memo_package_prerender_quality_findings``."""
     problems = _memo_package_prerender_quality_findings(
-        package, check_parity=check_parity
+        package, check_parity=check_parity, run_dir=run_dir
     )
     return "; ".join(problems) if problems else None
 
 
+def _report_structure_version(report: dict | None) -> str | None:
+    """The memo template the run was started with ("v1" | "v2"), or None
+    for records that predate the choice (they follow the env flag)."""
+    value = str((report or {}).get("structure_version") or "").strip().lower()
+    return value if value in ("v1", "v2") else None
+
+
+def _report_structure(report: dict) -> memo_structure.MemoStructure:
+    """The structure a report's run writes, from what the record pinned:
+    the classified stage, the compact/full mode, the company type and the
+    template version. Resume uses it so a v2 run is never regenerated as v1
+    (and the reverse)."""
+    stage_info = report.get("structure_stage")
+    stage = (
+        str(stage_info.get("stage") or "late")
+        if isinstance(stage_info, dict)
+        else "late"
+    )
+    type_info = report.get("company_type")
+    company_type = (
+        str(type_info.get("type") or "") or None
+        if isinstance(type_info, dict)
+        else None
+    )
+    return memo_structure.active_structure(
+        stage,
+        str(report.get("structure_mode") or "full"),
+        company_type,
+        version=_report_structure_version(report),
+    )
+
+
+def _structure_is_v1(structure: memo_structure.MemoStructure) -> bool:
+    return structure.meta() == memo_structure.LATE.meta()
+
+
+def _register_run_structure(
+    run_dir: Path, structure: memo_structure.MemoStructure
+) -> None:
+    """Pin the run's template on the subprocess funnel: a v2-family
+    structure has no monolithic English twin, so it always takes the
+    parallel wave (``claude_runner._memo_english_parallel_enabled``)."""
+    try:
+        claude_runner.register_memo_run_structure_version(
+            run_dir, "v1" if _structure_is_v1(structure) else "v2"
+        )
+    except Exception:  # noqa: BLE001 — a registry fault never fails a run
+        logger.warning("structure version pin failed", exc_info=True)
+
+
+def _english_package_path(run_dir: Path) -> Path:
+    return run_dir / "logs" / "memo_package.en.json"
+
+
+def _zh_partial_package_path(run_dir: Path) -> Path:
+    return run_dir / "logs" / "memo_package.zh_partial.json"
+
+
 def _structure_for_run(run_dir: Path) -> memo_structure.MemoStructure:
     """Resolve the structure the run's accepted package was written
-    against (from the meta stamp in ``memo_package.json``); late v1 for
-    legacy runs and unreadable packages."""
-    try:
-        package = json.loads(
-            _memo_package_path(run_dir).read_text(encoding="utf-8")
-        )
-    except Exception:  # noqa: BLE001
-        return memo_structure.LATE
-    return memo_structure.for_package(package)
+    against (from the meta stamp in ``memo_package.json``, else the
+    accepted English package — an English-only delivery has no bilingual
+    package); late v1 for legacy runs and unreadable packages."""
+    for path in (_memo_package_path(run_dir), _english_package_path(run_dir)):
+        try:
+            package = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(package, dict):
+            return memo_structure.for_package(package)
+    return memo_structure.LATE
 
 
 def _memo_shared_facts_from_disk(run_dir: Path) -> dict | None:
@@ -877,16 +2817,28 @@ def _run_memo_pin_check(
             memo_pin_check.render_markdown_report(result, attempt=attempt),
             encoding="utf-8",
         )
+        # The P1 pin warnings (base_case_not_echoed …) are recorded for
+        # finalize (gate "pins"), never fed to the repair or the gate.
+        pin_warnings = [
+            finding.to_dict() if hasattr(finding, "to_dict") else dict(finding)
+            for finding in (getattr(result, "warnings", None) or [])
+        ]
+        try:
+            _write_json(run_dir / "logs" / PIN_WARNINGS_FILENAME, pin_warnings)
+        except OSError:
+            logger.warning("could not record the pin warnings", exc_info=True)
         progress.emit(
             "stage",
             stage="memo_pin_check",
             message=(
                 f"Pin-echo check: {result.pins_checked} pins checked, "
                 f"{len(result.findings)} finding(s)"
+                + (f", {len(pin_warnings)} warning(s)" if pin_warnings else "")
             ),
             pins_checked=result.pins_checked,
             pins_skipped=result.pins_skipped,
             findings=[finding.to_dict() for finding in result.findings][:8],
+            warnings=pin_warnings[:8],
             repair_feed=_memo_pin_check_repair_enabled(),
             attempt=attempt,
         )
@@ -908,6 +2860,7 @@ def _run_memo_fact_check(
     research_dir: Path | None,
     progress,
     attempt: int | None = None,
+    session_dir: Path | None = None,
 ) -> list[str]:
     """Deterministically trace every figure in the candidate to a source on
     file (``memo_fact_check``).
@@ -928,6 +2881,7 @@ def _run_memo_fact_check(
             package=candidate,
             company_id=company_id,
             research_dir=research_dir,
+            session_dir=session_dir,
         )
         logs_dir = run_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -969,6 +2923,44 @@ def _run_memo_fact_check(
         return []
 
 
+# The run's private inventory ({id, kind, title, ref} per item the run may
+# read) is stamped REPORT-ONLY, under a key the renderer's source gate does
+# not read. The gate tightens once run.private_inventory is present — a
+# URL-less private-class source must then name an inventory item by its
+# exact title or private_ref — and no writer prompt tells the model to cite
+# private documents that way yet, so stamping it would fail live runs on
+# citations the private_material_on_file rule accepts today. Switch to
+# memo_fact_check.stamp_private_inventory together with that prompt text.
+PRIVATE_ITEMS_KEY = "private_items_on_file"
+
+
+def _stamp_private_items_on_file(package: dict, inventory: list[dict]) -> list[dict]:
+    from . import memo_fact_check
+
+    # Normalised exactly as stamp_private_inventory would, on a scratch
+    # envelope so the gated key never reaches the package.
+    rows = memo_fact_check.stamp_private_inventory({}, inventory)
+    run = package.get("run")
+    if not isinstance(run, dict):
+        run = {}
+        package["run"] = run
+    run[PRIVATE_ITEMS_KEY] = rows
+    run.pop("private_inventory", None)
+    return rows
+
+
+def _private_items_on_file(package: dict | None) -> list | None:
+    """The stamped inventory (None when the run never stamped one)."""
+    run = package.get("run") if isinstance(package, dict) else None
+    if not isinstance(run, dict):
+        return None
+    for key in (PRIVATE_ITEMS_KEY, "private_inventory"):
+        value = run.get(key)
+        if isinstance(value, list):
+            return value
+    return None
+
+
 def _attach_memo_source_urls(
     *,
     run_dir: Path,
@@ -976,40 +2968,47 @@ def _attach_memo_source_urls(
     company_id: str,
     progress,
     attempt: int | None = None,
+    session_dir: Path | None = None,
 ) -> list[str]:
-    """Fill in source URLs the analysis passes or earlier runs already
-    recorded, before the renderer's URL rule judges the envelope. Logged
-    to ``logs/source_urls.md``; never raises."""
+    """Fill in source URLs the analysis passes, earlier retrievals or the
+    Memo Studio session already recorded, before the renderer's URL rule
+    judges the envelope. The URL status (seen, unseen, reused homepages) is
+    appended to ``logs/source_urls.md`` by memo_fact_check; never raises."""
     if not isinstance(candidate, dict):
         return []
     try:
         from . import memo_fact_check
 
         # Before the URL rule judges the envelope: whether any source here
-        # can honestly be private. Stamped every attempt, because an
-        # envelope repair can rewrite `run`.
+        # can honestly be private, and WHICH private items the run holds.
+        # Stamped every attempt, because an envelope repair can rewrite
+        # `run`.
         memo_fact_check.stamp_private_material(candidate, company_id=company_id)
+        _stamp_private_items_on_file(
+            candidate,
+            memo_fact_check.private_inventory(
+                run_dir,
+                storage.get_company(company_id) or company_id,
+                extra_items=_staged_private_items(run_dir),
+            ),
+        )
     except Exception:  # noqa: BLE001
         logger.warning("private-material stamp failed", exc_info=True)
     try:
         from . import memo_fact_check
 
         notes = memo_fact_check.attach_source_urls(
-            candidate, company_id=company_id, run_dir=run_dir
+            candidate,
+            company_id=company_id,
+            run_dir=run_dir,
+            session_dir=session_dir,
+            attempt=attempt,
         )
     except Exception:  # noqa: BLE001
         logger.warning("source URL attachment failed", exc_info=True)
         return []
     if not notes:
         return []
-    try:
-        log_path = run_dir / "logs" / "source_urls.md"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"## attempt {attempt}\n" if attempt is not None else "## attachment\n")
-            handle.write("\n".join(f"- {note}" for note in notes) + "\n\n")
-    except OSError:
-        logger.warning("source URL log write failed", exc_info=True)
     progress.emit(
         "stage",
         stage="memo_source_urls_attached",
@@ -1021,6 +3020,22 @@ def _attach_memo_source_urls(
         attempt=attempt,
     )
     return notes
+
+
+def _staged_private_items(run_dir: Path | None) -> list[dict]:
+    """Private items the pipeline staged for this run itself (the reference
+    call and founder-update digests), as private-inventory rows. Read from
+    ``logs/staged_private_items.json`` (written when the digests are
+    staged); empty when nothing was."""
+    if run_dir is None:
+        return []
+    try:
+        rows = json.loads(
+            (run_dir / "logs" / "staged_private_items.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return []
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def _fact_check_payload(run_dir: Path | None) -> dict | None:
@@ -1141,14 +3156,21 @@ def _surgical_quality_repair(
             )
             return None
     repaired, _ = memo_docx_renderer.repair_package_structure(repaired)
-    structural_errors = memo_docx_renderer.english_package_validation_errors(
-        repaired
+    # Risk-card WORDING left after the repair is not a reason to throw the
+    # repair away: it ships as a warning (_risk_card_warning), never a
+    # regeneration. Nor is a small word-cap overrun (_length_warning).
+    structural_errors = _blocking_validation_errors(
+        memo_docx_renderer.english_package_validation_errors(
+            repaired, editorial_risk_checks=False
+        ),
+        repaired,
     )
     remaining = (
         structural_errors
         or _memo_package_prerender_quality_findings(
             memo_docx_renderer.fill_blank_zh_placeholders(repaired),
             check_parity=False,
+            run_dir=run_dir,
         )
     )
     if not remaining and _memo_pin_check_repair_enabled():
@@ -1194,7 +3216,40 @@ def _archive_invalid_memo_package(package_path: Path) -> Path:
     return _archive_memo_package(package_path, label="invalid")
 
 
-_MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+def _opens_sentence(match: re.Match) -> bool:
+    before = match.string[: match.start()].rstrip()
+    return not before or before[-1] in ".!?\n"
+
+
+def _sentence_case(match: re.Match, replacement: str) -> str:
+    """``replacement`` capitalised where the match opens a sentence."""
+    if _opens_sentence(match):
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
+def _pass_rewrite(match: re.Match) -> str:
+    """ "we do not recommend participating (in X)" → "Recommendation: pass
+    on X" where it opens a sentence ("the recommendation passes on X"
+    mid-sentence)."""
+    target = (match.group(1) or "").strip()
+    if _opens_sentence(match):
+        return f"Recommendation: pass on {target}" if target else "Recommendation: pass"
+    return f"the recommendation passes on {target}" if target else "the recommendation passes"
+
+
+def _commit_capital_rewrite(match: re.Match) -> str:
+    """ "we recommend participating (in)" → the house recommendation form:
+    "Recommendation: BSH commits capital (to)" where it opens a sentence,
+    "the recommendation commits capital (to)" mid-sentence — neither is the
+    lint's banned "the recommendation is…"."""
+    target = " to" if match.group(1) else ""
+    if _opens_sentence(match):
+        return f"Recommendation: BSH commits capital{target}"
+    return f"the recommendation commits capital{target}"
+
+
+_MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], Any], ...] = (
     (
         re.compile(r"\bWhat Must Be Confirmed Before Funding\b", re.IGNORECASE),
         "Valuation Sensitivity",
@@ -1707,14 +3762,17 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "in sponsor materials",
     ),
     (
+        # Not "BSH invests in …": that manufactures a per-deal mandate
+        # sentence, which the voice contract forbids (the mandate line is
+        # the firm's own, from the settings background, or none).
         re.compile(r"\bWe invest behind\b", re.IGNORECASE),
-        "BSH invests in",
+        lambda match: _sentence_case(match, "the recommendation backs"),
     ),
     (
         # (?!-) keeps hyphenated verbs ("we back-solve", "we back-test")
         # out of the sell-side rewrite; they are modeling vocabulary.
         re.compile(r"\bWe back\b(?!-)", re.IGNORECASE),
-        "BSH invests in",
+        lambda match: _sentence_case(match, "the recommendation backs"),
     ),
     (
         re.compile(r"\bwhy we want exposure\b", re.IGNORECASE),
@@ -1733,12 +3791,31 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "the recommended participation is through",
     ),
     (
-        re.compile(r"\bwe recommend participating in\b", re.IGNORECASE),
-        "the recommendation is to commit capital to",
+        # "the recommendation is to commit capital…" was itself the lint's
+        # "the recommendation is" P0 (the ZaiNar memo shipped with it): the
+        # house form is "Recommendation: BSH commits capital to …".
+        re.compile(r"\bwe recommend participating( in)?\b", re.IGNORECASE),
+        lambda match: _commit_capital_rewrite(match),
+    ),
+    # The same slogans negated (the lint bans them since R19): a pass is
+    # "Recommendation: pass on <target>.", never a slogan.
+    (
+        re.compile(
+            r"\bwe (?:do not|don't|would not|wouldn't) recommend participating"
+            r"(?: in ([^.;]+?))?(?=[.;]|$)",
+            re.IGNORECASE,
+        ),
+        lambda match: _pass_rewrite(match),
     ),
     (
-        re.compile(r"\bwe recommend participating\b", re.IGNORECASE),
-        "the recommendation is to commit capital",
+        re.compile(r"\bwe are not being offered\b", re.IGNORECASE),
+        lambda match: _sentence_case(match, "investors are not offered"),
+    ),
+    (
+        re.compile(r"\bwe are not participating (through|via)\b", re.IGNORECASE),
+        lambda match: _sentence_case(
+            match, f"the recommended participation is not {match.group(1).lower()}"
+        ),
     ),
     # ---- Decided-language inverse net -------------------------------------
     # The memo's conclusion is a recommendation; nothing is decided when it
@@ -2000,21 +4077,54 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"\bvoting rights\b", re.IGNORECASE),
         "LP voting",
     ),
+    # Only the phrases the quality lint bans (memo_quality_lint: "we / BSH
+    # underwrite…", "underwriting case / view / posture / assumption /
+    # basis / lens") are rewritten, each into a grammatical equivalent.
+    # The bare noun or gerund elsewhere ("Valuation Multiple Underwriting
+    # and Return Profile", "Underwriting the $1.0B post-money valuation
+    # against…") is ordinary English and is left alone: the word-level
+    # rewrite this replaces produced "Valuation Multiple investment case
+    # and Return Profile" and "investment case the $1.0B post-money
+    # valuation against…" in the Gemini v1 ZaiNar memo
+    # (2026-09-23__015923__zainar-inc__memo-run__2).
     (
-        re.compile(r"\bunderwriting\b", re.IGNORECASE),
-        "investment case",
+        re.compile(r"\b(we|bsh)\s+(have|had|has)\s+underwritten\b", re.IGNORECASE),
+        r"\1 \2 relied on",
     ),
     (
-        re.compile(r"\bunderwritten\b", re.IGNORECASE),
-        "supported",
+        re.compile(
+            r"\b(we|bsh)\s+(are|were|is|was)\s+underwriting\b", re.IGNORECASE
+        ),
+        r"\1 \2 relying on",
     ),
     (
-        re.compile(r"\bunderwrites\b", re.IGNORECASE),
-        "supports",
+        re.compile(r"\b(we|bsh)\s+underwrite\b", re.IGNORECASE),
+        r"\1 rely on",
     ),
     (
-        re.compile(r"\bunderwrite\b", re.IGNORECASE),
-        "rely on",
+        re.compile(r"\b(we|bsh)\s+underwrites\b", re.IGNORECASE),
+        r"\1 relies on",
+    ),
+    (
+        re.compile(r"\b(we|bsh)\s+underwrote\b", re.IGNORECASE),
+        r"\1 relied on",
+    ),
+    (
+        re.compile(r"\b(we|bsh)\s+underwriting\b", re.IGNORECASE),
+        r"\1 relying on",
+    ),
+    (
+        re.compile(r"\b(we|bsh)\s+underwritten\b", re.IGNORECASE),
+        r"\1 supported",
+    ),
+    (
+        re.compile(
+            r"\b(underwriting)\s+(case|view|posture|assumption|basis|lens)\b",
+            re.IGNORECASE,
+        ),
+        lambda m: ("Investment" if m.group(1)[0].isupper() else "investment")
+        + " "
+        + m.group(2),
     ),
     (
         re.compile(r"\bwe give credit to\b", re.IGNORECASE),
@@ -2213,18 +4323,28 @@ def _renderer_contract_diagnostics(
     *,
     run_dir: Path,
     memo_paths_abs: dict[str, Path],
+    locales: tuple[str, ...] = ("en", "zh"),
+    package_path: Path | None = None,
 ) -> dict:
+    """What the renderer contract expects on disk, per rendered language.
+
+    ``locales`` narrows the check to the languages this render produced
+    (an English-only delivery checks only the English files);
+    ``package_path`` is the package that was rendered (the accepted English
+    package for an English-only delivery)."""
     errors: list[str] = []
-    package_path = _memo_package_path(run_dir)
-    expected = {
-        "memo_package": package_path,
-        "english_memo": memo_paths_abs.get("en"),
-        "chinese_memo": memo_paths_abs.get("zh"),
-        "validation_en": run_dir / "logs" / "validation.txt",
-        "validation_zh": run_dir / "logs" / "validation_cn.txt",
-        "file_inventory": run_dir / "logs" / "file_inventory.md",
-        "run_manifest": run_dir / "logs" / "run_manifest.md",
-    }
+    package_path = package_path or _memo_package_path(run_dir)
+    expected: dict[str, Path | None] = {"memo_package": package_path}
+    if "en" in locales:
+        expected["english_memo"] = memo_paths_abs.get("en")
+    if "zh" in locales:
+        expected["chinese_memo"] = memo_paths_abs.get("zh")
+    if "en" in locales:
+        expected["validation_en"] = run_dir / "logs" / "validation.txt"
+    if "zh" in locales:
+        expected["validation_zh"] = run_dir / "logs" / "validation_cn.txt"
+    expected["file_inventory"] = run_dir / "logs" / "file_inventory.md"
+    expected["run_manifest"] = run_dir / "logs" / "run_manifest.md"
     expected_files: list[dict] = []
     for label, path in expected.items():
         exists = bool(path and path.exists())
@@ -2251,14 +4371,42 @@ def _renderer_contract_diagnostics(
     inventory = expected["file_inventory"]
     if inventory and inventory.exists():
         text = inventory.read_text(encoding="utf-8", errors="replace")
-        if "memo_en:" not in text or "memo_zh:" not in text:
+        if any(f"memo_{locale}:" not in text for locale in locales):
             errors.append("file_inventory missing rendered memo entries")
-    return {
+    result = {
         "run_dir": memo_prep._rel(run_dir),
         "memo_package": memo_prep._rel(package_path),
         "errors": errors,
         "expected_files": expected_files,
     }
+    if tuple(locales) != ("en", "zh"):
+        result["locales"] = list(locales)
+    return result
+
+
+def _render_single_locale(
+    package: dict,
+    locale: str,
+    out_path: Path,
+    *,
+    run_dir: Path,
+) -> dict:
+    """Render ONE language of the memo and leave the other language's file
+    alone: the English memo before the Chinese exists, the Chinese alone
+    on "Retry Chinese" (``memo_docx_renderer.render_memo_locale``: that
+    language's document, its validation log, the inventory lines and one
+    manifest block — the per-language contract check reads those)."""
+    del run_dir  # the renderer writes its logs next to out_path's run
+    return memo_docx_renderer.render_memo_locale(package, locale, out_path)
+
+
+def _english_render_payload(english_package: dict) -> dict:
+    """The accepted English package as the renderer should see it for an
+    English-only document: the same deterministic voice rewrites finalize
+    applies, so the early English memo reads exactly as the bilingual
+    render's English will (blank Chinese halves are allowed for "en")."""
+    rewritten, _ = _rewritten_memo_package_voice(english_package)
+    return rewritten
 
 
 def _render_memo_pdf_previews(
@@ -2621,6 +4769,8 @@ def _run_chinese_parity_gate(
             memo_paths_abs["en"],
             memo_paths_abs["zh"],
             _structure_for_run(run_dir),
+            package=_package_on_disk(_memo_package_path(run_dir)),
+            run_dir=run_dir,
         )
         parity_path = run_dir / "logs" / "memo_chinese_parity.md"
         parity_path.write_text(
@@ -2673,9 +4823,7 @@ def _lint_memo_quality_gate(
         recovered=recovered,
         english_memo=memo_prep._rel(memo_path),
     ) as timing:
-        lint_result = memo_quality_lint.lint_memo_docx(
-            memo_path, _structure_for_run(run_dir)
-        )
+        lint_result = _lint_memo(memo_path, _structure_for_run(run_dir), run_dir)
         lint_path = run_dir / "logs" / "memo_quality_lint.md"
         lint_path.write_text(
             memo_quality_lint.render_markdown_report(lint_result),
@@ -2688,6 +4836,26 @@ def _lint_memo_quality_gate(
         if lint_result.has_blocking_findings:
             timing["status"] = "failed"
     return lint_result, lint_path
+
+
+def _ic_memo_frame(company_name: str, locale: str) -> dict:
+    """The document frame of the IC decision memo: it never leaves BSH, and
+    the file says so on every page."""
+    if locale == "zh":
+        return {
+            "locale": "zh",
+            "header_text": f"{company_name} | 投委会决策备忘录（内部）",
+            "stamp_text": "内部文件 — 仅供投委会",
+            "footer_label": "伯克利峰会资本 — 内部文件，请勿外传",
+            "doc_title": f"{company_name} — 投委会决策备忘录",
+        }
+    return {
+        "locale": "en",
+        "header_text": f"{company_name} | IC decision memo — internal",
+        "stamp_text": "INTERNAL — IC ONLY",
+        "footer_label": "Berkeley Summit House — internal, do not forward",
+        "doc_title": f"{company_name} — IC Decision Memo",
+    }
 
 
 def _run_internal_diligence_memo(
@@ -2705,7 +4873,12 @@ def _run_internal_diligence_memo(
     lessons_path: Path | None,
     scope_check: dict | None,
     warnings: list[str],
-) -> dict | None:
+    english_only: bool = False,
+) -> dict:
+    """Write and render the internal IC decision memo (English and Chinese
+    from one call). Returns the runner result (``ok`` False with ``error``
+    on any failure) — never fails the run: the LP memo is already rendered
+    and gated, and the caller turns a failure into a warning."""
     with _timed_phase(
         stream,
         phase="memo_internal_diligence",
@@ -2713,123 +4886,159 @@ def _run_internal_diligence_memo(
     ) as timing:
         md_path = internal_paths_abs.get("md")
         docx_path = internal_paths_abs.get("docx")
+        md_zh = internal_paths_abs.get("md_zh")
+        docx_zh = internal_paths_abs.get("docx_zh")
         if not md_path or not docx_path:
             message = "Report record is missing internal diligence memo paths."
             timing["status"] = "failed"
             timing["error"] = message
-            _fail_internal_memo(
-                report_id=report_id,
-                stream=stream,
-                result=result,
-                message=message,
-            )
-            return None
+            _note_internal_memo_failure(stream=stream, message=message)
+            return {"ok": False, "error": message}
 
         timing["markdown_path"] = memo_prep._rel(md_path)
         timing["docx_path"] = memo_prep._rel(docx_path)
         _update_report(
             report_id,
-            stage="Writing internal diligence memo",
+            stage="Writing the IC decision memo",
             progress=92,
         )
-        internal_result = claude_runner.run_internal_diligence_memo(
-            run_dir=run_dir,
-            company_name=company_name,
-            company_slug=company_slug,
-            run_id=run_id,
-            settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
-            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-            internal_markdown_path=md_path,
-            research_dir=research_store.RESEARCH_ROOT / company_slug,
-            analysis_session_path=analysis_session_path,
-            lessons_path=lessons_path,
-            scope_check=scope_check,
-            warnings=warnings,
-            progress=stream,
-            timeout_sec=1200,
+        # The LP memo's accepted package is what the IC memo's numbers must
+        # match; an English-only delivery has only the English package.
+        package_path = (
+            _english_package_path(run_dir)
+            if english_only or not _memo_package_path(run_dir).exists()
+            else _memo_package_path(run_dir)
         )
+        # The IC memo only reads the finished package, so it runs on Claude
+        # whatever engine wrote the LP memo: a Gemini run used to lose its
+        # IC memo to the Claude-only stage error. The pin is restored
+        # afterwards so the rest of the run stays on its own engine.
+        run_engine = memo_engine.run_engine(run_dir)
+        engine_pinned = run_engine == "gemini"
+        if engine_pinned:
+            memo_engine.register_run_engine(run_dir, "claude")
+            timing["engine"] = "claude"
+            stream.emit(
+                "stage",
+                stage="internal_memo_engine",
+                message=(
+                    "Writing the IC decision memo on Claude (the LP memo was "
+                    f"written on {run_engine}; the IC memo only reads it)"
+                ),
+            )
+        try:
+            internal_result = claude_runner.run_internal_diligence_memo(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                settings_path=memo_prep.SETTINGS_FILE,
+                companies_yaml_path=_run_companies_yaml(run_dir),
+                memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+                internal_markdown_path=md_path,
+                internal_markdown_path_zh=md_zh,
+                package_path=package_path,
+                research_dir=_research_dir_for(company_slug),
+                analysis_session_path=analysis_session_path,
+                lessons_path=lessons_path,
+                scope_check=scope_check,
+                warnings=warnings,
+                progress=stream,
+                timeout_sec=1200,
+            )
+        finally:
+            if engine_pinned:
+                memo_engine.register_run_engine(run_dir, run_engine)
         timing["claude_cost_usd"] = internal_result.get("cost_usd")
         timing["claude_duration_ms"] = internal_result.get("duration_ms")
         if not internal_result.get("ok"):
             message = internal_result.get("error") or "Internal diligence memo failed."
             timing["status"] = "failed"
             timing["error"] = message
-            _fail_internal_memo(
-                report_id=report_id,
-                stream=stream,
-                result=_combined_result(result, internal_result),
-                message=message,
-            )
-            return None
+            _note_internal_memo_failure(stream=stream, message=message)
+            return {**internal_result, "ok": False, "error": message}
 
         _update_report(
             report_id,
-            stage="Rendering internal diligence memo DOCX",
+            stage="Rendering the IC decision memo DOCX",
             progress=94,
         )
         stream.emit(
             "stage",
             stage="rendering_internal_memo_docx",
-            message="Rendering internal diligence memo DOCX",
+            message="Rendering the IC decision memo DOCX",
             markdown_path=memo_prep._rel(md_path),
         )
-        try:
-            internal_memo_renderer.render_internal_memo(md_path, docx_path)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "internal diligence memo render failed for report %s",
-                report_id,
+        internal_files: list[dict] = []
+        for locale, md, docx in (("en", md_path, docx_path), ("zh", md_zh, docx_zh)):
+            if not md or not docx:
+                continue
+            if locale == "zh" and not md.exists():
+                # The Chinese half is a companion to the companion: its
+                # absence costs a warning line, never the English IC memo.
+                stream.emit(
+                    "stage",
+                    stage="internal_memo_zh_missing",
+                    message="The IC decision memo came back without its Chinese version",
+                )
+                timing["zh_missing"] = True
+                continue
+            try:
+                internal_memo_renderer.render_internal_memo(
+                    md,
+                    docx,
+                    zh_money_form=True,
+                    **_ic_memo_frame(company_name, locale),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "IC decision memo render failed for report %s (%s)",
+                    report_id,
+                    locale,
+                )
+                message = (
+                    "Internal diligence memo render failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                if locale == "zh":
+                    timing["zh_error"] = message
+                    stream.emit("stage", stage="internal_memo_zh_render_failed", message=message)
+                    continue
+                timing["status"] = "failed"
+                timing["error"] = message
+                _note_internal_memo_failure(stream=stream, message=message)
+                return {**internal_result, "ok": False, "error": message}
+            internal_files.append(
+                {
+                    "kind": "internal_diligence_memo",
+                    "language": locale,
+                    "markdown_path": memo_prep._rel(md),
+                    "path": memo_prep._rel(docx),
+                }
             )
-            message = (
-                "Internal diligence memo render failed: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            timing["status"] = "failed"
-            timing["error"] = message
-            _fail_internal_memo(
-                report_id=report_id,
-                stream=stream,
-                result=_combined_result(result, internal_result),
-                message=message,
-            )
-            return None
-
-        internal_files = [
-            {
-                "kind": "internal_diligence_memo",
-                "language": "en",
-                "markdown_path": memo_prep._rel(md_path),
-                "path": memo_prep._rel(docx_path),
-            }
-        ]
         _update_report(report_id, internal_memo_files=internal_files)
+        timing["languages"] = [entry["language"] for entry in internal_files]
         return internal_result
 
 
-def _fail_internal_memo(
+def _note_internal_memo_failure(
     *,
-    report_id: str,
     stream: job_progress.ProgressLog,
-    result: dict,
     message: str,
 ) -> None:
-    _update_report(
-        report_id,
-        status="failed_during_analysis",
-        stage="Internal diligence memo failed",
-        error=message,
-        failure_phase="internal_diligence_memo",
-        failure_detail=message,
-        claude_cost_usd=result.get("cost_usd"),
-        claude_duration_ms=result.get("duration_ms"),
-    )
+    """The IC decision memo failed: say so on the stream. The run itself
+    goes on — the caller records a warning."""
     stream.emit(
         "thread_failed",
         thread=claude_runner.MEMO_PHASE6_THREAD,
         error=message,
     )
-    stream.emit("error", error=message, phase="internal_diligence_memo")
+    stream.emit(
+        "stage",
+        stage="internal_memo_failed",
+        message=f"IC decision memo was not written: {message[:500]}",
+        phase="internal_diligence_memo",
+    )
 
 
 def _combined_result(primary: dict, secondary: dict | None) -> dict:
@@ -3114,7 +5323,7 @@ def _run_fast_memo_pass(
             artifact_filename=spec.artifact_filename,
             focus=spec.focus,
             settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            companies_yaml_path=_run_companies_yaml(run_dir),
             research_dir=research_dir,
             lessons_path=lessons_path,
             scope_check=scope_check,
@@ -3148,6 +5357,24 @@ def _run_fast_memo_pass(
                 message=(
                     f"{spec.label}: the tool rejected every structured "
                     "answer — running it again"
+                ),
+            )
+            data, error = _attempt()
+        elif error and _retryable_pass_error(error):
+            # A dropped connection or a pass that stalled or timed out is
+            # worth one more go: a lost pass costs the memo a line of
+            # argument. Never a provider limit, a dead login or a cancel —
+            # those fail the same way again, at a cost.
+            logger.warning(
+                "fast memo pass %s hit a retryable failure (%s); retrying",
+                spec.pass_id,
+                error,
+            )
+            sub_progress.emit(
+                "stage",
+                stage="memo_pass_transient_retry",
+                message=(
+                    f"{spec.label}: {str(error)[:160]} — running it again"
                 ),
             )
             data, error = _attempt()
@@ -3216,6 +5443,49 @@ def _run_fast_memo_pass(
     return result
 
 
+_PASS_TIMEOUT_MARKERS = ("timed out", "stalled after", "without output", "did not exit cleanly")
+
+
+def _retryable_pass_error(error: str | None) -> bool:
+    """One more attempt is worth it: a transient transport error, or a pass
+    that timed out or stalled. Never a provider limit, a dead login, a
+    cancel or a shutdown."""
+    text = str(error or "")
+    if not text:
+        return False
+    if (
+        claude_runner.provider_limit_reason(text)
+        or claude_runner.auth_failure_reason(text)
+        or text in (
+            claude_runner.MEMO_RUN_CANCELLED_ERROR,
+            claude_runner.SERVER_SHUTTING_DOWN_ERROR,
+            claude_runner.CLAUDE_NOT_SIGNED_IN_ERROR,
+        )
+    ):
+        return False
+    if claude_runner.is_transient_claude_error(text):
+        return True
+    lowered = text.lower()
+    return any(marker in lowered for marker in _PASS_TIMEOUT_MARKERS)
+
+
+def _pass_stop_cause(error: str | None) -> str | None:
+    """The cause a resume must stop on instead of spending more: a provider
+    limit, a dead login or a cancel, named for the reader."""
+    text = str(error or "")
+    if not text:
+        return None
+    if text == claude_runner.MEMO_RUN_CANCELLED_ERROR:
+        return "cancelled by user"
+    if text == claude_runner.SERVER_SHUTTING_DOWN_ERROR:
+        return "the server is shutting down"
+    if claude_runner.auth_failure_reason(text) or text == claude_runner.CLAUDE_NOT_SIGNED_IN_ERROR:
+        return "the Claude CLI is not signed in"
+    if claude_runner.provider_limit_reason(text):
+        return f"Claude usage limit: {text[:200]}"
+    return None
+
+
 _ALL_FAST_PASSES_FAILED_MESSAGE = "All fast memo analysis passes failed."
 
 
@@ -3232,6 +5502,78 @@ def _recorded_fast_phase2_failure(report_id: str) -> str:
     """The failure message ``_run_fast_phase2`` recorded on the report."""
     report = storage.get_report(report_id) or {}
     return str(report.get("failure_detail") or _ALL_FAST_PASSES_FAILED_MESSAGE)
+
+
+def _pass_common_context(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    research_dir: Path | None,
+    lessons_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str],
+    structure: memo_structure.MemoStructure | None = None,
+) -> str:
+    """The analysis passes' shared context for this run: the run-wide block
+    plus, when on file, the fund-policy stage and jurisdiction (passed only
+    once the builder takes them) and the open reader flags inlined as
+    untrusted reader notes. A function of run-wide inputs only, so every
+    pass still sends identical bytes."""
+    import inspect
+
+    kwargs: dict[str, Any] = dict(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=memo_prep.SETTINGS_FILE,
+        companies_yaml_path=_run_companies_yaml(run_dir),
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    accepted = inspect.signature(claude_runner.memo_fast_pass_common_context).parameters
+    report = _report_for_run_dir(run_dir)
+    jurisdiction = str((report or {}).get("jurisdiction") or "") or None
+    if jurisdiction and "jurisdiction" in accepted:
+        kwargs["jurisdiction"] = jurisdiction
+    stage = _fund_policy_stage(report, structure)
+    if stage and "fund_policy_stage" in accepted:
+        kwargs["fund_policy_stage"] = stage
+    context = claude_runner.memo_fast_pass_common_context(**kwargs)
+    flags = _reader_flags_block(run_dir)
+    if flags:
+        context = context.rstrip("\n") + "\n\n" + flags + "\n"
+    return context
+
+
+def _report_for_run_dir(run_dir: Path) -> dict | None:
+    """The report whose run folder this is (the record carries the run's
+    prep-time facts: jurisdiction, stage, template)."""
+    rel = memo_prep._rel(run_dir)
+    for report in storage.list_reports():
+        if str(report.get("run_dir") or "") == rel:
+            return report
+    return None
+
+
+def _fund_policy_stage(report: dict | None, structure) -> str | None:
+    """The fund-policy stage (early | growth | late) a run is judged
+    against: the structure's declared stage — what the spine and the IC
+    memo default to — else the stage prep classified."""
+    for candidate in (
+        getattr(structure, "declared_stage", None) if structure is not None else None,
+        ((report or {}).get("structure_stage") or {}).get("stage")
+        if isinstance((report or {}).get("structure_stage"), dict)
+        else None,
+    ):
+        value = str(candidate or "").strip().lower().replace("_compact", "")
+        if value in ("early", "growth", "late"):
+            return value
+    return None
 
 
 def _run_fast_phase2(
@@ -3286,17 +5628,16 @@ def _run_fast_phase2(
     # One shared, cached system-prompt block for the whole fan-out. Built
     # here and not inside each pass so every pass sends byte-identical
     # bytes and they collapse into a single prompt-cache entry.
-    pass_common_context = claude_runner.memo_fast_pass_common_context(
+    pass_common_context = _pass_common_context(
         run_dir=run_dir,
         company_name=company_name,
         company_slug=company_slug,
         run_id=run_id,
-        settings_path=memo_prep.SETTINGS_FILE,
-        companies_yaml_path=memo_prep.COMPANIES_FILE,
         research_dir=research_dir,
         lessons_path=lessons_path,
         scope_check=scope_check,
         warnings=warnings,
+        structure=structure,
     )
     stream.emit(
         "stage",
@@ -3458,7 +5799,7 @@ def _run_fast_memo_pipeline(
     worker_duration_ms = 0
     warnings = list(report.get("warnings") or [])
     scope_check = report.get("scope_check")
-    research_dir = research_store.RESEARCH_ROOT / company_slug
+    research_dir = _research_dir_for(company_slug)
     memo_paths = {k: str(v) for k, v in memo_paths_abs.items()}
     # The report structure for this run: prep classified the stage
     # (auto type) or pinned late (explicit type); active_structure maps
@@ -3470,17 +5811,26 @@ def _run_fast_memo_pipeline(
         else "late"
     )
     structure_mode = str(report.get("structure_mode") or "full")
+    # The run's own memo template ("v1" | "v2", written at prep from the
+    # per-run override / Settings / env default); legacy records carry none
+    # and follow the env flag as before.
+    structure_version = _report_structure_version(report)
     # Provisional (type-less) structure for the starting event; the Phase
     # 1 thread classifies the company type below and re-resolves it with
     # the type's lens and weight overlay.
     structure = memo_structure.active_structure(
-        structure_stage, structure_mode
+        structure_stage, structure_mode, version=structure_version
     )
+    _register_run_structure(run_dir, structure)
     model_quality = str(report.get("model_quality") or "best")
     claude_runner.register_memo_run_quality(run_dir, model_quality)
     # Pinned per run, like the quality tier: a resume or repair pass must use
     # the engine the report was started with, not whatever the default is now.
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    # BSH's check size, only when the owner set a real band: the one amount
+    # the spine's recommendation sentence may commit.
+    claude_runner.register_memo_run_check_size(run_dir, _check_size_text())
+    _register_prior_view(report, run_dir)
     # Every page the run's agents fetch lands in the company's source cache
     # and the run's own manifest, so the next run starts from what this one
     # found and the fact check can trace the memo's figures to text on file.
@@ -3557,8 +5907,12 @@ def _run_fast_memo_pipeline(
     )
     if company_type:
         structure = memo_structure.active_structure(
-            structure_stage, structure_mode, company_type
+            structure_stage,
+            structure_mode,
+            company_type,
+            version=structure_version,
         )
+        _register_run_structure(run_dir, structure)
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
     # The chaser exists before Phase 2 so the speculative spine can hand it
@@ -3600,7 +5954,7 @@ def _run_fast_memo_pipeline(
                 company_slug=company_slug,
                 run_id=run_id,
                 settings_path=memo_prep.SETTINGS_FILE,
-                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                companies_yaml_path=_run_companies_yaml(run_dir),
                 memo_paths=memo_paths,
                 research_dir=research_dir,
                 analysis_session_path=analysis_session_path,
@@ -3636,8 +5990,7 @@ def _run_fast_memo_pipeline(
             if speculator is not None:
                 cost_usd += speculator.cost_usd
                 speculator.shutdown()
-            if zh_chaser is not None:
-                zh_chaser.shutdown()
+            cost_usd += _shutdown_side_agent(zh_chaser, cancel=True)
             return {
                 "ok": False,
                 "error": _recorded_fast_phase2_failure(report_id),
@@ -3732,6 +6085,797 @@ def _compose_spine_hooks(*hooks):
     return _fire
 
 
+def _stamp_run_facts(package: dict, run_dir: Path) -> None:
+    """What the memo was written from, stamped on the accepted English
+    package's ``run`` block as plain data (no en/zh slots for the translator
+    to fill): ``analysis_coverage`` (the Phase-2 passes it had),
+    ``built_from`` ({research_docs, calls, founder_updates}) and
+    ``deal_terms_on_file``. All optional; never raises."""
+    try:
+        run_block = package.setdefault("run", {})
+        if not isinstance(run_block, dict):
+            return
+        coverage = _analysis_coverage(run_dir)
+        if coverage is not None:
+            run_block["analysis_coverage"] = {
+                "passes_total": coverage["passes_total"],
+                "passes_ok": coverage["passes_ok"],
+                "missing": list(coverage["missing"]),
+            }
+        inputs = _run_inputs(run_dir)
+        if isinstance(inputs.get("built_from"), dict):
+            run_block["built_from"] = dict(inputs["built_from"])
+        if "deal_terms_on_file" in inputs:
+            run_block["deal_terms_on_file"] = bool(inputs["deal_terms_on_file"])
+    except Exception:  # noqa: BLE001
+        logger.warning("run facts stamp failed", exc_info=True)
+
+
+# ---- what generated the run ---------------------------------------------------------------
+
+
+def _writer_role(models: dict[str, str]) -> str | None:
+    """The role whose model wrote the delivered English prose: the resume
+    agent when it rewrote the package; the monolithic English call when it
+    ran (alone, or as the parallel wave's fallback); else the section wave;
+    else the legacy one-shot skill or the Buffett skill."""
+    if "RESUME" in models:
+        return "RESUME"
+    if "ENGLISH" in models:
+        return "ENGLISH"
+    for role in ("SECTION", "SKILL", "BUFFETT"):
+        if role in models:
+            return role
+    return None
+
+
+def _generated_with(
+    report: dict | None,
+    run_dir: Path,
+    *,
+    structure: memo_structure.MemoStructure | None = None,
+    buffett: bool = False,
+) -> dict:
+    """What generated this run, as recorded — never the tier's alias: the
+    engine, the quality tier, the template, the structure, the model that
+    actually answered for each role that ran (claude_runner.memo_run_models),
+    the English writer's and the translator's model, and the server's code
+    version. Stamped as ``package["run"]["generated_with"]`` (the renderer's
+    page-one line) and as the record's ``generated_with``."""
+    report = report or {}
+    models = claude_runner.memo_run_models(run_dir)
+    engine = str(report.get("engine") or "").strip().lower() or memo_engine.run_engine(run_dir)
+    writer_role = _writer_role(models)
+    out: dict[str, Any] = {
+        # Buffett memos run on Claude only.
+        "engine": "claude" if buffett else (engine or "claude"),
+        "quality": str(report.get("model_quality") or "best"),
+        "models": models,
+        "writer_model": models.get(writer_role) if writer_role else None,
+        "translation_model": models.get("TRANSLATION")
+        or models.get("SKILL")
+        or models.get("BUFFETT"),
+        "code_version": claude_runner.server_code_version(),
+    }
+    if not buffett:
+        structure = structure or _structure_for_run(run_dir)
+        version = _report_structure_version(report)
+        if version is None:
+            version = "v2" if structure.scorecard_weights() else "v1"
+        mode = str(report.get("structure_mode") or "").strip() or (
+            "compact" if structure.stage.endswith("_compact") else "full"
+        )
+        out["template"] = "ic_v2" if version == "v2" else "standard"
+        out["structure"] = {
+            "stage": structure.stage,
+            "version": structure.version,
+            "mode": mode,
+        }
+    else:
+        out["template"] = "buffett"
+    return out
+
+
+def _stamp_generated_with(
+    package: dict,
+    report: dict | None,
+    run_dir: Path,
+    *,
+    structure: memo_structure.MemoStructure | None = None,
+    buffett: bool = False,
+) -> dict | None:
+    """``package["run"]["generated_with"]``; never raises. Returns it."""
+    if not isinstance(package, dict):
+        return None
+    try:
+        facts = _generated_with(report, run_dir, structure=structure, buffett=buffett)
+    except Exception:  # noqa: BLE001
+        logger.warning("generated_with stamp failed", exc_info=True)
+        return None
+    run_block = package.get("run")
+    if not isinstance(run_block, dict):
+        run_block = {}
+        package["run"] = run_block
+    previous = run_block.get("generated_with")
+    if isinstance(previous, dict) and previous.get("code_version"):
+        # The code that wrote the English is the memo's; a later Chinese
+        # stage (Retry Chinese after a restart) adds its model, not its code.
+        facts["code_version"] = previous["code_version"]
+    run_block["generated_with"] = facts
+    return facts
+
+
+def _package_generated_with(package_path: Path) -> dict | None:
+    """The ``generated_with`` stamp a package on disk carries (None for a
+    package that predates it — never reconstructed after the fact)."""
+    package = _package_on_disk(package_path)
+    run_block = package.get("run") if isinstance(package, dict) else None
+    stamp = run_block.get("generated_with") if isinstance(run_block, dict) else None
+    return stamp if isinstance(stamp, dict) else None
+
+
+def _generated_with_or_none(report: dict | None, run_dir: Path, **kwargs) -> dict | None:
+    """``_generated_with`` for a record write; None (field untouched as
+    null) if it cannot be built — never costs a finalize."""
+    try:
+        return _generated_with(report, run_dir, **kwargs)
+    except Exception:  # noqa: BLE001
+        logger.warning("generated_with failed", exc_info=True)
+        return None
+
+
+def _stamp_generated_with_on_disk(
+    package_path: Path, report: dict | None, run_dir: Path
+) -> dict | None:
+    """Stamp ``generated_with`` into a package file (the bilingual package
+    before it is rendered); a missing or unreadable file is left alone."""
+    package = _package_on_disk(package_path)
+    if package is None:
+        return None
+    facts = _stamp_generated_with(package, report, run_dir)
+    if facts is not None:
+        try:
+            _write_json(package_path, package)
+        except OSError:
+            logger.warning("could not write generated_with into %s", package_path, exc_info=True)
+    return facts
+
+
+# ---- deterministic envelope facts ---------------------------------------------------------
+#
+# Stamped in Python on the accepted English package, before the English
+# DOCX and the Chinese stage: what the model should never be trusted to
+# write (the day the memo was written, when a page was retrieved, what the
+# checks found) and the cover fields the translator must see as {en, zh}
+# slots. Every step is optional and never raises; a package without these
+# fields renders exactly as before.
+
+_COVER_TEXT_FIELDS = ("descriptor", "stage", "sector", "location", "round")
+_STAGE_COVER_LABELS = {
+    "early": {"en": "Early stage", "zh": "早期"},
+    "growth": {"en": "Growth stage", "zh": "成长期"},
+    "late": {"en": "Late stage", "zh": "后期"},
+}
+_RUN_DATE_RE = re.compile(r"^\s*(\d{4}-\d{2}-\d{2})")
+
+
+def _run_date(run_id: str | None, run_dir: Path | None = None) -> str | None:
+    """The day the run was written (``YYYY-MM-DD``), from its run id or its
+    folder name — never the raw run id."""
+    from . import source_tiers
+
+    for text in (run_id, run_dir.name if run_dir is not None else None):
+        match = _RUN_DATE_RE.match(str(text or ""))
+        if match:
+            parsed = source_tiers.parse_partial_date(match.group(1))
+            if parsed:
+                return parsed
+    return None
+
+
+def _same_text(left: Any, right: Any) -> bool:
+    a = " ".join(str(left or "").lower().split())
+    return bool(a) and a == " ".join(str(right or "").lower().split())
+
+
+def _stamp_cover_facts(
+    package: dict,
+    *,
+    company_id: str | None,
+    run_date: str | None,
+    structure: memo_structure.MemoStructure | None,
+) -> None:
+    """``run.as_of`` is the run date; the company's cover fields become
+    ``{en, zh}`` slots (``hq`` → ``location``) so the translation fills
+    them, with the registry's own Chinese prefilled where the English is
+    the registry's; a missing stage comes from the run's structure and a
+    missing round from the round on the deal-pipeline record. A round is
+    never invented: absent stays absent (the renderer leaves the row out)."""
+    run_block = package.get("run")
+    if not isinstance(run_block, dict):
+        run_block = {}
+        package["run"] = run_block
+    if run_date:
+        run_block["as_of"] = run_date
+    company = package.get("company")
+    if not isinstance(company, dict):
+        return
+    if not str(company.get("location") or "").strip() and company.get("hq"):
+        company["location"] = company.pop("hq")
+    if not company.get("stage") and structure is not None:
+        label = _STAGE_COVER_LABELS.get(structure.declared_stage)
+        if label:
+            company["stage"] = dict(label)
+    record = (storage.get_company(company_id) or {}) if company_id else {}
+    if "round" not in company and company_id and storage.infer_company_type(record or {}) == "private":
+        try:
+            from . import deal_pipeline
+
+            proposed = str(deal_pipeline.get_deal_pipeline(company_id).get("round") or "").strip()
+        except Exception:  # noqa: BLE001
+            proposed = ""
+        if proposed:
+            company["round"] = proposed
+    for field in _COVER_TEXT_FIELDS:
+        value = company.get(field)
+        if isinstance(value, str) and value.strip():
+            company[field] = {"en": value, "zh": ""}
+        elif isinstance(value, dict) and "en" in value and "zh" not in value:
+            value["zh"] = ""
+    translation: dict = {}
+    if company_id:
+        try:
+            ext = storage.get_company_ext(company_id) or {}
+        except Exception:  # noqa: BLE001
+            ext = {}
+        candidate = ext.get("translation") if isinstance(ext, dict) else None
+        if isinstance(candidate, dict) and str(candidate.get("language") or "zh") == "zh":
+            translation = candidate
+    for field, registry_key in (("sector", "sector"), ("location", "hq")):
+        value = company.get(field)
+        zh = str(translation.get(registry_key) or "").strip()
+        if (
+            isinstance(value, dict)
+            and zh
+            and not str(value.get("zh") or "").strip()
+            and _same_text(value.get("en"), record.get(registry_key))
+        ):
+            value["zh"] = zh
+
+
+def _upstream_evidence(run_dir: Path, session_dir: Path | None) -> dict[str, dict]:
+    """What the analysis recorded about each page it cited, by canonical
+    URL: the pass evidence's ``source_class`` and, from a Memo Studio
+    session's risk map, its ``confidence``."""
+    from . import source_cache
+
+    found: dict[str, dict] = {}
+
+    def note(url: Any, source_class: Any, confidence: Any = None) -> None:
+        canon = source_cache.canonical_url(url)
+        if not canon:
+            return
+        entry = found.setdefault(canon, {})
+        if str(source_class or "").strip() and "source_class" not in entry:
+            entry["source_class"] = str(source_class).strip()[:120]
+        level = str(confidence or "").strip().lower()
+        if level in ("low", "medium", "high") and "confidence" not in entry:
+            entry["confidence"] = level
+
+    for record in _fast_pass_records(run_dir).values():
+        data = record.get("data") if isinstance(record.get("data"), dict) else {}
+        for item in data.get("supporting_evidence") or []:
+            if isinstance(item, dict):
+                note(item.get("url"), item.get("source_class"))
+    risk_map = None
+    if session_dir is not None:
+        try:
+            import yaml
+
+            risk_map = yaml.safe_load(
+                (Path(session_dir) / "strategic_risks.yaml").read_text(encoding="utf-8")
+            )
+        except Exception:  # noqa: BLE001 — optional input
+            risk_map = None
+    risks = risk_map.get("risks") if isinstance(risk_map, dict) else None
+    for risk in risks if isinstance(risks, list) else []:
+        items = risk.get("supporting_evidence") if isinstance(risk, dict) else None
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                note(item.get("locator"), item.get("source_class"), item.get("confidence"))
+    return found
+
+
+def _stamp_source_dates(
+    package: dict,
+    run_dir: Path,
+    *,
+    company_id: str | None,
+    run_date: str | None,
+    session_dir: Path | None = None,
+) -> None:
+    """Honest source dates (source_tiers.normalize_source_dates): a web page
+    "dated" the day the run read it becomes undated unless its URL carries a
+    date; ``retrieved_at`` comes only from the run's own source manifest or
+    the company's source cache. The analysis's ``source_class`` and
+    ``confidence`` for the same page ride along as ``evidence_source_class``
+    / ``evidence_confidence``. ``run.evidence_cutoff`` is derived from the
+    sources when the model left it out or set it to the run date."""
+    from . import source_cache, source_tiers
+
+    sources = package.get("sources")
+    if not isinstance(sources, list):
+        return
+    fetched: dict[str, str] = {}
+    for row in source_cache.run_manifest(run_dir):
+        canon = source_cache.canonical_url(row.get("url"))
+        if canon and row.get("at") and canon not in fetched:
+            fetched[canon] = str(row["at"])
+    upstream = _upstream_evidence(run_dir, session_dir)
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            continue
+        canon = source_cache.canonical_url(source.get("url"))
+        fetched_at = fetched.get(canon) if canon else None
+        if canon and not fetched_at and company_id:
+            record = source_cache.find_by_url(company_id, source.get("url"))
+            fetched_at = (record or {}).get("fetched_at")
+        normalized = source_tiers.normalize_source_dates(
+            source, run_date, fetched_at=fetched_at
+        )
+        evidence = upstream.get(canon) if canon else None
+        if evidence:
+            if evidence.get("source_class"):
+                normalized.setdefault("evidence_source_class", evidence["source_class"])
+            if evidence.get("confidence"):
+                normalized.setdefault("evidence_confidence", evidence["confidence"])
+        sources[index] = normalized
+    run_block = package.get("run")
+    if not isinstance(run_block, dict):
+        run_block = {}
+        package["run"] = run_block
+    stated = source_tiers.parse_partial_date(
+        run_block.get("evidence_cutoff")
+    ) or source_tiers.parse_partial_date(run_block.get("evidence_ceiling"))
+    if not stated or (run_date and stated == run_date):
+        derived = source_tiers.evidence_cutoff(sources, run_date)
+        if derived:
+            run_block["evidence_cutoff"] = derived
+
+
+_FACT_CHECK_GATE_WORDS = {"pass": "passed", "warn": "warnings", "fail": "warnings"}
+
+
+def _stamp_fact_check_checks(package: dict, run_dir: Path) -> None:
+    """``run.checks.fact_check`` (the provenance line at the top of the
+    sources section) from the run's last fact check. The line's total is
+    the checked count: company-reported figures count as found elsewhere
+    and registry-only ones as not traced (never as verified). Unsupported
+    figures ship as findings on the report, so the gate reads "warnings",
+    never "failed"."""
+    from . import memo_fact_check
+
+    payload = _fact_check_payload(run_dir)
+    if not payload:
+        return
+    summary = memo_fact_check.summarize_fact_check(payload)
+    status = summary.get("status")
+    if status in ("not_run", "error", "no_figures"):
+        return
+
+    def count(key: str) -> int:
+        value = summary.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    run_block = package.get("run")
+    if not isinstance(run_block, dict):
+        run_block = {}
+        package["run"] = run_block
+    checks = run_block.get("checks") if isinstance(run_block.get("checks"), dict) else {}
+    checks["fact_check"] = {
+        "verified": count("verified"),
+        "found_elsewhere": count("found_elsewhere") + count("company_reported"),
+        "derived": count("derived"),
+        "not_traced": count("not_traced") + count("registry_only"),
+        "thin_corpus": bool(summary.get("thin_corpus")),
+    }
+    gates = checks.get("gates") if isinstance(checks.get("gates"), dict) else {}
+    word = _FACT_CHECK_GATE_WORDS.get(str(status))
+    if word:
+        gates["fact_check"] = word
+    else:
+        gates.pop("fact_check", None)
+    if gates:
+        checks["gates"] = gates
+    run_block["checks"] = checks
+
+
+def _localize_calculation_input_names(package: dict) -> None:
+    """Plain calculation input names and values, and plain results, become
+    {en, zh} slots, so the Chinese 计算说明 table is translated like the
+    label and meaning beside it."""
+    for calculation in package.get("calculations") or []:
+        if not isinstance(calculation, dict):
+            continue
+        if "result" in calculation and not isinstance(calculation.get("result"), dict):
+            calculation["result"] = claude_runner.localized_calculation_text(
+                calculation.get("result")
+            )
+        for item in calculation.get("inputs") or []:
+            if not isinstance(item, dict):
+                continue
+            for key in ("name", "value"):
+                if key in item and not isinstance(item.get(key), dict):
+                    item[key] = claude_runner.localized_calculation_text(item.get(key))
+
+
+def _stamp_envelope_facts(
+    package: dict,
+    run_dir: Path,
+    *,
+    company_id: str | None,
+    run_id: str | None,
+    structure: memo_structure.MemoStructure | None = None,
+    session_dir: Path | None = None,
+) -> None:
+    """Every deterministic envelope fact on the accepted English package
+    (see the section comment above); never raises."""
+    if not isinstance(package, dict):
+        return
+    run_date = _run_date(run_id, run_dir)
+    for step in (
+        lambda: _localize_calculation_input_names(package),
+        lambda: _stamp_cover_facts(
+            package, company_id=company_id, run_date=run_date, structure=structure
+        ),
+        lambda: _stamp_source_dates(
+            package,
+            run_dir,
+            company_id=company_id,
+            run_date=run_date,
+            session_dir=session_dir,
+        ),
+        lambda: _final_fact_check(package, run_dir, company_id=company_id, session_dir=session_dir),
+        lambda: _stamp_fact_check_checks(package, run_dir),
+    ):
+        try:
+            step()
+        except Exception:  # noqa: BLE001
+            logger.warning("envelope facts stamp failed", exc_info=True)
+
+
+def _final_fact_check(
+    package: dict,
+    run_dir: Path,
+    *,
+    company_id: str | None,
+    session_dir: Path | None = None,
+) -> None:
+    """The fact check of the English package as delivered — after every
+    repair and the red-team pass. The gate's own check runs on the candidate
+    BEFORE its surgical repair, so the provenance line and the record used
+    to describe text the reader never got (ZaiNar 2026-09-23: "184 not
+    traced" on a package two repairs later). Calculation inputs no source
+    carries are relabelled as our assumptions here (see
+    ``memo_fact_check.unsourced_calculation_inputs``) and listed in
+    ``logs/calculation_inputs.json`` for the run's warnings. Report only."""
+    if not company_id or not _memo_fact_check_enabled() or not isinstance(package, dict):
+        return
+    from . import memo_fact_check
+
+    result, relabelled = memo_fact_check.final_check(
+        run_dir=run_dir,
+        package=package,
+        company_id=company_id,
+        research_dir=_research_dir_for(company_id),
+        session_dir=session_dir,
+    )
+    logs_dir = run_dir / "logs"
+    inputs_path = logs_dir / memo_fact_check.CALCULATION_INPUTS_FILENAME
+    # A second stamp of the same package (a resume) finds nothing left to
+    # relabel; the first stamp's entries stand while their input still reads
+    # as an assumption.
+    try:
+        earlier = json.loads(inputs_path.read_text(encoding="utf-8")).get("relabelled") or []
+    except (OSError, ValueError, AttributeError):
+        earlier = []
+    notes = {
+        str(calc.get("id") or ""): calc
+        for calc in package.get("calculations") or []
+        if isinstance(calc, dict)
+    }
+
+    def still_assumption(entry: dict) -> bool:
+        inputs = (notes.get(str(entry.get("calc_id") or "")) or {}).get("inputs")
+        index = entry.get("input_index")
+        return (
+            isinstance(inputs, list)
+            and isinstance(index, int)
+            and 0 <= index < len(inputs)
+            and isinstance(inputs[index], dict)
+            and str(inputs[index].get("ref") or "") == "assumption"
+        )
+
+    seen = {(r.get("calc_id"), r.get("input_index")) for r in relabelled}
+    kept = [
+        r for r in earlier
+        if isinstance(r, dict) and (r.get("calc_id"), r.get("input_index")) not in seen and still_assumption(r)
+    ]
+    _write_json(inputs_path, {"relabelled": kept + relabelled})
+    if result.error:
+        # Keep the gate's last report rather than overwrite it with nothing.
+        return
+    (logs_dir / "fact_check.md").write_text(
+        memo_fact_check.render_markdown_report(result, attempt=None), encoding="utf-8"
+    )
+    _write_json(logs_dir / "fact_check.json", result.to_dict())
+
+
+def _stamp_prerender_gates(package_path: Path, findings: list[str]) -> None:
+    """``run.checks.gates`` quality / chinese_parity from the pre-render
+    pass over the final bilingual package — the same lint and parity checks
+    finalize runs on the same package — so the delivered documents carry
+    them without a second render. A failed check stamps nothing."""
+    if any(str(line).startswith("pre-render quality check failed") for line in findings):
+        return
+    package = _package_on_disk(package_path)
+    if package is None:
+        return
+    run_block = package.get("run")
+    if not isinstance(run_block, dict):
+        run_block = {}
+        package["run"] = run_block
+    checks = run_block.get("checks") if isinstance(run_block.get("checks"), dict) else {}
+    gates = checks.get("gates") if isinstance(checks.get("gates"), dict) else {}
+    gates["quality"] = (
+        "warnings" if any(str(line).startswith("quality gate") for line in findings) else "passed"
+    )
+    gates["chinese_parity"] = (
+        "warnings"
+        if any(str(line).startswith("Chinese parity gate") for line in findings)
+        else "passed"
+    )
+    checks["gates"] = gates
+    run_block["checks"] = checks
+    _write_json(package_path, package)
+
+
+def _notify_memo(report_id: str, title: str, body: str) -> None:
+    """A push notification about a memo run; never raises, and silent once
+    the run was halted (a cancel or shutdown already said what happened)."""
+    if _run_halted(report_id):
+        return
+    try:
+        from . import push_notify
+
+        report = storage.get_report(report_id) or {}
+        push_notify.notify(
+            "memo",
+            title,
+            body,
+            data={
+                "report_id": report_id,
+                "company_id": report.get("company_id"),
+                "deep_link": f"bshresearch://report/{report_id}",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("memo push notify failed for %s", report_id)
+
+
+def _deliver_english_first(
+    *,
+    report_id: str | None,
+    run_dir: Path,
+    english_package: dict,
+    memo_paths: dict[str, str],
+    stream: job_progress.ProgressLog,
+) -> bool:
+    """Write the English DOCX the moment the English package is accepted,
+    before the Chinese stage starts: a reader can open the English memo
+    while the Chinese is written, and no Chinese failure can cost them it.
+
+    The run stays ``analyzing`` (the viewer shows the English because the
+    file exists); ``english_ready_at`` records when it landed and the stage
+    moves to "English memo ready — Chinese in progress" at 80%, above the
+    progress ticker's ceiling so the ticker cannot write the old stage back.
+    Best-effort: a render failure here only means the reader waits for the
+    finalize render, as before."""
+    en_path = memo_paths.get("en")
+    if not report_id or not en_path:
+        return False
+    if _run_halted(report_id):
+        return False
+    out_path = Path(en_path)
+    try:
+        _render_single_locale(
+            _english_render_payload(english_package),
+            "en",
+            out_path,
+            run_dir=run_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 — never costs the run
+        logger.warning("early English render failed for %s", report_id, exc_info=True)
+        stream.emit(
+            "stage",
+            stage="memo_english_early_render_failed",
+            message=(
+                "Could not write the English memo ahead of the Chinese; it "
+                f"will be written with both languages ({type(exc).__name__})"
+            ),
+        )
+        return False
+    current = storage.get_report(report_id) or {}
+    _update_report(
+        report_id,
+        stage=ENGLISH_READY_STAGE,
+        progress=max(80, int(current.get("progress") or 0)),
+        english_ready_at=_now_iso(),
+    )
+    stream.emit(
+        "stage",
+        stage="memo_english_ready",
+        message=ENGLISH_READY_STAGE,
+        english_memo=memo_prep._rel(out_path),
+    )
+    company = storage.get_company(str(current.get("company_id") or "")) or {}
+    name = company.get("name") or current.get("company_name") or "Memo"
+    _notify_memo(
+        report_id,
+        "English memo ready",
+        f"{name} — English memo ready; the Chinese is still being written",
+    )
+    return True
+
+
+def _save_zh_partial(run_dir: Path, partial: dict | None, fallback: dict) -> Path:
+    """Keep whatever Chinese the failed stage finished, so "Retry Chinese"
+    translates only what is still blank: the partly translated package when
+    there is one, else the accepted English (with any chased translations)."""
+    path = _zh_partial_package_path(run_dir)
+    _write_json(path, partial if isinstance(partial, dict) else fallback)
+    return path
+
+
+@dataclass
+class _ChineseStageResult:
+    memo_package: dict | None
+    error: str | None
+    cost_usd: float
+    duration_ms: int
+    usage: dict | None = None
+    partial: dict | None = None
+
+
+def _run_chinese_package_stage(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    bilingual_input_path: Path,
+    progress,
+    stream,
+) -> _ChineseStageResult:
+    """Phase 4 proper: translate the package, write ``memo_package.json``,
+    and fill any Chinese that did not land (one per-section gap-fill, then
+    the sparse-gap fallback). Returns the accepted bilingual package, or the
+    error plus the most complete partial package (English + every Chinese
+    string that did land) for ``logs/memo_package.zh_partial.json``.
+
+    Never touches English: the translation merge adopts only ``zh``."""
+    cost_usd = 0.0
+    duration_ms = 0
+    stage_started = time.time()
+    bilingual_result, bilingual_error = (
+        claude_runner.run_memo_fast_bilingual_package_parallel(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            english_package_path=bilingual_input_path,
+            progress=progress,
+            stream=stream,
+        )
+    )
+    if bilingual_error or not isinstance(bilingual_result, dict):
+        message = bilingual_error or "Chinese package pass returned no data."
+        partial = None
+        partial_path = _zh_partial_package_path(run_dir)
+        try:
+            # The parallel pass keeps what its finished units translated —
+            # this stage's file only, never one an earlier attempt left.
+            if partial_path.stat().st_mtime >= stage_started - 1:
+                loaded = json.loads(partial_path.read_text(encoding="utf-8"))
+                partial = loaded if isinstance(loaded, dict) else None
+        except (OSError, ValueError):
+            partial = None
+        return _ChineseStageResult(None, message, cost_usd, duration_ms, partial=partial)
+    cost_usd += _as_float(bilingual_result.get("claude_cost_usd")) or _as_float(
+        getattr(progress, "cost_usd", 0.0)
+    )
+    duration_ms += _as_int(bilingual_result.get("claude_duration_ms")) or _as_int(
+        getattr(progress, "duration_ms", 0)
+    )
+    memo_package = bilingual_result.get("memo_package")
+    if not isinstance(memo_package, dict):
+        return _ChineseStageResult(
+            None,
+            "Chinese package pass did not return memo_package.",
+            cost_usd,
+            duration_ms,
+        )
+    usage = (
+        bilingual_result.get("claude_usage")
+        if isinstance(bilingual_result.get("claude_usage"), dict)
+        else None
+    )
+    final_package_path = _memo_package_path(run_dir)
+    _write_json(final_package_path, memo_package)
+    package_error = _memo_package_render_validation_error(final_package_path)
+    if package_error:
+        # The English gate already validated structure, so any error here is
+        # Chinese fill that didn't land (blank `zh` after a unit drifted).
+        # The monolithic bilingual pass only fills blank `zh` strings — run
+        # it once over the merged package as a targeted repair.
+        # Per unit, not in one call. The monolithic pass asks for the whole
+        # bilingual package in one response, which on Gemini is past its
+        # 64k output ceiling: a 2026-09-19 Databricks run reached the final
+        # render with EIGHT untranslated cells in one table, and the repair
+        # that should have filled them could not fit the answer. The
+        # parallel pass translates one section at a time and, with
+        # `only_missing`, touches only the strings that are still blank.
+        # Claude is unaffected in substance — it gets the same gap-fill,
+        # split across calls rather than one, which is what its own chasing
+        # path already does.
+        progress.emit(
+            "stage",
+            stage="memo_package_zh_repair",
+            message=(
+                "Merged package failed renderer validation; filling the "
+                "blank Chinese per section"
+            ),
+            validation_error=package_error[:2000],
+        )
+        repair_result, repair_error = (
+            claude_runner.run_memo_fast_bilingual_package_parallel(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                english_package_path=final_package_path,
+                progress=progress,
+                stream=stream,
+                only_missing=True,
+            )
+        )
+        if not repair_error and isinstance(repair_result, dict):
+            repaired = repair_result.get("memo_package")
+            if isinstance(repaired, dict):
+                cost_usd += _as_float(repair_result.get("claude_cost_usd"))
+                duration_ms += _as_int(repair_result.get("claude_duration_ms"))
+                claude_runner._adopt_zh_translations(memo_package, repaired)
+                _write_json(final_package_path, memo_package)
+                package_error = _memo_package_render_validation_error(
+                    final_package_path,
+                    allow_zh_fallback=True,
+                )
+    if package_error:
+        message = (
+            "Memo package failed renderer validation after the Chinese "
+            f"fill: {package_error}"
+        )
+        # The merged package is the most complete partial there is; keep it
+        # as the retry's starting point, and take the invalid file out of
+        # the path that resume and recovery read as "the accepted package".
+        partial = memo_package
+        try:
+            _archive_memo_package(final_package_path, label="zh_failed")
+        except OSError:
+            logger.warning("could not archive the failed bilingual package", exc_info=True)
+        return _ChineseStageResult(
+            None, message, cost_usd, duration_ms, usage=usage, partial=partial
+        )
+    return _ChineseStageResult(memo_package, None, cost_usd, duration_ms, usage=usage)
+
+
 def _run_fast_synthesis(
     *,
     run_dir: Path,
@@ -3775,6 +6919,7 @@ def _run_fast_synthesis(
         structure = memo_structure.LATE
     else:
         structure = structure or memo_structure.active_structure("late")
+    _register_run_structure(run_dir, structure)
     phase3_started_at = _now_iso()
     phase3_started = time.monotonic()
     phase3_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE3_THREAD)
@@ -3798,7 +6943,17 @@ def _run_fast_synthesis(
     last_attempt_path: Path | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
     async_artifacts = None
-    if claude_runner._memo_artifacts_async_enabled():
+    if _cost_guard_stop(
+        report_id=report_id,
+        run_dir=run_dir,
+        cost_usd=cost_usd,
+        phase="analysis artifacts",
+        stream=stream,
+    ) and _skip_artifacts_for_cost(run_dir):
+        # The artifacts agent is a paid phase of its own; past the ceiling
+        # the wave finds them "cached" (empty) and writes none.
+        pass
+    elif claude_runner._memo_artifacts_async_enabled():
         async_artifacts = claude_runner.AsyncArtifacts(
             run_dir=run_dir,
             company_name=company_name,
@@ -3852,7 +7007,7 @@ def _run_fast_synthesis(
                 company_slug=company_slug,
                 run_id=run_id,
                 settings_path=memo_prep.SETTINGS_FILE,
-                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                companies_yaml_path=_run_companies_yaml(run_dir),
                 memo_paths=memo_paths,
                 research_dir=research_dir,
                 analysis_session_path=analysis_session_path,
@@ -3981,12 +7136,41 @@ def _run_fast_synthesis(
                 company_id=company_slug,
                 progress=phase3_progress,
                 attempt=attempt,
+                session_dir=analysis_session_path,
             )
             if url_notes and last_attempt_path is not None:
                 _write_json(last_attempt_path, candidate)
+        if isinstance(candidate, dict):
+            # One trim of the largest subsection of every section the wave
+            # assembled over its hard cap — before validation sees it, and
+            # never twice for the same section in one attempt.
+            trimmed_now = _trim_oversized_sections(
+                run_dir=run_dir,
+                package=candidate,
+                progress=phase3_progress,
+                trimmed=set(),
+                company_name=company_name,
+            )
+            if trimmed_now and last_attempt_path is not None:
+                _write_json(last_attempt_path, candidate)
+        # The risk cards' WORDING (an economic consequence in "Why it
+        # matters", a signal rather than a command in "What we watch", the
+        # row count) is triaged out of the structural validation: those
+        # findings ride the surgical repair below and whatever is left
+        # ships as a warning — never a regeneration of the package.
         validation_errors = memo_docx_renderer.english_package_validation_errors(
-            candidate
+            candidate, editorial_risk_checks=False
         )
+        if validation_errors and _accept_with_small_overruns(
+            run_dir=run_dir,
+            package=candidate,
+            errors=validation_errors,
+            progress=phase3_progress,
+            attempt=attempt,
+        ):
+            # Nothing but small word-cap overruns: delivered with a length
+            # warning rather than repaired or regenerated.
+            validation_errors = []
         if not validation_errors:
             # Structure is good — also run the finalize-time English quality
             # gate on a throwaway render, so banned vocabulary retries here
@@ -3995,6 +7179,12 @@ def _run_fast_synthesis(
             quality_findings = _memo_package_prerender_quality_findings(
                 memo_docx_renderer.fill_blank_zh_placeholders(candidate),
                 check_parity=False,
+                run_dir=run_dir,
+            )
+            risk_card_findings = (
+                memo_docx_renderer.risk_card_quality_findings(candidate)
+                if isinstance(candidate, dict)
+                else []
             )
             fact_lines: list[str] = []
             if isinstance(candidate, dict):
@@ -4013,19 +7203,24 @@ def _run_fast_synthesis(
                     research_dir=research_dir,
                     progress=phase3_progress,
                     attempt=attempt,
+                    session_dir=analysis_session_path,
                 )
-            if (quality_findings or fact_lines) and isinstance(candidate, dict):
+            if (
+                quality_findings or fact_lines or risk_card_findings
+            ) and isinstance(candidate, dict):
                 # Try the cheap surgical repair first: quality findings are
                 # localized string defects, and a full regeneration costs
                 # 10-18 minutes per round (the 40-60 minute runs on record
-                # were exactly these retries). Unsupported figures ride the
-                # same repair when the fact check enforces them.
+                # were exactly these retries). Unsupported figures and the
+                # risk cards' wording ride the same repair.
                 repaired = _surgical_quality_repair(
                     run_dir=run_dir,
                     company_name=company_name,
                     run_id=run_id,
                     candidate=candidate,
-                    findings=list(quality_findings) + fact_lines,
+                    findings=list(quality_findings)
+                    + fact_lines
+                    + list(risk_card_findings),
                     attempt=attempt,
                     progress=phase3_progress,
                     stream=stream,
@@ -4037,7 +7232,24 @@ def _run_fast_synthesis(
                         _write_json(last_attempt_path, repaired)
                     quality_findings = []
                     fact_lines = []
-                elif fact_lines:
+                    risk_card_findings = (
+                        memo_docx_renderer.risk_card_quality_findings(repaired)
+                    )
+                if risk_card_findings and not quality_findings:
+                    # Left after the repair (or no repair could run): the
+                    # renderer draws these cards, so they ship as a warning
+                    # finalize records (_risk_card_warning).
+                    phase3_progress.emit(
+                        "stage",
+                        stage="memo_risk_card_wording_warning",
+                        message=(
+                            f"{len(risk_card_findings)} risk-card wording "
+                            "finding(s) remain; continuing with warnings"
+                        ),
+                        findings=risk_card_findings[:10],
+                        attempt=attempt,
+                    )
+                if repaired is None and fact_lines:
                     # Unsupported figures alone never cost a regeneration
                     # round: the report keeps them as findings for the
                     # analyst, and the memo ships.
@@ -4045,9 +7257,9 @@ def _run_fast_synthesis(
                         "stage",
                         stage="memo_fact_check_unrepaired",
                         message=(
-                            f"{len(fact_lines)} unsupported figure(s) could not "
-                            "be repaired; continuing with the fact-check findings "
-                            "recorded on the report"
+                            f"{len(fact_lines)} fact-check finding(s) (unsupported "
+                            "figures or contradicted comparisons) could not be "
+                            "repaired; continuing with them recorded on the report"
                         ),
                         attempt=attempt,
                     )
@@ -4197,35 +7409,104 @@ def _run_fast_synthesis(
             validation_errors=last_validation_errors[:10],
         )
         repaired_package = None
+        working_errors = list(last_validation_errors)
+        length_accepted = False
         if claude_runner._memo_sectional_repair_enabled() and isinstance(
             last_invalid_candidate, dict
         ):
             # Word-budget overruns are per-section by construction, and the
             # whole-package pass cannot carry a 16,000-word memo in one
-            # response. Try the per-section repair first; it re-emits only
-            # the sections the errors name.
-            sectional, sectional_reason = (
-                claude_runner.run_memo_package_sectional_repair(
-                    run_dir=run_dir,
-                    company_name=company_name,
-                    run_id=run_id,
-                    package=last_invalid_candidate,
-                    findings=last_validation_errors,
-                    progress=phase3_progress,
-                    stream=stream,
-                )
+            # response. Repair per section first — in edits mode where the
+            # runner offers it — and KEEP every section and envelope repair
+            # that succeeded when another fails; a section whose repair
+            # could not fit its answer in one call is trimmed instead.
+            outcome = _repair_package_by_section(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                package=last_invalid_candidate,
+                findings=last_validation_errors,
+                progress=phase3_progress,
+                stream=stream,
             )
-            if isinstance(sectional, dict):
-                repaired_package = sectional
-            else:
+            ran = bool(
+                outcome.repaired
+                or outcome.failed
+                or outcome.envelope_repaired
+                or outcome.envelope_error
+            )
+            if ran:
+                working = outcome.package
+                if outcome.too_large:
+                    _trim_oversized_sections(
+                        run_dir=run_dir,
+                        package=working,
+                        progress=phase3_progress,
+                        trimmed=set(),
+                        only=set(outcome.too_large),
+                        company_name=company_name,
+                    )
+                working, _ = memo_docx_renderer.repair_package_structure(working)
+                working_errors = (
+                    memo_docx_renderer.english_package_validation_errors(
+                        working, editorial_risk_checks=False
+                    )
+                )
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_sectional_repair_applied",
+                    message=(
+                        f"Kept {len(outcome.repaired)} repaired section(s)"
+                        + ("; envelope repaired" if outcome.envelope_repaired else "")
+                        + (
+                            f"; {len(outcome.failed)} section repair(s) failed"
+                            if outcome.failed
+                            else ""
+                        )
+                        + (
+                            f"; trimmed instead: {', '.join(outcome.too_large)}"
+                            if outcome.too_large
+                            else ""
+                        )
+                    ),
+                    repaired=list(outcome.repaired),
+                    failed=dict(outcome.failed),
+                    too_large=list(outcome.too_large),
+                    envelope_repaired=outcome.envelope_repaired,
+                    envelope_error=outcome.envelope_error,
+                    unmapped=list(outcome.unmapped)[:10],
+                    remaining_errors=working_errors[:10],
+                )
+                if not working_errors:
+                    repaired_package = working
+                elif _accept_with_small_overruns(
+                    run_dir=run_dir,
+                    package=working,
+                    errors=working_errors,
+                    progress=phase3_progress,
+                ):
+                    repaired_package = working
+                    length_accepted = True
+                else:
+                    # The whole-package pass starts from what is already
+                    # fixed, with only what is still wrong.
+                    _write_json(invalid_path, working)
+                    last_invalid_candidate = working
+            if repaired_package is None:
                 phase3_progress.emit(
                     "stage",
                     stage="memo_package_sectional_repair_fallback",
                     message=(
-                        "Per-section repair unavailable "
-                        f"({str(sectional_reason)[:300]}); falling back to "
-                        "the whole-package pass"
+                        (
+                            f"Per-section repair left {len(working_errors)} "
+                            "error(s)"
+                            if ran
+                            else "Per-section repair unavailable (no finding "
+                            "attributable to a section or the envelope)"
+                        )
+                        + "; falling back to the whole-package pass"
                     ),
+                    validation_errors=working_errors[:10],
                 )
         repair_result, repair_error = (None, None)
         if repaired_package is None:
@@ -4235,7 +7516,7 @@ def _run_fast_synthesis(
                     company_name=company_name,
                     run_id=run_id,
                     package_path=invalid_path,
-                    validation_errors=last_validation_errors,
+                    validation_errors=working_errors,
                     progress=phase3_progress,
                 )
             )
@@ -4250,15 +7531,26 @@ def _run_fast_synthesis(
             )
             remaining_errors = (
                 memo_docx_renderer.english_package_validation_errors(
-                    repaired_package
+                    repaired_package, editorial_risk_checks=False
                 )
             )
+            if remaining_errors and (
+                length_accepted
+                or _accept_with_small_overruns(
+                    run_dir=run_dir,
+                    package=repaired_package,
+                    errors=remaining_errors,
+                    progress=phase3_progress,
+                )
+            ):
+                remaining_errors = []
             if not remaining_errors:
                 quality_error = _memo_package_prerender_quality_error(
                     memo_docx_renderer.fill_blank_zh_placeholders(
                         repaired_package
                     ),
                     check_parity=False,
+                    run_dir=run_dir,
                 )
                 if quality_error:
                     phase3_progress.emit(
@@ -4291,6 +7583,7 @@ def _run_fast_synthesis(
                     research_dir=research_dir,
                     progress=phase3_progress,
                     attempt=None,
+                    session_dir=analysis_session_path,
                 )
                 english_result = dict(last_attempt_result or {})
                 english_result["memo_package"] = repaired_package
@@ -4335,10 +7628,10 @@ def _run_fast_synthesis(
         speculator.shutdown()
     if english_error or not isinstance(english_result, dict):
         message = english_error or "English package pass returned no data."
-        if zh_chaser is not None:
-            zh_chaser.shutdown()
-        if async_artifacts is not None:
-            async_artifacts.shutdown()
+        # Cancel the side agents — pending chase units, the artifacts
+        # agent — and count what they spent after the failure.
+        phase3_cost_delta += _shutdown_side_agent(zh_chaser, cancel=True)
+        phase3_cost_delta += _shutdown_side_agent(async_artifacts, cancel=True)
         phase3_progress.emit("thread_failed", error=message)
         _emit_phase_timing(
             stream,
@@ -4434,8 +7727,7 @@ def _run_fast_synthesis(
     english_package = english_result.get("memo_package")
     if not isinstance(english_package, dict):
         message = "English package pass did not return memo_package."
-        if zh_chaser is not None:
-            zh_chaser.shutdown()
+        cost_usd += _shutdown_side_agent(zh_chaser, cancel=True)
         phase3_progress.emit("thread_failed", error=message)
         _emit_phase_timing(
             stream,
@@ -4455,7 +7747,51 @@ def _run_fast_synthesis(
             "cost_usd": round(cost_usd, 6),
             "worker_duration_ms": worker_duration_ms,
         }
-    english_package_path = run_dir / "logs" / "memo_package.en.json"
+    # Red team the accepted English before it is rendered: challenges the
+    # surgical repair can address are fixed here, the rest ship as warnings.
+    # Phase 3's side-channel total was closed above, so the pass's spend
+    # (its own call and the repair it drives) is measured here.
+    red_team_cost_before = phase3_progress.cost_usd
+    english_package, red_team_reported = _run_red_team_pass(
+        run_dir=run_dir,
+        company_name=company_name,
+        run_id=run_id,
+        package=english_package,
+        attempt=attempts_used + 1,
+        progress=phase3_progress,
+        stream=stream,
+        report_id=report_id,
+        cost_so_far=cost_usd,
+    )
+    red_team_cost = max(
+        max(0.0, phase3_progress.cost_usd - red_team_cost_before),
+        red_team_reported,
+    )
+    if red_team_cost:
+        cost_usd += red_team_cost
+    english_result["memo_package"] = english_package
+    try:
+        claude_runner.extend_memo_glossary(run_dir, english_package)
+    except Exception:  # noqa: BLE001
+        logger.warning("glossary extension failed", exc_info=True)
+    _stamp_envelope_facts(
+        english_package,
+        run_dir,
+        company_id=company_slug,
+        run_id=run_id,
+        structure=structure,
+        session_dir=analysis_session_path,
+    )
+    # Which models wrote it (the English memo is delivered before the
+    # Chinese exists, so it carries the stamp too).
+    _stamp_generated_with(
+        english_package,
+        storage.get_report(report_id) if report_id else None,
+        run_dir,
+        structure=structure,
+    )
+    _stamp_run_facts(english_package, run_dir)
+    english_package_path = _english_package_path(run_dir)
     _write_json(english_package_path, english_package)
     phase3_progress.emit("thread_finished")
     _emit_phase_timing(
@@ -4473,6 +7809,71 @@ def _run_fast_synthesis(
         if isinstance(english_result.get("claude_usage"), dict)
         else None,
     )
+    # English first: the reader has the English memo while the Chinese is
+    # written, and nothing in the Chinese stage can take it away.
+    _deliver_english_first(
+        report_id=report_id,
+        run_dir=run_dir,
+        english_package=english_package,
+        memo_paths=memo_paths,
+        stream=stream,
+    )
+    if report_id and _pause_after_english_requested(report_id):
+        # The analyst asked to review the English before the Chinese is
+        # written: stop here; Resume continues from the accepted package.
+        return _pause_run_after_english(
+            report_id=report_id,
+            run_dir=run_dir,
+            english_package=english_package,
+            memo_paths=memo_paths,
+            stream=stream,
+            zh_chaser=zh_chaser,
+            cost_usd=cost_usd,
+            worker_duration_ms=worker_duration_ms,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+        )
+    cost_stop = _cost_guard_stop(
+        report_id=report_id,
+        run_dir=run_dir,
+        cost_usd=cost_usd,
+        phase="Chinese version",
+        stream=stream,
+    )
+    if cost_stop:
+        # Past the ceiling before the Chinese starts: the English is
+        # delivered alone, exactly as when the Chinese fails, so Resume
+        # offers "Retry Chinese" once the ceiling is raised.
+        cost_usd += _keep_chased_translations(run_dir, english_package, zh_chaser)
+        cost_usd += _shutdown_side_agent(zh_chaser, cancel=True)
+        _save_zh_partial(run_dir, None, english_package)
+        chinese_error = (
+            "Chinese version not started: the run's cost "
+            f"(US${cost_stop['cost_usd']:.2f}) reached its "
+            f"US${cost_stop['ceiling_usd']:.2f} ceiling"
+        )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_pipeline",
+            status="finished",
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            worker_duration_ms=worker_duration_ms,
+            cost_usd=round(cost_usd, 6),
+            english_only=True,
+            cost_ceiling=True,
+        )
+        return {
+            "ok": True,
+            "english_only": True,
+            "chinese_error": chinese_error,
+            "cost_ceiling": cost_stop,
+            "cost_usd": round(cost_usd, 6),
+            "duration_ms": duration_ms,
+            "worker_duration_ms": worker_duration_ms,
+            "fast_pipeline": True,
+        }
 
     phase4_started_at = _now_iso()
     phase4_started = time.monotonic()
@@ -4543,105 +7944,73 @@ def _run_fast_synthesis(
     # falls back to the monolithic pass on any unexpected shape/failure.
     # With only_missing=True this is the gap-fill when chasing ran, and
     # exactly the historical full translation when it didn't.
-    bilingual_result, bilingual_error = (
-        claude_runner.run_memo_fast_bilingual_package_parallel(
-            run_dir=run_dir,
-            company_name=company_name,
-            run_id=run_id,
-            english_package_path=bilingual_input_path,
-            progress=phase4_progress,
-            stream=stream,
-        )
+    chinese = _run_chinese_package_stage(
+        run_dir=run_dir,
+        company_name=company_name,
+        run_id=run_id,
+        bilingual_input_path=bilingual_input_path,
+        progress=phase4_progress,
+        stream=stream,
     )
-    if bilingual_error or not isinstance(bilingual_result, dict):
-        message = bilingual_error or "Chinese package pass returned no data."
-        phase4_progress.emit("thread_failed", error=message)
+    cost_usd += chinese.cost_usd
+    worker_duration_ms += chinese.duration_ms
+    if chinese.error:
+        # The Chinese never costs the reader the English: the accepted
+        # English package is on disk (and its DOCX already rendered), so
+        # the run finishes on it — complete_with_warnings, failure_phase
+        # chinese_package — and "Retry Chinese" (a branch of Resume)
+        # translates only what is still blank from the saved partial.
+        partial_path = _save_zh_partial(run_dir, chinese.partial, english_package)
+        phase4_progress.emit("thread_failed", error=chinese.error)
         _emit_phase_timing(
             stream,
             phase="memo_fast_chinese_package",
             status="failed",
             started_at=phase4_started_at,
             started_monotonic=phase4_started,
-            error=message,
+            error=chinese.error,
+            english_delivered=True,
+            zh_partial=memo_prep._rel(partial_path),
         )
-        return {"ok": False, "error": message, "cost_usd": cost_usd}
-    cost_usd += _as_float(bilingual_result.get("claude_cost_usd")) or phase4_progress.cost_usd
-    worker_duration_ms += _as_int(bilingual_result.get("claude_duration_ms")) or phase4_progress.duration_ms
-    memo_package = bilingual_result.get("memo_package")
-    if not isinstance(memo_package, dict):
-        message = "Chinese package pass did not return memo_package."
-        phase4_progress.emit("thread_failed", error=message)
-        return {"ok": False, "error": message, "cost_usd": cost_usd}
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_pipeline",
+            status="finished",
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            worker_duration_ms=worker_duration_ms,
+            cost_usd=round(cost_usd, 6),
+            english_only=True,
+        )
+        return {
+            "ok": True,
+            "english_only": True,
+            "chinese_error": chinese.error,
+            "cost_usd": round(cost_usd, 6),
+            "duration_ms": duration_ms,
+            "worker_duration_ms": worker_duration_ms,
+            "fast_pipeline": True,
+        }
     final_package_path = _memo_package_path(run_dir)
-    _write_json(final_package_path, memo_package)
-    package_error = _memo_package_render_validation_error(final_package_path)
-    if package_error:
-        # The English gate already validated structure, so any error here is
-        # Chinese fill that didn't land (blank `zh` after a unit drifted).
-        # The monolithic bilingual pass only fills blank `zh` strings — run
-        # it once over the merged package as a targeted repair.
-        # Per unit, not in one call. The monolithic pass asks for the whole
-        # bilingual package in one response, which on Gemini is past its
-        # 64k output ceiling: a 2026-09-19 Databricks run reached the final
-        # render with EIGHT untranslated cells in one table, and the repair
-        # that should have filled them could not fit the answer. The
-        # parallel pass translates one section at a time and, with
-        # `only_missing`, touches only the strings that are still blank.
-        # Claude is unaffected in substance — it gets the same gap-fill,
-        # split across calls rather than one, which is what its own chasing
-        # path already does.
-        phase4_progress.emit(
-            "stage",
-            stage="memo_package_zh_repair",
-            message=(
-                "Merged package failed renderer validation; filling the "
-                "blank Chinese per section"
-            ),
-            validation_error=package_error[:2000],
-        )
-        repair_result, repair_error = (
-            claude_runner.run_memo_fast_bilingual_package_parallel(
-                run_dir=run_dir,
-                company_name=company_name,
-                run_id=run_id,
-                english_package_path=final_package_path,
-                progress=phase4_progress,
-                stream=stream,
-                only_missing=True,
-            )
-        )
-        if not repair_error and isinstance(repair_result, dict):
-            repaired = repair_result.get("memo_package")
-            if isinstance(repaired, dict):
-                cost_usd += _as_float(repair_result.get("claude_cost_usd"))
-                worker_duration_ms += _as_int(
-                    repair_result.get("claude_duration_ms")
-                )
-                claude_runner._adopt_zh_translations(memo_package, repaired)
-                _write_json(final_package_path, memo_package)
-                package_error = _memo_package_render_validation_error(
-                    final_package_path,
-                    allow_zh_fallback=True,
-                )
-    if package_error:
-        message = (
-            "Memo package failed renderer validation after the Chinese "
-            f"fill: {package_error}"
-        )
-        phase4_progress.emit("thread_failed", error=message)
-        _emit_phase_timing(
-            stream,
-            phase="memo_fast_chinese_package",
-            status="failed",
-            started_at=phase4_started_at,
-            started_monotonic=phase4_started,
-            error=message,
-        )
-        return {"ok": False, "error": message, "cost_usd": round(cost_usd, 6)}
+    # Now the translator has run too.
+    _stamp_generated_with_on_disk(
+        final_package_path,
+        storage.get_report(report_id) if report_id else None,
+        run_dir,
+    )
     # English vocabulary was gated in phase 3; this pass surfaces the
     # bilingual findings (Chinese parity) early. They never block — the
-    # memo is delivered and finalize marks it complete_with_warnings.
-    quality_warning = _memo_package_prerender_quality_error(final_package_path)
+    # memo is delivered and finalize marks it complete_with_warnings. Its
+    # outcome is what the documents' provenance line states (run.checks).
+    prerender_findings = _memo_package_prerender_quality_findings(
+        final_package_path, run_dir=run_dir
+    )
+    try:
+        _stamp_prerender_gates(final_package_path, prerender_findings)
+    except Exception:  # noqa: BLE001
+        logger.warning("gate stamp failed", exc_info=True)
+    quality_warning = "; ".join(prerender_findings) if prerender_findings else None
     if quality_warning:
         phase4_progress.emit(
             "stage",
@@ -4660,11 +8029,9 @@ def _run_fast_synthesis(
         started_at=phase4_started_at,
         started_monotonic=phase4_started,
         memo_package=memo_prep._rel(final_package_path),
-        cost_usd=_as_float(bilingual_result.get("claude_cost_usd")),
-        claude_duration_ms=_as_int(bilingual_result.get("claude_duration_ms")),
-        usage=bilingual_result.get("claude_usage")
-        if isinstance(bilingual_result.get("claude_usage"), dict)
-        else None,
+        cost_usd=round(chinese.cost_usd, 6),
+        claude_duration_ms=chinese.duration_ms,
+        usage=chinese.usage,
     )
 
     duration_ms = int((time.monotonic() - started_monotonic) * 1000)
@@ -4798,6 +8165,8 @@ def _recover_done_memo_report(
         memo_paths_abs["en"],
         memo_paths_abs["zh"],
         _structure_for_run(run_dir),
+        package=_package_on_disk(package_path),
+        run_dir=run_dir,
     )
     if parity_result.has_blocking_findings:
         return False
@@ -4807,9 +8176,7 @@ def _recover_done_memo_report(
         encoding="utf-8",
     )
 
-    lint_result = memo_quality_lint.lint_memo_docx(
-        memo_paths_abs["en"], _structure_for_run(run_dir)
-    )
+    lint_result = _lint_memo(memo_paths_abs["en"], _structure_for_run(run_dir), run_dir)
     if lint_result.has_blocking_findings:
         return False
     lint_path = run_dir / "logs" / "memo_quality_lint.md"
@@ -4818,10 +8185,16 @@ def _recover_done_memo_report(
         encoding="utf-8",
     )
 
+    # This re-finalize recomputes only the English lint and the Chinese
+    # parity gates. Every other warning the run delivered with (coverage,
+    # cost, length, claims, risk cards, signposts …) is preserved: a
+    # restart used to wipe them all and re-record the run as a clean
+    # `complete`.
+    kept = _preserved_warning_items(report)
     _update_report(
         report_id,
-        status="complete",
-        stage="Memo ready",
+        status="complete_with_warnings" if kept.items else "complete",
+        stage="Memo ready (quality warnings)" if kept.items else "Memo ready",
         progress=100,
         error=None,
         failure_phase=None,
@@ -4836,8 +8209,44 @@ def _recover_done_memo_report(
         memo_fact_check=_fact_check_payload(run_dir),
         claude_cost_usd=terminal.get("cost_usd"),
         claude_duration_ms=terminal.get("duration_ms"),
+        generated_with=_package_generated_with(package_path),
+        **kept.record_fields(),
     )
+    _run_completion_hooks(report_id)
     return True
+
+
+# The gates a startup re-finalize recomputes; warning items from every
+# other gate are carried over unchanged.
+_RECOMPUTED_WARNING_GATES = frozenset({"quality", "chinese_parity"})
+
+
+def _preserved_warning_items(report: dict) -> "_RunWarnings":
+    """The record's warnings minus the gates ``_recover_done_memo_report``
+    recomputes. The English strings and their Chinese twins are kept only
+    when at least one structured item survives (they are the banner text
+    for those items); the quality/parity strings are dropped by their
+    wording."""
+    kept = _RunWarnings()
+    items = [
+        item
+        for item in list(report.get("quality_warning_items") or [])
+        if isinstance(item, dict)
+        and str(item.get("gate") or "") not in _RECOMPUTED_WARNING_GATES
+    ]
+    if not items:
+        return kept
+    en_lines = [str(w) for w in list(report.get("quality_warnings") or []) if w]
+    zh_lines = [str(w) for w in list(report.get("quality_warnings_zh") or []) if w]
+    aligned = len(en_lines) == len(zh_lines)
+    for index, line in enumerate(en_lines):
+        lowered = line.lower()
+        if "quality gate" in lowered or "memo quality" in lowered or "parity" in lowered:
+            continue
+        kept.en.append(line)
+        kept.zh.append(zh_lines[index] if aligned else "恢复运行时保留的检查结果（详见运行日志）。")
+    kept.items = items
+    return kept
 
 
 # A run whose stream has been silent this long, with no live worker thread,
@@ -4902,6 +8311,46 @@ def _demote_orphaned_report(report: dict, run_dir: Path) -> bool:
     return True
 
 
+INTERRUPTED_BEFORE_PACKAGE = "interrupted before the memo package was written"
+
+
+def _stream_last_activity(run_dir: Path) -> str | None:
+    """When the run's stream was last written (ISO, UTC) — read before a
+    recovery sweep appends to it."""
+    try:
+        mtime = memo_prep.stream_path(run_dir).stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+
+def _demote_interrupted_report(
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    *,
+    last_activity_at: str | None = None,
+) -> None:
+    """A hard kill (SIGKILL, crash) stopped the run before its package was
+    written: say so, as failure_phase "interrupted" — resumable, and
+    auto-resumed at startup while the run is recent
+    (``api.resume_interrupted_memo_runs`` reads ``last_activity_at``)."""
+    report_id = str(report.get("id") or "")
+    _update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Analysis interrupted",
+        error=INTERRUPTED_BEFORE_PACKAGE,
+        failure_phase="interrupted",
+        failure_detail=INTERRUPTED_BEFORE_PACKAGE,
+        **({"last_activity_at": last_activity_at} if last_activity_at else {}),
+    )
+    stream.emit(
+        "error", error=INTERRUPTED_BEFORE_PACKAGE, phase="interrupted", recovered=True
+    )
+    _sync_tracking_auto_run(report, success=False, error=INTERRUPTED_BEFORE_PACKAGE)
+
+
 def recover_stale_reports() -> int:
     """Repair memo runs whose worker died before finalization.
 
@@ -4919,9 +8368,10 @@ def recover_stale_reports() -> int:
             continue
         if report.get("status") in ("complete", "failed_scope_check"):
             continue
-        if report.get("status") == "awaiting_studio":
-            # A parked Memo Studio investigation is a deliberate terminal
-            # state (its stream already carries `done`); nothing to recover.
+        if report.get("status") in ("awaiting_studio", PAUSED_AFTER_ENGLISH_STATUS):
+            # A parked Memo Studio investigation, or a run paused after its
+            # English for review, is a deliberate terminal state (its
+            # stream already carries `done`); nothing to recover.
             continue
         run_dir = _resolve_run_dir(report)
         if run_dir is None or not run_dir.exists():
@@ -4929,6 +8379,15 @@ def recover_stale_reports() -> int:
         stream_state = _scan_memo_stream(run_dir)
         terminal = stream_state.get("terminal")
         if terminal is not None:
+            if (
+                terminal.get("type") == "done"
+                and report.get("status") == "complete_with_warnings"
+            ):
+                # Delivered, with its warnings on the record and a `done`
+                # in the stream: finished. Re-finalizing it here used to
+                # rewrite the record as a clean `complete`, wiping every
+                # warning the run had recorded.
+                continue
             if (
                 terminal.get("type") == "done"
                 and _recover_done_memo_report(
@@ -4949,6 +8408,10 @@ def recover_stale_reports() -> int:
         memo_paths_abs = _memo_paths_abs(report)
         if not memo_paths_abs:
             continue
+        if _memo_worker_alive(str(report.get("id") or "")):
+            # A run started in this process since the restart.
+            continue
+        last_activity_at = _stream_last_activity(run_dir)
 
         stream = job_progress.ProgressLog(
             memo_prep.stream_path(run_dir), truncate=False
@@ -4962,6 +8425,27 @@ def recover_stale_reports() -> int:
             result=result,
             recovered=True,
         ):
+            continue
+        package_path = _memo_package_path(run_dir)
+        if not package_path.exists() or _memo_package_render_validation_error(
+            package_path
+        ):
+            # One successful Claude call (an analysis pass, the spine) is
+            # not a finished run. Rendering from it used to record
+            # "Memo rendering failed" for runs a hard kill interrupted
+            # (ATE, Anthropic, AMD). At startup no worker of the killed
+            # process is alive, so there is no idle wait here.
+            if _english_delivered(report, run_dir):
+                # The English was delivered before the kill: keep it, and
+                # let Resume retry only the Chinese.
+                _complete_english_only_after_cancel(
+                    report["id"], report, run_dir, reason="interrupted"
+                )
+            else:
+                _demote_interrupted_report(
+                    report, run_dir, stream, last_activity_at=last_activity_at
+                )
+            recovered += 1
             continue
         if not _render_memo_outputs(
             report_id=report["id"],
@@ -5031,6 +8515,21 @@ def recover_stale_reports() -> int:
             ),
             progress=100,
             quality_warnings=recovery_warnings or None,
+            quality_warnings_zh=[
+                "恢复运行时检查发现问题（详见运行日志）。" for _ in recovery_warnings
+            ]
+            or None,
+            quality_warning_items=[
+                _warning_item(
+                    gate="chinese_parity" if "parity" in w.lower() else "quality",
+                    language="ZH" if "parity" in w.lower() else "EN",
+                    summary_en=w,
+                    summary_zh="恢复运行时检查发现问题（详见运行日志）。",
+                    code="recovered_run",
+                )
+                for w in recovery_warnings
+            ]
+            or None,
             claude_cost_usd=result.get("cost_usd"),
             claude_duration_ms=result.get("duration_ms"),
         )
@@ -5044,6 +8543,7 @@ def recover_stale_reports() -> int:
         if recovery_warnings:
             done_payload["quality_warnings"] = recovery_warnings
         stream.emit("done", **done_payload)
+        _run_completion_hooks(report["id"])
         recovered += 1
     return recovered
 
@@ -5243,6 +8743,140 @@ def _with_run_slot(report_id: str, worker) -> None:
             claude_runner.reset_run_dir_state(str(run_dir))
 
 
+def _english_delivered(report: dict, run_dir: Path) -> bool:
+    """The run already delivered its English memo: English-first wrote the
+    DOCX and the accepted English package is on disk."""
+    if not report.get("english_ready_at"):
+        return False
+    en_path = _memo_paths_abs(report).get("en")
+    return bool(
+        en_path and en_path.exists() and _english_package_path(run_dir).exists()
+    )
+
+
+CHINESE_INTERRUPTED_WARNING = (
+    "Chinese version interrupted — English delivered",
+    "中文版生成被中断，已交付英文版",
+)
+
+
+def _complete_english_only_after_cancel(
+    report_id: str, report: dict, run_dir: Path, *, reason: str = "cancelled"
+) -> None:
+    """Terminal state for a run stopped after its English memo was
+    delivered: a cancel (written by the cancelling call itself — the worker
+    is halted, so nothing it does while unwinding reaches the record) or a
+    hard kill found at startup (``reason="interrupted"``)."""
+    interrupted = reason == "interrupted"
+    memo_paths_abs = _memo_paths_abs(report)
+    both_languages = bool(
+        memo_paths_abs.get("zh")
+        and memo_paths_abs["zh"].exists()
+        and _memo_package_path(run_dir).exists()
+    )
+    warnings = _RunWarnings()
+    if both_languages:
+        # The Chinese had already landed; the cancel stopped the final
+        # checks. Both documents stay; the checks can be re-run by Resume.
+        warnings.add(
+            (
+                "Interrupted during the final checks — memo delivered without them"
+                if interrupted
+                else "Cancelled during the final checks — memo delivered without them"
+            ),
+            (
+                "在最终检查阶段被中断——备忘录已交付，但检查未完成"
+                if interrupted
+                else "在最终检查阶段被取消——备忘录已交付，但检查未完成"
+            ),
+            [
+                _warning_item(
+                    gate="run",
+                    language="EN",
+                    summary_en="Cancelled during the final checks; both languages were already written.",
+                    summary_zh="在最终检查阶段被取消；中英文版本均已生成。",
+                    code="cancelled_during_checks",
+                )
+            ],
+        )
+    else:
+        _retire_stale_chinese_docx(memo_paths_abs)
+        en_text, zh_text = (
+            CHINESE_INTERRUPTED_WARNING if interrupted else CHINESE_CANCELLED_WARNING
+        )
+        warnings.add(
+            en_text,
+            zh_text,
+            [
+                _warning_item(
+                    gate=CHINESE_PACKAGE_PHASE,
+                    language="ZH",
+                    summary_en=f"{en_text}. Resume retries the Chinese only.",
+                    summary_zh=f"{zh_text}。“重试中文版”只重新生成中文。",
+                    code="chinese_interrupted" if interrupted else "chinese_cancelled",
+                    detail_path=memo_prep._rel(_zh_partial_package_path(run_dir)),
+                )
+            ],
+        )
+        partial_path = _zh_partial_package_path(run_dir)
+        if not partial_path.exists():
+            # Retry Chinese starts from here: whatever chased translations
+            # were merged, else the accepted English.
+            for candidate in (
+                run_dir / "logs" / "memo_package.en.chased.json",
+                _english_package_path(run_dir),
+            ):
+                try:
+                    payload = json.loads(candidate.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if isinstance(payload, dict):
+                    _write_json(partial_path, payload)
+                    break
+    halted = "interrupted" if interrupted else "cancelled"
+    storage.update_report(
+        report_id,
+        status="complete_with_warnings",
+        stage=(
+            f"Memo ready ({halted} during final checks)"
+            if both_languages
+            else f"Memo ready — English only (Chinese {halted})"
+        ),
+        progress=100,
+        error=None,
+        failure_phase=None if both_languages else CHINESE_PACKAGE_PHASE,
+        failure_detail=(
+            None
+            if both_languages
+            else (
+                "Interrupted by a server restart during the Chinese step"
+                if interrupted
+                else "Cancelled by user during the Chinese step"
+            )
+        ),
+        artifacts_available=True,
+        english_only=None if both_languages else True,
+        report_ready_at=_now_iso(),
+        run_finished_at=_now_iso(),
+        **warnings.record_fields(),
+    )
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=False)
+    stream.emit(
+        "done",
+        report_id=report_id,
+        memo_paths={
+            k: str(v)
+            for k, v in memo_paths_abs.items()
+            if both_languages or k == "en"
+        },
+        english_only=not both_languages,
+        quality_warnings=list(warnings.en),
+        **({"recovered": True} if interrupted else {"cancelled": True}),
+    )
+    _complete_tracking_auto_run(report, success=True)
+    _run_completion_hooks(report_id, force=True)
+
+
 def cancel_run(report_id: str) -> None:
     """Cancel a queued or in-flight memo run.
 
@@ -5253,6 +8887,11 @@ def cancel_run(report_id: str) -> None:
     then unwinds on its own as its in-flight calls return cancelled; the
     run is halted first so nothing it writes while unwinding replaces the
     cancelled state.
+
+    Once the English memo was delivered (``english_ready_at`` and its DOCX
+    on disk), a cancel means "stop the Chinese", not "discard everything":
+    the run ends ``complete_with_warnings`` on the English alone, and
+    Resume offers "Retry Chinese".
     """
     report = storage.get_report(report_id)
     if not report:
@@ -5271,6 +8910,9 @@ def cancel_run(report_id: str) -> None:
             name=f"memo-cancel-{report_id}",
             daemon=True,
         ).start()
+    if run_dir is not None and _english_delivered(report, run_dir):
+        _complete_english_only_after_cancel(report_id, report, run_dir)
+        return
     storage.update_report(
         report_id,
         status="failed_during_analysis",
@@ -5399,34 +9041,102 @@ def start_generate_from_studio(report_id: str) -> threading.Thread:
     return t
 
 
+def _write_crash_log(run_dir: Path | None, *, phase: str, detail: str) -> str | None:
+    """Save the crash's traceback to ``<run>/logs/crash.txt`` (appended, so a
+    resume that crashes again keeps the first one). The server log rotates;
+    this file stays with the run. Returns its repo-relative path."""
+    if run_dir is None or not run_dir.exists():
+        return None
+    import traceback
+
+    path = run_dir / "logs" / "crash.txt"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"## {_now_iso()} — {phase}\n\n{detail}\n\n")
+            handle.write(traceback.format_exc())
+            handle.write("\n")
+    except OSError:
+        logger.warning("could not write %s", path, exc_info=True)
+        return None
+    return memo_prep._rel(path)
+
+
+def _record_worker_crash(
+    report_id: str,
+    exc: BaseException,
+    *,
+    phase: str,
+    stage: str,
+    label: str,
+    sync_tracking: bool = True,
+) -> None:
+    """A worker died on an exception nothing below caught. Record WHY on the
+    report — ``failure_detail = "ValueError: Invalid company id"``, never
+    "see server log", which no partner can open — with the traceback in
+    ``logs/crash.txt``, and end the stream with the same line."""
+    detail = f"{type(exc).__name__}: {exc}"[:300]
+    report = storage.get_report(report_id)
+    run_dir = _resolve_run_dir(report or {})
+    crash_path = _write_crash_log(run_dir, phase=phase, detail=detail)
+    message = f"{label}: {detail}"
+    if report:
+        _update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage=stage,
+            error=message,
+            failure_phase=phase,
+            failure_detail=detail,
+            **({"crash_log": crash_path} if crash_path else {}),
+        )
+        _note_provider_limit(detail)
+        if sync_tracking:
+            _sync_tracking_auto_run(report, success=False, error=message)
+    if run_dir and run_dir.exists():
+        stream = _RunStream(report_id, memo_prep.stream_path(run_dir), truncate=False)
+        stream.emit(
+            "error",
+            error=message,
+            phase=phase,
+            **({"crash_log": crash_path} if crash_path else {}),
+        )
+
+
+def _note_provider_limit(message: str | None) -> None:
+    """A provider usage limit seen by the pipeline is remembered process-wide
+    (``provider_limits``), so the report pre-flight can say "Claude is
+    limited until 15:00" before anyone spends on a doomed run."""
+    text = str(message or "")
+    if not text:
+        return
+    try:
+        reason = claude_runner.provider_limit_reason(text)
+    except Exception:  # noqa: BLE001
+        return
+    if not reason:
+        return
+    try:
+        from . import provider_limits
+
+        provider_limits.record_provider_limit(text, source="memo")
+    except Exception:  # noqa: BLE001
+        logger.warning("provider limit record failed", exc_info=True)
+
+
 def _investigate_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
         _with_run_slot(report_id, lambda: _investigate(report_id))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("memo studio investigation crashed")
-        report = storage.get_report(report_id)
-        if report:
-            _update_report(
-                report_id,
-                status="failed_during_analysis",
-                stage="Investigation crashed",
-                failure_phase="investigation",
-                failure_detail="Investigation worker crashed; see server log.",
-            )
-            _sync_tracking_auto_run(
-                report,
-                success=False,
-                error="Investigation worker crashed; see server log.",
-            )
-        run_dir = _resolve_run_dir(report or {})
-        if run_dir and run_dir.exists():
-            stream = _RunStream(report_id, 
-                memo_prep.stream_path(run_dir), truncate=False
-            )
-            stream.emit(
-                "error", error="Investigation worker crashed; see server log."
-            )
+        _record_worker_crash(
+            report_id,
+            exc,
+            phase="investigation",
+            stage="Investigation crashed",
+            label="Investigation worker crashed",
+        )
     finally:
         _unregister_active_run(report_id)
 
@@ -5435,28 +9145,16 @@ def _generate_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
         _with_run_slot(report_id, lambda: _generate_from_studio(report_id))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("memo studio generation crashed")
-        report = storage.get_report(report_id)
-        if report:
-            _update_report(
-                report_id,
-                status="failed_during_analysis",
-                stage="Studio generation crashed",
-                failure_phase="studio_generate",
-                failure_detail=(
-                    "Studio generation worker crashed; see server log."
-                ),
-            )
-        run_dir = _resolve_run_dir(report or {})
-        if run_dir and run_dir.exists():
-            stream = _RunStream(report_id, 
-                memo_prep.stream_path(run_dir), truncate=False
-            )
-            stream.emit(
-                "error",
-                error="Studio generation worker crashed; see server log.",
-            )
+        _record_worker_crash(
+            report_id,
+            exc,
+            phase="studio_generate",
+            stage="Studio generation crashed",
+            label="Studio generation worker crashed",
+            sync_tracking=False,
+        )
     finally:
         _unregister_active_run(report_id)
 
@@ -5465,26 +9163,15 @@ def _run_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
         _with_run_slot(report_id, lambda: _run(report_id))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("memo analysis crashed")
-        report = storage.get_report(report_id)
-        if report:
-            _update_report(
-                report_id,
-                status="failed_during_analysis",
-                stage="Analysis crashed",
-            )
-            _sync_tracking_auto_run(
-                report,
-                success=False,
-                error="Analysis worker crashed; see server log.",
-            )
-        run_dir = _resolve_run_dir(report or {})
-        if run_dir and run_dir.exists():
-            stream = _RunStream(report_id, 
-                memo_prep.stream_path(run_dir), truncate=False
-            )
-            stream.emit("error", error="Analysis worker crashed; see server log.")
+        _record_worker_crash(
+            report_id,
+            exc,
+            phase="analysis",
+            stage="Analysis crashed",
+            label="Analysis worker crashed",
+        )
     finally:
         _unregister_active_run(report_id)
 
@@ -5493,28 +9180,15 @@ def _resume_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
         _with_run_slot(report_id, lambda: _resume(report_id))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("memo resume crashed")
-        report = storage.get_report(report_id)
-        if report:
-            _update_report(
-                report_id,
-                status="failed_during_analysis",
-                stage="Resume crashed",
-                failure_phase="resume",
-                failure_detail="Resume worker crashed; see server log.",
-            )
-            _sync_tracking_auto_run(
-                report,
-                success=False,
-                error="Resume worker crashed; see server log.",
-            )
-        run_dir = _resolve_run_dir(report or {})
-        if run_dir and run_dir.exists():
-            stream = _RunStream(report_id, 
-                memo_prep.stream_path(run_dir), truncate=False
-            )
-            stream.emit("error", error="Resume worker crashed; see server log.")
+        _record_worker_crash(
+            report_id,
+            exc,
+            phase="resume",
+            stage="Resume crashed",
+            label="Resume worker crashed",
+        )
     finally:
         _unregister_active_run(report_id)
 
@@ -5578,14 +9252,114 @@ def _resolve_run_dir(report: dict) -> Path | None:
     return memo_prep.DATA_DIR.parent / run_dir_rel
 
 
+def _is_failure_stub(path: Path) -> bool:
+    """A pass that failed leaves a placeholder markdown ("## Status" /
+    "Pass failed: …") instead of findings — nothing a resume can build on."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(4000)
+    except OSError:
+        return True
+    return "Pass failed:" in head or bool(re.search(r"(?m)^##\s+Status\s*$", head))
+
+
 def _analysis_artifact_paths(run_dir: Path) -> list[Path]:
+    """The run's usable analysis artifacts (failure stubs excluded: a run
+    made entirely of failed passes is not resumable analysis)."""
     analysis_dir = run_dir / "analysis"
     if not analysis_dir.is_dir():
         return []
     return sorted(
         p for p in analysis_dir.iterdir()
-        if p.is_file() and p.suffix == ".md"
+        if p.is_file() and p.suffix == ".md" and not _is_failure_stub(p)
     )
+
+
+def _fast_pass_records(run_dir: Path) -> dict[str, dict]:
+    """``analysis/fast/<pass>.json`` by pass id (whatever is on disk)."""
+    fast_dir = run_dir / "analysis" / "fast"
+    records: dict[str, dict] = {}
+    if not fast_dir.is_dir():
+        return records
+    for path in fast_dir.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict):
+            records[str(payload.get("pass_id") or path.stem)] = payload
+    return records
+
+
+# The passes the figure and pin checks lean on: a memo written without
+# them says so explicitly.
+_LOAD_BEARING_PASSES = ("numbers_integrity", "valuation_exit")
+
+
+def _analysis_coverage(run_dir: Path) -> dict | None:
+    """Which Phase-2 passes this run's memo was written from:
+    ``{passes_total, passes_ok, ok, missing}`` — None for runs without the
+    fast passes (legacy one-shot, approved Studio packet)."""
+    records = _fast_pass_records(run_dir)
+    if not records:
+        return None
+    expected = [spec.pass_id for spec in _FAST_MEMO_PASSES]
+    ok = [
+        pass_id
+        for pass_id in expected
+        if str((records.get(pass_id) or {}).get("status") or "") == "ok"
+    ]
+    missing = [pass_id for pass_id in expected if pass_id not in ok]
+    return {
+        "passes_total": len(expected),
+        "passes_ok": len(ok),
+        "ok": ok,
+        "missing": missing,
+    }
+
+
+def _coverage_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    """A memo written from fewer than all analysis passes is delivered, and
+    says so: the missing passes are named, and the load-bearing ones
+    (numbers, valuation) called out."""
+    coverage = _analysis_coverage(run_dir)
+    if not coverage or not coverage["missing"]:
+        return
+    labels = {spec.pass_id: spec.label for spec in _FAST_MEMO_PASSES}
+    names = [labels.get(pass_id, pass_id) for pass_id in coverage["missing"]]
+    load_bearing = [p for p in coverage["missing"] if p in _LOAD_BEARING_PASSES]
+    en = (
+        f"Written from {coverage['passes_ok']} of {coverage['passes_total']} "
+        f"analysis passes; missing: {', '.join(names)}."
+    )
+    zh = (
+        f"本备忘录基于 {coverage['passes_total']} 项分析中的 {coverage['passes_ok']} 项撰写；"
+        f"缺少：{'、'.join(coverage['missing'])}。"
+    )
+    if load_bearing:
+        en += (
+            " The figure and valuation checks lean on "
+            + " and ".join(labels.get(p, p) for p in load_bearing)
+            + ", so treat the numbers with extra care."
+        )
+        zh += "数字与估值核对依赖其中缺失的分析，请审慎对待相关数字。"
+    warnings.add(
+        en,
+        zh,
+        [
+            _warning_item(
+                gate="analysis_coverage",
+                language="EN",
+                summary_en=en,
+                summary_zh=zh,
+                severity="warning",
+                code="missing_passes",
+                detail_path=memo_prep._rel(run_dir / "analysis" / "fast"),
+            )
+        ],
+    )
+
+
 
 
 def _archive_stream(run_dir: Path, *, label: str) -> None:
@@ -5608,6 +9382,585 @@ def _archive_stream_for_resume(run_dir: Path) -> None:
     _archive_stream(run_dir, label="resume")
 
 
+# ---- Agent boundary audit ------------------------------------------------
+# The agents' inputs are the run folder, the company's research folder, the
+# settings file and the registry entry. Past runs read the quality gates'
+# source (server/, tests/), other companies' and other runs' memo artifacts
+# and the Document Library (data/uploads) — contaminated inputs, not gamed
+# gates. The tool pin and filtered environment narrow what an agent CAN do;
+# this reads what it DID, from the stream's tool-use previews, and says so.
+
+_ENV_FILE_RE = re.compile(r"(?:^|[\s\"'/=])\.env(?![\w.])")
+# Previews are JSON: a quoted path arrives as `...memo-run\"`, so the
+# backslash ends a path too (ZaiNar 2026-09-23 flagged the run's own
+# `cd "<run folder>" && ls` as another run's files).
+_MEMO_RUN_PATH_RE = re.compile(r"data/memos/[^\s\"',)\\]+")
+_MAX_BOUNDARY_HITS = 40
+
+
+def _audit_agent_boundary(run_dir: Path) -> list[dict]:
+    """Tool uses in this run's streams that reached outside its inputs:
+    [{kind, tool, preview}] — kinds: server_source, tests, frontend_source,
+    env_file, uploads, other_memo_run. Never raises."""
+    repo = str(memo_prep.DATA_DIR.parent.resolve())
+    own_run = memo_prep._rel(run_dir).rstrip("/") + "/"
+    checks = (
+        ("server_source", f"{repo}/server/"),
+        ("tests", f"{repo}/tests/"),
+        ("frontend_source", f"{repo}/frontend/"),
+    )
+    hits: list[dict] = []
+    try:
+        streams = sorted((run_dir / "logs").glob("stream*.jsonl"))
+    except OSError:
+        return hits
+    for stream_file in streams:
+        try:
+            lines = stream_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if '"tool_use"' not in line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("action") != "tool_use":
+                continue
+            tool = str(event.get("tool") or "")
+            if tool in ("WebSearch", "WebFetch", "StructuredOutput"):
+                continue
+            preview = str(event.get("preview") or "")
+            kinds = [kind for kind, needle in checks if needle in preview]
+            if _ENV_FILE_RE.search(preview):
+                kinds.append("env_file")
+            if "data/uploads/" in preview:
+                kinds.append("uploads")
+            for match in _MEMO_RUN_PATH_RE.finditer(preview):
+                if not (match.group(0).rstrip("/") + "/").startswith(own_run):
+                    kinds.append("other_memo_run")
+                    break
+            for kind in dict.fromkeys(kinds):
+                hits.append({"kind": kind, "tool": tool, "preview": preview[:300]})
+                if len(hits) >= _MAX_BOUNDARY_HITS:
+                    return hits
+    return hits
+
+
+_BOUNDARY_LABELS = {
+    "server_source": ("server source code", "服务器源代码"),
+    "tests": ("test code", "测试代码"),
+    "frontend_source": ("frontend source code", "前端源代码"),
+    "env_file": ("the .env secrets file", ".env 密钥文件"),
+    "uploads": ("the Document Library (data/uploads)", "文档库（data/uploads）"),
+    "other_memo_run": ("another memo run's files", "其他备忘录运行的文件"),
+}
+
+
+def _boundary_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    """Add a warning when the run's agents read outside their inputs, with
+    the list in ``logs/boundary_audit.md``. Best-effort."""
+    try:
+        hits = _audit_agent_boundary(run_dir)
+    except Exception:  # noqa: BLE001
+        logger.warning("agent boundary audit failed", exc_info=True)
+        return
+    if not hits:
+        return
+    counts: dict[str, int] = {}
+    for hit in hits:
+        counts[hit["kind"]] = counts.get(hit["kind"], 0) + 1
+    en_parts = [f"{_BOUNDARY_LABELS[k][0]} ×{n}" for k, n in counts.items()]
+    zh_parts = [f"{_BOUNDARY_LABELS[k][1]} ×{n}" for k, n in counts.items()]
+    audit_path = run_dir / "logs" / "boundary_audit.md"
+    try:
+        audit_path.write_text(
+            "# Agent boundary audit\n\n"
+            "Tool uses that reached outside the run's inputs (run folder, "
+            "research folder, settings, registry entry).\n\n"
+            + "\n".join(
+                f"- {hit['kind']} — {hit['tool']}: `{hit['preview']}`" for hit in hits
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.warning("could not write %s", audit_path, exc_info=True)
+    detail = memo_prep._rel(audit_path)
+    warnings.add(
+        "Agents read outside the run's inputs: " + ", ".join(en_parts) + f". See {detail}.",
+        "代理读取了本次运行输入之外的文件：" + "、".join(zh_parts) + f"。详见 {detail}。",
+        [
+            _warning_item(
+                gate="boundary",
+                language="EN",
+                summary_en=(
+                    "Agents read outside the run's inputs: " + ", ".join(en_parts)
+                ),
+                summary_zh="代理读取了本次运行输入之外的文件：" + "、".join(zh_parts),
+                severity="warning",
+                code="agent_boundary",
+                detail_path=detail,
+            )
+        ],
+    )
+
+
+NO_DILIGENCE_WARNING = (
+    "No BSH diligence on file: every figure is public or registry",
+    "没有 BSH 尽调资料：所有数字均来自公开信息或登记记录",
+)
+
+
+def _delivered_package(run_dir: Path) -> dict | None:
+    """The package the delivered memo was rendered from: the bilingual one,
+    else the accepted English one (an English-only delivery)."""
+    for path in (_memo_package_path(run_dir), _english_package_path(run_dir)):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _private_diligence_warning(
+    report: dict, run_dir: Path, warnings: "_RunWarnings", package: dict | None = None
+) -> None:
+    """A private company's memo written without any of the firm's own
+    material (the run's private inventory is empty) says so: every figure
+    in it is public or from the registry. Keyed on the stamped inventory,
+    never on a file count (a public-source memo is not a defect)."""
+    inventory = _private_items_on_file(package)
+    if inventory is None and not isinstance(package, dict):
+        # The bilingual package first, then the accepted English one (the
+        # stamp is made on the English envelope).
+        for path in (_memo_package_path(run_dir), _english_package_path(run_dir)):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            inventory = _private_items_on_file(payload)
+            if inventory is not None:
+                break
+    if not isinstance(inventory, list) or inventory:
+        return
+    company = storage.get_company(str(report.get("company_id") or "")) or {}
+    if not company or storage.infer_company_type(company) != "private":
+        return
+    en_text, zh_text = NO_DILIGENCE_WARNING
+    warnings.add(
+        en_text,
+        zh_text,
+        [
+            _warning_item(
+                gate="private_diligence",
+                language="EN",
+                summary_en=en_text,
+                summary_zh=zh_text,
+                severity="warning",
+                code="no_private_material",
+            )
+        ],
+    )
+
+
+_SCENARIO_ZH = {"bear": "悲观", "base": "基准", "bull": "乐观"}
+_RETURNS_WARNING_ZH = {
+    "exit_value_mismatch": "{scenario}情景的退出估值与其退出收入乘以退出倍数的结果不符",
+    "moic_mismatch": "{scenario}情景的 MOIC 与其退出估值、入场估值和稀释假设不符",
+    "moic_above_undiluted": "{scenario}情景的 MOIC 高于未计稀释的退出估值与入场估值之比",
+    "irr_mismatch": "{scenario}情景的 IRR 与其 MOIC 和持有期不符",
+    "label_sign_mismatch": "{scenario}情景的文字表述（如“低于入场价”）与其数字方向不符",
+    "probabilities_do_not_sum": "三种情景的概率合计不等于 100",
+    "commit_above_walk_away": "建议中的出资价格高于按本基金回报门槛推算的最高可接受估值",
+    "scenario_order": "{scenario}情景的退出估值或 MOIC 高于其上一档情景",
+    "dilution_not_pinned": "基准情景的 MOIC 未计任何稀释，而持有期在三年以上",
+    "position_above_policy": "拟出资额占基金的比例超过基金政策中的单笔上限",
+}
+
+
+def _returns_warning(run_dir: Path, warnings: "_RunWarnings") -> None:
+    """The v2 pins' returns arithmetic, recomputed in Python from the
+    accepted spine (memo_pin_check.spine_warnings_v2): every disagreement
+    is a warning on the report — the memo ships as written."""
+    shared_facts = _memo_shared_facts_from_disk(run_dir)
+    if not shared_facts:
+        return
+    structure = _structure_for_run(run_dir)
+    try:
+        inputs = claude_runner.memo_returns_inputs(run_dir.parent.name)
+        found = memo_pin_check.spine_warnings_v2(
+            shared_facts,
+            structure,
+            policy=claude_runner._memo_stage_policy(structure.declared_stage),
+            as_of_year=claude_runner._memo_run_year(run_dir),
+            deal_terms=inputs["deal_terms"],
+            fund_size_usd=inputs["fund_size_usd"],
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("returns recomputation failed", exc_info=True)
+        return
+    if not found:
+        return
+    count = len(found)
+    items = []
+    for warning in found[:_MAX_WARNING_ITEMS_PER_GATE]:
+        code = str(warning.get("code") or "returns")
+        scenario = str(warning.get("scenario") or "")
+        template = _RETURNS_WARNING_ZH.get(code, "回报测算与锁定数字不一致")
+        items.append(
+            _warning_item(
+                gate="returns",
+                language="EN",
+                severity="warning",
+                code=code,
+                summary_en=str(warning.get("detail") or code)[:300],
+                summary_zh=template.format(scenario=_SCENARIO_ZH.get(scenario, "")),
+            )
+        )
+    noun = "figure disagrees" if count == 1 else "figures disagree"
+    warnings.add(
+        f"Returns arithmetic: {count} pinned {noun} with the recomputation",
+        f"回报测算：{count} 处锁定数字与重新计算的结果不一致",
+        items,
+    )
+
+
+SIGNPOSTS_FILENAME = "signposts.json"
+
+
+def _record_signposts(
+    run_dir: Path, warnings: "_RunWarnings", package: dict | None = None
+) -> None:
+    """Signposts, phase 1 (server/memo_signposts.py): what the delivered
+    memo says it will watch, written to ``logs/signposts.json`` for the
+    tracking store to pick up, and a warning for each signpost the writer
+    listed that the memo never states. Never raises."""
+    package = package if isinstance(package, dict) else _delivered_package(run_dir)
+    if not isinstance(package, dict):
+        return
+    try:
+        from . import memo_signposts
+
+        signposts = memo_signposts.extract(package)
+        findings = memo_signposts.echo_findings(package)
+    except Exception:  # noqa: BLE001
+        logger.warning("signpost extraction failed", exc_info=True)
+        return
+    try:
+        _write_json(
+            run_dir / "logs" / SIGNPOSTS_FILENAME,
+            {"extracted_at": _now_iso(), "signposts": signposts},
+        )
+    except OSError:
+        logger.warning("could not write the run's signposts", exc_info=True)
+    if not findings:
+        return
+    count = len(findings)
+    noun = "signpost is" if count == 1 else "signposts are"
+    warnings.add(
+        f"Signposts: {count} listed {noun} not stated in the memo",
+        f"跟踪信号：{count} 条列出的信号未在备忘录正文中出现",
+        [
+            _warning_item(
+                gate="signposts",
+                language="EN",
+                severity="warning",
+                code="signpost_not_stated",
+                summary_en=finding["detail"][:300],
+                summary_zh=f"跟踪信号 {finding['id']} 未在备忘录正文中出现",
+            )
+            for finding in findings[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _risk_card_warning(
+    run_dir: Path, warnings: "_RunWarnings", package: dict | None = None
+) -> None:
+    """Risk-card wording the surgical repair did not clear (an economic
+    consequence missing from "Why it matters", a "What we watch" that is a
+    command, a card without its declared rows) ships as a warning: the
+    renderer draws the cards, and the wording never costs a regeneration."""
+    package = package if isinstance(package, dict) else _delivered_package(run_dir)
+    if not isinstance(package, dict):
+        return
+    try:
+        findings = memo_docx_renderer.risk_card_quality_findings(package)
+    except Exception:  # noqa: BLE001
+        logger.warning("risk-card wording check failed", exc_info=True)
+        return
+    if not findings:
+        return
+    count = len(findings)
+    plural = "finding" if count == 1 else "findings"
+    warnings.add(
+        f"Risk cards: {count} wording {plural} left to fix",
+        f"风险卡片：尚有 {count} 处措辞需要修改",
+        [
+            _warning_item(
+                gate="risk_cards",
+                language="EN",
+                section=finding.split(" ", 1)[0] or None,
+                severity="warning",
+                code="risk_card_wording",
+                summary_en=finding[:300],
+                summary_zh="风险卡片措辞：" + finding[:200],
+            )
+            for finding in findings[:_MAX_WARNING_ITEMS_PER_GATE]
+        ],
+    )
+
+
+def _retire_stale_chinese_docx(memo_paths_abs: dict[str, Path]) -> Path | None:
+    """An English-only delivery must not serve a Chinese memo an earlier
+    attempt wrote for different English: move it aside (kept, not deleted)
+    so the viewer offers only the English."""
+    zh_path = memo_paths_abs.get("zh")
+    if not zh_path or not zh_path.exists():
+        return None
+    stale = zh_path.with_name(f"{zh_path.stem}.superseded{zh_path.suffix}")
+    try:
+        zh_path.replace(stale)
+    except OSError:
+        logger.warning("could not move aside the stale Chinese memo %s", zh_path, exc_info=True)
+        return None
+    return stale
+
+
+def _render_english_only_outputs(
+    *,
+    report_id: str,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+    keep_existing: bool = False,
+) -> bool:
+    """Render the English memo alone from the accepted English package (the
+    Chinese stage failed or was cancelled). Same contract failure handling
+    as the pair render, checked for the English files only.
+
+    ``keep_existing`` (a failed "Retry Chinese") leaves an English DOCX that
+    is already on disk exactly as delivered and only re-checks the contract."""
+    package_path = _english_package_path(run_dir)
+    en_path = memo_paths_abs.get("en")
+    contract_args = dict(
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        locales=("en",),
+        package_path=package_path,
+    )
+    if not package_path.exists() or not en_path:
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message=(
+                "The Chinese stage failed and there is no accepted English "
+                f"package to deliver ({memo_prep._rel(package_path)})."
+            ),
+            contract=_renderer_contract_diagnostics(**contract_args),
+            recovered=recovered,
+        )
+        return False
+    _update_report(report_id, stage="Rendering the English memo DOCX", progress=85)
+    stream.emit(
+        "stage",
+        stage="rendering_docx",
+        message="Rendering the English memo DOCX (the Chinese version failed)",
+        memo_package=memo_prep._rel(package_path),
+        english_only=True,
+        recovered=recovered,
+    )
+    with _timed_phase(
+        stream,
+        phase="memo_docx_render",
+        recovered=recovered,
+        memo_package=memo_prep._rel(package_path),
+        output_en=memo_prep._rel(en_path),
+        english_only=True,
+    ) as timing:
+        try:
+            if not (keep_existing and en_path.exists()):
+                payload = json.loads(package_path.read_text(encoding="utf-8"))
+                _render_single_locale(
+                    _english_render_payload(payload), "en", en_path, run_dir=run_dir
+                )
+            else:
+                timing["kept_existing"] = True
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("English-only render failed for report %s", report_id)
+            message = f"Memo package render failed: {type(exc).__name__}: {exc}"
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=_renderer_contract_diagnostics(**contract_args),
+                recovered=recovered,
+            )
+            return False
+        contract = _renderer_contract_diagnostics(**contract_args)
+        errors = list(contract.get("errors") or [])
+        timing["renderer_contract_error_count"] = len(errors)
+        timing["expected_files"] = contract.get("expected_files")
+        if errors:
+            message = "Renderer contract failed: " + "; ".join(errors)
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=contract,
+                recovered=recovered,
+            )
+            return False
+    stale = _retire_stale_chinese_docx(memo_paths_abs)
+    if stale is not None:
+        stream.emit(
+            "stage",
+            stage="memo_stale_chinese_retired",
+            message=(
+                "Moved aside a Chinese memo from an earlier attempt; it does "
+                "not match this English"
+            ),
+            path=memo_prep._rel(stale),
+        )
+    return True
+
+
+def _render_chinese_only_outputs(
+    *,
+    report_id: str,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+) -> bool:
+    """"Retry Chinese": render the Chinese memo alone from the new bilingual
+    package; the English DOCX (and its validation log) stay exactly as they
+    were delivered. The contract is then checked for both languages."""
+    package_path = _memo_package_path(run_dir)
+    zh_path = memo_paths_abs.get("zh")
+    contract_args = dict(run_dir=run_dir, memo_paths_abs=memo_paths_abs)
+    if not package_path.exists() or not zh_path:
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message=(
+                "Retry Chinese finished without a bilingual package or a "
+                "Chinese memo path."
+            ),
+            contract=_renderer_contract_diagnostics(**contract_args),
+            recovered=recovered,
+        )
+        return False
+    _update_report(report_id, stage="Rendering the Chinese memo DOCX", progress=85)
+    stream.emit(
+        "stage",
+        stage="rendering_docx",
+        message=(
+            "Rendering the Chinese memo DOCX (the English is kept as "
+            "delivered)"
+        ),
+        memo_package=memo_prep._rel(package_path),
+        chinese_only=True,
+        recovered=recovered,
+    )
+    # The same deterministic rewrites the delivered English went through.
+    voice_rewrite_count = _clean_memo_package_voice(package_path, stream)
+    with _timed_phase(
+        stream,
+        phase="memo_docx_render",
+        recovered=recovered,
+        memo_package=memo_prep._rel(package_path),
+        voice_rewrite_count=voice_rewrite_count,
+        output_zh=memo_prep._rel(zh_path),
+        chinese_only=True,
+    ) as timing:
+        try:
+            _render_single_locale(
+                json.loads(package_path.read_text(encoding="utf-8")),
+                "zh",
+                zh_path,
+                run_dir=run_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Chinese-only render failed for report %s", report_id)
+            message = f"Memo package render failed: {type(exc).__name__}: {exc}"
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=_renderer_contract_diagnostics(**contract_args),
+                recovered=recovered,
+            )
+            return False
+        contract = _renderer_contract_diagnostics(**contract_args)
+        errors = list(contract.get("errors") or [])
+        timing["renderer_contract_error_count"] = len(errors)
+        timing["expected_files"] = contract.get("expected_files")
+        if errors:
+            message = "Renderer contract failed: " + "; ".join(errors)
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=contract,
+                recovered=recovered,
+            )
+            return False
+    return True
+
+
+def _run_completion_hooks(report_id: str, *, force: bool = False) -> None:
+    """What hangs off a finished memo: the reader block (the list row's
+    verdict, headline and age) and the lazily made PDF. Best-effort — a
+    hook fault never changes the delivered run. ``force`` runs them for a
+    halted run whose halting call delivered the memo (a cancel after the
+    English was ready)."""
+    if _run_halted(report_id) and not force:
+        return
+    try:
+        from . import report_reader
+
+        report_reader.persist_reader_block(report_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("reader block failed for %s", report_id, exc_info=True)
+    try:
+        from . import memo_pdf
+
+        memo_pdf.schedule_pdf(report_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("PDF scheduling failed for %s", report_id, exc_info=True)
+
+
+def _internal_memo_wanted(report: dict) -> bool:
+    """The IC decision memo is written when prep planned its files (the
+    run's audience, or the override at prep time) and the override does not
+    switch it off now."""
+    return bool(_internal_memo_paths_abs(report)) and memo_prep._internal_diligence_memo_enabled(
+        report.get("audience")
+    )
+
+
 def _finalize_memo_from_package(
     *,
     report_id: str,
@@ -5620,6 +9973,21 @@ def _finalize_memo_from_package(
     background_started_monotonic: float | None = None,
     background_fields: dict[str, Any] | None = None,
 ) -> bool:
+    """Render, gate and deliver the memo from the accepted package.
+
+    ``result["english_only"]`` (the Chinese stage failed; its error in
+    ``result["chinese_error"]``) delivers the English memo alone from
+    ``logs/memo_package.en.json``: the English quality lint and fact check
+    still run, the Chinese parity gate and the Chinese PDF are skipped, and
+    the run ends ``complete_with_warnings`` with ``failure_phase =
+    "chinese_package"`` and the bilingual warning, so Resume offers
+    "Retry Chinese"."""
+    if _run_halted(report_id):
+        # A cancel or shutdown already wrote this run's terminal state.
+        return False
+    english_only = bool(result.get("english_only"))
+    chinese_error = str(result.get("chinese_error") or "").strip() if english_only else ""
+    locales: tuple[str, ...] = ("en",) if english_only else ("en", "zh")
     company_name = str(report.get("company_name") or report.get("company_id"))
     company_slug = str(report.get("company_id"))
     run_id = str(report.get("run_id") or "")
@@ -5648,30 +10016,53 @@ def _finalize_memo_from_package(
         recovered=recovered,
     ):
         return False
-    if not _render_memo_outputs(
-        report_id=report_id,
-        run_dir=run_dir,
-        memo_paths_abs=memo_paths_abs,
-        stream=stream,
-        result=result,
-        recovered=recovered,
-    ):
+    if english_only:
+        rendered = _render_english_only_outputs(
+            report_id=report_id,
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=recovered,
+            keep_existing=bool(result.get("keep_english_docx")),
+        )
+    elif result.get("chinese_only"):
+        rendered = _render_chinese_only_outputs(
+            report_id=report_id,
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=recovered,
+        )
+    else:
+        rendered = _render_memo_outputs(
+            report_id=report_id,
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=recovered,
+        )
+    if not rendered:
         return False
     _update_report(
         report_id,
         renderer_contract=_renderer_contract_diagnostics(
             run_dir=run_dir,
             memo_paths_abs=memo_paths_abs,
+            locales=locales,
+            package_path=_english_package_path(run_dir) if english_only else None,
         ),
     )
 
-    en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
-    zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
     missing = []
-    if not en_exists:
-        missing.append(f"English .docx: {memo_paths_rel.get('en')}")
-    if not zh_exists:
-        missing.append(f"Chinese .docx: {memo_paths_rel.get('zh')}")
+    for locale, label in (("en", "English"), ("zh", "Chinese")):
+        if locale not in locales:
+            continue
+        path = memo_paths_abs.get(locale)
+        if not (path and path.exists()):
+            missing.append(f"{label} .docx: {memo_paths_rel.get(locale)}")
 
     if missing:
         msg = (
@@ -5709,17 +10100,61 @@ def _finalize_memo_from_package(
         recovered=recovered,
     )
 
-    quality_warnings: list[str] = []
-    _parity_payload, parity_warning = _run_chinese_parity_gate(
-        report_id=report_id,
-        run_dir=run_dir,
-        memo_paths_abs=memo_paths_abs,
-        stream=stream,
-        result=result,
-        recovered=recovered,
-    )
-    if parity_warning:
-        quality_warnings.append(parity_warning)
+    warnings = _RunWarnings()
+    if english_only:
+        en_text, zh_text = CHINESE_FAILED_WARNING
+        warnings.add(
+            en_text,
+            zh_text,
+            [
+                _warning_item(
+                    gate=CHINESE_PACKAGE_PHASE,
+                    language="ZH",
+                    summary_en=(
+                        f"{en_text}. Resume retries the Chinese only"
+                        + (f" ({chinese_error[:200]})" if chinese_error else "")
+                    ),
+                    summary_zh=f"{zh_text}。“重试中文版”只重新生成中文。",
+                    severity="warning",
+                    code="chinese_failed",
+                    detail_path=memo_prep._rel(_zh_partial_package_path(run_dir)),
+                )
+            ],
+        )
+        stream.emit(
+            "stage",
+            stage="chinese_version_failed",
+            message=f"{en_text} / {zh_text}",
+            error=chinese_error[:500] or None,
+            recovered=recovered,
+        )
+        _update_report(report_id, memo_chinese_parity=None)
+    else:
+        parity_payload, parity_warning = _run_chinese_parity_gate(
+            report_id=report_id,
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=recovered,
+        )
+        if parity_warning:
+            p0 = int(parity_payload.get("p0_count") or 0)
+            parity_rel = memo_prep._rel(run_dir / "logs" / "memo_chinese_parity.md")
+            warnings.add(
+                parity_warning,
+                f"中文对照检查发现 {p0} 个 P0 问题。详见 {parity_rel}。",
+                _finding_items(
+                    [
+                        f
+                        for f in parity_payload.get("findings") or []
+                        if isinstance(f, dict) and f.get("severity") == "P0"
+                    ],
+                    gate="chinese_parity",
+                    language="ZH",
+                    detail_path=parity_rel,
+                ),
+            )
 
     _update_report(
         report_id,
@@ -5744,18 +10179,28 @@ def _finalize_memo_from_package(
         # and a complete-with-warnings report keeps Resume available to
         # regenerate toward a clean memo.
         lint_payload = lint_result.to_dict()
+        lint_rel = memo_prep._rel(lint_path)
         msg = (
             "Memo quality gate found "
             f"{lint_payload['p0_count']} P0 finding"
             f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
-            f"See {memo_prep._rel(lint_path)}."
+            f"See {lint_rel}."
         )
-        quality_warnings.append(msg)
+        warnings.add(
+            msg,
+            f"英文质量检查发现 {lint_payload['p0_count']} 个 P0 问题。详见 {lint_rel}。",
+            _finding_items(
+                lint_result.p0_findings,
+                gate="quality",
+                language="EN",
+                detail_path=lint_rel,
+            ),
+        )
         payload = {
             "stage": "quality_gate_warning",
             "message": msg,
             "phase": "quality_gate",
-            "lint_report": memo_prep._rel(lint_path),
+            "lint_report": lint_rel,
             "findings": lint_payload["findings"][:10],
         }
         if recovered:
@@ -5774,7 +10219,56 @@ def _finalize_memo_from_package(
         title=claude_runner.MEMO_PHASE6_THREAD,
     )
     internal_generated = False
-    if internal_paths_abs and _internal_diligence_memo_enabled():
+    combined_result = dict(result)
+    ic_docx = internal_paths_abs.get("docx")
+    keep_ic_memo = bool(
+        (result.get("chinese_only") or result.get("keep_english_docx"))
+        and ic_docx
+        and ic_docx.exists()
+    )
+    if keep_ic_memo:
+        # "Retry Chinese" rewrites only the Chinese LP memo; the IC memo was
+        # written with the English and stays as it is.
+        internal_generated = True
+        stream.emit(
+            "stage",
+            stage="internal_memo_kept",
+            message="Keeping the IC decision memo written with the English",
+        )
+    elif (
+        internal_paths_abs
+        and _internal_memo_wanted(report)
+        and _cost_guard_stop(
+            report_id=report_id,
+            run_dir=run_dir,
+            cost_usd=_as_float(result.get("cost_usd")),
+            phase="IC decision memo",
+            stream=stream,
+        )
+    ):
+        # Past the ceiling: the LP memo is delivered; the IC memo waits
+        # for a resume once the ceiling is raised.
+        warnings.add(
+            "IC decision memo not written: cost ceiling reached",
+            "投委会决策备忘录未生成：已达到费用上限",
+            [
+                _warning_item(
+                    gate="ic_memo",
+                    language="EN",
+                    summary_en="The internal IC decision memo was skipped because the run reached its cost ceiling; the LP memo is unaffected.",
+                    summary_zh="因运行达到费用上限，内部投委会决策备忘录已跳过；LP 备忘录不受影响。",
+                    severity="warning",
+                    code="ic_memo_skipped_cost",
+                )
+            ],
+        )
+        stream.emit(
+            "stage",
+            stage="internal_memo_skipped",
+            message="Skipping the IC decision memo: cost ceiling reached",
+            recovered=recovered,
+        )
+    elif internal_paths_abs and _internal_memo_wanted(report):
         internal_result = _run_internal_diligence_memo(
             report_id=report_id,
             run_dir=run_dir,
@@ -5789,27 +10283,57 @@ def _finalize_memo_from_package(
             lessons_path=lessons_path,
             scope_check=report.get("scope_check"),
             warnings=list(report.get("warnings") or []),
+            english_only=english_only,
         )
-        if internal_result is None:
-            return False
-        combined_result = _combined_result(result, internal_result)
-        internal_generated = True
-
-        if _memo_pdf_previews_enabled():
-            _update_report(
-                report_id,
-                stage="Rendering PDF previews",
-                progress=96,
+        if internal_result is not None and internal_result.get("ok"):
+            combined_result = _combined_result(result, internal_result)
+            internal_generated = True
+            if _memo_pdf_previews_enabled():
+                _update_report(
+                    report_id,
+                    stage="Rendering PDF previews",
+                    progress=96,
+                )
+                stream.emit(
+                    "stage",
+                    stage="rendering_pdf",
+                    message="Rendering PDF previews",
+                    recovered=recovered,
+                )
+                _render_internal_pdf_previews(report_id=report_id, stream=stream)
+        else:
+            # The IC memo is a companion document: its failure never costs
+            # the reader the LP memo, which is already rendered and gated.
+            error = str((internal_result or {}).get("error") or "IC memo failed")
+            combined_result = _combined_result(result, internal_result)
+            boundary = (
+                str((internal_result or {}).get("error_code") or "") == "boundary_violation"
             )
-            stream.emit(
-                "stage",
-                stage="rendering_pdf",
-                message="Rendering PDF previews",
-                recovered=recovered,
+            boundary_hit = str((internal_result or {}).get("boundary_hit") or "")[:200]
+            warnings.add(
+                "IC decision memo was not written: " + error[:300],
+                "投委会决策备忘录未能生成：" + error[:300],
+                [
+                    _warning_item(
+                        gate="ic_memo",
+                        language="EN",
+                        summary_en=(
+                            "The IC decision memo agent read outside its sandbox "
+                            f"({boundary_hit}) and was stopped; the LP memo is unaffected."
+                            if boundary
+                            else "The internal IC decision memo was not written; the LP memo is unaffected."
+                        ),
+                        summary_zh=(
+                            "投委会决策备忘录代理越出沙箱读取文件，已被终止；LP 备忘录不受影响。"
+                            if boundary
+                            else "内部投委会决策备忘录未能生成；LP 备忘录不受影响。"
+                        ),
+                        severity="warning",
+                        code="ic_memo_boundary" if boundary else "ic_memo_failed",
+                    )
+                ],
             )
-            _render_internal_pdf_previews(report_id=report_id, stream=stream)
     else:
-        combined_result = dict(result)
         stream.emit(
             "stage",
             stage="internal_memo_skipped",
@@ -5830,45 +10354,67 @@ def _finalize_memo_from_package(
             reason="BSH_MEMO_GENERATE_INTERNAL not enabled or no internal memo paths",
         )
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE6_THREAD)
-
-    final_status = "complete_with_warnings" if quality_warnings else "complete"
-    final_stage = (
-        "Memo ready (quality warnings)" if quality_warnings else "Memo ready"
+    _coverage_warning(run_dir, warnings)
+    _private_diligence_warning(report, run_dir, warnings)
+    _boundary_warning(run_dir, warnings)
+    _risk_card_warning(run_dir, warnings)
+    _returns_warning(run_dir, warnings)
+    _record_signposts(run_dir, warnings)
+    # Report-only gates: none of these can fail the run.
+    delivered_package = _delivered_package(run_dir)
+    for gate in (
+        lambda: _length_warning(run_dir, warnings, delivered_package),
+        lambda: _cost_warning(run_dir, warnings),
+        lambda: _red_team_warning(run_dir, warnings),
+        lambda: _pins_warning(run_dir, warnings),
+        lambda: _fact_check_warning(run_dir, warnings),
+        lambda: _ic_comparison_warning(internal_paths_abs.get("md"), warnings),
+        lambda: _claims_warning(run_dir, warnings, company_slug),
+        lambda: _consistency_warning(run_dir, warnings, delivered_package),
+    ):
+        try:
+            gate()
+        except Exception:  # noqa: BLE001
+            logger.warning("report-only gate failed", exc_info=True)
+    quality_metrics = _quality_metrics(
+        run_dir, delivered_package, storage.get_report(report_id) or report
     )
+
+    final_status = "complete_with_warnings" if warnings else "complete"
+    if english_only:
+        final_stage = "Memo ready — English only (Chinese failed)"
+    else:
+        final_stage = (
+            "Memo ready (quality warnings)" if warnings else "Memo ready"
+        )
     _update_report(
         report_id,
         status=final_status,
         stage=final_stage,
         progress=100,
         error=None,
-        failure_phase=None,
-        failure_detail=None,
+        failure_phase=CHINESE_PACKAGE_PHASE if english_only else None,
+        failure_detail=(chinese_error[:500] or CHINESE_FAILED_WARNING[0]) if english_only else None,
         resume_from_status=None,
         resume_from_failure_phase=None,
         resume_from_failure_detail=None,
         artifacts_available=True,
-        quality_warnings=quality_warnings or None,
+        english_only=True if english_only else None,
         claude_cost_usd=combined_result.get("cost_usd"),
         claude_duration_ms=combined_result.get("duration_ms"),
         report_ready_at=_now_iso(),
+        # What the delivered package says generated it (stamped where it was
+        # written; a package from before the stamp says nothing).
+        generated_with=_package_generated_with(
+            _english_package_path(run_dir) if english_only else _memo_package_path(run_dir)
+        ),
+        **({"quality_metrics": quality_metrics} if quality_metrics is not None else {}),
+        **warnings.record_fields(),
     )
-    try:
-        from . import push_notify
-
-        company = storage.get_company(str(report.get("company_id") or "")) or {}
-        name = company.get("name") or report.get("company_id") or "Memo"
-        push_notify.notify(
-            "memo",
-            "Memo ready",
-            f"{name} — {final_stage}",
-            data={
-                "report_id": report_id,
-                "company_id": report.get("company_id"),
-                "deep_link": f"bshresearch://report/{report_id}",
-            },
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("memo push notify failed for %s", report_id)
+    company = storage.get_company(str(report.get("company_id") or "")) or {}
+    name = company.get("name") or report.get("company_id") or "Memo"
+    _notify_memo(report_id, "Memo ready", f"{name} — {final_stage}")
+    _run_completion_hooks(report_id)
     # ---- Artifacts tail: the report is complete and viewable above; a
     # parked artifacts agent (report-ready detach) is collected here, so
     # the rail shows "Done — finalizing artifacts" instead of holding the
@@ -5926,12 +10472,17 @@ def _finalize_memo_from_package(
     )
     done_payload = {
         "report_id": report_id,
-        "memo_paths": {k: str(v) for k, v in memo_paths_abs.items()},
+        "memo_paths": {
+            k: str(v) for k, v in memo_paths_abs.items() if k in locales
+        },
         "cost_usd": combined_result.get("cost_usd"),
         "duration_ms": combined_result.get("duration_ms"),
     }
-    if quality_warnings:
-        done_payload["quality_warnings"] = quality_warnings
+    if warnings:
+        done_payload["quality_warnings"] = list(warnings.en)
+    if english_only:
+        done_payload["english_only"] = True
+        done_payload["failure_phase"] = CHINESE_PACKAGE_PHASE
     if internal_generated:
         done_payload["internal_memo_paths"] = {
             k: str(v) for k, v in internal_paths_abs.items()
@@ -5956,6 +10507,502 @@ def _finalize_memo_from_package(
     return True
 
 
+def _chinese_retry_requested(report: dict, run_dir: Path) -> bool:
+    """Resume of an English-only delivery = "Retry Chinese": the Chinese
+    stage failed (or was cancelled) after the English was accepted, and the
+    accepted English package is on disk. The resume endpoint moves the
+    failure into ``resume_last_failure_phase`` before the worker starts."""
+    if not _english_package_path(run_dir).exists():
+        return False
+    if _paused_after_english(report) and not _memo_package_path(run_dir).exists():
+        # A run paused after its English for review continues with the
+        # Chinese through the same mechanics.
+        return True
+    phase = report.get("resume_last_failure_phase") or report.get("failure_phase")
+    return phase == CHINESE_PACKAGE_PHASE
+
+
+def _paused_after_english(report: dict) -> bool:
+    return PAUSED_AFTER_ENGLISH_STATUS in (
+        report.get("status"),
+        report.get("resume_from_status"),
+    )
+
+
+def _retry_chinese(report_id: str, report: dict, run_dir: Path) -> None:
+    """"Retry Chinese": translate only what is still blank, starting from
+    ``logs/memo_package.zh_partial.json`` (the Chinese that did land), then
+    the usual gap-fill repair and finalize. The accepted English package
+    and the delivered English DOCX are never rewritten; works on every
+    structure (v1 and v2) and for Memo Studio runs. A run paused after its
+    English (``pause_after_english``) continues the same way."""
+    _archive_stream_for_resume(run_dir)
+    stream = _RunStream(report_id, memo_prep.stream_path(run_dir), truncate=True)
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    continuing = _paused_after_english(report)
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title=(
+            f"Continue to Chinese — {company_name}"
+            if continuing
+            else f"Retry Chinese — {company_name}"
+        ),
+        subtitle="Chinese version only; the English is kept as delivered",
+        report_id=report_id,
+        company_id=str(report.get("company_id")),
+        run_id=str(report.get("run_id") or ""),
+        resumed=True,
+        retry_chinese=True,
+        **({"continue_after_pause": True} if continuing else {}),
+    )
+    _update_report(
+        report_id,
+        status="analyzing",
+        stage=(
+            "Writing the Chinese memo / 生成中文版"
+            if continuing
+            else "Retrying the Chinese memo / 重试中文版"
+        ),
+        progress=82,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+        quality_warnings=None,
+        quality_warnings_zh=None,
+        quality_warning_items=None,
+        english_only=None,
+    )
+    english_path = _english_package_path(run_dir)
+    try:
+        english = json.loads(english_path.read_text(encoding="utf-8"))
+        if not isinstance(english, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as exc:
+        message = (
+            "Retry Chinese cannot start: the accepted English package is "
+            f"unreadable ({type(exc).__name__}: {exc})"
+        )
+        _update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Retry Chinese failed",
+            error=message,
+            failure_phase="resume",
+            failure_detail=message,
+        )
+        stream.emit("error", error=message, phase="resume")
+        return
+    _chinese_from_english(
+        report_id,
+        report,
+        run_dir,
+        stream,
+        english,
+        prior_cost=_as_float(report.get("claude_cost_usd")),
+        deliver_english=False,
+    )
+
+
+def _chinese_from_english(
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream,
+    english: dict,
+    *,
+    prior_cost: float = 0.0,
+    deliver_english: bool,
+    started_at: str | None = None,
+    started_monotonic: float | None = None,
+) -> None:
+    """Phase 4 and finalize from an accepted English package on disk:
+    adopt every Chinese string that already landed (chase merge, the saved
+    partial), translate the rest, then deliver — both languages, or the
+    English alone when the Chinese fails again.
+
+    ``deliver_english`` renders the English DOCX first (a resume that
+    reuses the English package); "Retry Chinese" passes False — the English
+    DOCX it already delivered is never rewritten."""
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    _register_run_structure(run_dir, memo_structure.for_package(english))
+    if deliver_english:
+        _deliver_english_first(
+            report_id=report_id,
+            run_dir=run_dir,
+            english_package=english,
+            memo_paths={k: str(v) for k, v in _memo_paths_abs(report).items()},
+            stream=stream,
+        )
+    # Start from the English, then adopt every Chinese string that already
+    # landed (the adopt is zh-only and keyed on identical English, so it
+    # cannot alter a word of the English).
+    retry_input = json.loads(json.dumps(english))
+    for candidate in (
+        run_dir / "logs" / "memo_package.en.chased.json",
+        _zh_partial_package_path(run_dir),
+    ):
+        try:
+            partial = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(partial, dict):
+            claude_runner._adopt_zh_translations(retry_input, partial)
+    retry_input_path = run_dir / "logs" / "memo_package.zh_retry_input.json"
+    _write_json(retry_input_path, retry_input)
+
+    if deliver_english:
+        # A resume that reuses the English is still bound by the ceiling
+        # before its next paid phase; an explicit "Retry Chinese" is the
+        # analyst asking for exactly that one phase and runs.
+        cost_stop = _cost_guard_stop(
+            report_id=report_id,
+            run_dir=run_dir,
+            cost_usd=prior_cost,
+            phase="Chinese version",
+            stream=stream,
+        )
+        if cost_stop:
+            _save_zh_partial(run_dir, retry_input, english)
+            _finalize_memo_from_package(
+                report_id=report_id,
+                report=storage.get_report(report_id) or report,
+                run_dir=run_dir,
+                stream=stream,
+                result={
+                    "ok": True,
+                    "resumed": True,
+                    "retry_chinese": False,
+                    "english_only": True,
+                    "chinese_error": (
+                        "Chinese version not started: the run's cost "
+                        f"(US${cost_stop['cost_usd']:.2f}) reached its "
+                        f"US${cost_stop['ceiling_usd']:.2f} ceiling"
+                    ),
+                    "cost_ceiling": cost_stop,
+                    "cost_usd": round(prior_cost, 6),
+                    "duration_ms": report.get("claude_duration_ms"),
+                },
+                recovered=True,
+                background_started_at=started_at,
+                background_started_monotonic=started_monotonic,
+            )
+            return
+
+    phase4_started_at = _now_iso()
+    phase4_started = time.monotonic()
+    phase4_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE4_THREAD)
+    phase4_progress.emit("thread_started", title=claude_runner._MEMO_PHASE4_THREAD)
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_chinese_package",
+        status="started",
+        started_at=phase4_started_at,
+        started_monotonic=phase4_started,
+        retry_chinese=not deliver_english,
+    )
+    chinese = _run_chinese_package_stage(
+        run_dir=run_dir,
+        company_name=company_name,
+        run_id=run_id,
+        bilingual_input_path=retry_input_path,
+        progress=phase4_progress,
+        stream=stream,
+    )
+    result: dict[str, Any] = {
+        "ok": True,
+        "resumed": True,
+        "retry_chinese": not deliver_english,
+        "cost_usd": round(prior_cost + chinese.cost_usd, 6),
+        "duration_ms": report.get("claude_duration_ms"),
+    }
+    if not deliver_english:
+        # Whatever happens, the English DOCX stays as delivered.
+        result["keep_english_docx"] = True
+    if chinese.error:
+        _save_zh_partial(run_dir, chinese.partial, retry_input)
+        phase4_progress.emit("thread_failed", error=chinese.error)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_chinese_package",
+            status="failed",
+            started_at=phase4_started_at,
+            started_monotonic=phase4_started,
+            error=chinese.error,
+            english_delivered=True,
+        )
+        result.update(english_only=True, chinese_error=chinese.error)
+    else:
+        phase4_progress.emit("thread_finished")
+        # The Chinese was just written: its model joins the stamp.
+        _stamp_generated_with_on_disk(_memo_package_path(run_dir), report, run_dir)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_chinese_package",
+            status="finished",
+            started_at=phase4_started_at,
+            started_monotonic=phase4_started,
+            memo_package=memo_prep._rel(_memo_package_path(run_dir)),
+            cost_usd=round(chinese.cost_usd, 6),
+            claude_duration_ms=chinese.duration_ms,
+        )
+        if not deliver_english:
+            result.update(chinese_only=True)
+    _finalize_memo_from_package(
+        report_id=report_id,
+        report=storage.get_report(report_id) or report,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+        recovered=True,
+        background_started_at=started_at,
+        background_started_monotonic=started_monotonic,
+    )
+
+
+def _accepted_english_package(run_dir: Path) -> dict | None:
+    """The accepted English package, when it still passes the English
+    structural validation (the code may have changed since it was written);
+    None otherwise. Risk-card wording is a warning the package was accepted
+    with, not a reason to redo the English."""
+    path = _english_package_path(run_dir)
+    try:
+        package = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(package, dict):
+        return None
+    try:
+        # A package accepted with a small word-cap overrun (delivered with
+        # a length warning) still counts as accepted here.
+        if _blocking_validation_errors(
+            memo_docx_renderer.english_package_validation_errors(
+                package, editorial_risk_checks=False
+            ),
+            package,
+        ):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    return package
+
+
+def _resume_fail(report_id: str, stream, message: str, *, cost_usd: float | None = None) -> None:
+    _update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Memo resume failed",
+        error=message,
+        failure_phase="resume",
+        failure_detail=message,
+        **({"claude_cost_usd": cost_usd} if cost_usd is not None else {}),
+    )
+    _note_provider_limit(message)
+    stream.emit("error", error=message, phase="resume")
+
+
+def _resume_fast(
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream,
+    *,
+    reuse_english: bool = True,
+) -> None:
+    """Resume a fast-pipeline run from what is on disk instead of rewriting
+    it: the analysis passes that succeeded are kept and only the failed or
+    missing ones run again; an accepted English package that still
+    validates is reused and the run continues at the Chinese step; else
+    the English is synthesized again from the passes — with the run's OWN
+    structure (never forced to v1) and engine — and finalized.
+
+    A pass that fails again on a provider limit, a dead login or a cancel
+    stops the resume and names the cause instead of spending more.
+    ``reuse_english=False`` (a regeneration after an English quality
+    failure) always writes the English again."""
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    prior_cost = _as_float(report.get("claude_cost_usd"))
+    structure = _report_structure(report)
+    _register_run_structure(run_dir, structure)
+    stream.emit(
+        "stage",
+        stage="resume_fast",
+        message=(
+            "Resuming from the run's own analysis: keeping the passes that "
+            "succeeded"
+        ),
+        structure_stage=structure.stage,
+        structure_version=structure.version,
+        recovered=True,
+    )
+    english = _accepted_english_package(run_dir) if reuse_english else None
+    if english is not None:
+        stream.emit(
+            "stage",
+            stage="resume_english_reuse",
+            message="The accepted English package still validates; continuing at the Chinese step",
+            memo_package=memo_prep._rel(_english_package_path(run_dir)),
+            recovered=True,
+        )
+        _chinese_from_english(
+            report_id,
+            report,
+            run_dir,
+            stream,
+            english,
+            prior_cost=prior_cost,
+            deliver_english=True,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+        )
+        return
+
+    research_dir = _research_dir_for(company_slug)
+    lessons_path = serena_analysis.memo_lessons_path(company_slug)
+    if not lessons_path.exists():
+        lessons_path = None
+    warnings = list(report.get("warnings") or [])
+    scope_check = report.get("scope_check")
+    analysis_session_path = _analysis_session_path_for_report(
+        company_slug, report, require_approved=True
+    )
+    cost_usd = 0.0
+    if analysis_session_path is None:
+        records = _fast_pass_records(run_dir)
+        rerun = [
+            spec
+            for spec in _FAST_MEMO_PASSES
+            if str((records.get(spec.pass_id) or {}).get("status") or "") != "ok"
+        ]
+        kept = len(_FAST_MEMO_PASSES) - len(rerun)
+        stream.emit(
+            "stage",
+            stage="resume_passes",
+            message=(
+                f"Keeping {kept} analysis pass(es) from the run; "
+                f"re-running {len(rerun)}"
+            ),
+            kept=kept,
+            rerun=[spec.pass_id for spec in rerun],
+            recovered=True,
+        )
+        if rerun:
+            common_context = _pass_common_context(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                research_dir=research_dir,
+                lessons_path=lessons_path,
+                scope_check=scope_check,
+                warnings=warnings,
+                structure=structure,
+            )
+            with ThreadPoolExecutor(
+                max_workers=min(_memo_fast_max_workers(), len(rerun))
+            ) as pool:
+                results = list(
+                    pool.map(
+                        lambda spec: _run_fast_memo_pass(
+                            spec=spec,
+                            run_dir=run_dir,
+                            company_name=company_name,
+                            company_slug=company_slug,
+                            run_id=run_id,
+                            stream=stream,
+                            research_dir=research_dir,
+                            lessons_path=lessons_path,
+                            scope_check=scope_check,
+                            warnings=warnings,
+                            structure=structure,
+                            common_context=common_context,
+                        ),
+                        rerun,
+                    )
+                )
+            cost_usd += sum(result.cost_usd for result in results)
+            for result in results:
+                cause = _pass_stop_cause(result.error)
+                if cause:
+                    _resume_fail(
+                        report_id,
+                        stream,
+                        f"Resume stopped: {cause}. The analysis passes that "
+                        "succeeded are kept; Resume again reruns only the rest.",
+                        cost_usd=round(prior_cost + cost_usd, 6),
+                    )
+                    return
+            if kept == 0 and not any(result.ok for result in results):
+                _resume_fail(
+                    report_id,
+                    stream,
+                    _fast_passes_failure_message(results),
+                    cost_usd=round(prior_cost + cost_usd, 6),
+                )
+                return
+
+    zh_chaser = None
+    if _memo_zh_chasing_enabled():
+        zh_chaser = claude_runner.BilingualChaser(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            stream=stream,
+            structure=structure,
+        )
+    memo_paths = {k: str(v) for k, v in _memo_paths_abs(report).items()}
+    result = _run_fast_synthesis(
+        run_dir=run_dir,
+        stream=stream,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        zh_chaser=zh_chaser,
+        speculator=None,
+        cost_usd=cost_usd,
+        worker_duration_ms=0,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        structure=structure,
+        report_id=report_id,
+    )
+    if not result.get("ok"):
+        _resume_fail(
+            report_id,
+            stream,
+            str(result.get("error") or "Resume could not write the memo package"),
+            cost_usd=round(prior_cost + _as_float(result.get("cost_usd")), 6),
+        )
+        return
+    if result.get("paused_after_english"):
+        _update_report(
+            report_id,
+            claude_cost_usd=round(prior_cost + _as_float(result.get("cost_usd")), 6),
+        )
+        return
+    result["cost_usd"] = round(prior_cost + _as_float(result.get("cost_usd")), 6)
+    result["resumed"] = True
+    _finalize_memo_from_package(
+        report_id=report_id,
+        report=storage.get_report(report_id) or report,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+        recovered=True,
+    )
+
+
 def _resume(report_id: str) -> None:
     report = storage.get_report(report_id)
     if report is None:
@@ -5971,11 +11018,22 @@ def _resume(report_id: str) -> None:
         run_dir, str(report.get("model_quality") or "best")
     )
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    claude_runner.register_memo_run_check_size(run_dir, _check_size_text())
+    _register_prior_view(report, run_dir)
     _register_source_capture(report, run_dir)
+
+    if _chinese_retry_requested(report, run_dir):
+        # "Retry Chinese": the English was delivered; only the Chinese runs.
+        _retry_chinese(report_id, report, run_dir)
+        return
 
     package_path = _memo_package_path(run_dir)
     analysis_artifacts = _analysis_artifact_paths(run_dir)
-    if not package_path.exists() and not analysis_artifacts:
+    if (
+        not package_path.exists()
+        and not analysis_artifacts
+        and not _english_package_path(run_dir).exists()
+    ):
         raise RuntimeError(
             "Cannot resume: no memo_package.json or analysis artifacts exist"
         )
@@ -5991,6 +11049,12 @@ def _resume(report_id: str) -> None:
         report,
         quality_lint_path=quality_lint_path,
     )
+    # Where a regeneration goes: the fast resume continues from disk with
+    # the run's own structure; the legacy one-shot agent (BSH_MEMO_FAST_
+    # PIPELINE=0, and the v1 quality regeneration) writes only late v1.
+    resume_structure = _report_structure(report)
+    v2_run = not _structure_is_v1(resume_structure)
+    fast_resume = _memo_fast_pipeline_enabled() and (v2_run or not quality_failed)
 
     _archive_stream_for_resume(run_dir)
     stream = _RunStream(report_id, memo_prep.stream_path(run_dir), truncate=True)
@@ -6017,8 +11081,33 @@ def _resume(report_id: str) -> None:
         error=None,
         failure_phase=None,
         failure_detail=None,
+        # The resumed run delivers new documents and states its own warnings.
+        quality_warnings=None,
+        quality_warnings_zh=None,
+        quality_warning_items=None,
+        english_only=None,
+        english_ready_at=None,
     )
 
+    if quality_failed and package_path.exists() and not fast_resume and v2_run:
+        # Nothing can regenerate this structure here; say so BEFORE the
+        # delivered package is archived, never after.
+        message = (
+            "Resume cannot regenerate this memo: the run uses the "
+            f"{resume_structure.stage} v{resume_structure.version} report "
+            "structure, and with BSH_MEMO_FAST_PIPELINE=0 the resume agent "
+            "only writes the legacy structure. Run a fresh report instead."
+        )
+        _update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Memo resume failed",
+            error=message,
+            failure_phase="resume",
+            failure_detail=message,
+        )
+        stream.emit("error", error=message, phase="resume")
+        return
     if quality_failed and package_path.exists():
         if not analysis_artifacts:
             message = (
@@ -6127,26 +11216,23 @@ def _resume(report_id: str) -> None:
             "duration_ms": report.get("claude_duration_ms"),
         }
     else:
+        if fast_resume:
+            # Continue the run from disk (kept passes, reused English, the
+            # run's own structure and engine) instead of rewriting it.
+            _resume_fast(
+                report_id,
+                storage.get_report(report_id) or report,
+                run_dir,
+                stream,
+                reuse_english=not quality_failed,
+            )
+            return
         # The resume regeneration agent (run_resume_memo_package) writes
         # the historical late v1 package shape; a run classified into a
         # v2-family structure cannot be regenerated by it — that would
         # silently downgrade the report's structure. Fail loudly instead.
-        stage_info = report.get("structure_stage")
-        resume_stage = (
-            str(stage_info.get("stage") or "late")
-            if isinstance(stage_info, dict)
-            else "late"
-        )
-        resume_type_info = report.get("company_type")
-        resume_structure = memo_structure.active_structure(
-            resume_stage,
-            str(report.get("structure_mode") or "full"),
-            (
-                str(resume_type_info.get("type") or "") or None
-                if isinstance(resume_type_info, dict)
-                else None
-            ),
-        )
+        # The structure is the run's own: its recorded template version,
+        # never the env flag of the day.
         if resume_structure.scorecard_weights():
             message = (
                 "Resume cannot regenerate this memo: the run uses the "
@@ -6207,9 +11293,9 @@ def _resume(report_id: str) -> None:
                 company_slug=company_slug,
                 run_id=run_id,
                 settings_path=memo_prep.SETTINGS_FILE,
-                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                companies_yaml_path=_run_companies_yaml(run_dir),
                 memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-                research_dir=research_store.RESEARCH_ROOT / company_slug,
+                research_dir=_research_dir_for(company_slug),
                 analysis_session_path=analysis_session_path,
                 lessons_path=lessons_path,
                 scope_check=report.get("scope_check"),
@@ -6247,7 +11333,7 @@ def _resume(report_id: str) -> None:
                     failed_gate = "renderer validation"
                     if not package_error:
                         package_error = _memo_package_prerender_quality_error(
-                            package_path
+                            package_path, run_dir=run_dir
                         )
                         archive_label = "quality_failed"
                         failed_gate = "pre-render quality checks"
@@ -6461,15 +11547,16 @@ def _run(report_id: str) -> None:
 
     _write_recent_news_file(
         str(report.get("company_id") or company_slug),
-        research_store.RESEARCH_ROOT / company_slug,
+        _research_dir_for(company_slug),
     )
     _write_decision_record_file(
         str(report.get("company_id") or company_slug),
-        research_store.RESEARCH_ROOT / company_slug,
+        _research_dir_for(company_slug),
     )
+    _stage_run_inputs(report, run_dir, _research_dir_for(company_slug), stream)
     _write_known_sources_file(
         str(report.get("company_id") or company_slug),
-        research_store.RESEARCH_ROOT / company_slug,
+        _research_dir_for(company_slug),
     )
 
     with _creeping_report_progress(
@@ -6519,7 +11606,7 @@ def _run(report_id: str) -> None:
                 settings_path=memo_prep.SETTINGS_FILE,
                 companies_yaml_path=memo_prep.COMPANIES_FILE,
                 memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-                research_dir=research_store.RESEARCH_ROOT / company_slug,
+                research_dir=_research_dir_for(company_slug),
                 analysis_session_path=analysis_session_path,
                 lessons_path=lessons_path,
                 scope_check=report.get("scope_check"),
@@ -6538,6 +11625,9 @@ def _run(report_id: str) -> None:
                 usage=result.get("usage"),
                 error=result.get("error"),
             )
+            if result.get("ok"):
+                # The one-shot skill just wrote the whole package.
+                _stamp_generated_with_on_disk(_memo_package_path(run_dir), report, run_dir)
 
     if not result.get("ok"):
         message = result.get("error") or "Claude skill run failed"
@@ -6608,6 +11698,12 @@ def _run(report_id: str) -> None:
             phase="analysis",
             artifacts_available=salvaged,
         )
+        return
+
+    if result.get("paused_after_english"):
+        # The run stopped after its English for review: its record and its
+        # stream (closed with `done`) already say so; Resume writes the
+        # Chinese.
         return
 
     finalized = _finalize_memo_from_package(
@@ -6711,6 +11807,8 @@ def _investigate(report_id: str) -> None:
         run_dir, str(report.get("model_quality") or "best")
     )
     memo_engine.register_run_engine(run_dir, report.get("engine"))
+    claude_runner.register_memo_run_check_size(run_dir, _check_size_text())
+    _register_prior_view(report, run_dir)
     _register_source_capture(report, run_dir)
     stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=False
@@ -6728,13 +11826,14 @@ def _investigate(report_id: str) -> None:
         lessons_path = None
     warnings = list(report.get("warnings") or [])
     scope_check = report.get("scope_check")
-    research_dir = research_store.RESEARCH_ROOT / company_slug
+    research_dir = _research_dir_for(company_slug)
     _write_recent_news_file(
         str(report.get("company_id") or company_slug), research_dir
     )
     _write_decision_record_file(
         str(report.get("company_id") or company_slug), research_dir
     )
+    _stage_run_inputs(report, run_dir, research_dir, stream)
     _write_known_sources_file(
         str(report.get("company_id") or company_slug), research_dir
     )
@@ -6863,7 +11962,7 @@ def _investigate(report_id: str) -> None:
             company_slug=company_slug,
             run_id=run_id,
             settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            companies_yaml_path=_run_companies_yaml(run_dir),
             memo_paths=memo_paths,
             research_dir=research_dir,
             analysis_session_path=None,
@@ -7024,7 +12123,7 @@ def _generate_from_studio(report_id: str) -> None:
         lessons_path = None
     warnings = list(report.get("warnings") or [])
     scope_check = report.get("scope_check")
-    research_dir = research_store.RESEARCH_ROOT / company_slug
+    research_dir = _research_dir_for(company_slug)
 
     _archive_stream(run_dir, label="generate")
     final_package_path = _memo_package_path(run_dir)
@@ -7039,6 +12138,9 @@ def _generate_from_studio(report_id: str) -> None:
     stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=True
     )
+    _update_report(report_id, english_ready_at=None, english_only=None)
+    claude_runner.register_memo_run_check_size(run_dir, _check_size_text())
+    _register_prior_view(report, run_dir)
     generation = report.get("studio_generate") or {}
     stream.emit(
         "job_init",
@@ -7112,6 +12214,8 @@ def _generate_from_studio(report_id: str) -> None:
             claude_cost_usd=result.get("cost_usd"),
         )
         stream.emit("error", error=message, phase="studio_generate")
+        return
+    if result.get("paused_after_english"):
         return
 
     _finalize_memo_from_package(

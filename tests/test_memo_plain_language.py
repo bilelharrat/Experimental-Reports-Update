@@ -70,7 +70,10 @@ def test_risk_card_v2_has_verdict_and_impact_rows():
 def test_addendum_teaches_instead_of_asserting():
     addendum = claude_runner.MEMO_STRUCTURE_V2_ADDENDUM
     assert "## Teach, don't assert" in addendum
-    assert "Define a term the first time it appears" in addendum
+    # 2026-09 round: define-once replaced "define a term the first time it
+    # appears" — the glossary block carries the definitions.
+    assert "A term is defined ONCE in the memo" in addendum
+    assert "never re-define it" in addendum
     assert "the middle step missing" in addendum
     # Both founder-review worked examples ride the cached context.
     assert "sevenfold in seven months" in addendum
@@ -205,6 +208,8 @@ def test_highlight_and_risk_bullets_render_bold_lead(tmp_path):
     memo_docx_renderer._add_block(document, plain, "en")
     paragraphs = document.paragraphs
     lead, rest = paragraphs[-2].runs[0], paragraphs[-2].runs[1]
-    assert lead.text == "• Acme leads its category." and lead.bold is True
+    # A real bullet (Word numbering), not a typed "• " character.
+    assert paragraphs[-2]._p.pPr.numPr is not None
+    assert lead.text == "Acme leads its category." and lead.bold is True
     assert rest.text == " It holds 40% of spend." and not rest.bold
     assert len(paragraphs[-1].runs) == 1 and not paragraphs[-1].runs[0].bold

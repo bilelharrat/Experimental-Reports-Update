@@ -58,7 +58,11 @@ them say what is knowable instead. Scorecard weights for this stage
 团队与治理 25 | 估值（交易条款）10 | 退出确定性 5 | 风险收益比 5.
 Every section is organized under its declared numbered subsections;
 the run-wide data-honesty, navigation, and chart rules ride the shared
-context.
+context. A pinned fact is stated verbatim once in each section the pin
+sheet requires it in, and referred to without the figure everywhere
+else ("the seed round's cap", "the base case"); a term of art is
+defined once, in the executive summary's "Terms used" block, and used
+bare after that.
 
 ## section: executive_summary
 ```yaml
@@ -87,7 +91,8 @@ subsections:
 ```
 
 500-700 words. The summary's one job is to say what matters. It
-contains NO tables — every number it needs lives in a sentence that
+contains NO tables (its last block, the "Terms used" glossary, is a
+`glossary` block) — every number it needs lives in a sentence that
 interprets it (the Key Facts table lives in the Founders & Company
 section, the Deal Terms table in Deal Terms & Required Returns).
 Content per subsection:
@@ -124,7 +129,13 @@ Content per subsection:
    placeholders verbatim. With a pinned verdict tier and scorecard,
    open on "{tier} — {total}/100". A pinned
    `decision_history_sentence` is stated verbatim after the callout as
-   history.
+   history. Then, as the LAST block of the section, the "Terms used"
+   glossary: a `glossary` block with `component: "glossary"` and
+   `items`, one per term of art this memo uses (SAFE, post-money,
+   valuation cap, MOIC, IRR, ARR, run-rate and the like — 6-15 items),
+   each `{"term": {"en", "zh"}, "definition": {"en", "zh"}}` with the
+   definition in five to ten words. It is where every such term is
+   defined; no section defines them again.
 
 ## section: company_team
 ```yaml
@@ -358,6 +369,18 @@ requires. Content per subsection:
    chart slot `chart_required_exits`: a `chart` block (suggested bar; x = 3x /
    5x / 10x; y = the required exit valuation) from those same
    numbers, followed by its one-sentence reading.
+   Then "What has to be true": when the shared fact sheet carries the
+   Python-computed price lines — the exit value and exit-year revenue
+   that return the money, clear the firm's bar and return 3x at this
+   price; the breakeven entry price; the growth each case implies from
+   the latest disclosed revenue; the base-case IRR if the exit slips a
+   year or two; BSH's own proceeds by case when a check is on file —
+   state each line verbatim with its [C#], then say in one sentence
+   what the gap between what is needed and what the base case assumes
+   means: a base case that already needs more than the company has
+   shown is a bull case wearing a base case's label. When the fact
+   sheet carries none of these lines, write nothing for them — never
+   compute them here.
 4. The merely-good outcome: what a merely-good outcome (the most
    common early-stage "success": a $50-150M acquisition) returns to
    this cheque after the stack above it — in dollars and MOIC.
@@ -407,14 +430,11 @@ Content per subsection:
 2. Risk cards: 4-6 per-risk cards, ordered by rating highest first,
    using EXACTLY the pinned risk list and ratings. Card = level-3
    heading (the pinned summary — a complete verdict sentence, never a
-   topic label) + key_value table with `component: "risk_register"`,
-   rows: Risk Type | Why it matters (fact → failure mode →
-   consequence) | What we watch (at this stage: the MILESTONE that
-   retires the risk — the observable proof point with its expected
-   date, because that is what the next round prices) | Mitigation
-   (the real mechanism — company action, deal structure, or position
-   sizing; when none exists: "No structural mitigation exists.
-   <consequence>") | Likelihood | Risk Rating N/10.
+   topic label) + key_value table with `component: "risk_register"`.
+   The card format is the risk-card contract in your instructions: its
+   fixed rows, in its order. At this stage "What we watch" names the
+   MILESTONE that retires the risk — the observable proof point with
+   its expected date, because that is what the next round prices.
 3. Disconfirming evidence: the treatment with
    `component: "disconfirming_evidence"`: the strongest facts against
    the bet, each weighed in one sentence.
@@ -483,6 +503,11 @@ subsections:
    placeholders verbatim. A one-line legal disclosure paragraph with
    `component: "disclosures"` follows. A pinned
    `decision_history_sentence` is restated verbatim as history.
+   When it pins a `prior_view_sentence` — what BSH's previous memo on
+   this company concluded — restate it verbatim beside the callout
+   too, followed by one sentence on what changed since, or why the
+   view holds. It is history, not evidence: no figure from the
+   previous memo is cited.
 5. Monitoring & triggers: the "Monitoring Indicators" table (投后监控):
    3-5 rows — Indicator | Current value | Trigger threshold | Response
    — drawn from the Milestone Map. Titled "What changes the verdict"

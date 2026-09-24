@@ -36,6 +36,10 @@ DEFAULTS: dict[str, bool] = {
     "BSH_MEMO_ZH_COMPACT": True,
     # Feed pin-echo findings to the surgical repair.
     "BSH_MEMO_PIN_CHECK_REPAIR": True,
+    # One cheap-tier challenge pass over the accepted English package; its
+    # challenges feed the surgical repair and the unaddressed ones become
+    # red_team warnings. Report-only: it never fails a run.
+    "BSH_MEMO_RED_TEAM": True,
 }
 
 _TRUE = {"1", "true", "yes", "on"}

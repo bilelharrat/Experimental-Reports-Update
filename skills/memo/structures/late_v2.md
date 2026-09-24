@@ -41,7 +41,11 @@ same charts, and the same named passages, with missing data stated as
 missing (the run-wide data-honesty, navigation, and chart rules ride
 the shared context). Every section is organized under its declared
 numbered subsections — the reader learns what a passage is about from
-its heading, never from the paragraph explaining itself.
+its heading, never from the paragraph explaining itself. A pinned fact
+is stated verbatim once in each section the pin sheet requires it in,
+and referred to without the figure everywhere else ("the February 2026
+mark", "the base case"); a term of art is defined once, in the
+executive summary's "Terms used" block, and used bare after that.
 
 ## section: executive_summary
 ```yaml
@@ -71,9 +75,10 @@ subsections:
 
 700-900 words. This section is the memo an IC member reads when they
 read nothing else, and its one job is to say what matters. It contains
-NO tables — every number it needs lives in a sentence that interprets
-it (the Deal Snapshot and Key Metrics Snapshot tables live in the
-Company Overview section). Content per subsection:
+NO tables (its last block, the "Terms used" glossary, is a `glossary`
+block) — every number it needs lives in a sentence that interprets it
+(the Deal Snapshot and Key Metrics Snapshot tables live in the Company
+Overview section). Content per subsection:
 
 1. Company profile: one plain-language sentence on what the company
    does and for whom; one sentence on sector and geography; one
@@ -87,10 +92,11 @@ Company Overview section). Content per subsection:
 3. Investment highlights: OPEN with the pinned case-summary sentence
    from the shared fact sheet, with the company's name in place of
    "The case" — one short paragraph that says WHICH dimensions carry
-   the case and which are weak, with their scores ("Anthropic's case
-   rests on market size and growth (14/15), industry position (13/15)
-   and revenue growth and quality (12/15); it is thinnest on
-   business model and unit economics (5/10) and valuation (6/10)."),
+   the case and which are weak, with their scores ("Tarnwell's case
+   rests on market size and growth (13/15), industry position (12/15)
+   and moat (11/15); it is thinnest on business model and unit
+   economics (4/10) and valuation (5/10)." — Tarnwell Robotics is a
+   fictional company; copy the shape, never the facts),
    optionally followed by one sentence saying what that pattern
    means. Then ONE `bullets` block with `"component":
    "investment_highlights"` and EXACTLY three items, one per pinned
@@ -125,7 +131,13 @@ Company Overview section). Content per subsection:
    "{tier} — {total}/100". When the shared fact sheet pins a
    `decision_history_sentence`, state it verbatim after the callout as
    factual history — what BSH previously decided, never this memo's
-   own conclusion.
+   own conclusion. Then, as the LAST block of the section, the "Terms
+   used" glossary: a `glossary` block with `component: "glossary"` and
+   `items`, one per term of art this memo uses (MOIC, IRR, ARR, NRR,
+   CAGR, TAM/SAM/SOM, run-rate, post-money, MOU and the like — 6-15
+   items), each `{"term": {"en", "zh"}, "definition": {"en", "zh"}}`
+   with the definition in five to ten words. It is where every such
+   term is defined; no section defines them again.
 
 ## section: company_overview
 ```yaml
@@ -691,6 +703,18 @@ the money actually comes back. Content per subsection:
    MOIC; y = the three factors) from those same numbers, with its
    one-sentence reading. When the decomposition cannot be computed
    from pinned numbers, no chart: the chart-omitted fallback line.
+   Then "What has to be true": when the shared fact sheet carries the
+   Python-computed price lines — the exit value and exit-year revenue
+   that return the money, clear the firm's bar and return 3x at this
+   price; the breakeven entry price; the growth each case implies from
+   the latest disclosed revenue; the base-case IRR if the exit slips a
+   year or two; BSH's own proceeds by case when a check is on file —
+   state each line verbatim with its [C#], then say in one sentence
+   what the gap between what is needed and what the base case assumes
+   means: a base case that already needs more than the company has
+   shown is a bull case wearing a base case's label. When the fact
+   sheet carries none of these lines, write nothing for them — never
+   compute them here.
 3. Exit map: the "Exit Map" table — the next 4 calendar years × the
    three routes (IPO / M&A / secondary), each cell Readiness +
    Likelihood. Follow with one passage per route: IPO readiness
@@ -751,13 +775,10 @@ not listed. Content per subsection:
    `component: "risk_register"`. The heading is the pinned summary — a
    complete verdict sentence with a finite verb ("The entry price
    already assumes success — ordinary execution earns nothing"), never
-   a topic label like "Entry Price". Card rows: Risk Type | Why it
-   matters (fact → failure mode → economic consequence, with the
-   arithmetic when quantifiable) | What we watch (the observable
-   leading indicator) | Mitigation (the real mechanism — company
-   action, deal structure, or position sizing; when none exists: "No
-   structural mitigation exists. <consequence>") | Likelihood | Risk
-   Rating N/10.
+   a topic label like "Entry Price". The card format is the risk-card
+   contract in your instructions: its fixed rows, in its order, with
+   "Why it matters" carrying fact → failure mode → economic
+   consequence, and the arithmetic when quantifiable.
 3. Disconfirming evidence: the treatment with
    `component: "disconfirming_evidence"`: the strongest facts AGAINST
    this memo's recommendation, stated fairly, each with one sentence
@@ -834,6 +855,11 @@ subsections:
    documents. When the shared fact sheet pins a
    `decision_history_sentence`, restate it here verbatim as history,
    adjacent to (never inside) the recommendation callout.
+   When it pins a `prior_view_sentence` — what BSH's previous memo on
+   this company concluded — restate it verbatim beside the callout
+   too, followed by one sentence on what changed since, or why the
+   view holds. It is history, not evidence: no figure from the
+   previous memo is cited.
 5. Monitoring & triggers: the "Monitoring Indicators" table (投后监控):
    4-6 rows — Indicator | Current value | Trigger threshold | Response
    if triggered. When the verdict is a watch/pass, title this table

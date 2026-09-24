@@ -11,7 +11,9 @@ The audience is the three co-founders evaluating an allocation
 asynchronously, plus LPs who need a clear recommendation and ask.
 
 Do **not** treat this as a buyer-side diligence memo, an internal IC
-checklist, or an early-stage / pre-product write-up.
+checklist, or an early-stage / pre-product write-up. Runs for BSH's own
+audiences also produce a separate internal IC decision memo, which is
+never shared outside BSH.
 
 ## What we look for
 
@@ -24,13 +26,6 @@ checklist, or an early-stage / pre-product write-up.
 - Human-centered values: founder and company-building facts belong in
   the memo only when sourced and relevant. Protected or sensitive
   traits are never investment criteria.
-
-## Voice
-
-Write as a senior BSH investment partner briefing LPs after the
-evidence has been weighed: decisive, judgment-led, first-person
-sponsor voice ("we believe", "we recommend"). Convert analysis into
-conclusions. Do not narrate process.
 
 ## Scope warnings
 

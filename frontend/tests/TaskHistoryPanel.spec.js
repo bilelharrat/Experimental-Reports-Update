@@ -36,7 +36,7 @@ describe("TaskHistoryPanel", () => {
         finished_at: "2026-09-10T00:36:00+00:00",
         claude_cost_usd: 12.5,
         log_url: "/api/jobs/log?path=memo:r1",
-        primary_route: { name: "report", params: { reportId: "r1" } },
+        primary_route: { name: "reports", query: { id: "r1" } },
       },
       {
         id: "b2",

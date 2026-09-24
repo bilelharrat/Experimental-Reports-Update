@@ -27,21 +27,24 @@ GOLDEN_SECTION_IDS = (
     "financial_forecast_valuation",
 )
 
+# The renderer owns the numbering (R27): roman in English, 一、二、 in
+# Chinese. The sources back matter follows its own profile entry
+# (``numbered: true`` -> the next numeral after the core sections).
 GOLDEN_SECTION_TITLES = {
-    "executive_summary": {"en": "I. Executive Summary", "zh": "I. 执行摘要"},
-    "company_overview": {"en": "II. Company Overview", "zh": "II. 公司概览"},
+    "executive_summary": {"en": "I. Executive Summary", "zh": "一、执行摘要"},
+    "company_overview": {"en": "II. Company Overview", "zh": "二、公司概览"},
     "investment_highlights": {
         "en": "III. Investment Highlights",
-        "zh": "III. 投资亮点",
+        "zh": "三、投资亮点",
     },
-    "investment_risk": {"en": "IV. Investment Risk", "zh": "IV. 投资风险"},
+    "investment_risk": {"en": "IV. Investment Risk", "zh": "四、投资风险"},
     "financial_forecast_valuation": {
         "en": "V. Financial Forecast & Valuation",
-        "zh": "V. 财务预测与估值",
+        "zh": "五、财务预测与估值",
     },
     "sources": {
         "en": "VI. Sources, Source Classes, and Fact Reference Index",
-        "zh": "VI. 来源、来源类别与事实索引",
+        "zh": "六、来源、来源类别与事实索引",
     },
     "validation_log": {
         "en": "Appendix: Source Treatment And Assumptions",
@@ -203,11 +206,54 @@ def test_content_floors_match_old_behavior():
     assert floors["company_overview"] == memo_structure.ContentFloor()
 
 
-def test_numbered_prefix_pattern_matches_old_regex():
+def test_numbered_prefix_pattern_covers_extra_sections():
+    """The renderer numbers the sections a package adds after the core
+    five ("VI. Investment Decision", "VII. Disclosures"), so the lint must
+    recognise those numerals too — longest first, so "iv." is never read
+    as "i"."""
     pattern = LATE.numbered_prefix_pattern()
-    assert pattern.pattern == r"^(i|ii|iii|iv|v|vi)\.\s+"
-    assert pattern.match("iv. investment risk")
-    assert not pattern.match("vii. anything")
+    assert pattern.match("iv. investment risk").group(1) == "iv"
+    assert pattern.match("vii. disclosures")
+    assert pattern.match("xii. anything")
+    assert not pattern.match("appendix a: sources")
+    assert not pattern.match("mix. of words")
+    assert not pattern.match("investment risk")
+
+
+def test_numbering_helpers():
+    assert memo_structure.numbered_title(4, "Investment Risk", "en") == "IV. Investment Risk"
+    assert memo_structure.numbered_title(4, "投资风险", "zh") == "四、投资风险"
+    assert memo_structure.numbered_title(12, "最终投资决定", "zh") == "十二、最终投资决定"
+    assert memo_structure.numbered_title(20, "x", "zh") == "二十、x"
+    for raw, bare in (
+        ("VI. Investment Decision", "Investment Decision"),
+        ("六、投资决策", "投资决策"),
+        ("Appendix A: Sources", "Sources"),
+        ("附录一：来源", "来源"),
+        ("Investment Decision", "Investment Decision"),
+        ("3.5x Returns", "3.5x Returns"),
+        ("Civil. rights", "Civil. rights"),
+    ):
+        assert memo_structure.strip_section_numeral(raw) == bare, raw
+
+
+def test_heading_matches_sets_the_renderers_numeral_aside():
+    """The profile's sources pattern names its own position ("VI." in late
+    v1); the renderer numbers the back matter after any extra sections, so
+    "VIII. Sources, ..." / "八、来源、..." must still be the sources section —
+    while a model-written arabic subsection number is judged as written."""
+    patterns = LATE.parity_patterns()["sources"]
+    for text in (
+        "VI. Sources, Source Classes, and Fact Reference Index",
+        "VIII. Sources, Source Classes, and Fact Reference Index",
+        "Sources",
+    ):
+        assert memo_structure.heading_matches(patterns["en"], text), text
+    for text in ("六、来源、来源类别与事实索引", "八、来源、来源类别与事实索引", "XV. 来源"):
+        assert memo_structure.heading_matches(patterns["zh"], text), text
+    assert not memo_structure.heading_matches(patterns["en"], "2. Sources")
+    assert not memo_structure.heading_matches(patterns["en"], "VIII. Source list")
+    assert not memo_structure.heading_matches(None, "Sources")
 
 
 def test_lint_section_titles_match_old_literal_set():

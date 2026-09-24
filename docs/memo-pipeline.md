@@ -160,6 +160,32 @@ any prior run.
 - `status`, `stage`, `progress`, `created_at`, `updated_at`
 - After completion: `content_en`, `content_zh` (one-screen previews),
   `validation`, `claude_cost_usd`, `claude_duration_ms`
+- `generated_with` — the engine, template, structure and the model that
+  actually answered for each role (page one of the memo prints the line)
+- `quality_metrics` — deterministic quality numbers computed at finalize
+  (`server/memo_quality_metrics.py`): figures traced, over-cap sections,
+  conflicting figures, repetition index, Chinese term drift
+- `quality_warning_items` — one entry per warning, with its gate:
+  `quality`, `chinese_parity`, `chinese_package`, `ic_memo`,
+  `private_diligence`, `boundary`, `returns`, `pins` (a pinned sentence —
+  the base case, the prior view — not echoed where its section contract
+  puts it), `signposts`, `risk_cards`,
+  `length` (a section delivered slightly over its word cap), `claims`
+  (an evidence quote the cached page does not contain), `consistency`
+  (the same metric with different values), `red_team` (a challenge the
+  repair did not address), `cost` (the spend ceiling stopped the run)
+- `pause_after_english` / status `english_ready_paused` — the run stopped
+  after rendering the English so a reviewer can read it before the
+  Chinese, artifacts and IC memo are paid for; the resume endpoint
+  continues it
+- `cost_ceiling_usd` — the per-run spend ceiling, when the request set one
+
+Run-folder additions from the same work: `logs/glossary.json` (the
+bilingual term list every translation call is held to),
+`logs/evidence_quotes.json` (verbatim quotes the analysis passes recorded
+per claim), `logs/red_team.json`, `logs/quality_metrics.json`, and
+`.claude/settings.json` (the per-run sandbox: agents may read only the run
+folder and the company's research folder).
 
 ## What Python contributes vs. what Claude contributes
 
@@ -176,6 +202,24 @@ any prior run.
   `BSH_MEMO_FAST_PIPELINE=0`.
 - Stable DOCX rendering from `logs/memo_package.json`
   (`server/memo_docx_renderer.py`).
+- The returns arithmetic on the v2 pin sheet (`server/memo_returns.py`):
+  exit values, MOIC and IRR recomputed; the probability-weighted MOIC; the
+  walk-away price against the saved fund policy; and the partner's price
+  questions — the exit value and exit-year revenue that return the money,
+  clear the bar and return 3x at this price, the breakeven entry, the
+  growth each case implies from the latest pinned revenue, the base-case
+  IRR if the exit slips, and BSH's ownership, proceeds and share of the
+  fund when the deal record carries a proposed check (and the reserves
+  page a saved fund size). Each lands as a `[C#]` note and a pin-sheet
+  line; the section contracts state them verbatim ("What has to be
+  true"), and the IC memo copies them.
+- The prior view (`memo_analysis.prior_view_for_report`): the company's
+  most recent delivered memo of the same kind — verdict, score, entry mark
+  and date, never its evidence — pinned as `shared_facts.prior_view_sentence`
+  so the section that carries the recommendation (the decision section; the
+  executive summary on the v1 template) and the IC memo state it and say
+  what changed. A missing echo is a `pins` warning. `BSH_MEMO_PRIOR_VIEW=0`
+  turns it off.
 - Post-run verification: did Claude avoid generated renderer scripts, did
   the package pass schema validation, do the expected `.docx` files and
   renderer logs exist, and does the English memo pass the quality gate?
@@ -226,14 +270,24 @@ show the reason; no Claude invocation is spent.
 same prep handshake (`memo_prep.bootstrap_memo_run(..., report_type=...)`)
 and the same run-folder / SSE / DOCX download surface. Differences:
 
-- Report `kind` is `buffett_investment_memo`.
-- Skill: `server/skills/bsh_buffett_investment_memo.md`.
+- Report `kind` is `buffett_investment_memo`; the reader-facing label is
+  "Buffett-Method Memo" / "巴菲特方法备忘录".
+- Skill: `skills/memo/buffett.md` (loaded with `memo_prompts.load_prompt`),
+  with the Chinese team's twin at `skills/memo/zh/buffett.md`.
 - Worker: `server/buffett_memo_analysis.py` (one Claude subprocess, not the
-  eight-pass late-stage fast pipeline).
+  eight-pass late-stage fast pipeline). The run pins the share price and the
+  10-year yield from live quotes (`BSH_BUFFETT_PIN_QUOTES`), requires a short
+  web-research step, and captures what it reads into the source cache.
 - Renderer: `server/buffett_memo_renderer.py` turns `logs/memo_package.json`
-  markdown into both `.docx` files. Claude must not write Word files.
-- Voice is first-person Buffett. It does not consume
+  markdown into both `.docx` files with the BSH frame (header, review stamp,
+  "Page X of Y", disclaimer). Claude must not write Word files.
+- Checks: `server/buffett_checks.py` (voice, stock phrases, valuation
+  arithmetic, EN/ZH number parity, a report-only fact check). Findings are
+  warnings; they never fail a run.
+- Voice: BSH Research applying Buffett's owner framework, as a prospective
+  buyer — never Buffett or Berkshire in the first person. It does not consume
   `data/settings/serena_background.md` as an investment thesis.
 - The memo is still bilingual (English + Simplified Chinese).
-- The decision is **Buy**, **Pass**, or **Too Hard**.
+- The decision is **Buy**, **Pass**, or **Too Hard**; a Pass records whether
+  it is about the price or the business (`pass_kind`).
 

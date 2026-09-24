@@ -1,0 +1,2912 @@
+{
+  "schema_version": 1,
+  "company": {
+    "name": {
+      "en": "ZaiNar, Inc.",
+      "zh": "ZaiNar, Inc."
+    },
+    "descriptor": {
+      "en": "Software platform that turns existing 5G and Wi-Fi networks into a positioning, navigation and timing layer, locating radio-emitting devices indoors and in GPS-denied space without new hardware.",
+      "zh": "一个软件平台，将现有的 5G 与 Wi-Fi 网络转化为定位、导航与授时（PNT）层，无需新增硬件即可在室内及 GPS 信号缺失空间中定位射频发射设备。"
+    },
+    "stage": {
+      "en": "Late-stage private; emerged from nine years of stealth in February 2026",
+      "zh": "后期私募阶段；于 2026 年 2 月结束长达九年的隐身状态（stealth）"
+    },
+    "sector": {
+      "en": "Wireless positioning / physical AI infrastructure",
+      "zh": "无线定位／物理 AI 基础设施"
+    },
+    "location": {
+      "en": "Belmont, California, USA; Tokyo APAC office opened April 2026",
+      "zh": "美国加利福尼亚州贝尔蒙特（Belmont）；2026 年 4 月开设东京 APAC 办公室"
+    },
+    "round": {
+      "en": "Growth / stealth-exit round announced 2026-02-19: $100M+ raised at a $1B+ post-money valuation, no lead investor named",
+      "zh": "2026 年 2 月 19 日宣布的成长期／脱隐身轮融资：以 $1B+ 的投后估值募集 $100M+，未披露领投方"
+    }
+  },
+  "run": {
+    "run_id": "2026-09-23__015923",
+    "language": "en",
+    "as_of": "2026-09-23",
+    "evidence_cutoff": "2026-09-19",
+    "private_material_on_file": false,
+    "private_items_on_file": [],
+    "source_url_status": {
+      "checked_at": "2026-09-23T02:20:50.710631+00:00",
+      "unseen": {},
+      "homepage_reused": {}
+    },
+    "checks": {
+      "fact_check": {
+        "verified": 18,
+        "found_elsewhere": 129,
+        "derived": 0,
+        "not_traced": 16,
+        "thin_corpus": false
+      },
+      "gates": {
+        "fact_check": "warnings",
+        "quality": "passed",
+        "chinese_parity": "passed"
+      }
+    },
+    "generated_with": {
+      "engine": "claude",
+      "quality": "balanced",
+      "models": {
+        "ANALYSIS_PASS": "claude-sonnet-5",
+        "ARTIFACTS": "claude-opus-5",
+        "REPAIR": "claude-opus-5",
+        "SECTION": "claude-opus-5",
+        "SPINE": "claude-opus-5",
+        "SPINE_CHECK": "claude-sonnet-5",
+        "TRANSLATION": "claude-sonnet-5"
+      },
+      "writer_model": "claude-opus-5",
+      "translation_model": "claude-sonnet-5",
+      "code_version": "f248004-dirty",
+      "template": "standard",
+      "structure": {
+        "stage": "late",
+        "version": 1,
+        "mode": "full"
+      }
+    },
+    "analysis_coverage": {
+      "passes_total": 8,
+      "passes_ok": 8,
+      "missing": []
+    },
+    "built_from": {
+      "research_docs": 0,
+      "calls": 0,
+      "founder_updates": 0
+    },
+    "deal_terms_on_file": false
+  },
+  "sources": [
+    {
+      "id": "S1",
+      "title": {
+        "en": "ZaiNar, the Foundation Layer of Physical AI, Valued at $1B+ with $100M Investment (PR Newswire)",
+        "zh": "《ZaiNar，物理 AI 的基础层，凭借 $100M 投资估值达 $1B+》（PR Newswire）"
+      },
+      "class": "company-reported press release",
+      "treatment": {
+        "en": "Primary and only disclosure of the round, the $450M+ contracts-and-MOUs figure and the patent counts; treated as one company-controlled data point, not as independent confirmation.",
+        "zh": "本轮融资的唯一且首要披露来源，也是 $450M+ 合同与谅解备忘录（MOU）金额及专利数量的出处；仅作为公司自述的单一数据点处理，不构成独立验证。"
+      },
+      "as_of": "2026-02-19",
+      "published_at": "2026-02-19",
+      "url": "https://www.prnewswire.com/news-releases/zainar-the-foundation-layer-of-physical-ai-valued-at-1b-with-100m-investment-302692801.html",
+      "retrieved_at": "2026-09-23",
+      "evidence_source_class": "company"
+    },
+    {
+      "id": "S2",
+      "title": {
+        "en": "ZaiNar company news — funding announcement",
+        "zh": "ZaiNar 公司新闻——融资公告"
+      },
+      "class": "company-reported",
+      "treatment": {
+        "en": "Company's own page repeating the launch figures; used for product framing and investor names, never as a second source for the same numbers.",
+        "zh": "公司官网页面，重复披露发布会数据；仅用于产品定位表述及投资方名称引用，绝不作为同一数字的第二信源。"
+      },
+      "as_of": "2026-02-19",
+      "url": "https://zainartech.com/news/funding",
+      "published_at": "2026-02-19",
+      "retrieved_at": "2026-09-23",
+      "evidence_source_class": "company"
+    },
+    {
+      "id": "S3",
+      "title": {
+        "en": "ZaiNar raises $100M and launches physical AI platform (The Robot Report)",
+        "zh": "《ZaiNar 融资 $100M，推出物理 AI 平台》（The Robot Report）"
+      },
+      "class": "independent trade press",
+      "treatment": {
+        "en": "Trade coverage of the sub-nanosecond synchronization and protocol-agnostic claims; descriptive reporting that restates company figures without verifying them.",
+        "zh": "关于亚纳秒级同步及协议无关性主张的行业报道；属于复述公司数据、未经核实的描述性报道。"
+      },
+      "as_of": "2026-02-19",
+      "url": "https://www.therobotreport.com/zainar-raises-100m-and-launches-physical-ai-platform/",
+      "published_at": "2026-02-19",
+      "retrieved_at": "2026-09-23",
+      "evidence_source_class": "independent secondary press (trade outlet)"
+    },
+    {
+      "id": "S4",
+      "title": {
+        "en": "Secretive ZaiNar Exits Shadows, Targets $5 Billion in Deals for GPS Alternative (The Information)",
+        "zh": "《隐秘的 ZaiNar 走出阴影，瞄准 50 亿美元的 GPS 替代方案交易目标》（The Information）"
+      },
+      "class": "tier-1 press",
+      "treatment": {
+        "en": "Carries the ~$5B pipeline target as a forward sales goal sourced from the company; used as a target, never blended with the $450M+ figure.",
+        "zh": "将约 $5B 的管线目标作为公司提出的前瞻性销售目标引用；仅作为目标使用，绝不与 $450M+ 的数字混同。"
+      },
+      "as_of": "2026-02-20",
+      "url": "https://www.theinformation.com/articles/secretive-zainar-exits-shadows-targets-5-billion-deals-gps-alternative",
+      "published_at": "2026-02-20",
+      "evidence_source_class": "independent secondary (tier-1 press)"
+    },
+    {
+      "id": "S5",
+      "title": {
+        "en": "ZaiNar Opens Tokyo Office, Selected by Tokyo Metropolitan Government for GX Innovation Program (PR Newswire)",
+        "zh": "《ZaiNar 开设东京办公室，入选东京都政府 GX 创新计划》（PR Newswire）"
+      },
+      "class": "company-reported press release",
+      "treatment": {
+        "en": "Dates and describes the Tokyo selection and APAC office; read as a market-access win, not as a signed municipal deployment.",
+        "zh": "记述并说明入选东京都项目及 APAC 办公室开设一事；应理解为市场准入方面的进展，而非已签署的市政部署项目。"
+      },
+      "as_of": "2026-04-20",
+      "url": "https://www.prnewswire.com/news-releases/zainar-opens-tokyo-office-selected-by-tokyo-metropolitan-government-for-gx-innovation-program-302747327.html",
+      "published_at": "2026-04-20",
+      "retrieved_at": "2026-09-23",
+      "evidence_source_class": "independent secondary + company"
+    },
+    {
+      "id": "S6",
+      "title": {
+        "en": "Invest Tokyo — GX-Related Foreign Company Market Entry Support Program",
+        "zh": "Invest Tokyo——GX 相关外资企业市场准入支持计划"
+      },
+      "class": "government program page",
+      "treatment": {
+        "en": "Independent description of the program as market-entry facilitation and subsidy; used to size what the Tokyo selection is and is not.",
+        "zh": "对该计划作为市场准入协助与补贴性质的独立说明；用于界定东京入选一事的实际范围与边界。"
+      },
+      "as_of": "undated",
+      "url": "https://www.investtokyo.metro.tokyo.lg.jp/en/oursupports/gx-subsidy.html",
+      "published_at": "undated",
+      "evidence_source_class": "public/government"
+    },
+    {
+      "id": "S7",
+      "title": {
+        "en": "ZaiNar brings location awareness expertise to Arm Total Design for Physical AI",
+        "zh": "《ZaiNar 为 Arm Total Design 物理 AI 生态带来位置感知专长》"
+      },
+      "class": "company-reported",
+      "treatment": {
+        "en": "Company statement of ecosystem membership; carried as an ecosystem signal without commercial value attached.",
+        "zh": "公司关于生态成员身份的自述；仅作为生态信号记录，未附带任何商业价值。"
+      },
+      "as_of": "undated",
+      "url": "https://zainartech.com/news/arm-total-design",
+      "published_at": "undated",
+      "retrieved_at": "2026-09-23"
+    },
+    {
+      "id": "S8",
+      "title": {
+        "en": "ZaiNar company registry entry held by BSH",
+        "zh": "BSH 持有的 ZaiNar 公司注册信息条目"
+      },
+      "class": "unverified registry value (no document on file)",
+      "treatment": {
+        "en": "Supplies founding year, headquarters, headcount band and the competitor list; its ARR, growth, TAM and cap-table figures are design-mock placeholders and are never stated as facts about ZaiNar.",
+        "zh": "提供成立年份、总部所在地、员工人数区间及竞争对手名单；其中的 ARR、增长率、TAM 及股权结构数字均为设计模板中的占位数据，绝非对 ZaiNar 的事实陈述。"
+      },
+      "as_of": "2026-06-13",
+      "published_at": "2026-06-13"
+    },
+    {
+      "id": "S9",
+      "title": {
+        "en": "NextNav (NASDAQ: NN) market capitalization — stockanalysis.com",
+        "zh": "NextNav（NASDAQ: NN）市值——stockanalysis.com"
+      },
+      "class": "third-party market data",
+      "treatment": {
+        "en": "Gives the closest listed pure-play's market value; used to bound plausibility of the private mark, never to derive it.",
+        "zh": "给出最接近的上市纯业务可比公司（pure-play）的市值，用于界定该私募估值的合理区间边界，而非据此推算估值本身。"
+      },
+      "as_of": "2026-09-19",
+      "url": "https://stockanalysis.com/stocks/nn/market-cap/",
+      "published_at": "2026-09-19",
+      "evidence_source_class": "independent secondary (market data vendor)"
+    },
+    {
+      "id": "S10",
+      "title": {
+        "en": "NextNav revenue history — companiesmarketcap.com",
+        "zh": "NextNav 营收历史——companiesmarketcap.com"
+      },
+      "class": "third-party market data",
+      "treatment": {
+        "en": "Supplies NextNav's trailing revenue, which shows why the listed comp's multiple cannot anchor a fair-value range.",
+        "zh": "提供 NextNav 的过去十二个月营收数据，说明为何该上市可比公司的估值倍数无法作为合理估值区间的锚点。"
+      },
+      "as_of": "2026-04",
+      "data_period": "2026",
+      "url": "https://companiesmarketcap.com/nextnav/revenue/",
+      "published_at": "2026-04",
+      "evidence_source_class": "independent secondary (market data vendor)"
+    },
+    {
+      "id": "S11",
+      "title": {
+        "en": "Indoor Location Market worth $50.10 billion by 2031 — MarketsandMarkets",
+        "zh": "《室内定位市场规模到 2031 年将达 501.0 亿美元》——MarketsandMarkets"
+      },
+      "class": "third-party market research",
+      "treatment": {
+        "en": "Primary sizing anchor for the enterprise indoor-location category ZaiNar actually sells into.",
+        "zh": "对 ZaiNar 实际涉足的企业级室内定位品类进行市场规模测算的主要锚点。"
+      },
+      "as_of": "2026",
+      "url": "https://www.prnewswire.com/news-releases/indoor-location-market-worth-50-10-billion-by-2031--report-by-marketsandmarkets-302803126.html",
+      "published_at": "2026",
+      "evidence_source_class": "independent secondary (syndicated market research)"
+    },
+    {
+      "id": "S12",
+      "title": {
+        "en": "Location-based Services and Real-time Location Systems market worth $51.24 billion by 2030 — MarketsandMarkets",
+        "zh": "《基于位置的服务与实时定位系统市场规模到 2030 年将达 512.4 亿美元》——MarketsandMarkets"
+      },
+      "class": "third-party market research",
+      "treatment": {
+        "en": "Second sizing read on the combined LBS and RTLS pool; used to set the upper end of the defensible market band.",
+        "zh": "对 LBS 与 RTLS 合并市场池的第二个规模测算依据；用于设定可辩护市场区间的上限。"
+      },
+      "as_of": "2025",
+      "data_period": "2025-2030",
+      "url": "https://www.prnewswire.com/news-releases/location-based-services-lbs-and-real-time-location-systems-rtls-market-worth-51-24-billion-by-2030--marketsandmarkets-302698028.html",
+      "published_at": "2025",
+      "evidence_source_class": "independent secondary (syndicated market research)"
+    },
+    {
+      "id": "S13",
+      "title": {
+        "en": "Indoor Positioning and Navigation Market Report — Grand View Research",
+        "zh": "《室内定位与导航市场报告》——Grand View Research"
+      },
+      "class": "third-party market research",
+      "treatment": {
+        "en": "Broadest definition, including GPS chipsets and consumer mapping ZaiNar does not sell; cited only as an illustrative ceiling with its scope stated.",
+        "zh": "定义范围最广，涵盖 ZaiNar 并不涉足的 GPS 芯片组及消费级地图业务；仅作为说明性上限引用，并已注明其口径范围。"
+      },
+      "as_of": "2023",
+      "data_period": "2023-2030",
+      "url": "https://www.grandviewresearch.com/industry-analysis/indoor-positioning-navigation-market-report",
+      "published_at": "2023",
+      "evidence_source_class": "independent secondary (syndicated market research)"
+    },
+    {
+      "id": "S14",
+      "title": {
+        "en": "5G Positioning: Enterprise Problem Solver Or Just Another RTLS Technology? — ABI Research",
+        "zh": "《5G 定位：企业级问题的解决方案，还是又一种 RTLS 技术？》——ABI Research"
+      },
+      "class": "third-party market research",
+      "treatment": {
+        "en": "Analyst framing of whether 5G positioning displaces or joins existing RTLS; used for the replacement-versus-coexistence read.",
+        "zh": "分析师就 5G 定位究竟是取代还是并存于现有 RTLS 体系所作的框架性判断；用于替代与共存关系的解读。"
+      },
+      "as_of": "undated",
+      "url": "https://go.abiresearch.com/lp-5g-positioning-enterprise-problem-solver-or-another-rtls-technology",
+      "published_at": "undated",
+      "retrieved_at": "2026-09-23"
+    },
+    {
+      "id": "S15",
+      "title": {
+        "en": "ZaiNar leadership team — The Org",
+        "zh": "ZaiNar 领导团队——The Org"
+      },
+      "class": "third-party company profile",
+      "treatment": {
+        "en": "Names co-founders and officers the company's own materials omit; used for the leadership roster and the absence of a named finance officer.",
+        "zh": "列出公司自身材料中未披露的联合创始人及高管；用于补全管理层名单，并说明缺少一名明确任命的财务负责人（CFO）这一事实。"
+      },
+      "as_of": "undated",
+      "url": "https://theorg.com/org/zainar/teams/leadership-team",
+      "published_at": "undated",
+      "evidence_source_class": "independent secondary"
+    },
+    {
+      "id": "S16",
+      "title": {
+        "en": "NextNav TerraPoiNT — next generation 3D PNT",
+        "zh": "NextNav TerraPoiNT——新一代三维 PNT"
+      },
+      "class": "competitor company materials",
+      "treatment": {
+        "en": "Competitor's own description of its spectrum, beacon hardware and patent position; used to contrast moat structure, not to score ZaiNar.",
+        "zh": "竞争对手对自身频谱资源、信标硬件及专利布局的自述；用于对比护城河结构，而非对 ZaiNar 本身进行评分。"
+      },
+      "as_of": "undated",
+      "url": "https://nextnav.com/terrapoint/",
+      "published_at": "undated",
+      "evidence_source_class": "company (competitor)"
+    },
+    {
+      "id": "S17",
+      "title": {
+        "en": "Carriers could soon track phones and robots directly with 5G — TechRadar Pro",
+        "zh": "《运营商或将很快通过 5G 直接追踪手机与机器人》——TechRadar Pro"
+      },
+      "class": "independent trade press",
+      "treatment": {
+        "en": "Describes the carrier-side deployment model and its dependence on network-owner cooperation.",
+        "zh": "描述以运营商为主导的部署模式，及其对网络所有方配合意愿的依赖。"
+      },
+      "as_of": "undated",
+      "url": "https://www.techradar.com/pro/never-get-lost-again-as-this-startup-can-give-you-5g-tracking-even-without-gps",
+      "published_at": "undated",
+      "retrieved_at": "2026-09-23"
+    },
+    {
+      "id": "S18",
+      "title": {
+        "en": "ZaiNar — valuation, funding rounds and stock price | Caplight",
+        "zh": "ZaiNar——估值、融资轮次与股价 | Caplight"
+      },
+      "class": "third-party private-market data",
+      "treatment": {
+        "en": "Checked for a secondary print or post-round mark; carries no independent pricing beyond the February 2026 round.",
+        "zh": "用于核查是否存在二级市场成交价或轮后估值标记；除 2026 年 2 月的融资轮外未发现独立定价信息。"
+      },
+      "as_of": "undated",
+      "url": "https://www.caplight.com/company/zainar",
+      "published_at": "undated",
+      "retrieved_at": "2026-09-23"
+    },
+    {
+      "id": "S19",
+      "title": {
+        "en": "ZaiNar — unicorn company profile | Dealroom",
+        "zh": "ZaiNar——独角兽公司概况 | Dealroom"
+      },
+      "class": "third-party private-market data",
+      "treatment": {
+        "en": "Aggregator profile restating the round and valuation; low weight, used only to confirm no later mark has been recorded.",
+        "zh": "汇总类平台对该轮融资及估值的复述性资料；权重较低，仅用于确认此后未记录到新的估值标记。"
+      },
+      "as_of": "undated",
+      "url": "https://dealroom.co/companies/zainar/",
+      "published_at": "undated",
+      "retrieved_at": "2026-09-23"
+    }
+  ],
+  "structure": {
+    "stage": "late",
+    "version": 1
+  },
+  "sections": [
+    {
+      "id": "executive_summary",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "GPS stops at the door. Inside hospitals, factories, tunnels and dense city blocks, the satellites that organize every other machine on earth are unusable, and the industry's answer for two decades has been to bolt on hardware: ultra-wideband anchors, Bluetooth beacons, dedicated readers on every ceiling. ZaiNar takes the other path. Its software synchronizes the 5G and Wi-Fi radios already installed in a building to sub-nanosecond precision and computes the sub-meter position of any device that emits a radio signal, with no new hardware in the ceiling. If that works at scale, the sensing layer under physical AI is a software license running on infrastructure someone else paid for, and the enterprise indoor-location category it sells into is $18.35B in 2026 on its way to $50.10B by 2031.",
+            "zh": "GPS 信号止步于门外。在医院、工厂、隧道和高密度城市街区内部，组织地球上其他一切机器运转的卫星系统完全失效，而这个行业二十年来给出的答案始终是加装硬件：超宽带（UWB）锚点、蓝牙信标、装在每一块天花板上的专用读取器。ZaiNar 走的是另一条路。其软件能将楼宇内已经安装好的 5G 和 Wi-Fi 无线电同步到亚纳秒级精度，并计算出任何发射无线信号的设备的亚米级位置，天花板上无需加装任何新硬件。如果这套方案能够规模化落地，那么支撑物理 AI（physical AI）的感知层将变成运行在别人已经付费建成的基础设施之上的软件许可证，而它所切入的企业室内定位市场，将从 2026 年的 $18.35B 增长到 2031 年的 $50.10B。"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "ZaiNar spent nine years in stealth and came out on 2026-02-19 with $100M+ raised at a $1B+ post-money, no lead investor named, and a backer list of Steve Jurvetson, Jerry Yang, Tom Gruber, Jaan Tallinn and Nicholas Pritzker. The proof behind that mark is real but narrow: 100+ patent filings with 90+ issued in phase-based time synchronization, $450M+ in customer contracts and MOUs across healthcare, construction, smart city and industrial, and selection by the Tokyo Metropolitan Government in April 2026 from applicants across 22 countries for its GX market-entry program. What is absent is the number that would test the price. No revenue, ARR, gross margin, burn or runway figure has been disclosed at any date, so no entry multiple can be computed against the $1B+ mark. The $450M+ figure blends signed contracts with non-binding MOUs and discloses no split, no duration and no conversion timing. The $1B+ mark and every commercial figure under it trace to one company-controlled disclosure on a single day.",
+            "zh": "ZaiNar 潜行九年，于 2026 年 2 月 19 日公开亮相，累计融资 $100M+，投后估值 $1B+，未披露领投方，其支持者名单包括 Steve Jurvetson、Jerry Yang、Tom Gruber、Jaan Tallinn 和 Nicholas Pritzker。支撑这一估值的证据是真实的，但范围有限：在分相时间同步（phase-based time synchronization）领域拥有 100 余项专利申请、90 余项已获授权，在医疗、建筑、智慧城市和工业领域累计签订 $450M+ 的客户合同与谅解备忘录（MOU），并于 2026 年 4 月从来自 22 个国家的申请者中脱颖而出，入选东京都政府的 GX 市场准入项目。缺失的是那个能够检验这一价格的数字。公司在任何时点均未披露收入、ARR、毛利率、现金消耗或现金可支撑时间数据，因此无法据此计算相对于 $1B+ 估值的进入倍数。$450M+ 这一数字将已签合同与不具约束力的 MOU 混合计算，未披露二者的拆分比例、期限，也未披露转化时间安排。$1B+ 估值及其之下的所有商业数字，均只能追溯到同一天由公司自身披露的单一信息来源。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "key_metrics_snapshot",
+          "title": {
+            "en": "Key Metrics Snapshot",
+            "zh": "关键指标概览"
+          },
+          "headers": [
+            {
+              "en": "Metric",
+              "zh": "指标"
+            },
+            {
+              "en": "Figure",
+              "zh": "数值"
+            },
+            {
+              "en": "As of",
+              "zh": "截至日期"
+            },
+            {
+              "en": "Source",
+              "zh": "来源"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Post-money valuation",
+                "zh": "投后估值"
+              },
+              {
+                "en": "$1B+ post-money, the only mark on the company; set by a single primary round with no lead investor named",
+                "zh": "$1B+ 投后估值，公司迄今唯一的估值标记；由一轮未披露领投方的单一主要融资轮确定"
+              },
+              "2026-02-19",
+              "S1, S2, S18"
+            ],
+            [
+              {
+                "en": "Round size",
+                "zh": "融资规模"
+              },
+              {
+                "en": "$100M+ raised at the stealth exit; backers named are Steve Jurvetson, Jerry Yang, Tom Gruber, Jaan Tallinn and Nicholas Pritzker",
+                "zh": "在结束潜行阶段时融资 $100M+；披露姓名的支持者为 Steve Jurvetson、Jerry Yang、Tom Gruber、Jaan Tallinn 和 Nicholas Pritzker"
+              },
+              "2026-02-19",
+              "S1, S3"
+            ],
+            [
+              {
+                "en": "Revenue and ARR",
+                "zh": "收入与 ARR"
+              },
+              {
+                "en": "Not disclosed at any date. No revenue, ARR, gross margin, burn or runway figure exists, so the $1B+ mark cannot be tested against a multiple",
+                "zh": "任何时点均未披露。不存在收入、ARR、毛利率、现金消耗或现金可支撑时间数据，因此无法用倍数检验 $1B+ 这一估值"
+              },
+              "2026-09-23",
+              "S1, S8"
+            ],
+            [
+              {
+                "en": "Entry multiple",
+                "zh": "进入倍数"
+              },
+              {
+                "en": "Not computable. With no disclosed revenue behind the $1B+ mark, no entry multiple can be stated",
+                "zh": "无法计算。由于 $1B+ 估值背后没有已披露的收入，无法给出任何进入倍数"
+              },
+              "2026-09-23",
+              "S1"
+            ],
+            [
+              {
+                "en": "Contracts and MOUs",
+                "zh": "合同与 MOU"
+              },
+              {
+                "en": "$450M+ across healthcare, construction, smart city and industrial; the figure blends signed contracts with non-binding MOUs and no split is disclosed",
+                "zh": "覆盖医疗、建筑、智慧城市和工业领域，合计 $450M+；该数字将已签合同与不具约束力的 MOU 混合计算，且未披露二者拆分比例"
+              },
+              "2026-02-19",
+              "S1"
+            ],
+            [
+              {
+                "en": "Pipeline target",
+                "zh": "管线目标"
+              },
+              {
+                "en": "~$5B of deals targeted post-stealth; a forward sales target, not bookings, and not reconcilable with the $450M+ figure",
+                "zh": "潜行结束后设定的约 $5B 交易目标；这是一个前瞻性销售目标，而非已签订单，也无法与 $450M+ 的数字相互对账"
+              },
+              "2026-02-20",
+              "S4"
+            ],
+            [
+              {
+                "en": "Patent portfolio",
+                "zh": "专利组合"
+              },
+              {
+                "en": "100+ filings and 90+ issued in phase-based time synchronization, company-reported with 'zero rejections'; not checked against USPTO file wrappers",
+                "zh": "在分相时间同步领域拥有 100 余项专利申请、90 余项已获授权，由公司自行披露并称'零驳回'；未与美国专利商标局（USPTO）的审查档案进行核对"
+              },
+              "2026-02-19",
+              "S1, S2"
+            ],
+            [
+              {
+                "en": "Tokyo Metropolitan Government selection",
+                "zh": "东京都政府入选"
+              },
+              {
+                "en": "Chosen from applicants across 22 countries for the GX market-entry support program; a facilitation and subsidy win with no contract value disclosed",
+                "zh": "从来自 22 个国家的申请者中入选 GX 市场准入支持项目；这是一项提供协助与补贴的胜出，未披露任何合同金额"
+              },
+              "2026-04-20",
+              "S5, S6"
+            ],
+            [
+              {
+                "en": "Closest listed comp (NextNav, NASDAQ: NN)",
+                "zh": "最接近的上市可比公司（NextNav，NASDAQ: NN）"
+              },
+              {
+                "en": "~$2.55B market capitalization on ~$5.5M trailing revenue; a multiple so extreme it bounds plausibility rather than setting a price",
+                "zh": "市值约 $2.55B，对应过去十二个月营收约 $5.5M；该倍数极端到只能划定合理性的边界，而非用于定价"
+              },
+              "2026-09-19",
+              "S9, S10"
+            ],
+            [
+              {
+                "en": "Indoor location market",
+                "zh": "室内定位市场"
+              },
+              {
+                "en": "$18.35B in 2026 growing to $50.10B by 2031, a 22.3% CAGR; the category ZaiNar actually sells into",
+                "zh": "2026 年为 $18.35B，到 2031 年增长至 $50.10B，复合年增长率（CAGR）为 22.3%；这是 ZaiNar 实际切入的细分市场"
+              },
+              "2026",
+              "S11"
+            ],
+            [
+              {
+                "en": "Combined LBS and RTLS market",
+                "zh": "LBS 与 RTLS 合并市场"
+              },
+              {
+                "en": "$33.03B in 2025 to $51.24B by 2030, an 8.8% CAGR; the broader pool, against a $174.02B by 2030 ceiling that includes chipsets and consumer mapping",
+                "zh": "2025 年 $33.03B，到 2030 年增长至 $51.24B，CAGR 为 8.8%；这是更宽泛的市场池，其上限为 2030 年的 $174.02B，其中还包含芯片组和消费级地图应用"
+              },
+              "2025",
+              "S12, S13"
+            ],
+            [
+              {
+                "en": "Company profile",
+                "zh": "公司概况"
+              },
+              {
+                "en": "Founded 2017 in Belmont, California; 50-200 employees; Tokyo APAC office opened April 2026; nine years in stealth before the February 2026 launch",
+                "zh": "2017 年创立于加利福尼亚州贝尔蒙特（Belmont）；员工规模 50-200 人；东京亚太办公室于 2026 年 4 月开设；在 2026 年 2 月公开亮相前潜行九年"
+              },
+              "2026-06-13",
+              "S8, S5"
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The core bet is that phase-based positioning over borrowed infrastructure becomes the default spatial layer for enterprises, and that ZaiNar's patent estate holds long enough to tax it. That bet has to survive two things it does not control. Distribution runs through carriers and enterprise network owners, and at launch the company said carrier and major enterprise partnerships were still to be announced. Standardization runs through 3GPP: Releases 18 and 19 could absorb phase-based positioning natively, which would let carriers and equipment vendors ship the capability without a license. NextNav, the closest listed pure-play, owns spectrum and beacon hardware as well as patents — a harder floor under its position than a software estate alone.",
+            "zh": "这笔押注的核心在于：基于借用型基础设施的分相定位技术，能够成为企业级空间感知层的默认方案，并且 ZaiNar 的专利组合能够长期维持对该方案征收授权费的能力。而这一押注必须挺过两个公司无法掌控的因素。其一，分销依赖运营商和企业网络所有者，公司在发布时曾表示运营商及主要企业合作伙伴关系仍待公布。其二，标准化进程取决于 3GPP：Release 18 和 19 版本有可能将分相定位能力原生纳入标准，届时运营商和设备厂商无需获得授权即可自行提供该能力。作为最接近的上市纯业务可比公司，NextNav 不仅拥有专利，还拥有频谱和信标硬件资产——这为其市场地位提供了比单纯专利组合更坚实的支撑。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "deal_terms",
+          "title": {
+            "en": "Round and Deal Mechanics",
+            "zh": "融资轮次与交易机制"
+          },
+          "headers": [
+            {
+              "en": "Item",
+              "zh": "项目"
+            },
+            {
+              "en": "What is on file",
+              "zh": "现有记录"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "BSH vehicle",
+                "zh": "BSH 投资载体"
+              },
+              {
+                "en": "No vehicle or terms on file (pipeline stage: sourcing). No instrument, allocation, discount or side terms exist for BSH on this name.",
+                "zh": "无在案的投资载体或条款（管线阶段：寻源）。BSH 目前尚无针对该标的的任何投资工具、份额分配、折扣或附加条款。"
+              }
+            ],
+            [
+              {
+                "en": "Round as reported",
+                "zh": "已披露的融资轮"
+              },
+              {
+                "en": "Growth / stealth-exit round announced 2026-02-19: $100M+ raised at a $1B+ post-money. Valuation marks sit in the Key Metrics Snapshot.",
+                "zh": "2026 年 2 月 19 日公布的成长期／潜行退出轮：融资 $100M+，投后估值 $1B+。具体估值标记见「关键指标概览」。"
+              }
+            ],
+            [
+              {
+                "en": "Lead investor",
+                "zh": "领投方"
+              },
+              {
+                "en": "None named. Five individual backers are disclosed by name; for a round of this size the absence of a named institutional lead leaves the price unsupported by a disclosed anchor buyer.",
+                "zh": "未披露任何领投方。仅公开了五位个人支持者的姓名；对于这一规模的融资轮而言，缺少具名的机构领投方，意味着该价格没有已披露的锚定买家作为支撑。"
+              }
+            ],
+            [
+              {
+                "en": "Instrument and structure",
+                "zh": "投资工具与结构"
+              },
+              {
+                "en": "Not disclosed. Security type, liquidation preference, conversion terms and consent rights are unknown, so downside protection at the $1B+ mark cannot be assessed.",
+                "zh": "未披露。证券类型、清算优先权、转换条款和同意权均未知，因此无法评估在 $1B+ 估值下的下行保护。"
+              }
+            ],
+            [
+              {
+                "en": "Cap table",
+                "zh": "股权结构表"
+              },
+              {
+                "en": "No verified cap table exists. Ownership percentages held in internal records are design-mock placeholders with no document behind them and are not facts about ZaiNar.",
+                "zh": "不存在经核实的股权结构表。内部记录中的持股比例为设计稿中的占位数据，背后没有任何文件支撑，并非关于 ZaiNar 的事实。"
+              }
+            ],
+            [
+              {
+                "en": "Secondary pricing",
+                "zh": "二级市场定价"
+              },
+              {
+                "en": "No secondary print or post-round mark is recorded by private-market data providers; the February 2026 round remains the only price.",
+                "zh": "私募市场数据提供商未记录任何二级市场成交价或轮后估值标记；2026 年 2 月的这一轮融资仍是唯一的定价。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "bullets",
+          "items": [
+            {
+              "en": "**Founded.** 2017, Belmont, California; 50-200 employees; Tokyo APAC office opened April 2026.",
+              "zh": "**成立时间。** 2017 年，成立于加利福尼亚州贝尔蒙特（Belmont）；员工规模 50-200 人；东京亚太办公室于 2026 年 4 月开设。"
+            },
+            {
+              "en": "**Single-source pricing.** The $1B+ mark rests on one company-controlled disclosure from 2026-02-19 with no named lead, a board member among the backers, and no revenue to test it against.",
+              "zh": "**单一来源定价。** $1B+ 这一估值标记完全依赖于 2026 年 2 月 19 日公司自行披露的单一信息来源，未披露具名领投方，支持者中有一位董事会成员，且没有收入数据可用以检验该估值。"
+            },
+            {
+              "en": "**Commercial figure quality.** The $450M+ figure blends signed contracts with non-binding MOUs and discloses no split, no duration and no conversion timing, so it cannot stand as backlog or bookings.",
+              "zh": "**商业数字质量。** $450M+ 这一数字将已签合同与不具约束力的 MOU 混合计算，未披露拆分比例、期限或转化时间安排，因此不能作为在手订单或已签订单看待。"
+            },
+            {
+              "en": "**Distribution dependency.** Distribution depends on carrier and enterprise network owners ZaiNar does not control, and the company said at launch that carrier and major enterprise partnerships were still to be announced.",
+              "zh": "**分销依赖。** 分销依赖于 ZaiNar 无法掌控的运营商和企业网络所有者，公司在发布时曾表示运营商及主要企业合作伙伴关系仍待公布。"
+            },
+            {
+              "en": "**Standardization.** 3GPP Releases 18 and 19 could absorb phase-based positioning natively, letting carriers and equipment vendors deliver the capability without licensing the patent estate.",
+              "zh": "**标准化风险。** 3GPP Release 18 和 19 版本有可能将分相定位能力原生纳入标准，从而让运营商和设备厂商无需获得该专利组合的授权即可交付这一能力。"
+            },
+            {
+              "en": "**Governance.** Governance is thin for a company at this mark: no finance officer is named in any public roster, one outside director sits on the board, and no audited financials or verified cap table exist.",
+              "zh": "**治理。** 以这一估值水平而言，公司治理相当薄弱：任何公开高管名单中均未列出财务负责人，董事会中仅有一位外部董事，也不存在经审计的财务报表或经核实的股权结构表。"
+            },
+            {
+              "en": "**Liquidity.** Any position would be illiquid and unpriced between rounds; no secondary print exists, and an IPO is not a credible outcome inside 12 to 36 months on current evidence.",
+              "zh": "**流动性。** 任何持仓在两轮融资之间都将是不具流动性且无法定价的；不存在任何二级市场成交记录，且以目前的证据看，在 12 至 36 个月内实现 IPO 并不是一个可信的结果。"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Priced against what is proven today — a patent estate, a technical claim restated by trade press rather than independently tested, a market-entry selection in Tokyo, and a commercial book of unknown composition — $1B+ is a price paid for the option, not for the business. Part of the $450M+ book converting toward roughly $50-100M of revenue by 2029 without a carrier-scale channel supports a strategic sale at a modest premium to the February 2026 mark. A named carrier channel and patents that hold through standardization take it to $6-10B beyond 2030. MOUs that do not convert, 3GPP absorbing the capability and no carrier signing take it to a down round or recap at a fraction of that mark. The spread across those outcomes is wide enough that the February 2026 price bounds nothing, and nothing disclosed since February narrows it.",
+            "zh": "对照今天已经得到证实的事实来定价——一份专利资产组合、一项由行业媒体转述而非经过独立验证的技术主张、一次在东京的市场进入选择，以及一份构成不明的商业订单储备——$1B+ 的价格是为期权支付的价格，而非为这门生意本身支付的价格。若 $450M+ 订单储备中的一部分，在缺乏运营商级渠道的情况下，到 2029 年转化为约 $50-100M 的收入，这足以支持以相对 2026 年 2 月估值水平小幅溢价的方式完成战略出售。若能锁定一家具名的运营商渠道，且专利在标准化进程中始终成立，2030 年之后估值可升至 $6-10B。若谅解备忘录（MOU）未能转化、3GPP 吸收了相关能力，且没有运营商签约，则会将其推向一轮降价融资，或以该价位一小部分的估值进行资本重组（recap）。这些结果之间的差距之大，使得 2026 年 2 月的价格无法为其设定边界，而自 2 月以来披露的任何信息也未能收窄这一区间。"
+          }
+        },
+        {
+          "type": "callout",
+          "title": {
+            "en": "Recommendation",
+            "zh": "投资建议"
+          },
+          "body": {
+            "en": "Recommendation: watch ZaiNar — the trigger is a priced round or secondary print at or below the $1B+ February 2026 mark, together with audited revenue and a split of the $450M+ figure into signed contracts and non-binding MOUs.",
+            "zh": "投资建议：观察 ZaiNar——触发条件为出现一轮定价融资或二级市场成交价格低于或等于 2026 年 2 月 $1B+ 的估值标记，同时公司披露经审计的收入数据，并将 $450M+ 这一数字拆分为已签合同与不具约束力的 MOU 两部分。"
+          },
+          "items": [
+            {
+              "en": "Proposed amount: [TO BE DETERMINED BY IC]",
+              "zh": "拟投金额：[待投资委员会（IC）确定]"
+            },
+            {
+              "en": "No vehicle or terms on file (pipeline stage: sourcing).",
+              "zh": "无在案的投资载体或条款（管线阶段：寻源）。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "company_overview",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": {
+            "en": "Company Overview",
+            "zh": "公司概况"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "ZaiNar was founded in 2017 in Belmont, California, and spent nine years building before it said anything in public. The product is software: it synchronizes the radios already hanging on a building or a cell site to sub-nanosecond precision, then computes the position of any radio-emitting device from the phase of the signals those radios already exchange. No beacons, no tags, no new boxes on the ceiling. The Robot Report describes the platform as protocol-agnostic across 5G and Wi-Fi, which is the claim that makes the deployment story cheap: the sensing layer is a license over infrastructure someone else already paid for. Headcount sits in the 50-200 band. A Tokyo office opened in April 2026 as the APAC hub.",
+            "zh": "ZaiNar 于 2017 年在加利福尼亚州贝尔蒙特（Belmont）成立，历经九年潜心研发才首次公开发声。其产品是一套软件：将已经安装在建筑物或基站上的无线电设备同步到亚纳秒级精度，再根据这些无线电设备本已互相交换的信号相位，计算出任意无线电发射设备的位置。无需信标（beacon），无需标签，也无需在天花板上加装任何新设备。The Robot Report 将该平台描述为跨 5G 与 Wi-Fi 的协议无关（protocol-agnostic）方案，这正是使其部署成本低廉的关键：其感知层本质上是对他人已经建成的基础设施的一种授权使用。员工人数处于 50-200 人区间。东京办公室于 2026 年 4 月开设，作为亚太区（APAC）总部。"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The company sells into four named verticals — healthcare, construction, smart city and industrial. Daniel Jacker, co-founder and CEO, has described the use cases as hospital staff and equipment location and live tracking on active construction sites. Those are the applications the $450M+ contracts-and-MOUs figure spans. No customer is named in any release, on the company's own site, or in press coverage we reviewed. No pilot result, renewal, uptime figure or per-site deployment count is disclosed either. The one institutional relationship with a name attached is the Tokyo Metropolitan Government's GX market-entry support program, and that program is facilitation and subsidy rather than procurement (see Investment Highlights).",
+            "zh": "公司的销售面向四个明确列出的垂直行业——医疗、建筑、智慧城市与工业。联合创始人兼首席执行官 Daniel Jacker 将应用场景描述为医院人员与设备定位，以及在建施工现场的实时追踪。$450M+ 的合同与谅解备忘录（MOU）金额所涵盖的正是这些应用。无论是任何新闻稿、公司官网，还是我们审阅过的媒体报道，均未披露任何客户名称，也未披露任何试点结果、续约情况、正常运行时间（uptime）数据或单点部署数量。唯一有具体名称的机构关系，是东京都政府的 GX 市场准入支持项目，而该项目属于协助与补贴性质，并非采购（见核心投资亮点）。"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Two structural facts shape everything below. First, ZaiNar has published no financial statement of any kind, at any date, so the operating picture is capital and intellectual property rather than revenue and margin. Second, the launch release said carrier and major enterprise partnerships were still to be announced, and none has been announced since February 2026. Carriers and enterprise IT own the networks the platform runs on. Distribution therefore runs through parties ZaiNar does not control, and no channel agreement with a name on it exists on the public record.",
+            "zh": "以下所有内容都受两个结构性事实的制约。第一，ZaiNar 迄今未在任何时间点发布过任何形式的财务报表，因此公司目前呈现的是资本与知识产权层面的图景，而非收入与利润层面的图景。第二，发布公告曾表示运营商与主要企业合作伙伴关系将陆续公布，但自 2026 年 2 月以来一直未有任何公布。该平台运行所依赖的网络归运营商与企业 IT 部门所有，因此其分销渠道要经由 ZaiNar 无法控制的第三方，公开记录中也不存在任何具名的渠道协议。"
+          }
+        },
+        {
+          "type": "bullets",
+          "items": [
+            {
+              "en": "**Founded.** 2017, Belmont, California; nine years in stealth before the February 2026 launch.",
+              "zh": "**成立时间。** 2017 年，加利福尼亚州贝尔蒙特；在 2026 年 2 月发布前经历了九年隐身期。"
+            },
+            {
+              "en": "**Headcount.** 50-200 employees, per the profile on file as of June 2026. No functional breakdown between engineering, sales and deployment is disclosed.",
+              "zh": "**员工人数。** 根据截至 2026 年 6 月存档资料，为 50-200 人。未披露工程、销售与部署等职能之间的人员分布。"
+            },
+            {
+              "en": "**Footprint.** Belmont headquarters plus a Tokyo APAC office opened April 2026. No other location is disclosed.",
+              "zh": "**业务布局。** 贝尔蒙特总部，加上 2026 年 4 月开设的东京亚太区（APAC）办公室。未披露其他任何地点。"
+            },
+            {
+              "en": "**Deployment model.** Software over existing 5G and Wi-Fi. The absence of new hardware removes equipment cost from each site, not the integration, security-review and procurement cycle at each carrier or hospital.",
+              "zh": "**部署模式。** 基于既有 5G 与 Wi-Fi 网络的软件方案。无需新增硬件可以省去各站点的设备成本，但无法省去每个运营商或医院各自的系统集成、安全审查与采购流程。"
+            },
+            {
+              "en": "**Financial disclosure.** None. No revenue, ARR, gross margin, burn or runway figure exists at any date.",
+              "zh": "**财务披露。** 无。截至目前，未披露任何收入、年化收入（ARR）、毛利率、现金消耗或现金可支撑时间数据。"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Revenue Picture",
+            "zh": "收入情况"
+          }
+        },
+        {
+          "type": "table",
+          "component": "revenue",
+          "title": {
+            "en": "Revenue picture — what is disclosed and what it will carry",
+            "zh": "收入情况——已披露内容及其局限性"
+          },
+          "headers": [
+            {
+              "en": "Line",
+              "zh": "项目"
+            },
+            {
+              "en": "Disclosed",
+              "zh": "已披露内容"
+            },
+            {
+              "en": "What the gap costs us",
+              "zh": "信息缺口的代价"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Revenue",
+                "zh": "收入"
+              },
+              {
+                "en": "Not disclosed at any date.",
+                "zh": "截至目前未披露。"
+              },
+              {
+                "en": "The $1B+ February 2026 mark cannot be tested against a multiple. Every valuation read is a scenario, not a calculation (see Valuation).",
+                "zh": "2026 年 2 月的 $1B+ 估值标记无法用倍数加以验证。每一种估值解读都只是一种情形推演，而非一次可计算的结果（见估值分析）。"
+              }
+            ],
+            [
+              {
+                "en": "ARR",
+                "zh": "ARR"
+              },
+              {
+                "en": "Not disclosed. The ~$24M ARR and +180% growth figures carried in the company record on file are design-mock placeholders with no document behind them.",
+                "zh": "未披露。存档公司资料中所载的约 $24M ARR 及 +180% 增长率数据，均为设计稿中的占位数字，并无任何文件支撑。"
+              },
+              {
+                "en": "Recurring-revenue quality — the thing a software-license thesis depends on — is unobserved. Those placeholder figures are excluded from every number used here.",
+                "zh": "经常性收入（recurring revenue）的质量——软件授权投资逻辑所依赖的关键要素——无法观测。本报告所使用的所有数字均已剔除上述占位数据。"
+              }
+            ],
+            [
+              {
+                "en": "Contracts and MOUs",
+                "zh": "合同与谅解备忘录（MOU）"
+              },
+              {
+                "en": "$450M+ across healthcare, construction, smart city and industrial, stated once in the launch release of 2026-02-19.",
+                "zh": "$450M+，覆盖医疗、建筑、智慧城市与工业四大领域，仅在 2026-02-19 的发布公告中提及一次。"
+              },
+              {
+                "en": "The figure blends signed contracts with non-binding memoranda and discloses no split, no duration and no conversion timing. It is not backlog and it is not bookings.",
+                "zh": "该数字将已签署合同与不具约束力的备忘录混合计入，未披露两者的占比、期限或转化时点。它既非在手订单（backlog），也非签约金额（bookings）。"
+              }
+            ],
+            [
+              {
+                "en": "Pipeline target",
+                "zh": "销售管线目标"
+              },
+              {
+                "en": "~$5B of deals targeted post-stealth, reported by The Information on 2026-02-20.",
+                "zh": "隐身期结束后目标达成约 $5B 的交易额，由 The Information 于 2026-02-20 报道。"
+              },
+              {
+                "en": "A forward sales target, not bookings. It is roughly eleven times the $450M+ figure disclosed the day before and the two are not reconcilable on a common basis.",
+                "zh": "这是一个前瞻性销售目标，而非签约金额。它大约是前一天披露的 $450M+ 数字的十一倍，二者无法在同一口径下相互印证。"
+              }
+            ],
+            [
+              {
+                "en": "Gross margin",
+                "zh": "毛利率"
+              },
+              {
+                "en": "Not disclosed.",
+                "zh": "未披露。"
+              },
+              {
+                "en": "A no-new-hardware licensing model should carry software-like margin, but deployment and integration labor per site is unquantified. The margin claim is untested.",
+                "zh": "无需新增硬件的授权模式理应带来类似软件的利润率，但每个站点的部署与集成人力成本尚未量化，该利润率假设仍未经验证。"
+              }
+            ],
+            [
+              {
+                "en": "Burn and runway",
+                "zh": "现金消耗与现金可支撑时间"
+              },
+              {
+                "en": "Not disclosed. $100M+ was raised in February 2026.",
+                "zh": "未披露。2026 年 2 月完成了 $100M+ 的融资。"
+              },
+              {
+                "en": "Time to the next financing is unknown, which matters because the next priced round is the trigger in the recommendation.",
+                "zh": "距下一轮融资的时间尚不可知，这一点至关重要，因为下一轮定价融资正是本投资建议中的触发条件。"
+              }
+            ],
+            [
+              {
+                "en": "Customer concentration",
+                "zh": "客户集中度"
+              },
+              {
+                "en": "Not disclosed. No customer is named.",
+                "zh": "未披露。未披露任何客户名称。"
+              },
+              {
+                "en": "Whether the $450M+ book is many enterprises or a handful of large intents is unobservable, and the two cases have very different risk.",
+                "zh": "$450M+ 的意向合同是来自众多企业客户，还是集中于少数几笔大额意向，无法观测，而这两种情形所对应的风险截然不同。"
+              }
+            ],
+            [
+              {
+                "en": "Audited financials",
+                "zh": "经审计财务报表"
+              },
+              {
+                "en": "None exist on the public record. No filing, audit or investor letter was located.",
+                "zh": "公开记录中不存在任何经审计财务报表。未查获任何监管备案、审计报告或投资者信函。"
+              },
+              {
+                "en": "Everything financial traces to one company-controlled disclosure event. That is the first pinned risk.",
+                "zh": "所有财务信息均只能追溯到一次由公司自行掌控的披露事件。这是本报告标记的第一项核心风险。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Key Operating Metrics",
+            "zh": "核心经营指标"
+          }
+        },
+        {
+          "type": "table",
+          "component": "key_operating_metrics",
+          "title": {
+            "en": "Key operating metrics",
+            "zh": "核心经营指标"
+          },
+          "headers": [
+            {
+              "en": "Metric",
+              "zh": "指标"
+            },
+            {
+              "en": "Value",
+              "zh": "数值"
+            },
+            {
+              "en": "As of",
+              "zh": "截至日期"
+            },
+            {
+              "en": "Note",
+              "zh": "说明"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Employees",
+                "zh": "员工人数"
+              },
+              {
+                "en": "50-200",
+                "zh": "50-200"
+              },
+              {
+                "en": "2026-06-13",
+                "zh": "2026-06-13"
+              },
+              {
+                "en": "Band only. No functional split is disclosed, so sales capacity against a $5B target cannot be judged.",
+                "zh": "仅为区间数字。未披露职能分布，因此无法判断相对于 $5B 目标的销售能力是否充足。"
+              }
+            ],
+            [
+              {
+                "en": "Years in stealth before launch",
+                "zh": "发布前的隐身期年数"
+              },
+              {
+                "en": "9",
+                "zh": "9"
+              },
+              {
+                "en": "2026-02-19",
+                "zh": "2026-02-19"
+              },
+              {
+                "en": "Long development runway for a wireless-physics problem; also nine years without an external price check.",
+                "zh": "对于一个无线物理学难题而言，这是一段较长的研发周期；但也意味着九年内未经过任何外部定价检验。"
+              }
+            ],
+            [
+              {
+                "en": "Patent filings",
+                "zh": "专利申请数量"
+              },
+              {
+                "en": "100+",
+                "zh": "100+"
+              },
+              {
+                "en": "2026-02-19",
+                "zh": "2026-02-19"
+              },
+              {
+                "en": "Phase-based time synchronization and network-computed positioning. Company-reported.",
+                "zh": "基于相位的时间同步与网络端计算定位技术。由公司自行披露。"
+              }
+            ],
+            [
+              {
+                "en": "Patents issued",
+                "zh": "已授权专利数量"
+              },
+              {
+                "en": "90+",
+                "zh": "90+"
+              },
+              {
+                "en": "2026-02-19",
+                "zh": "2026-02-19"
+              },
+              {
+                "en": "Reported with 'zero rejections'. Not checked against USPTO file wrappers, and claim scope is unexamined.",
+                "zh": "披露称“零驳回”。未与美国专利商标局（USPTO）的审查档案核对，权利要求范围也未经核实。"
+              }
+            ],
+            [
+              {
+                "en": "Named production customers",
+                "zh": "已披露姓名的量产客户"
+              },
+              {
+                "en": "0",
+                "zh": "0"
+              },
+              {
+                "en": "2026-09-19",
+                "zh": "2026-09-19"
+              },
+              {
+                "en": "No logo, pilot outcome or renewal appears in the launch release, the company site or press coverage we reviewed.",
+                "zh": "发布公告、公司官网及我们审阅过的媒体报道中，均未出现任何客户标识（logo）、试点结果或续约信息。"
+              }
+            ],
+            [
+              {
+                "en": "Named carrier partnerships",
+                "zh": "已披露姓名的运营商合作伙伴"
+              },
+              {
+                "en": "0",
+                "zh": "0"
+              },
+              {
+                "en": "2026-09-19",
+                "zh": "2026-09-19"
+              },
+              {
+                "en": "The launch release said carrier and major enterprise partnerships were to be announced. Seven months on, none has been.",
+                "zh": "发布公告曾表示运营商与主要企业合作伙伴关系将予以公布。七个月过去，至今仍未有任何公布。"
+              }
+            ],
+            [
+              {
+                "en": "Government program selections",
+                "zh": "政府项目入选次数"
+              },
+              {
+                "en": "1",
+                "zh": "1"
+              },
+              {
+                "en": "2026-04-20",
+                "zh": "2026-04-20"
+              },
+              {
+                "en": "Tokyo Metropolitan Government GX program, chosen from applicants across 22 countries. Market-entry support and subsidy; no contract value disclosed.",
+                "zh": "东京都政府 GX 项目，从来自 22 个国家的申请者中脱颖而出。属于市场准入支持与补贴性质，未披露合同金额。"
+              }
+            ],
+            [
+              {
+                "en": "Ecosystem memberships",
+                "zh": "生态系统成员资格"
+              },
+              {
+                "en": "Arm Total Design",
+                "zh": "Arm Total Design"
+              },
+              {
+                "en": "Undated",
+                "zh": "未标注日期"
+              },
+              {
+                "en": "A silicon-ecosystem signal stated by the company. No commercial value is attached to it.",
+                "zh": "公司自行披露的芯片生态系统信号，未附带任何商业价值信息。"
+              }
+            ],
+            [
+              {
+                "en": "Offices",
+                "zh": "办公地点"
+              },
+              {
+                "en": "2 (Belmont, Tokyo)",
+                "zh": "2（贝尔蒙特、东京）"
+              },
+              {
+                "en": "2026-04-20",
+                "zh": "2026-04-20"
+              },
+              {
+                "en": "Tokyo is the APAC hub and follows the GX selection rather than a signed deployment.",
+                "zh": "东京是亚太区（APAC）总部，其设立源于 GX 项目入选，而非一份已签署的部署合同。"
+              }
+            ],
+            [
+              {
+                "en": "Disclosed verticals",
+                "zh": "已披露的垂直行业"
+              },
+              {
+                "en": "4 (healthcare, construction, smart city, industrial)",
+                "zh": "4（医疗、建筑、智慧城市、工业）"
+              },
+              {
+                "en": "2026-02-19",
+                "zh": "2026-02-19"
+              },
+              {
+                "en": "Four enterprise sales motions with different budget owners and cycle lengths, run by a company of at most 200 people.",
+                "zh": "四种企业销售路径，各自的预算归属方与销售周期均不相同，而承担这一切的公司员工人数最多不过 200 人。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Board and Leadership",
+            "zh": "董事会与管理层"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The roster is founder-heavy and thin at the top of the finance function. Daniel Jacker leads as co-founder and CEO; Philip Kratz is co-founder and CTO and an inventor on the core positioning patents. The Org's leadership profile names two co-founders the company's own materials omit: Alexander Hooshmand, listed as a co-founder and board member, and Jake Levy, listed as co-founder and COO. Steve Jurvetson of Future Ventures, who also sits on the SpaceX board, is the one outside director named anywhere. Andreas Weigend, formerly Chief Scientist at Amazon, is an advisor and not a director. No chief financial officer or equivalent finance officer appears in any public roster we reviewed, at a company carrying a $1B+ mark and a $450M+ contracts-and-MOUs claim. Ownership percentages are not verifiable: the cap-table figures in the company record on file are design-mock placeholders with no document behind them, and no LP voting agreement or board consent is on the public record. Board independence, audit arrangements and option-pool terms are unobserved.",
+            "zh": "管理层名单以创始人为主，财务职能的高层配置则相当薄弱。Daniel Jacker 以联合创始人兼首席执行官的身份领导公司；Philip Kratz 是联合创始人兼首席技术官，也是核心定位专利的发明人之一。The Org 的高管资料中列出了两位公司自身材料未曾提及的联合创始人：被列为联合创始人兼董事会成员的 Alexander Hooshmand，以及被列为联合创始人兼首席运营官的 Jake Levy。Future Ventures 的 Steve Jurvetson（同时也是 SpaceX 董事会成员）是目前唯一有具体姓名披露的外部董事。Andreas Weigend（前亚马逊首席科学家）是顾问，而非董事。在我们审阅过的所有公开名单中，均未出现首席财务官或同等财务负责人——而这是一家背负 $1B+ 估值标记与 $450M+ 合同及 MOU 金额的公司。股权占比无法核实：存档公司资料中的股权结构表（cap table）数字均为设计稿占位数字，并无任何文件支撑，公开记录中也不存在任何表决协议或董事会同意文件。董事会独立性、审计安排与期权池条款均无法观测。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "board",
+          "title": {
+            "en": "Board of Directors and leadership",
+            "zh": "董事会与管理层"
+          },
+          "headers": [
+            {
+              "en": "Name",
+              "zh": "姓名"
+            },
+            {
+              "en": "Role",
+              "zh": "职务"
+            },
+            {
+              "en": "Strategic value",
+              "zh": "战略价值"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Daniel Jacker",
+                "zh": "Daniel Jacker"
+              },
+              {
+                "en": "Co-founder and CEO",
+                "zh": "联合创始人兼首席执行官"
+              },
+              {
+                "en": "Owns product architecture and capital strategy; carried the company through nine years of stealth and the February 2026 raise. Pre-ZaiNar operating history rests on company bios and is not independently detailed.",
+                "zh": "主导产品架构与资本策略，带领公司走过九年隐身期并完成 2026 年 2 月的融资。加入 ZaiNar 之前的从业经历仅见于公司自述简历，未经独立详查。"
+              }
+            ],
+            [
+              {
+                "en": "Philip Kratz",
+                "zh": "Philip Kratz"
+              },
+              {
+                "en": "Co-founder and CTO",
+                "zh": "联合创始人兼首席技术官"
+              },
+              {
+                "en": "Wireless systems lead and inventor on the phase-based synchronization patents. He is the technical concentration point: the moat and the key-person risk sit in the same place. Whether he holds a board seat is not disclosed.",
+                "zh": "无线系统负责人，也是基于相位的同步技术专利的发明人。他是技术层面的集中点：公司的护城河与关键人物风险集中于同一个人身上。他是否拥有董事会席位未予披露。"
+              }
+            ],
+            [
+              {
+                "en": "Alexander Hooshmand",
+                "zh": "Alexander Hooshmand"
+              },
+              {
+                "en": "Co-founder and board member (per The Org)",
+                "zh": "联合创始人兼董事会成员（据 The Org）"
+              },
+              {
+                "en": "Brings enterprise-software company-building from BlueKai, which Oracle acquired, and consulting background at Bain. Named by a third-party profile, not by the company's own materials.",
+                "zh": "拥有企业软件公司创建经验，曾参与被甲骨文（Oracle）收购的 BlueKai，并有贝恩（Bain）的咨询背景。由第三方资料披露其姓名，而非公司自身材料。"
+              }
+            ],
+            [
+              {
+                "en": "Jake Levy",
+                "zh": "Jake Levy"
+              },
+              {
+                "en": "Co-founder and COO (per The Org)",
+                "zh": "联合创始人兼首席运营官（据 The Org）"
+              },
+              {
+                "en": "Data-science background from an early BuzzFeed role plus a Stanford MBA; operational counterweight to a physics-led founding team. Board seat not disclosed.",
+                "zh": "拥有数据科学背景，早年曾任职于 BuzzFeed，并持有斯坦福大学 MBA 学位，是这支以物理学见长的创始团队在运营层面的制衡力量。是否拥有董事会席位未予披露。"
+              }
+            ],
+            [
+              {
+                "en": "Steve Jurvetson",
+                "zh": "Steve Jurvetson"
+              },
+              {
+                "en": "Director; Future Ventures",
+                "zh": "董事；Future Ventures"
+              },
+              {
+                "en": "The only outside director named anywhere, and a deep-tech investor whose SpaceX board seat gives him hardware-scaling pattern recognition. He is also among the round's named backers, so the same party validates the price and sits on the board.",
+                "zh": "目前唯一有具体姓名披露的外部董事，也是一位深科技（deep-tech）投资人，其在 SpaceX 董事会的任职经历使他具备硬件规模化方面的经验判断力。他同时也是本轮融资中有具名的出资方之一，这意味着为估值背书的一方与坐在董事会中的一方是同一人。"
+              }
+            ],
+            [
+              {
+                "en": "Andreas Weigend",
+                "zh": "Andreas Weigend"
+              },
+              {
+                "en": "Advisor (former Chief Scientist, Amazon)",
+                "zh": "顾问（前亚马逊首席科学家）"
+              },
+              {
+                "en": "Data-strategy advisor. An advisory relationship, not a governance one — no fiduciary role and no vote.",
+                "zh": "数据战略顾问。属于顾问关系，而非治理关系——不承担信义职责，也没有表决权。"
+              }
+            ],
+            [
+              {
+                "en": "Finance officer",
+                "zh": "财务负责人"
+              },
+              {
+                "en": "None named",
+                "zh": "无已披露人选"
+              },
+              {
+                "en": "No CFO or finance lead appears on the company site, in press coverage or in third-party executive rosters we reviewed. Revenue recognition on the $450M+ book, financial controls and audit readiness have no public owner.",
+                "zh": "公司官网、媒体报道以及我们审阅过的第三方高管名单中，均未出现首席财务官或财务负责人。针对 $450M+ 合同与意向金额的收入确认、财务内控以及审计准备工作，目前没有任何公开可查的负责人。"
+              }
+            ],
+            [
+              {
+                "en": "Independent directors beyond Jurvetson",
+                "zh": "除 Jurvetson 以外的独立董事"
+              },
+              {
+                "en": "None named",
+                "zh": "无已披露人选"
+              },
+              {
+                "en": "Board control sits with founders on the visible evidence. Minority protections would depend on terms that are not disclosed, so independence is unverified rather than absent.",
+                "zh": "从现有可见证据看，董事会控制权掌握在创始人手中。少数股东保护将取决于尚未披露的具体条款，因此董事会独立性属于无法核实，而非确定缺失。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "callout",
+          "title": {
+            "en": "What the roster tells us",
+            "zh": "这份名单说明了什么"
+          },
+          "body": {
+            "en": "Four co-founders, one outside director, no named finance officer, and no verifiable ownership. Jurvetson's presence is real validation and the only governance counterweight on the record — and he is also a backer of the round that set the mark. This is the fifth pinned risk: governance is thin for a company at this valuation, rated 6/10.",
+            "zh": "四位联合创始人，一位外部董事，没有已披露的财务负责人，股权结构也无法核实。Jurvetson 的加入构成了真实的背书，也是记录在案的唯一治理制衡力量——但他同时也是设定该估值标记这一轮融资的出资方之一。这是本报告标记的第五项核心风险：以这一估值水平而言，公司的治理结构相当薄弱，评分为 6/10。"
+          },
+          "items": null
+        }
+      ]
+    },
+    {
+      "id": "investment_highlights",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": {
+            "en": "Investment Highlights",
+            "zh": "核心投资亮点"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "ZaiNar's claim is a physical one. A hospital, a job site or a factory already runs dense Wi-Fi and 5G. ZaiNar synchronizes those radios to sub-nanosecond precision and computes the three-dimensional position of anything that transmits, indoors, through walls, and where GPS does not reach. No beacons, no tags, no new spectrum licence, no truck roll. The Robot Report described the approach at the February 2026 launch as protocol-agnostic time synchronization requiring no new hardware. That deployment model is the single most investable feature here: it turns a capital project into a software install, and it is why enterprise buyers engaged before any reference deployment existed.",
+            "zh": "ZaiNar 的核心主张是物理层面的。医院、工地或工厂中往往已经部署了密集的 Wi-Fi 和 5G 网络。ZaiNar 将这些无线电同步到亚纳秒级精度，并计算任何发射信号物体的三维位置——无论是在室内、穿墙场景，还是 GPS 信号无法到达的地方。无需信标、无需标签、无需新的频谱许可、无需现场施工车队。《The Robot Report》在 2026 年 2 月的发布会报道中，将这一方案描述为无需新硬件的协议无关时间同步。这种部署模式是此处最具投资价值的单一特征：它把一个资本性项目变成了一次软件安装，这也是为什么企业买家在尚无参考部署案例之前就已经开始接触的原因。"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Nine years of stealth produced a patent estate rather than a revenue line. The company reports 100+ filings and 90+ issued patents in phase-based time synchronization, with 'zero rejections.' That count comes from the company's own launch release and has not been checked against USPTO file wrappers, so it establishes that the work was done and filed, not that the claims are broad or enforceable. Independent validation exists but is narrow. In April 2026 the Tokyo Metropolitan Government selected ZaiNar from applicants across 22 countries for its GX foreign-company program, and ZaiNar opened a Tokyo office as its APAC hub. The Invest Tokyo program page describes that program as market-entry facilitation and subsidy. It is a market-access win, not a signed municipal deployment, and no contract value is attached. ZaiNar also joined Arm Total Design, an ecosystem membership stated on the company's own site with no commercial value disclosed.",
+            "zh": "九年的隐身研发（stealth）带来的是专利资产，而非收入线。公司报告称已提交 100+ 件专利申请、获批 90+ 件专利，涉及分阶段时间同步技术，且“零驳回”。这一数字来自公司自身的发布新闻稿，尚未与美国专利商标局（USPTO）的档案记录进行核对，因此它只能证明相关工作确已完成并已提交申请，而不能证明相关权利要求范围广泛或具备可执行性。独立验证确实存在，但范围有限。2026 年 4 月，东京都政府从来自 22 个国家的申请者中选中 ZaiNar，纳入其 GX 外国企业项目，ZaiNar 也借此在东京开设了亚太区总部办公室。Invest Tokyo 项目页面将该项目描述为市场准入协助与补贴支持。这是一次市场准入方面的胜利，而非已签署的市政部署合同，也未附带任何合同金额。ZaiNar 还加入了 Arm Total Design，这是公司官网自述的一项生态系统会员资格，未披露任何商业价值。"
+          }
+        },
+        {
+          "type": "bullets",
+          "items": [
+            {
+              "en": "No new hardware. The platform runs as a software layer over installed 5G and Wi-Fi, which removes the per-site equipment capex that gates UWB and tag-based systems. Integration and IT security review still take time, and no implementation timeline or cost is disclosed.",
+              "zh": "无需新硬件。该平台作为软件层运行于已部署的 5G 和 Wi-Fi 网络之上，省去了 UWB 和基于标签系统所需的按站点硬件资本支出（capex）。系统集成与 IT 安全审查仍需时间，且尚未披露具体的实施周期或成本。"
+            },
+            {
+              "en": "Patent estate. 100+ filings and 90+ issued in phase-based time synchronization, company-reported. Unverified against patent-office records, so the estate supports a technical-depth argument and not yet a licensing argument.",
+              "zh": "专利资产。分阶段时间同步技术领域已提交 100+ 件专利申请、获批 90+ 件，数据由公司自行披露。尚未与专利局记录进行核实，因此该专利资产目前只能支撑“技术深度”的论证，尚不能支撑“许可变现”的论证。"
+            },
+            {
+              "en": "Tokyo GX selection, April 2026. Chosen from applicants across 22 countries; a genuine third-party government validation of interest. It is market-entry support and subsidy, not procurement, and carries no disclosed contract value.",
+              "zh": "东京 GX 项目入选，2026 年 4 月。从来自 22 个国家的申请者中脱颖而出，是一次真实的第三方政府层面的兴趣验证。但这属于市场准入支持与补贴，而非采购订单，也未披露任何合同金额。"
+            },
+            {
+              "en": "Arm Total Design. Ecosystem membership positioning the platform alongside silicon partners. No revenue, design win or commercial term is attached to it.",
+              "zh": "Arm Total Design。这一生态系统会员资格将该平台与芯片合作伙伴并列定位，但未附带任何收入、设计中标（design win）或商业条款。"
+            },
+            {
+              "en": "Commercial pull, stated but unsplit. $450M+ in contracts and MOUs across healthcare, construction, smart city and industrial, plus a ~$5B forward pipeline target reported by The Information. See Investment Risk for why the blended figure cannot stand as backlog.",
+              "zh": "商业牵引力，已披露但未拆分。合同与谅解备忘录（MOU）总额超过 $450M+，覆盖医疗、建筑、智慧城市和工业领域，另据 The Information 报道，未来销售管线目标约为 $5B。至于这一合并数字为何不能视为在手订单（backlog），参见“投资风险”部分。"
+            },
+            {
+              "en": "Market direction. Indoor location runs $18.35B in 2026 to $50.10B by 2031, a 22.3% CAGR on MarketsandMarkets figures. Category growth is real; ZaiNar's share of it is unevidenced.",
+              "zh": "市场方向。根据 MarketsandMarkets 的数据，室内定位市场规模将从 2026 年的 $18.35B 增长到 2031 年的 $50.10B，年复合增长率（CAGR）为 22.3%。行业整体增长是真实的，但 ZaiNar 在其中所占份额尚无证据支持。"
+            },
+            {
+              "en": "Backers with signal. Steve Jurvetson sits on the board, and Jerry Yang, Tom Gruber, Jaan Tallinn and Nicholas Pritzker are named in the round. No lead investor is named, and a board member among the backers is not an arm's-length price check.",
+              "zh": "具有信号意义的投资方。Steve Jurvetson 担任董事会成员，Jerry Yang、Tom Gruber、Jaan Tallinn 和 Nicholas Pritzker 均出现在本轮投资方名单中。本轮未披露领投方（lead investor），而投资方中有董事会成员参与，并不能构成一次独立公允的估值把关（arm's-length price check）。"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "component": "competitive_analysis",
+          "title": {
+            "en": "Competitive position",
+            "zh": "竞争格局"
+          },
+          "headers": [
+            {
+              "en": "Competitor",
+              "zh": "竞争对手"
+            },
+            {
+              "en": "Status",
+              "zh": "状态"
+            },
+            {
+              "en": "How it wins",
+              "zh": "制胜逻辑"
+            },
+            {
+              "en": "What it means for ZaiNar",
+              "zh": "对 ZaiNar 的意义"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "NextNav (NASDAQ: NN)",
+                "zh": "NextNav (NASDAQ: NN)"
+              },
+              {
+                "en": "Public; closest terrestrial-PNT pure-play",
+                "zh": "已上市；最接近的地面 PNT（定位、导航与授时）纯正对标公司"
+              },
+              {
+                "en": "Licensed spectrum plus terrestrial beacon hardware; its TerraPoiNT materials cite 150+ patents, and its beacon system has sat inside 3GPP specifications since Release 13.",
+                "zh": "持牌频谱加地面信标硬件；其 TerraPoiNT 资料中援引了 150+ 件专利，其信标系统自 Release 13 起就已被纳入 3GPP 标准规范。"
+              },
+              {
+                "en": "NextNav owns infrastructure and a regulatory position ZaiNar does not have. ZaiNar counters on deployment cost and indoor accuracy, not on ownership of the layer.",
+                "zh": "NextNav 拥有 ZaiNar 所不具备的基础设施和监管地位。ZaiNar 的应对之道在于部署成本和室内精度，而非在基础层的所有权上竞争。"
+              }
+            ],
+            [
+              {
+                "en": "Skyhook (Qualcomm)",
+                "zh": "Skyhook (Qualcomm)"
+              },
+              {
+                "en": "Public parent",
+                "zh": "母公司已上市"
+              },
+              {
+                "en": "Wi-Fi positioning embedded at device level across a very large handset footprint.",
+                "zh": "Wi-Fi 定位技术已在极大规模的手机终端上实现设备级内置。"
+              },
+              {
+                "en": "Distribution reach ZaiNar cannot match. Accuracy class is coarser, so the overlap is in consumer-grade location rather than sub-meter enterprise tracking.",
+                "zh": "其分销覆盖是 ZaiNar 无法企及的。但精度等级较粗，因此二者的重叠主要在消费级定位领域，而非亚米级的企业级追踪。"
+              }
+            ],
+            [
+              {
+                "en": "Ubisense",
+                "zh": "Ubisense"
+              },
+              {
+                "en": "Private",
+                "zh": "未上市"
+              },
+              {
+                "en": "UWB real-time location in manufacturing and industrial plants, with installed tag and anchor estates.",
+                "zh": "在制造业和工业厂区提供 UWB 实时定位（RTLS），并已安装了大量标签和锚点基础设施。"
+              },
+              {
+                "en": "The direct incumbent in ZaiNar's industrial vertical. Its weakness is exactly the capex ZaiNar removes; its strength is proven, referenceable deployments ZaiNar has not published.",
+                "zh": "在 ZaiNar 所在的工业垂直领域中，它是直接的在位竞争者。其弱点恰恰是 ZaiNar 所省去的那部分资本支出（capex）；其优势则是已验证、可作参考的部署案例，而这正是 ZaiNar 尚未公开的。"
+              }
+            ],
+            [
+              {
+                "en": "GXC",
+                "zh": "GXC"
+              },
+              {
+                "en": "Private",
+                "zh": "未上市"
+              },
+              {
+                "en": "Private-5G networking with integrated sensing heritage, sold to the same enterprise network owners.",
+                "zh": "专网 5G（private-5G）组网，具备集成感知技术的积累，销售对象与 ZaiNar 相同，均为企业网络所有者。"
+              },
+              {
+                "en": "Competes for the private-5G budget line and can bundle sensing into the network sale, compressing what a separate positioning licence is worth.",
+                "zh": "与 ZaiNar 争夺专网 5G 的预算份额，并可将感知功能捆绑进网络销售之中，从而压缩单独定位许可的价值。"
+              }
+            ],
+            [
+              {
+                "en": "HERE",
+                "zh": "HERE"
+              },
+              {
+                "en": "Private",
+                "zh": "未上市"
+              },
+              {
+                "en": "Mapping and location platform with deep automotive and enterprise relationships.",
+                "zh": "地图与位置平台，在汽车和企业客户关系上积累深厚。"
+              },
+              {
+                "en": "A potential channel and a potential acquirer as much as a rival. It sells the map layer above the sensing layer ZaiNar builds.",
+                "zh": "与其说是竞争对手，不如说更可能是潜在渠道或潜在收购方。它销售的是地图层，位于 ZaiNar 所构建的感知层之上。"
+              }
+            ],
+            [
+              {
+                "en": "Carriers and equipment vendors",
+                "zh": "运营商与设备厂商"
+              },
+              {
+                "en": "Incumbent network owners",
+                "zh": "在位网络所有者"
+              },
+              {
+                "en": "Own the radios ZaiNar's software runs on and could deliver native positioning if 3GPP Releases 18 and 19 absorb phase-based techniques.",
+                "zh": "拥有 ZaiNar 软件所运行的无线电基础设施，若 3GPP Release 18 和 19 吸纳分阶段技术，就可以自行提供原生定位能力。"
+              },
+              {
+                "en": "The most serious competitive threat, because it is also the distribution channel. See Investment Risk.",
+                "zh": "这是最严重的竞争威胁，因为它同时也是分销渠道。参见“投资风险”部分。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Whether network-computed positioning displaces installed real-time location systems or sits beside them decides the pricing power. ABI Research has framed the question directly, asking whether 5G positioning is an enterprise problem solver or just another RTLS technology. On disclosed evidence the honest answer for ZaiNar is mixed, and the mix differs by vertical.",
+            "zh": "网络计算式定位究竟会取代已安装的实时定位系统，还是与其并存，将决定定价权的归属。ABI Research 直接提出了这一问题：5G 定位究竟是企业问题的解决方案，还是又一种 RTLS 技术？基于已披露的证据，对 ZaiNar 而言，诚实的答案是好坏参半，且因垂直行业而异。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "replacement_coexistence",
+          "title": {
+            "en": "Replacement versus coexistence, by setting",
+            "zh": "按应用场景划分的替代与并存"
+          },
+          "headers": [
+            {
+              "en": "Setting",
+              "zh": "场景"
+            },
+            {
+              "en": "Incumbent approach",
+              "zh": "在位方案"
+            },
+            {
+              "en": "Likely outcome",
+              "zh": "可能结果"
+            },
+            {
+              "en": "Economic consequence",
+              "zh": "经济影响"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Hospitals",
+                "zh": "医院"
+              },
+              {
+                "en": "Badge and tag RTLS on dedicated infrastructure, already amortized in many large systems.",
+                "zh": "基于专用基础设施的胸牌与标签式 RTLS，在许多大型系统中已完成摊销。"
+              },
+              {
+                "en": "Coexistence first. ZaiNar extends coverage to untagged devices and areas the tag estate does not reach.",
+                "zh": "以并存为主。ZaiNar 将覆盖范围扩展到未贴标签的设备，以及标签基础设施覆盖不到的区域。"
+              },
+              {
+                "en": "Sold as an incremental software line rather than a rip-and-replace capital project. Smaller initial contracts, faster entry.",
+                "zh": "作为增量软件产品线出售，而非推倒重建式的资本性项目。初始合同规模较小，但进入速度更快。"
+              }
+            ],
+            [
+              {
+                "en": "Active construction sites",
+                "zh": "在建工地"
+              },
+              {
+                "en": "Little installed base; GPS fails inside structures and below grade.",
+                "zh": "现有安装基础极少；GPS 在建筑物内部和地下均无法正常工作。"
+              },
+              {
+                "en": "Replacement, in effect, because there is nothing to replace. The clearest greenfield.",
+                "zh": "本质上属于替代，因为原本就没有可替代的对象。这是最清晰的增量市场（greenfield）。"
+              },
+              {
+                "en": "Strongest pricing position, but site tenancy is temporary and contracts follow project cycles rather than renewing annually.",
+                "zh": "定价地位最强，但现场驻留是临时性的，合同随项目周期变化，而非按年续约。"
+              }
+            ],
+            [
+              {
+                "en": "Factories and logistics yards",
+                "zh": "工厂与物流堆场"
+              },
+              {
+                "en": "UWB anchors and tags from vendors such as Ubisense, with proven accuracy and reference sites.",
+                "zh": "来自 Ubisense 等厂商的 UWB 锚点与标签，精度已获验证，并有可参考的部署案例。"
+              },
+              {
+                "en": "Coexistence, with displacement only where a refresh is already due.",
+                "zh": "以并存为主，只有在既有系统需要更新换代时才会出现替代。"
+              },
+              {
+                "en": "Displacement timing is tied to the incumbent refresh cycle, which slows conversion of any pipeline in this vertical.",
+                "zh": "替代的时点取决于在位系统的更新周期，这会拖慢该垂直领域内任何销售管线的转化速度。"
+              }
+            ],
+            [
+              {
+                "en": "Carrier macro networks",
+                "zh": "运营商宏网络"
+              },
+              {
+                "en": "Carrier-owned radio estate; positioning delivered through the standards track.",
+                "zh": "由运营商拥有的无线电基础设施；定位能力通过标准化路径交付。"
+              },
+              {
+                "en": "Neither. ZaiNar is a licensor to the network owner, not a competitor to it.",
+                "zh": "二者皆非。ZaiNar 是网络所有者的许可方（licensor），而非其竞争对手。"
+              },
+              {
+                "en": "Value splits with the carrier, and the split is decided by whoever the buyer credits for the capability. This is the weakest structural position of the four.",
+                "zh": "价值由 ZaiNar 与运营商共同分享，具体分成比例取决于买方将该能力的功劳归于谁。这是四种场景中结构性地位最弱的一种。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "table",
+          "component": "moat",
+          "title": {
+            "en": "Moat and defensibility",
+            "zh": "护城河与防御能力"
+          },
+          "headers": [
+            {
+              "en": "Source of defensibility",
+              "zh": "防御能力来源"
+            },
+            {
+              "en": "What exists today",
+              "zh": "现状"
+            },
+            {
+              "en": "Durability",
+              "zh": "持续性"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Patents",
+                "zh": "专利"
+              },
+              {
+                "en": "100+ filings and 90+ issued in phase-based time synchronization, company-reported at the February 2026 launch.",
+                "zh": "在分阶段时间同步技术领域已提交 100+ 件专利申请、获批 90+ 件，数据由公司在 2026 年 2 月的发布会上自行披露。"
+              },
+              {
+                "en": "The load-bearing asset, and the least verified one. Claim scope has not been read against USPTO records or against standard-essential claims emerging from 3GPP Releases 18 and 19.",
+                "zh": "这是承重级的核心资产，也是验证程度最低的一项。相关权利要求的范围尚未与 USPTO 记录核对，也未与 3GPP Release 18 和 19 中正在形成的标准必要权利要求进行比对。"
+              }
+            ],
+            [
+              {
+                "en": "Technical difficulty",
+                "zh": "技术难度"
+              },
+              {
+                "en": "Sub-nanosecond synchronization across heterogeneous radios, built over nine years in stealth and described as protocol-agnostic in trade coverage.",
+                "zh": "跨异构无线电实现亚纳秒级同步，历经九年隐身研发打造而成，业内报道将其描述为协议无关（protocol-agnostic）。"
+              },
+              {
+                "en": "Real but time-limited. Difficulty deters small entrants; it does not deter Qualcomm, a tier-one equipment vendor or a standards body.",
+                "zh": "这种壁垒是真实的，但有时效性。技术难度可以吓退小型进入者，却吓不退高通（Qualcomm）、一线设备厂商或标准组织。"
+              }
+            ],
+            [
+              {
+                "en": "Switching cost",
+                "zh": "转换成本"
+              },
+              {
+                "en": "None demonstrated. No named production customer, renewal or usage metric appears in the launch release, the company's site or any press coverage reviewed.",
+                "zh": "目前尚未得到证明。在发布会新闻稿、公司官网及所审阅的任何媒体报道中，均未出现具名的生产环境客户、续约情况或使用量指标。"
+              },
+              {
+                "en": "The lightweight install that makes ZaiNar easy to adopt also makes it easy to remove. Lock-in has to come from data and workflow integration that is not yet evidenced.",
+                "zh": "使 ZaiNar 易于采用的轻量化安装方式，同样也使其容易被移除。真正的锁定效应必须来自数据与工作流集成，而这一点目前尚无证据支持。"
+              }
+            ],
+            [
+              {
+                "en": "Infrastructure ownership",
+                "zh": "基础设施所有权"
+              },
+              {
+                "en": "None by design. ZaiNar owns no spectrum and no radios, unlike NextNav, whose TerraPoiNT rests on licensed spectrum and its own beacons.",
+                "zh": "按设计即无此项。ZaiNar 既不拥有频谱，也不拥有无线电设备，这与 NextNav 不同——后者的 TerraPoiNT 建立在持牌频谱和自有信标之上。"
+              },
+              {
+                "en": "A cost advantage that is also a dependency. Distribution runs through network owners, and the company said at launch that carrier and major enterprise partnerships were still to be announced.",
+                "zh": "这既是一项成本优势，也是一种依赖。分销要经由网络所有者进行，而公司在发布会上曾表示，与运营商和主要企业的合作伙伴关系尚待公布。"
+              }
+            ],
+            [
+              {
+                "en": "Standing and relationships",
+                "zh": "声誉与关系"
+              },
+              {
+                "en": "Tokyo GX selection of April 2026, Arm Total Design membership, and a board seat held by Steve Jurvetson.",
+                "zh": "2026 年 4 月入选东京 GX 项目、Arm Total Design 会员资格，以及 Steve Jurvetson 出任董事会成员。"
+              },
+              {
+                "en": "Opens doors in Japan and in silicon ecosystems. None of it is contracted revenue, and none of it prevents a competitor from shipping the same capability.",
+                "zh": "这些为公司在日本市场和芯片生态系统中打开了门路，但都不构成已签约的收入，也都无法阻止竞争对手推出同样的能力。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "callout",
+          "title": {
+            "en": "What the highlights carry, and what they do not",
+            "zh": "这些亮点能够证明什么，又不能证明什么"
+          },
+          "body": {
+            "en": "Nine years of engineering, a large filed patent estate, a government selection in Tokyo and a deployment model that skips hardware are genuine assets. They establish that ZaiNar built something hard and that serious people believe it. They do not establish revenue, margin, a named production customer or a defensible take-rate against the carriers whose networks the software runs on. See Valuation for what the $1B+ February 2026 mark asks of that evidence.",
+            "zh": "九年的工程积累、庞大的已提交专利资产、在东京获得的政府选中，以及一种跳过硬件的部署模式，都是真实的资产。它们证明了 ZaiNar 确实做出了有难度的东西，也确实有严肃的投资人相信这一点。但它们并不能证明收入、利润率、具名的生产环境客户，或是针对其软件所运行网络的运营商的可防御的分成比例（take-rate）。至于 2026 年 2 月 $1B+ 的估值对这些证据提出了怎样的要求，参见“估值”部分。"
+          },
+          "items": null
+        }
+      ]
+    },
+    {
+      "id": "investment_risk",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The risk here is not whether the technology works. It is that almost every number a buyer would price off comes from one company-authored release dated 2026-02-19, and nothing since has tested it. There is no revenue figure, no split of the $450M+ book into signed contracts and non-binding MOUs, no named lead on the round, and no later mark. Distribution runs through carrier and enterprise network owners ZaiNar does not control, and the standards bodies that could absorb the core technique are already working in that direction. The six risks below are ordered by how much damage each can do to the return, not by how likely each is.",
+            "zh": "此处的风险不在于技术是否可行，而在于买方据以定价的几乎每一个数字，都来自公司自身于 2026 年 2 月 19 日发布的一份新闻稿，此后再无任何验证。公司未披露收入数字，未说明 $450M+ 的合同储备中已签约合同与非约束性谅解备忘录（MOU）的占比，未披露本轮融资的领投方，也没有后续估值。渠道分销依赖于 ZaiNar 无法掌控的运营商与企业网络所有者，而有能力将该核心技术纳入自身标准的标准组织，已经在朝这个方向推进。以下六项风险按对回报可能造成的损害程度排序，而非按发生概率排序。"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 1: Unverified mark. The $1B+ price comes from one company-controlled disclosure with no named lead and no revenue behind it.",
+            "zh": "风险 1：未经验证的估值。$1B+ 的定价仅来自公司自行掌控的一份披露文件，既无指定领投方，也无收入支撑。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Valuation",
+                "zh": "估值"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "The $1B+ post-money appears only in ZaiNar's own February 2026 launch release; no lead investor is named on a $100M+ round, and board member Steve Jurvetson sits among the backers who helped set the price. If the mark was set by insiders rather than by arm's-length demand, an entry at that level starts underwater and the next priced round resets it downward, taking the full loss out of exit value.",
+                "zh": "$1B+ 的投后估值仅出现在 ZaiNar 自己 2026 年 2 月发布的产品发布新闻稿中；这轮 $100M+ 的融资未披露领投方，而董事会成员 Steve Jurvetson 本人也是参与定价的投资方之一。如果这一估值是由内部人士设定，而非通过公平交易的市场需求形成，那么以该水平进场从一开始就处于账面浮亏状态，下一轮定价融资一旦下调估值，全部损失都将直接体现在退出价值上。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "A secondary print or a new priced round with a named outside lead — private-market trackers recorded neither as of the September 2026 check. Audited financials, or any first revenue disclosure, that would let the mark be tested against a multiple.",
+                "zh": "出现二级市场成交记录，或由外部领投方主导的新一轮定价融资——截至 2026 年 9 月核查时，私募市场数据追踪机构均未记录到上述任何一项。经审计的财务报表，或任何首次收入披露，从而可据此以倍数对该估值进行检验。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "High: seven months after the launch release, no second pricing data point of any kind exists.",
+                "zh": "高：发布新闻稿已过去七个月，市场上仍不存在任何第二个定价数据点。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "9/10: with no revenue disclosed, no entry multiple can be computed, so this single unverified number carries the whole price.",
+                "zh": "9/10：由于未披露收入，无法计算进场倍数，整个估值完全依赖这一未经验证的数字。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 2: Contract quality. The $450M+ figure blends signed contracts with non-binding MOUs and discloses no split.",
+            "zh": "风险 2：合同质量。$450M+ 这一数字将已签约合同与非约束性 MOU 混合计算，且未披露两者的占比。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Commercial",
+                "zh": "商业"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "The launch release states $450M+ in commercial contracts and MOUs across healthcare, construction, smart city and industrial, with no contract-versus-MOU split, no term length, no customer names and no conversion timing. An MOU is not an order. If most of the book is intent rather than obligation, near-term revenue arrives years later and at lower value than the headline implies, and the growth curve the $1B+ mark assumes never forms.",
+                "zh": "发布新闻稿称，公司在医疗、建筑、智慧城市与工业领域的商业合同与 MOU 总额达 $450M+，但未披露合同与 MOU 的具体占比、合同期限、客户名称或转化时间。MOU 并非订单。如果这一储备中大部分只是意向而非具有约束力的义务，那么近期收入的兑现将比标题数字所暗示的更晚、价值更低，而支撑 $1B+ 估值所假设的增长曲线也将无从形成。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "A named production customer in healthcare or construction with a stated contract value and term — none appears in company material or press coverage reviewed through September 2026. A restatement of the book as backlog with a signed-versus-MOU split. Reconciliation between the $450M+ figure and the ~$5B pipeline target reported in February 2026, which are framed as different things and have never been squared.",
+                "zh": "医疗或建筑领域出现具名的量产客户，并披露具体合同金额与期限——在截至 2026 年 9 月审阅的公司材料与媒体报道中均未出现。将该储备重新表述为积压订单（backlog），并披露已签约与 MOU 的占比。对 $450M+ 这一数字与 2026 年 2 月披露的约 $5B 销售管线目标进行核对——目前两者被表述为不同概念，且从未相互核实过。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "High: MOU conversion slips as a rule in enterprise and municipal buying, and no conversion evidence has been published since the launch.",
+                "zh": "高：在企业与市政采购中，MOU 的转化延迟本就是常态，而自发布以来公司也从未公布任何转化证据。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "8/10: this figure is the only commercial proof on file, so discounting it removes most of the visible support for the price.",
+                "zh": "8/10：这一数字是目前唯一可查的商业证明，一旦对其打折，估值的可见支撑将大部分消失。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 3: Channel dependence. Distribution runs through carrier and enterprise networks ZaiNar does not own, and no carrier partner is named.",
+            "zh": "风险 3：渠道依赖。分销依赖于 ZaiNar 并不拥有的运营商与企业网络，且尚未披露任何具名运营商合作伙伴。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Distribution",
+                "zh": "分销"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "The no-new-hardware model is also a dependency: the software runs on 5G and Wi-Fi networks owned by carriers and enterprise IT, and the company said at the February 2026 launch that carrier and major enterprise partnerships were still to be announced. Without a carrier channel, sales revert to site-by-site enterprise and government deals with long procurement cycles, which raises customer acquisition cost and pushes the revenue ramp out by years. A network owner that sees the value as its own also squeezes the take rate.",
+                "zh": "“无需新增硬件”的模式本身也是一种依赖：该软件运行在运营商与企业 IT 部门所拥有的 5G 与 Wi-Fi 网络之上，而公司在 2026 年 2 月的发布会上表示，运营商及主要企业合作伙伴关系仍有待公布。一旦缺少运营商渠道，销售就会退回到按站点逐一推进的企业与政府项目，采购周期长，这会推高获客成本，并将收入放量推迟数年。而若网络所有者认为该价值本应属于自己，还会进一步压缩公司的分成比例。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "A named carrier or systems-integrator distribution agreement, still absent as of September 2026. Whether the Tokyo Metropolitan Government GX selection of April 2026 converts from market-entry support into a paid municipal deployment with a disclosed value.",
+                "zh": "出现具名的运营商或系统集成商分销协议——截至 2026 年 9 月仍未出现。2026 年 4 月东京都政府 GX 项目的入选，能否从市场准入支持转化为披露金额的付费市政部署。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "High: the company itself framed carrier partnerships as pending in February 2026, and none has been announced in the seven months since.",
+                "zh": "高：公司自己在 2026 年 2 月就将运营商合作定性为“待公布”，而此后七个月内也未公布任何一项。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "7/10: direct enterprise selling still supports the base case, but it caps the outcome well below the platform story.",
+                "zh": "7/10：直接面向企业的销售仍能支撑基准情形，但会将结果上限压得远低于平台化叙事所描绘的水平。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 4: Standardization. 3GPP Releases 18 and 19 could absorb phase-based positioning and route around the patent estate.",
+            "zh": "风险 4：标准化。3GPP Release 18 与 Release 19 可能将基于相位的定位技术纳入标准，从而绕开公司的专利组合。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Technology",
+                "zh": "技术"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "ZaiNar's defensibility is a patent estate — 100+ filings and 90+ issued in phase-based time synchronization, company-reported with 'zero rejections' and not checked against USPTO file wrappers. If 3GPP Releases 18 and 19 specify comparable positioning natively, carriers and equipment vendors get the capability inside the network stack and have no reason to license. Pricing power then shifts from product margin to whatever the claims can be enforced against, and the software licensing model loses its premium.",
+                "zh": "ZaiNar 的护城河来自其专利组合——在基于相位的时间同步技术上拥有 100 余项专利申请与 90 余项已授权专利，公司自称“零驳回”，但这一说法未经 USPTO 案卷比对核实。如果 3GPP Release 18 与 Release 19 在标准内原生规定了类似的定位方案，运营商与设备商将在网络协议栈内直接获得该能力，也就没有理由再为此付费授权。届时，定价权将从产品毛利转向专利权利要求实际可执行的范围，软件授权模式也将失去其溢价空间。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "The positioning work items in 3GPP Releases 18 and 19 and whether carrier trials of native positioning appear. Any independent claim-scope review or granted-claim detail beyond the company's own count. NextNav's contrast is instructive: its Terrestrial Beacon System has been inside 3GPP specifications since Release 13, and its position rests on licensed spectrum and beacon hardware as well as patents.",
+                "zh": "3GPP Release 18 与 Release 19 中的定位相关工作项，以及是否出现运营商对原生定位方案的试验。任何独立的专利权利要求范围审查，或超出公司自报数字的已授权权利要求细节。NextNav 的对照颇具参考意义：其地面信标系统（Terrestrial Beacon System）自 Release 13 起便已纳入 3GPP 标准，其地位不仅依赖专利，还建立在授权频谱与信标硬件之上。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "Medium: standards work in this area is live, but native carrier positioning at sub-meter accuracy has not shipped at scale.",
+                "zh": "中：该领域的标准制定工作正在推进，但达到亚米级精度的运营商原生定位方案尚未实现规模化落地。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "7/10: patents are the only asset here that cannot be rebuilt by a better-distributed rival.",
+                "zh": "7/10：专利是此处唯一一项分销能力更强的竞争对手无法轻易复制的资产。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 5: Thin governance. No finance officer is named publicly, one outside director sits on the board, and no audited financials exist.",
+            "zh": "风险 5：治理薄弱。公司未公开披露任何财务负责人，董事会中仅有一位外部董事，也不存在经审计的财务报表。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Governance",
+                "zh": "治理"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "For a company asserting a $1B+ mark and a $450M+ commercial book, no finance officer appears on ZaiNar's own site, in press coverage, or in third-party executive rosters, and Steve Jurvetson is the only outside director named. No audited financials and no verified cap table exist. Weak financial control is how a $450M+ book gets counted loosely in the first place, and it also means post-round ownership and dilution are unknown to an incoming investor.",
+                "zh": "对于一家宣称估值达 $1B+、商业合同储备达 $450M+ 的公司而言，无论是在 ZaiNar 自己的官网、媒体报道，还是第三方高管名录中，都找不到任何财务负责人，而 Steve Jurvetson 是唯一一位具名的外部董事。公司既无经审计财务报表，也无经核实的股权结构表。财务管控薄弱正是 $450M+ 这一数字得以被宽松统计的根源之一，也意味着新进投资人无从知晓本轮融资后的持股比例与稀释情况。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "A named CFO or VP Finance appearing on the company roster. Addition of independent directors beyond the single outside seat. A first audited statement, which has never been published.",
+                "zh": "公司高管名录中出现具名的 CFO 或财务副总裁。董事会在现有唯一外部董事席位之外增补独立董事。首份经审计的财务报表——目前从未发布过。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "Medium: nine years in stealth explains some of the gap, and a post-launch finance hire is the normal fix.",
+                "zh": "中：九年的隐身运营期可以解释部分空白，而发布后补招财务负责人也是常见的补救方式。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "6/10: serious, but fixable, and it compounds Risks 1 and 2 rather than breaking the case alone.",
+                "zh": "6/10：问题严重但可修复，其影响是叠加放大风险 1 与风险 2，而非单独构成致命缺陷。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Risk 6: Illiquidity. No secondary print exists, and there is no credible exit inside 12 to 36 months.",
+            "zh": "风险 6：流动性不足。不存在二级市场成交记录，且在 12 至 36 个月内没有可信的退出路径。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "risk_register",
+          "layout": "key_value",
+          "headers": [],
+          "rows": [
+            [
+              {
+                "en": "Risk Type",
+                "zh": "风险类型"
+              },
+              {
+                "en": "Liquidity",
+                "zh": "流动性"
+              }
+            ],
+            [
+              {
+                "en": "Why it matters",
+                "zh": "为什么重要"
+              },
+              {
+                "en": "Private-market trackers record no secondary transaction and no mark later than the February 2026 round, so a holding would sit unpriced between financings with no way to exit at a known price. ZaiNar has no disclosed revenue, so an IPO is not a realistic path inside three years; realization depends on a strategic buyer or a later primary round, and the holding period runs toward 2030 in the base case.",
+                "zh": "私募市场数据追踪机构未记录到任何二级市场交易，也没有晚于 2026 年 2 月这轮融资的后续估值，这意味着持仓将在两轮融资之间处于无定价状态，无法以已知价格退出。ZaiNar 未披露任何收入，三年内 IPO 并非现实路径；变现将依赖战略买家收购或后续一级市场融资，在基准情形下，持有期将延续至 2030 年前后。"
+              }
+            ],
+            [
+              {
+                "en": "What we watch",
+                "zh": "跟踪信号"
+              },
+              {
+                "en": "Any secondary trade recorded by private-market platforms, none of which appeared through the September 2026 check. A first revenue disclosure, which is the precondition for either an IPO track or a priced strategic process.",
+                "zh": "私募市场平台记录到的任何二级市场交易——截至 2026 年 9 月核查均未出现。首次收入披露——这是走向 IPO 路径或定价战略并购流程的前提条件。"
+              }
+            ],
+            [
+              {
+                "en": "Likelihood",
+                "zh": "可能性"
+              },
+              {
+                "en": "High: illiquidity is close to certain on current evidence, since no trading venue or later mark exists.",
+                "zh": "高：以现有证据看，流动性不足几乎是确定的，因为既不存在交易场所，也没有后续估值。"
+              }
+            ],
+            [
+              {
+                "en": "Risk Rating",
+                "zh": "风险评分"
+              },
+              {
+                "en": "6/10: it does not change the enterprise outcome, but it fixes the duration and removes the option to reprice a mistake.",
+                "zh": "6/10：它不会改变企业本身的经营结果，但会锁定持有期限，并剥夺在判断失误时重新定价退出的选择权。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Replacement or coexistence",
+            "zh": "替代还是共存"
+          }
+        },
+        {
+          "type": "paragraph",
+          "component": "replacement_coexistence",
+          "text": {
+            "en": "Whether network-computed positioning displaces installed real-time location systems or simply joins them decides how large ZaiNar's share of a site can be. ABI Research poses exactly that question of 5G positioning — enterprise problem solver, or one more RTLS technology alongside UWB and BLE. Coexistence is the more likely near-term shape. Hospitals and plants that already run tag-based RTLS have sunk capital in it, and ZaiNar sells an added software layer into those sites rather than ripping the incumbent out. That keeps deal sizes smaller and makes the budget owner a line-item buyer instead of an infrastructure buyer. The contrast with NextNav sharpens the point: NextNav owns licensed spectrum and deploys its own terrestrial beacons, so it controls the layer it sells. ZaiNar controls software on someone else's network. The cost advantage is real and the structural position is weaker, which is the same dependency Risks 3 and 4 describe from different sides.",
+            "zh": "基于网络计算的定位技术，究竟会取代已部署的实时定位系统（RTLS），还是仅仅与之并存，将决定 ZaiNar 在单一场地内所能占据的份额上限。ABI Research 对 5G 定位提出的正是同一个问题：它究竟是企业级问题的解决方案，还是继 UWB 与 BLE 之后又一种 RTLS 技术。就近期而言，共存是更可能出现的形态。已经部署基于标签的 RTLS 系统的医院与工厂，早已在该系统上投入了沉没成本，ZaiNar 更可能是向这些场地追加一层软件，而非替换掉现有系统。这会使单笔交易规模偏小，预算负责人也更像是按预算科目采购的买家，而非基础设施采购方。与 NextNav 的对比让这一点更加清晰：NextNav 拥有授权频谱并自建地面信标，因此掌控着自己所出售的那一层；而 ZaiNar 掌控的只是运行在他人网络之上的软件。成本优势确实存在，但结构性地位更弱，这与风险 3 和风险 4 从不同角度所描述的依赖关系其实是同一件事。"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "What argues against the bear read",
+            "zh": "反驳悲观判断的论据"
+          }
+        },
+        {
+          "type": "paragraph",
+          "component": "disconfirming_evidence",
+          "text": {
+            "en": "Reading the evidence the other way is fair, and several facts resist the skeptical case. The patent estate is the strongest of them. A portfolio of 100+ filings and 90+ issued grants in phase-based time synchronization is not something a promotional company assembles over nine quiet years, and it gives the standardization risk in Risk 4 a two-sided outcome: if claims read on what Releases 18 and 19 specify, the same standards that threaten pricing hand ZaiNar licensing leverage over the carriers and vendors implementing them. The backers are a second point. Steve Jurvetson, Jerry Yang, Tom Gruber, Jaan Tallinn and Nicholas Pritzker have long records and reputations that travel; their presence is not a price test, but it is informal scrutiny that most companies at this stage never face. Third, the Tokyo Metropolitan Government chose ZaiNar from applicants across 22 countries in April 2026 — market-entry support rather than procurement, but a government body did diligence and said yes in public.",
+            "zh": "从相反角度解读证据同样合理，也确有若干事实经得起怀疑论者的推敲。其中最有力的是专利组合。在基于相位的时间同步技术上拥有 100 余项专利申请与 90 余项已授权专利，这样的规模不是一家靠炒作生存的公司能在九年默默无闻中攒出来的，这也让风险 4 中的标准化风险具有双面结果：如果其权利要求能够覆盖 Release 18 与 Release 19 所规定的内容，那么威胁其定价能力的同一套标准，反而会让 ZaiNar 对实施这些标准的运营商与设备商拥有授权议价权。其次是投资方阵容。Steve Jurvetson、Jerry Yang、Tom Gruber、Jaan Tallinn 与 Nicholas Pritzker 都有长期的业绩记录与声誉背书；他们的参与并不能验证价格是否合理，但确实意味着一种大多数处于同一阶段的公司从未经受过的非正式审视。第三，东京都政府在 2026 年 4 月从来自 22 个国家的申请者中选中了 ZaiNar——这属于市场准入支持而非采购订单，但一家政府机构确实进行了尽职调查，并公开给出了肯定结论。"
+          }
+        },
+        {
+          "type": "bullets",
+          "items": [
+            {
+              "en": "The disclosure gaps are also normal for the stage. A company seven months out of a nine-year stealth is not required to publish revenue, and the absence of a figure is not evidence that the figure is bad.",
+              "zh": "就目前所处阶段而言，信息披露上的缺口也属正常。一家刚结束九年隐身运营、发布仅七个月的公司，并无义务公布收入数字，数字缺失本身并不能证明该数字表现不佳。"
+            },
+            {
+              "en": "The no-new-hardware model removes real capex from each deployment. That is a genuine cost advantage over UWB and beacon-based systems, whatever it implies about channel control.",
+              "zh": "“无需新增硬件”的模式确实能为每一次部署节省实实在在的资本开支。无论这对渠道掌控力意味着什么，相较于 UWB 与基于信标的系统，这都是真实存在的成本优势。"
+            },
+            {
+              "en": "NextNav trades at roughly $2.55B on about $5.5M of trailing revenue as of September 2026. Public buyers will pay for terrestrial PNT optionality far ahead of revenue, which is context for why a $1B+ private mark is not absurd on its face — see Valuation.",
+              "zh": "截至 2026 年 9 月，NextNav 的市值约为 $2.55B，而其过去十二个月收入仅约 $5.5M。公开市场买方愿意为地面 PNT（定位、导航与授时）的期权价值提前很久买单，远早于收入兑现——这也是为何 $1B+ 的私募估值表面上并非荒谬的背景所在，参见“估值”一节。"
+            },
+            {
+              "en": "None of this resolves the first two risks. The backers, the patents and the Tokyo selection all sit upstream of revenue, and the $450M+ book is still one blended number from one release.",
+              "zh": "但这些都不能化解前两项风险。无论是投资方阵容、专利组合，还是东京项目的入选，都处于收入形成之前的环节，而 $450M+ 这一数字，仍然只是来自单一新闻稿的一个混合口径数字。"
+            }
+          ]
+        },
+        {
+          "type": "callout",
+          "title": {
+            "en": "The downside, traced through",
+            "zh": "下行路径推演"
+          },
+          "body": {
+            "en": "The bear path starts with Risk 1 and runs through Risk 2. Entry at the $1B+ February 2026 mark, the MOU share of the $450M+ book does not convert, 3GPP Releases 18 and 19 absorb phase-based positioning, and carrier distribution never signs. Revenue stays small against a cost base built for a platform rollout, the company returns to market from weakness, and the next financing prices off cash need rather than progress. That is a down round or recap near $0.2-0.4B — our estimate, since no source prices a downside case. Set against the $1B+ post-money in the February 2026 launch release, that band is roughly a fifth to two-fifths of entry. The loss lands entirely on entry price: no liquidation preference, dividend or secondary window softens it, because none exists at this stage and no secondary print has ever cleared. The watch posture is designed against exactly this path — a priced round or secondary print at or below the February 2026 mark, audited revenue, and a split of the $450M+ figure would each remove one leg of it.",
+            "zh": "悲观情形路径始于风险 1，并延续至风险 2。若以 2026 年 2 月 $1B+ 的估值水平入场，$450M+ 订单簿中 MOU 部分未能转化，3GPP Release 18 和 19 吸收了基于阶段的定位优势，且运营商分销渠道始终未能签约，收入相对于为平台化推广而搭建的成本结构仍然偏小，公司将从弱势地位重返市场融资，下一轮融资的定价将基于现金需求而非业务进展。这将是一轮估值约在 $0.2-0.4B 区间的降轮融资（down round）或资本重组（recap）——此为我们的估算，因为没有任何信息来源对下行情形给出定价。相较于 2026 年 2 月发布中 $1B+ 的投后估值，该区间大致相当于入场价的五分之一到五分之二。亏损将完全由入场价承担：没有清算优先权、股息或老股转让（secondary）窗口可以缓冲，因为在当前阶段这些机制均不存在，且此前从未有老股转让成交记录。跟踪信号正是针对这一路径设计的——若出现定价低于或等于 2026 年 2 月水平的融资轮或老股转让成交、经审计的收入数据，或 $450M+ 数字的拆分披露，均将各自消除支撑该路径的一个环节。"
+          },
+          "items": null
+        }
+      ]
+    },
+    {
+      "id": "financial_forecast_valuation",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": {
+            "en": "Financial Forecast and Valuation",
+            "zh": "财务预测与估值"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "There is no revenue figure to divide the $1B+ post-money by. ZaiNar disclosed no revenue, no ARR, no gross margin, no burn and no runway at its February 2026 launch, and none has appeared since. No entry multiple can be stated. The valuation question therefore runs the other way: what would the company have to reach for the February 2026 mark to look cheap, and how much of that is visible today.",
+            "zh": "没有营收数字可用于拆分 $1B+ 的投后估值。ZaiNar 在其 2026 年 2 月的产品发布中未披露任何营收、ARR、毛利率、现金消耗或现金可支撑时间，此后也一直未披露。因此无法给出入场倍数。估值问题因此要反过来问：公司要达到什么水平，2026 年 2 月的这一估值标记才算便宜，而这其中有多少在今天是可见的。"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Two numbers stand in for revenue in the public record, and neither is revenue. The $450M+ figure blends signed contracts with non-binding MOUs across healthcare, construction, smart city and industrial, with no split, no contract duration and no conversion timing disclosed. The ~$5B pipeline target reported the following day is a forward sales goal, not bookings. The two rest on different bases, already-secured against targeted, and cannot be reconciled or blended. The one named engagement, the Tokyo Metropolitan Government GX selection of April 2026, carries no disclosed contract value.",
+            "zh": "公开记录中有两个数字被当作营收的替代物，但两者都不是营收。$450M+ 这一数字将已签约合同与医疗、建筑、智慧城市和工业领域内不具约束力的谅解备忘录（MOU）混合在一起，未披露拆分、合同期限或转化时点。次日披露的约 $5B 管线目标是一个前瞻性销售目标，而非已签约订单。这两个数字基础不同——一个是已锁定的，一个是目标性的——无法相互调和或合并计算。唯一被点名的合作，即 2026 年 4 月东京都政府 GX 项目的入选，未披露任何合同金额。"
+          }
+        },
+        {
+          "type": "callout",
+          "title": {
+            "en": "What the valuation rests on",
+            "zh": "估值依据"
+          },
+          "items": [
+            {
+              "en": "One mark. $1B+ post-money, set 2026-02-19 by a single primary round with no lead investor named. No secondary print and no later mark has been recorded since.",
+              "zh": "单一估值标记。$1B+ 投后估值，由一轮未披露领投方的单一 Primary 轮于 2026-02-19 设定。此后未记录任何二级市场成交或更新的估值标记。"
+            },
+            {
+              "en": "No denominator. Revenue and ARR are not disclosed at any date, so the mark cannot be tested against a multiple.",
+              "zh": "没有分母。营收和 ARR 在任何日期均未披露，因此该估值标记无法用倍数进行检验。"
+            },
+            {
+              "en": "No usable comp. NextNav carries roughly $2.55B of market capitalization on about $5.5M of trailing revenue. A multiple that extreme bounds plausibility. It cannot set a price.",
+              "zh": "没有可用的可比公司。NextNav 的市值约为 $2.55B，而其过去十二个月营收仅约 $5.5M。如此极端的倍数只能框定合理性的边界，而无法用来定价。"
+            },
+            {
+              "en": "Placeholders excluded. The ARR, growth, TAM and cap-table values in the company record are design-mock placeholders with no document behind them. None of them appear as figures anywhere in the valuation work.",
+              "zh": "占位数据已被排除。公司记录中的 ARR、增长率、TAM 和股权结构表数值均为设计稿中的占位符，背后没有任何文件支撑。这些数字均未出现在估值工作的任何计算中。"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Time base of the marks",
+            "zh": "各估值标记的时间基准"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Every dollar figure on ZaiNar traces to one company-controlled disclosure event on 2026-02-19, syndicated unchanged across outlets. Syndication is not corroboration. The table below fixes the date and basis of each mark rather than restating the marks themselves (see Executive Summary for the headline numbers).",
+            "zh": "关于 ZaiNar 的每一个金额数字，均可追溯至 2026-02-19 公司自行披露的同一事件，此后被各媒体原样转载。转载并不构成印证。下表锁定的是每一个估值标记的日期和依据，而非重复陈述估值标记本身（标题数字见执行摘要）。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "time_base_integrity",
+          "title": {
+            "en": "Date and basis of each mark",
+            "zh": "各估值标记的日期与依据"
+          },
+          "headers": [
+            {
+              "en": "Mark",
+              "zh": "估值标记"
+            },
+            {
+              "en": "As of",
+              "zh": "截至日期"
+            },
+            {
+              "en": "Basis",
+              "zh": "依据"
+            },
+            {
+              "en": "What it costs us",
+              "zh": "对我们的影响"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "$1B+ post-money",
+                "zh": "$1B+ 投后估值"
+              },
+              "2026-02-19",
+              {
+                "en": "Negotiated primary round price, company-announced, no named lead",
+                "zh": "协商确定的 Primary 轮价格，公司自行宣布，未披露领投方姓名"
+              },
+              {
+                "en": "Seven months old as of 2026-09-23 and never retested. A price, not a market-cleared valuation.",
+                "zh": "截至 2026-09-23 已有七个月历史，且从未经过重新检验。这是一个成交价，而非市场出清的估值。"
+              }
+            ],
+            [
+              {
+                "en": "$450M+ contracts and MOUs",
+                "zh": "$450M+ 合同与 MOU"
+              },
+              "2026-02-19",
+              {
+                "en": "Company disclosure blending signed contracts with non-binding MOUs",
+                "zh": "公司披露，将已签约合同与不具约束力的 MOU 混合计算"
+              },
+              {
+                "en": "No split, no term, no recognition basis. It cannot serve as backlog or bookings.",
+                "zh": "未披露拆分、期限或确认基础，无法作为在手订单或已签约业绩的依据。"
+              }
+            ],
+            [
+              {
+                "en": "~$5B pipeline target",
+                "zh": "约 $5B 管线目标"
+              },
+              "2026-02-20",
+              {
+                "en": "Forward sales target sourced from the company, reported by The Information",
+                "zh": "来源于公司、由 The Information 报道的前瞻性销售目标"
+              },
+              {
+                "en": "A goal on a different time base from the $450M+ figure. Blending the two would invent a funnel.",
+                "zh": "该目标与 $450M+ 数字的时间基准不同。将两者混合计算等于凭空构造出一个销售漏斗。"
+              }
+            ],
+            [
+              {
+                "en": "Tokyo GX selection",
+                "zh": "东京 GX 项目入选"
+              },
+              "2026-04-20",
+              {
+                "en": "Market-entry facilitation and subsidy program, chosen from applicants across 22 countries",
+                "zh": "市场准入扶持与补贴项目，从来自 22 个国家的申请者中选出"
+              },
+              {
+                "en": "No contract value disclosed, so it adds no revenue to any forecast.",
+                "zh": "未披露合同金额，因此不会为任何预测增加营收。"
+              }
+            ],
+            [
+              {
+                "en": "NextNav comp",
+                "zh": "NextNav 可比公司"
+              },
+              "2026-09-19",
+              {
+                "en": "Listed market capitalization against trailing revenue",
+                "zh": "上市公司市值对比过去十二个月营收"
+              },
+              {
+                "en": "The freshest datapoint in the set belongs to a competitor, not to ZaiNar.",
+                "zh": "该组数据中最新的一条数据点，属于竞争对手，而非 ZaiNar。"
+              }
+            ],
+            [
+              {
+                "en": "Revenue, ARR, margin",
+                "zh": "营收、ARR、毛利率"
+              },
+              {
+                "en": "Never disclosed",
+                "zh": "从未披露"
+              },
+              {
+                "en": "No figure exists in the launch release, on the company site or in any press coverage we reviewed",
+                "zh": "无论是在产品发布公告、公司官网，还是我们审阅过的任何新闻报道中，均不存在相关数字"
+              },
+              {
+                "en": "The multiple cannot be computed, so the mark is untested on the only test that matters.",
+                "zh": "该倍数无法计算，因此这一估值标记在唯一重要的检验标准上未经检验。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Growth bridge",
+            "zh": "增长路径桥接"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "A bridge from today's disclosure to a defensible 2029 revenue line has one solid rung and four missing ones. The solid rung is the $450M+ book. The missing rungs are the signed share of it, the contract term over which it recognizes, the deployment capacity to install it, and any channel that scales beyond direct enterprise selling.",
+            "zh": "从当前已披露信息通往一条站得住脚的 2029 年营收曲线，需要五级台阶，其中只有一级是牢固的，另外四级都缺失。牢固的一级是 $450M+ 的合同储备。缺失的四级分别是：其中已签约的比例、合同确认收入的期限、支撑其落地部署的产能，以及是否存在超越直销企业客户之外可扩展的渠道。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "growth_bridge",
+          "title": {
+            "en": "From disclosed commercial signals to a revenue line",
+            "zh": "从已披露的商业信号到一条营收曲线"
+          },
+          "headers": [
+            {
+              "en": "Rung",
+              "zh": "台阶"
+            },
+            {
+              "en": "What is disclosed",
+              "zh": "已披露内容"
+            },
+            {
+              "en": "What is missing",
+              "zh": "缺失内容"
+            },
+            {
+              "en": "Effect on the forecast",
+              "zh": "对预测的影响"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Contracted base",
+                "zh": "已签约基础"
+              },
+              {
+                "en": "$450M+ in contracts and MOUs across four verticals, as of 2026-02-19",
+                "zh": "截至 2026-02-19，四个垂直领域共 $450M+ 的合同与 MOU"
+              },
+              {
+                "en": "The signed-versus-MOU split",
+                "zh": "已签约与 MOU 的拆分比例"
+              },
+              {
+                "en": "Sets the ceiling on near-term revenue and nothing else. A book that is mostly MOUs converts at a rate nobody can estimate.",
+                "zh": "只设定了近期营收的上限，别无其他。一份大部分为 MOU 的合同储备，其转化率无人能够估算。"
+              }
+            ],
+            [
+              {
+                "en": "Recognition timing",
+                "zh": "确认时点"
+              },
+              {
+                "en": "Nothing on term, start dates or cancellation",
+                "zh": "未披露合同期限、起始日期或解约条款"
+              },
+              {
+                "en": "Contract duration and revenue-recognition policy",
+                "zh": "合同期限与收入确认政策"
+              },
+              {
+                "en": "A $450M book over three years and over ten years are different companies. Both fit the disclosure.",
+                "zh": "一份 $450M 的合同储备，若在三年内确认收入与若在十年内确认收入，对应的是两家完全不同的公司。两种情形均与现有披露相符。"
+              }
+            ],
+            [
+              {
+                "en": "Delivery capacity",
+                "zh": "交付产能"
+              },
+              {
+                "en": "50-200 employees as of mid-2026, Tokyo APAC office opened April 2026",
+                "zh": "截至 2026 年年中约 50-200 名员工，东京亚太办公室于 2026 年 4 月开设"
+              },
+              {
+                "en": "Deployment lead times and professional-services attach",
+                "zh": "部署周期与专业服务配套能力"
+              },
+              {
+                "en": "Headcount at this band caps how many simultaneous enterprise deployments can go live, whatever the book says.",
+                "zh": "这一员工规模区间限定了可同时上线的企业级部署数量，无论合同储备账面数字如何。"
+              }
+            ],
+            [
+              {
+                "en": "Channel",
+                "zh": "渠道"
+              },
+              {
+                "en": "Carrier and major enterprise partnerships were still to be announced at launch; deployment depends on network owners",
+                "zh": "运营商及大型企业合作在产品发布时仍处于待宣布状态；部署依赖网络所有方"
+              },
+              {
+                "en": "A named carrier or platform channel",
+                "zh": "一家被点名的运营商或平台渠道"
+              },
+              {
+                "en": "Without one, growth stays direct-sold and deal-by-deal. This is the single biggest swing between the base and bull cases.",
+                "zh": "若没有这样的渠道，增长将停留在直销、逐单推进的模式上。这是基准情形与乐观情形之间最大的单一变量。"
+              }
+            ],
+            [
+              {
+                "en": "Forward target",
+                "zh": "前瞻目标"
+              },
+              {
+                "en": "~$5B of deals targeted post-stealth",
+                "zh": "隐身期结束后设定的约 $5B 交易目标"
+              },
+              {
+                "en": "Conversion rate, win rate and sales-cycle length",
+                "zh": "转化率、赢单率与销售周期长度"
+              },
+              {
+                "en": "Carries no weight in the forecast. It is a target the company set for itself.",
+                "zh": "在预测中不具权重，这只是公司为自己设定的目标。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Market band",
+            "zh": "市场空间区间"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The category ZaiNar actually sells into is enterprise indoor location: $18.35B in 2026 growing to $50.10B by 2031, a 22.3% CAGR. The broader pool of location-based services and real-time location systems runs $33.03B in 2025 to $51.24B by 2030, an 8.8% CAGR. The two converge near $50B at the end of the decade, which is the honest band. A $174.02B by 2030 figure also exists, but that definition includes GPS chipsets and consumer mapping ZaiNar does not sell, so it is a stated-scope ceiling and nothing more. Against a band of that size, the $1B+ mark already prices multi-year share capture in a category where the closest listed pure-play still books single-digit millions of revenue.",
+            "zh": "ZaiNar 实际销售所面向的品类是企业室内定位：2026 年为 $18.35B，到 2031 年将增长至 $50.10B，CAGR 为 22.3%。更广义的基于位置的服务与实时定位系统市场，2025 年为 $33.03B，到 2030 年为 $51.24B，CAGR 为 8.8%。这两个口径在本十年末趋于收敛至约 $50B 附近，这才是相对可信的区间。市场上还存在一个到 2030 年达 $174.02B 的数字，但该口径涵盖了 ZaiNar 并不销售的 GPS 芯片及消费级地图产品，因此它只是一个表述口径上的上限，别无其他意义。相对于这一规模的市场空间，$1B+ 的估值标记已经提前计入了多年份额抢占的预期，而在这一品类中，与之最接近的上市纯业务可比公司，营收仍只是个位数百万美元级别。"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Scenarios",
+            "zh": "情景分析"
+          }
+        },
+        {
+          "type": "table",
+          "component": "scenario_analysis",
+          "title": {
+            "en": "Outcome scenarios against the February 2026 mark",
+            "zh": "相对于 2026 年 2 月估值标记的结果情景"
+          },
+          "headers": [
+            {
+              "en": "Case",
+              "zh": "情形"
+            },
+            {
+              "en": "What has to happen",
+              "zh": "需要发生的条件"
+            },
+            {
+              "en": "Outcome",
+              "zh": "结果"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Bear",
+                "zh": "悲观情形"
+              },
+              {
+                "en": "Entry at the $1B+ February 2026 mark. MOUs do not convert, 3GPP Releases 18/19 absorb phase-based positioning, carrier distribution never signs.",
+                "zh": "以 $1B+ 的 2026 年 2 月估值标记入场。MOU 未能转化，3GPP Release 18/19 吸收了基于相位的定位技术，运营商渠道始终未能签约。"
+              },
+              {
+                "en": "Down round or recap near $0.2-0.4B, a fraction of the February 2026 mark.",
+                "zh": "降价融资或资本重组，估值约为 $0.2-0.4B，仅为 2026 年 2 月估值水平的一小部分。"
+              }
+            ],
+            [
+              {
+                "en": "Base",
+                "zh": "基准情形"
+              },
+              {
+                "en": "Part of the $450M+ book converts, revenue reaches roughly $50-100M by 2029, no carrier-scale channel.",
+                "zh": "$450M+ 合同储备中的部分转化为营收，到 2029 年营收达到约 $50-100M，未形成运营商级别的渠道。"
+              },
+              {
+                "en": "Strategic sale to a chipset, carrier or mapping buyer at a few times the February 2026 mark — the neighbourhood of the roughly $2.55B NextNav carries today.",
+                "zh": "若被芯片、运营商或地图类买家进行战略收购，收购价可达 2026 年 2 月估值水平的数倍——大致相当于 NextNav 目前约 $2.55B 的估值水平。"
+              }
+            ],
+            [
+              {
+                "en": "Bull",
+                "zh": "乐观情形"
+              },
+              {
+                "en": "A named carrier channel signs, the $5B pipeline target converts toward a $400M+ revenue run-rate, patents hold through standardization.",
+                "zh": "一家被点名的运营商渠道签约，$5B 的管线目标转化为 $400M+ 的年化收入水平，专利在标准化过程中得以维持。"
+              },
+              {
+                "en": "IPO or strategic sale at $6-10B, about 6-10x the mark, beyond 2030.",
+                "zh": "在 2030 年之后以 $6-10B（约为该估值标记的 6-10 倍）实现 IPO 或战略出售。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The spread is wide because the inputs are thin, and the weight sits in the base case. An IPO is not a credible outcome inside 12 to 36 months on current evidence: nine years in stealth, one disclosed financing event, no audited financials and no reporting of an S-1 process. Strategic buyers are the realistic exit. Qualcomm bought Skyhook in 2022 with no value disclosed, which tells us the category attracts acquirers and tells us nothing about price.",
+            "zh": "三种情形的区间之所以很宽，是因为输入信息本就稀薄，而权重集中在基准情形上。以目前的证据看，12 到 36 个月内 IPO 并非可信结果：公司隐身九年，只披露过一次融资事件，没有经审计的财务报表，也没有 S-1 流程的相关报道。战略买家才是现实的退出路径。Qualcomm 在 2022 年收购 Skyhook 时未披露交易金额，这说明该品类能够吸引收购方，但对价格没有任何提示意义。"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Deal mechanics",
+            "zh": "交易机制"
+          }
+        },
+        {
+          "type": "table",
+          "component": "deal_terms",
+          "title": {
+            "en": "Headline terms",
+            "zh": "主要条款"
+          },
+          "headers": [
+            {
+              "en": "Item",
+              "zh": "项目"
+            },
+            {
+              "en": "Terms",
+              "zh": "条款"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "BSH vehicle",
+                "zh": "BSH 载体"
+              },
+              {
+                "en": "No vehicle or terms on file (pipeline stage: sourcing).",
+                "zh": "目前没有在案的载体或条款（管线阶段：sourcing／寻源）。"
+              }
+            ],
+            [
+              {
+                "en": "Round as reported",
+                "zh": "已披露的融资轮次"
+              },
+              {
+                "en": "Growth / stealth-exit round announced 2026-02-19: $100M+ raised at a $1B+ post-money. See Executive Summary for the marks.",
+                "zh": "2026-02-19 宣布的成长期／隐身期退出轮：以 $1B+ 投后估值募集 $100M+。相关估值标记详见执行摘要。"
+              }
+            ],
+            [
+              {
+                "en": "Lead investor",
+                "zh": "领投方"
+              },
+              {
+                "en": "None named. Five individual backers are disclosed: Steve Jurvetson, Jerry Yang, Tom Gruber, Jaan Tallinn and Nicholas Pritzker. Jurvetson also sits on the board, so a director is among the buyers setting the price.",
+                "zh": "未披露具体领投方。公开披露了五位个人投资者：Steve Jurvetson、Jerry Yang、Tom Gruber、Jaan Tallinn 和 Nicholas Pritzker。Jurvetson 同时担任董事，因此参与定价的买方中就包括一名董事。"
+              }
+            ],
+            [
+              {
+                "en": "Instrument and structure",
+                "zh": "投资工具与结构"
+              },
+              {
+                "en": "Not disclosed. Whether the round is priced equity or convertible, and what liquidation preference sits above the common, is unknown. A stacked preference would change what any later entry is worth.",
+                "zh": "未披露。该轮融资是定价股权还是可转换工具，以及优先于普通股的清算优先权安排如何，均不得而知。若存在叠加式的优先权安排，将改变日后任何入场资金的实际价值。"
+              }
+            ],
+            [
+              {
+                "en": "Capitalization",
+                "zh": "股权结构"
+              },
+              {
+                "en": "No verified cap table exists. Post-round ownership and share count are unknown, so no dilution-adjusted return can be computed.",
+                "zh": "目前没有经核实的股权结构表。轮后持股比例与股份数量均不明确，因此无法计算经稀释调整后的回报。"
+              }
+            ],
+            [
+              {
+                "en": "Liquidity",
+                "zh": "流动性"
+              },
+              {
+                "en": "No secondary print or later mark is recorded. Any position would be illiquid and unpriced between rounds.",
+                "zh": "未记录任何二级市场成交或更新的估值标记。任何持仓在两轮融资之间都将是非流动且无法定价的。"
+              }
+            ],
+            [
+              {
+                "en": "Governance that would come with a position",
+                "zh": "随持仓而来的治理权"
+              },
+              {
+                "en": "Not disclosed. LP-level reporting, board observation and audit access are unknown on the round as reported.",
+                "zh": "未披露。就目前已披露的这一轮融资而言，信息权、董事会观察权和审计权限均不明确。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "The valuation-relevant point in that table is the absence of a lead. A $100M+ round at a $1B+ post-money with named angels and no institutional lead means no third party ran a priced process and published a mark it had to stand behind. The price is real in the sense that money changed hands. It is not a price discovery event.",
+            "zh": "该表中与估值相关的关键点，是领投方的缺失。一轮以 $1B+ 投后估值募集 $100M+ 的融资，投资人为知名天使而非机构领投，意味着没有第三方运行过定价流程并公开一个自己需要为之负责的估值标记。这笔钱确实易手，价格在这个意义上是真实的，但这并非一次价格发现事件。"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Valuation sensitivities",
+            "zh": "估值敏感性分析"
+          }
+        },
+        {
+          "type": "paragraph",
+          "text": {
+            "en": "Four disclosures move the number, and each one moves it a known direction.",
+            "zh": "四项信息披露会影响该估值数字，且每一项影响的方向都是已知的。"
+          }
+        },
+        {
+          "type": "table",
+          "component": "evidence_thresholds",
+          "title": {
+            "en": "What moves the number",
+            "zh": "哪些信息会影响该数字"
+          },
+          "headers": [
+            {
+              "en": "Disclosure",
+              "zh": "披露事项"
+            },
+            {
+              "en": "Current state",
+              "zh": "当前状态"
+            },
+            {
+              "en": "Effect on the valuation",
+              "zh": "对估值的影响"
+            }
+          ],
+          "rows": [
+            [
+              {
+                "en": "Audited trailing revenue and ARR",
+                "zh": "经审计的过去十二个月营收与 ARR"
+              },
+              {
+                "en": "Not disclosed at any date",
+                "zh": "任何日期均未披露"
+              },
+              {
+                "en": "The only figure that makes an entry multiple computable. Revenue near the base-case trajectory supports the mark; revenue materially below it makes $1B+ a price no multiple defends.",
+                "zh": "这是唯一能让入场倍数可计算的数字。若营收接近基准情形轨迹，将支撑该估值标记；若营收明显低于该轨迹，则 $1B+ 将成为一个无任何倍数可以自圆其说的价格。"
+              }
+            ],
+            [
+              {
+                "en": "Split of the $450M+ into signed contracts and non-binding MOUs",
+                "zh": "$450M+ 中已签约合同与不具约束力 MOU 的拆分比例"
+              },
+              {
+                "en": "No split disclosed",
+                "zh": "未披露拆分比例"
+              },
+              {
+                "en": "A signed majority with dated start terms converts the figure into backlog and lifts the base case toward the top of its range. A minority signed pushes the case toward bear.",
+                "zh": "若已签署的多数（majority）合同附带明确的启动条款，将把该数字转化为已确认的订单储备（backlog），并把基准情形推向区间上限；若只有少数已签署，则会把情形推向悲观情形。"
+              }
+            ],
+            [
+              {
+                "en": "A named carrier or platform distribution agreement",
+                "zh": "一份被点名的运营商或平台分销协议"
+              },
+              {
+                "en": "Still to be announced as of the February 2026 launch",
+                "zh": "截至 2026 年 2 月发布时仍待宣布"
+              },
+              {
+                "en": "This is the bull-case switch. Without it, the ceiling is a direct-sold enterprise software company, not a layer.",
+                "zh": "这是决定乐观情形能否成立的开关。若没有这样的协议，上限将只是一家直销型企业软件公司，而非一个基础设施层。"
+              }
+            ],
+            [
+              {
+                "en": "Patent claim scope against 3GPP Releases 18 and 19",
+                "zh": "专利权利要求相对于 3GPP Release 18 和 19 的覆盖范围"
+              },
+              {
+                "en": "100+ filings and 90+ issued, company-reported with 'zero rejections', not checked against USPTO file wrappers",
+                "zh": "公司披露已提交 100+ 项专利申请、获批 90+ 项，且'零驳回'，但未经与 USPTO 案卷核对"
+              },
+              {
+                "en": "If the standard absorbs phase-based positioning, upside shifts from product margin to patent leverage, and the terminal multiple compresses.",
+                "zh": "若该标准吸收了基于相位的定位技术，上行空间将从产品毛利转向专利授权价值，终值倍数将随之收窄。"
+              }
+            ],
+            [
+              {
+                "en": "A new priced round or secondary print",
+                "zh": "新一轮定价融资或二级市场成交"
+              },
+              {
+                "en": "None since February 2026",
+                "zh": "自 2026 年 2 月以来无"
+              },
+              {
+                "en": "The only event that retests the mark independently of the company. Its level, not its existence, is what matters.",
+                "zh": "这是唯一能够独立于公司本身对该估值标记进行重新检验的事件。重要的是其水平，而非其是否发生。"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Investment Decision",
+            "zh": "投资决策"
+          }
+        },
+        {
+          "type": "paragraph",
+          "component": "investment_decision",
+          "text": {
+            "en": "The technology proof is real and the category is growing at better than 20% a year, but neither fact prices a company. A $1B+ mark set once, by a round with no institutional lead, with a director among the buyers and no revenue behind it, is an assertion of value rather than a test of it. The base case still clears a decent return at a few times the mark over several years if part of the $450M+ book is genuinely signed. We cannot tell whether it is, and the gap between the bear and base outcomes turns entirely on that one undisclosed split. Buying an untested mark on a book of unknown composition is a worse trade than waiting for the two disclosures that resolve it, and nothing about the position is time-sensitive: it is illiquid either way, and no secondary market is bidding it up.",
+            "zh": "技术可行性已得到验证，该赛道的年增速也超过 20%，但这两点都无法为一家公司定价。$1B+ 的估值只是一次性设定的结果——该轮融资没有机构领投方，买方中还包括一名董事，且背后没有收入支撑，这是一种价值主张，而非对价值的检验。若 $450M+ 的订单储备中确有部分已真正签署，基准情形在数年内仍可实现数倍于该估值的可观回报。但我们无法判断情况是否如此，悲观情形与基准情形之间的差距，完全取决于这一未披露的签约比例。在订单构成不明的情况下买入一个未经检验的估值，是比等待能解决这一问题的两项信息披露更差的交易；而这笔投资并不存在时间紧迫性：无论如何它都是非流动性资产，也没有二级市场在推高其价格。"
+          }
+        },
+        {
+          "type": "callout",
+          "component": "investment_decision",
+          "title": {
+            "en": "Recommendation",
+            "zh": "投资建议"
+          },
+          "body": {
+            "en": "Recommendation: watch ZaiNar — the trigger is a priced round or secondary print at or below the $1B+ February 2026 mark, together with audited revenue and a split of the $450M+ figure into signed contracts and non-binding MOUs.",
+            "zh": "投资建议：观察 ZaiNar——触发条件是出现一轮定价融资或二级市场成交，价格等于或低于 2026 年 2 月 $1B+ 的估值标记，并同时披露经审计的营收，以及 $450M+ 数字中已签约合同与不具约束力 MOU 的拆分比例。"
+          },
+          "items": [
+            {
+              "en": "Proposed amount: [TO BE DETERMINED BY IC]",
+              "zh": "拟投金额：[待投资委员会（IC）确定]"
+            },
+            {
+              "en": "Named risks: the untested single mark, the blended $450M+ figure, dependence on carrier and enterprise network owners, 3GPP absorption of phase-based positioning, thin governance with no named finance officer, and illiquidity between rounds. See Investment Risk.",
+              "zh": "已识别风险：未经检验的单一估值标记、混合计算得出的 $450M+ 数字、对运营商及企业网络所有方的依赖、3GPP 对基于相位定位技术的吸收风险、治理机制薄弱且未披露财务负责人姓名，以及两轮融资之间的非流动性。详见投资风险部分。"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": {
+            "en": "Disclosures",
+            "zh": "信息披露"
+          }
+        },
+        {
+          "type": "bullets",
+          "component": "disclosures",
+          "items": [
+            {
+              "en": "BSH may hold or seek a position in ZaiNar, Inc.",
+              "zh": "BSH 可能持有或正在寻求持有 ZaiNar, Inc. 的头寸。"
+            },
+            {
+              "en": "This is a recommendation for consideration, not an offer to sell or a solicitation of an offer to buy any security. Any offering would be made only to accredited investors through definitive documents, which govern in all respects.",
+              "zh": "本报告为供参考的投资建议，并非出售任何证券的要约或购买任何证券要约的招揽。任何发行都仅面向合格投资者，并以最终交易文件为准，该文件在所有方面具有约束力。"
+            },
+            {
+              "en": "No BSH vehicle, instrument or allocation exists for ZaiNar. The pipeline stage is sourcing.",
+              "zh": "目前不存在任何针对 ZaiNar 的 BSH 载体、投资工具或额度。管线阶段为 sourcing（寻源）。"
+            },
+            {
+              "en": "Figures are as of the dates stated beside them; the latest company disclosure is dated 2026-04-20 and the market data cutoff is 2026-09-19. ZaiNar has published no revenue or financial statements, and none of the figures cited have been audited or independently verified.",
+              "zh": "各项数字均以其旁注日期为准；公司最新一次披露日期为 2026-04-20，市场数据截止日期为 2026-09-19。ZaiNar 尚未公布任何营收或财务报表，本报告所引用的数字均未经审计或独立核实。"
+            },
+            {
+              "en": "Private positions are illiquid, may be held for years, carry no redemption right, and can lose their entire value. Forward-looking scenarios are estimates under uncertainty, not projections of expected return.",
+              "zh": "私募持仓具有非流动性，可能需持有多年，不享有赎回权，且可能损失全部价值。前瞻性情景分析是在不确定性下做出的估计，而非对预期回报的预测。"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 ---
-en_sha256: 6d4da8cf48fcd71c964cbcee267e36c6b422eed1d55b5489eb95e91d7bf42efe
+en_sha256: 423f557e1e1c91ade2c56b6223d9617423839ec2747e1110c9963c6d51aef458
 ---
 ---
 stage: late
@@ -41,7 +41,10 @@ pseudo_sections:
 十二个固定章节；每次运行都渲染相同的子章节、相同的表格、相同的图表和
 相同的具名段落，缺失数据要明确写明缺失（全局的数据诚实、导航与图表
 规则随共享上下文一同下发）。每个章节都按其声明的编号子章节组织 ——
-读者从标题得知一段文字讲的是什么，而不是靠段落自己解释自己。
+读者从标题得知一段文字讲的是什么，而不是靠段落自己解释自己。已钉定的
+事实在共享事实表要求它出现的每个章节里逐字写一次，其他地方只指代它、
+不再重复数字（"2026 年 2 月的估值标记"、"基准情形"）；专业术语只在执行
+摘要的 "Terms used"（术语说明）块里定义一次，此后直接使用。
 
 ## section: executive_summary
 ```yaml
@@ -70,7 +73,8 @@ subsections:
 ```
 
 700-900 词。这一章节是 IC 成员在其他什么都不读时也会读的那份备忘录，
-它唯一的任务是说清什么最重要。本章节不含任何表格 —— 它需要的每个数字
+它唯一的任务是说清什么最重要。本章节不含任何表格（收尾的 "Terms
+used"（术语说明）是一个 `glossary` 块）—— 它需要的每个数字
 都放在一句解释该数字的句子里（Deal Snapshot 与 Key Metrics Snapshot
 两张表放在 Company Overview 章节）。各子章节内容：
 
@@ -83,10 +87,11 @@ subsections:
    success case"）。仅用正文；每个数字在出现处即被解读。
 3. Investment highlights（核心投资亮点）：以共享事实表中已钉定的案例
    概述句开篇，用公司名替换 "The case" —— 一小段话说明哪些维度支撑
-   本案、哪些维度薄弱，并附各自分数（"Anthropic's case rests on market
-   size and growth (14/15), industry position (13/15) and revenue
-   growth and quality (12/15); it is thinnest on business model and
-   unit economics (5/10) and valuation (6/10)."），之后可选地加一句
+   本案、哪些维度薄弱，并附各自分数（"Tarnwell's case rests on market
+   size and growth (13/15), industry position (12/15) and moat
+   (11/15); it is thinnest on business model and unit economics (4/10)
+   and valuation (5/10)."——Tarnwell Robotics 是一家虚构公司：学句子的
+   形态，绝不照搬其中的事实），之后可选地加一句
    说明这一格局意味着什么。然后是一个 `bullets` 块，带 `"component":
    "investment_highlights"`，且恰好三项，每项对应一条已钉定的亮点，
    按钉定顺序排列。每项以已钉定的标题原文开头（纯文本，不要写星号或
@@ -114,6 +119,12 @@ subsections:
    和评分卡总分时，提示框以 "{tier} — {total}/100" 开头。当共享事实表
    钉定了 `decision_history_sentence` 时，在提示框之后逐字陈述它，
    作为事实性历史 —— 是 BSH 此前的决定，绝不是本备忘录自己的结论。
+   然后，作为本章的最后一个块，输出 "Terms used"（术语说明）：一个
+   `glossary` 块，`component: "glossary"`，其 `items` 为本备忘录用到的
+   每个专业术语一项（MOIC、IRR、ARR、NRR、CAGR、TAM/SAM/SOM、run-rate、
+   post-money、MOU 等 —— 6-15 项），每项形如 `{"term": {"en", "zh"},
+   "definition": {"en", "zh"}}`，定义五到十个词。所有这些术语只在这里
+   定义；其他章节不再定义它们。
 
 ## section: company_overview
 ```yaml
@@ -629,6 +640,13 @@ subsections:
    factor / Multiple factor / Base MOIC；y = 这三个因子），来自同一组
    数字，附其一句话解读。当无法从已钉定数字计算分解时，不出图：写
    图表省略的兜底句。
+   然后是"必须成立什么"：当共享事实表带有 Python 计算的价格问题行 ——
+   在这个价格下收回本金、达到基金门槛和取得 3 倍所需的退出价值与退出年
+   收入；保本入场价；各情景相对最新披露收入所隐含的增速；退出推迟一两年
+   时的基准情形 IRR；有出资额备案时 BSH 各情景的所得 —— 逐字陈述每一行
+   并附其 [C#]，再用一句话说明"所需"与基准情形假设之间的差距意味着什么：
+   一个基准情形若已经要求超出公司已证明的水平，那它只是贴着基准标签的
+   牛市情形。事实表没有这些行时，一字不写 —— 绝不在此自行计算。
 3. Exit map（退出路径）："Exit Map" 表 —— 未来 4 个日历年 × 三条路径
    （IPO / M&A / secondary），每个单元格为 Readiness + Likelihood。
    随后每条路径一段：对照治理章节的结论评估 IPO 准备度；M&A 要点名
@@ -684,12 +702,9 @@ subsections:
    一张带 `component: "risk_register"` 的 key_value 表。标题是已钉定
    的概述 —— 一个带有限定动词的完整结论句（"The entry price already
    assumes success — ordinary execution earns nothing"），绝不是
-   "Entry Price" 这样的主题标签。卡片行：风险类型（Risk Type）|
-   为什么重要（Why it matters：事实 → 失败模式 → 经济后果，可量化时附
-   算术）| 跟踪信号（What we watch：可观察的领先指标）| 缓释措施
-   （Mitigation：真实的机制 —— 公司行动、交易结构或仓位控制；不存在时
-   写："No structural mitigation exists. <consequence>"）| 可能性
-   （Likelihood）| 风险评分（Risk Rating）N/10。
+   "Entry Price" 这样的主题标签。卡片格式见指令中的风险卡合约：按合约
+   规定的固定行和顺序填写，其中"为什么重要"（Why it matters）写出事实 →
+   失败模式 → 经济后果，可量化时附算术。
 3. Disconfirming evidence（反面证据）：带 `component:
    "disconfirming_evidence"` 的论述：与本备忘录投资建议相悖的最强
    事实，公允地陈述，每条附一句话说明它应得多大权重。
@@ -758,6 +773,10 @@ subsections:
    出售要约；条款以最终认购文件为准。当共享事实表钉定了
    `decision_history_sentence` 时，在此作为历史逐字重述，与投资建议
    提示框相邻（绝不放在其内部）。
+   当共享事实表钉定了 `prior_view_sentence`（BSH 上一份备忘录对本公司
+   的结论）时，同样在提示框旁逐字重述，随后用一句话说明此后发生了什么
+   变化，或为何维持原判。它是历史而非证据：不得引用上一份备忘录中的
+   任何数字。
 5. Monitoring & triggers（投后监控与触发条件）："Monitoring
    Indicators" 表（投后监控）：4-6 行 —— Indicator | Current value |
    Trigger threshold | Response if triggered。当结论为观望/放弃时，

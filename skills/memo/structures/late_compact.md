@@ -62,7 +62,15 @@ metric (with its exact values), every scenario number, the fair-value
 range, the entry terms, every risk summary verbatim with its rating,
 and each owning section's scorecard sentence ("This dimension scores
 N of M.") must appear in this memo — the pin-echo gate rejects the
-package otherwise, however elegant the prose. Section word budgets are
+package otherwise, however elegant the prose. PINS ARE STATED ONCE PER
+SECTION: the section that owns a pinned fact states it verbatim once,
+in the passage that owns it, and every other mention — in that section
+and in every other — refers to it without the figure ("the February
+2026 mark", "the base case"). One verbatim statement per required
+section is the floor, and it is also the ceiling: a live run of this
+profile restated its entry mark forty-nine times and its commercial
+aggregate thirty-five, and the risks section alone ran 5,300 words on
+the repetition. Section word budgets are
 SOFT TARGETS, and the gate that rejects a section sits well above them.
 Each section's `budget_words` (in its yaml) is the length to aim at for
 ALL its English text, table cells included; `budget_hard_multiple` is
@@ -158,44 +166,44 @@ Content per subsection:
    label such as "Evidence:" — they read as prose.
 
    Worked example (exactly three; the scorecard dimension shown in
-   brackets is a pinned field, NOT printed in the memo):
+   brackets is a pinned field, NOT printed in the memo). Tarnwell
+   Robotics is a fictional company: copy the shape, never the facts or
+   the wording, and vary how each evidence sentence says what its
+   number measures:
 
    ```
-   Anthropic's case rests on industry position (14/15), revenue growth
-   and quality (13/15) and moat (12/15); it is thinnest on valuation
-   (6/10) and exit certainty (4/8).
+   Tarnwell's case rests on market size and growth (13/15), industry
+   position (12/15) and moat (11/15); it is thinnest on business model
+   and unit economics (4/10) and valuation (5/10).
 
    "component": "investment_highlights"
 
-   [industry_position]
-   The technical lead is already proven commercially — this is one of
-   very few companies turning a frontier model into revenue at scale.
-   Run-rate revenue, which measures how fast that conversion is
-   happening, rose from about $9B in December 2025 to $65B in July
-   2026 on the company's own basis of latest month times twelve [S4].
-   The enterprise share, which measures whether that revenue is durable
-   rather than consumer churn, is about 80% of the total on the same
-   disclosure [S4].
+   [market_size_growth]
+   Labour, not technology, sets the size of this market, and the
+   labour gap is widening.
+   A trade-association survey counted about 38,000 unfilled US
+   cold-storage operator roles in 2025 — a gauge of how many seats a
+   robot can take without displacing anyone [S6]. Our own estimate
+   puts the addressable fleet at $9-11B a year, built from that
+   vacancy count and the annual lease price per robot [C3].
 
-   [revenue_growth_quality]
-   Claude Code turned a coding tool into the entry point for agents,
-   and took that position before the industry turned.
-   Claude Code run-rate, which measures how much of the growth is one
-   product, is above $2.5B on the company's basis [S4]. Customers
-   paying more than $1M a year, which measures depth rather than
-   breadth of adoption, doubled between February and April 2026 [S4].
+   [industry_position]
+   The robots already work in the hardest aisles — few autonomy vendors
+   run unattended freezer shifts at all, and none at this scale.
+   Hours run with nobody on board rose from about 40,000 in 2025 to
+   310,000 in the first half of 2026, on the company's own fleet logs
+   [S4]. About 70% of those hours were logged in freezers, the sites
+   where hiring fails first [S4].
 
    [moat]
    Distribution does not have to be built, because the three largest
-   clouds already resell it — an enterprise buys through a vendor it has
-   already approved.
-   Availability across AWS Bedrock, Google Vertex AI and Microsoft
-   Foundry, which measures how many procurement paths exist without a
-   new vendor review, covers all three major clouds, with Microsoft
-   Foundry generally available on 29 June 2026 [S9]. Revenue reaching
-   the company through those channels, which measures how much of the
-   book depends on them, is our own estimate of 25-30% from the
-   disclosed enterprise split [C7].
+   equipment dealers already resell the robots — an operator buys
+   through a vendor it has already approved.
+   Dealer agreements now cover the three largest US forklift networks,
+   the channel most operators already buy through; the last was signed
+   in June 2026 [S9]. The dealers carry an estimated 55-60% of new
+   units, our reading of the disclosed channel split and the measure
+   of how much of the order book depends on them [C7].
    ```
    After the three highlights, print the DIMENSION SCAN: one `bullets`
    block, `"component": "dimension_scan"`, containing EVERY line of the
@@ -258,7 +266,13 @@ Content per subsection:
    holding period, and the fund placeholders verbatim. With a pinned
    verdict tier and scorecard, open on "{tier} — {total}/100". A
    pinned `decision_history_sentence` is stated verbatim after the
-   callout as history.
+   callout as history. Then, as the LAST block of the section, the
+   "Terms used" glossary: a `glossary` block with `component:
+   "glossary"` and `items`, one per term of art this memo uses (MOIC,
+   IRR, ARR, NRR, CAGR, TAM/SAM/SOM, run-rate, post-money, MOU and the
+   like — 6-15 items), each `{"term": {"en", "zh"}, "definition":
+   {"en", "zh"}}` with the definition in five to ten words. It is
+   where every such term is defined: no section defines them again.
 
 ## section: company_team
 ```yaml
@@ -461,6 +475,18 @@ subsections:
    checks each figure). Chart slot `chart_return_scenarios` (suggested
    bar; x = Bear / Base / Bull; y = gross MOIC) from the pinned MOICs,
    with its reading note and one-sentence caption.
+   Then "What has to be true": when the shared fact sheet carries the
+   Python-computed price lines — the exit value and exit-year revenue
+   that return the money, clear the firm's bar and return 3x at this
+   price; the breakeven entry price; the growth each case implies from
+   the latest disclosed revenue; the base-case IRR if the exit slips a
+   year or two; BSH's own proceeds by case when a check is on file —
+   state each line verbatim with its [C#], then say in one sentence
+   what the gap between what is needed and what the base case assumes
+   means: a base case that already needs more than the company has
+   shown is a bull case wearing a base case's label. When the fact
+   sheet carries none of these lines, write nothing for them — never
+   compute them here.
 3. Exit paths: the realistic route(s) with named acquirers or the IPO
    window, the constraint on each, and the consequence arithmetic on
    one non-premium outcome. Answer first: how does the money actually
@@ -580,6 +606,11 @@ subsections:
    select]". A one-line legal disclosure paragraph with
    `component: "disclosures"` follows. A pinned
    `decision_history_sentence` is restated verbatim as history.
+   When it pins a `prior_view_sentence` — what BSH's previous memo on
+   this company concluded — restate it verbatim beside the callout
+   too, followed by one sentence on what changed since, or why the
+   view holds. It is history, not evidence: no figure from the
+   previous memo is cited.
 4. Monitoring & triggers: 3-4 bullets — Indicator, current value,
    trigger threshold, response. Titled "What changes the verdict"
    framing when the verdict is watch/pass: the triggers are the

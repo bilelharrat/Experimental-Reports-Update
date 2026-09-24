@@ -302,7 +302,38 @@ _SERVICE_403_ROUTES = [
     ("PATCH", "/api/companies/nope/memo-editor/appendix/nope", {}),
     # memo:export
     ("POST", "/api/companies/nope/memo-editor/export-projection", {}),
+    # Reports: review (memo:approve / memo:edit), comments and flags
+    # (memo:edit), the fund policy (settings:update) and a personal memo
+    # template choice (tasks:action).
+    ("PATCH", "/api/reports/nope/review", {"state": "approved"}),
+    ("POST", "/api/reports/nope/rerender", {}),
+    ("POST", "/api/reports/nope/comments", {"text": "x"}),
+    ("POST", "/api/reports/nope/comments/nope/resolve", {}),
+    ("PUT", "/api/settings/fund-policy", {"stages": {}}),
+    ("PATCH", "/api/workspace/settings", {"memo_template": "ic_v2"}),
 ]
+
+
+def test_service_role_reads_memos_but_cannot_export(client, monkeypatch):
+    """Reading a memo stays open to the read-only service role (the web
+    viewer, Mac and iOS read the same URL); an explicit export does not."""
+    monkeypatch.setenv("BSH_RESEARCH_API_TOKEN", "TOP-SECRET-123")
+    monkeypatch.delenv("BSH_ALLOW_ANON_DEV", raising=False)
+    headers = {"Authorization": "Bearer TOP-SECRET-123"}
+    view = client.get("/api/reports/nope/download?language=en", headers=headers)
+    assert view.status_code == 404  # past the gate: the report just does not exist
+    export = client.get("/api/reports/nope/download?language=en&purpose=export", headers=headers)
+    assert export.status_code == 403
+    assert "memo:export" in export.text
+    bundle = client.get("/api/reports/nope/bundle", headers=headers)
+    assert bundle.status_code == 403
+
+
+def test_memo_approve_is_admin_and_partner_only():
+    assert product_store.has_permission("admin", "memo:approve")
+    assert product_store.has_permission("partner", "memo:approve")
+    for role in ("analyst", "research_ops", "guest", "service"):
+        assert not product_store.has_permission(role, "memo:approve")
 
 
 @pytest.mark.parametrize("method,path,body", _SERVICE_403_ROUTES)

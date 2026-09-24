@@ -71,6 +71,9 @@ def _legacy_roots() -> list[tuple[Path, str]]:
         (research_store.RESEARCH_ROOT, ""),
         (memo_editor_store.EDITOR_ROOT, ""),
         (serena_analysis.ANALYSIS_ROOT, ""),
+        # Memo Studio lessons (serena_memo_lessons.md) were keyed by the
+        # stripped id until 2026-09-22; ``brkb/`` moves to ``brkb.<hash>/``.
+        (serena_analysis.TRAINING_ROOT, ""),
         (storage.DATA_DIR / "comments", ".json"),
     ]
 

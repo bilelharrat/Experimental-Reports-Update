@@ -1,0 +1,2047 @@
+{
+ "schema_version": 1,
+ "company": {
+  "id": "open-artificial-intelligence-inc",
+  "name": {
+   "en": "Open Artificial Intelligence, Inc.",
+   "zh": ""
+  },
+  "descriptor": {
+   "en": "Information Technology: AI application software. A small venture founded by Guy Ravine around the open.ai domain and the 'Open AI' name, and the defendant in OpenAI's trademark action.",
+   "zh": ""
+  },
+  "sector": {
+   "en": "Information Technology",
+   "zh": ""
+  },
+  "status": {
+   "en": "Private; operating status not established in available evidence after July 2025",
+   "zh": ""
+  },
+  "hq": {
+   "en": "Not disclosed; treated as an evidence gap rather than estimated",
+   "zh": ""
+  }
+ },
+ "run": {
+  "run_id": "2026-08-24__233247",
+  "as_of": "2026-08-24",
+  "language": "en",
+  "prepared_for": {
+   "en": "BSH limited partners and their advisers",
+   "zh": ""
+  }
+ },
+ "sections": [
+  {
+   "id": "executive_summary",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "BSH invests in artificial intelligence companies that own something durable: model weights, proprietary data, a technical layer others build on, or a distribution position that compounds. Open Artificial Intelligence, Inc. is a small venture founded by Guy Ravine around the open.ai domain, purchased in March 2015, and…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "We are not being offered a priced round, a SAFE, an SPV interest, or a secondary block. There is no instrument, no sponsor, no stated valuation, and no cap table, so there is no entry price to test. That is the central tension: the only asset that ever made this company interesting was a name it is now enjoined from…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "callout",
+     "title": {
+      "en": "Investment View",
+      "zh": ""
+     },
+     "items": [
+      {
+       "en": "The core bet: any return comes from a legal outcome and a domain disposition, not from an operating business.",
+       "zh": ""
+      },
+      {
+       "en": "The entry tension: there is no price because there is no instrument. Paying less fixes nothing about the situation.",
+       "zh": ""
+      },
+      {
+       "en": "What is proven today: an adverse permanent injunction entered July 21, 2025 against the venture's only identified asset, reported by neutral legal press and by OpenAI's own counsel.",
+       "zh": ""
+      },
+      {
+       "en": "What is missing but modelable: nothing on the revenue side. We model revenue, backlog, and pipeline at zero rather than applying a conversion range to a base that does not exist.",
+       "zh": ""
+      },
+      {
+       "en": "Risk sensitivity: whether the injunction reaches the open.ai domain itself drives essentially all residual value, and that scope is not established in available evidence.",
+       "zh": ""
+      },
+      {
+       "en": "Our action: we do not recommend participating, and we are not participating through any vehicle.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "table",
+     "component": "key_metrics_snapshot",
+     "title": {
+      "en": "Key metrics snapshot as of August 24, 2026",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Disclosed position",
+       "zh": ""
+      },
+      {
+       "en": "How we treat it",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Revenue and ARR",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. No headcount, contract-value, or comparable-set proxy is defensible, so we decline to estimate a figure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Total capital raised",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Treated as unknown and assumed to be no institutional capital; we model no funded runway.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Valuation and entry price",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; no round in market",
+        "zh": ""
+       },
+       {
+        "en": "Treated as absent rather than uncertain. With no instrument, no entry price can be tested or supported.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Headcount",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Estimated as founder-only from the single named principal; delivery and recruiting capacity treated as nil.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Customers and signed contracts",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Treated as an absence of commercial evidence rather than an audited zero; scenario work assumes no contracted revenue.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Product",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed. The court identified chatbot and image-generator tools",
+        "zh": ""
+       },
+       {
+        "en": "Treated as a downstream application layer on third-party models, with pricing power discounted to zero.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Entity vintage",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; open.ai domain purchased March 2015",
+        "zh": ""
+       },
+       {
+        "en": "We anchor history to the March 2015 domain purchase and treat founding year as an estimate, not a disclosure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Legal status of the 'Open AI' mark",
+        "zh": ""
+       },
+       {
+        "en": "Permanent injunction entered July 21, 2025; USPTO registration ordered cancelled",
+        "zh": ""
+       },
+       {
+        "en": "Treated as a full impairment of the principal intangible and as a discount to any residual asset value.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Most recent dated evidence",
+        "zh": ""
+       },
+       {
+        "en": "2025-07-21",
+        "zh": ""
+       },
+       {
+        "en": "The gap of roughly thirteen months to August 24, 2026 is treated as a staleness risk factor carried through every scenario.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "One point of housekeeping matters more here than in most situations. This entity is not OpenAI, the developer of ChatGPT. It was the defendant in OpenAI's trademark action, and searches on the name return the plaintiff almost exclusively. Any future evidence of scale, hiring, or partnership that arrives under this…",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "company_overview",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Guy Ravine bought the open.ai domain in March 2015 and circulated a concept for an open, collaborative, non-profit AI research organization. Yann LeCun has publicly recalled seeing that concept, which makes the early activity real and dated rather than reconstructed. The concept did not become a functioning platform.…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "OpenAI sued. On July 21, 2025 Judge Yvonne Gonzalez Rogers issued a nineteen-page order granting complete summary judgment: a permanent injunction against use of the 'Open AI' name and cancellation of the USPTO registration. The cancellation rested on a fraud finding. User comments submitted to the trademark office as…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "What the business actually did is thinly evidenced. The offering the court identified was chatbot and image-generator tools, which is downstream consumption of third-party frontier models rather than ownership of a model, a platform, or infrastructure. No proprietary technology, patent estate, standards position, or…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Everything else is a gap rather than a number. Headquarters, founding year, employee band, capital raised, revenue, customers, partners, and acquisitions are all undisclosed, and we treat each as an evidence gap that flows into the risk register and the scenario weights rather than as a figure to estimate. The…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "board",
+     "title": {
+      "en": "Board of Directors and governance",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Name",
+       "zh": ""
+      },
+      {
+       "en": "Role",
+       "zh": ""
+      },
+      {
+       "en": "How we weigh it",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Guy Ravine",
+        "zh": ""
+       },
+       {
+        "en": "Founder and sole named principal",
+        "zh": ""
+       },
+       {
+        "en": "The party personally enjoined by the July 21, 2025 order and the subject of the fraud finding. We treat key-person concentration as total and unmitigated, and we discount any company-originated representation accordingly.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "No other directors named",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "We model the company as having no independent board oversight. The absence is treated as a governance discount to any price rather than as a neutral gap.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Independent or investor directors",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "With no institutional capital in evidence, we assume no investor-side oversight exists and give no credit to governance quality in any scenario.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "deal_terms",
+     "title": {
+      "en": "Transaction and headline terms",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Term",
+       "zh": ""
+      },
+      {
+       "en": "What is available to us",
+       "zh": ""
+      },
+      {
+       "en": "What it means economically",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Instrument",
+        "zh": ""
+       },
+       {
+        "en": "No priced round, SAFE, SPV interest, or secondary block is on offer to us.",
+        "zh": ""
+       },
+       {
+        "en": "With no security, there are no economics to value and no participation to recommend at any price.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Sponsor and syndicate",
+        "zh": ""
+       },
+       {
+        "en": "No sponsor, lead, or intermediary is involved.",
+        "zh": ""
+       },
+       {
+        "en": "Allocation scarcity and syndicate quality give no support to a valuation here, because neither exists.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Pre-money and post-money",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; no valuation has been put to us",
+        "zh": ""
+       },
+       {
+        "en": "Treated as absent. Any future ask would need an operating datum behind it before we could test valuation support.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Ownership and dilution",
+        "zh": ""
+       },
+       {
+        "en": "Not computable; no cap table is available",
+        "zh": ""
+       },
+       {
+        "en": "Any position would be sized blind, so we treat dilution exposure as open-ended and model it as a full-loss risk.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Investor reporting and oversight",
+        "zh": ""
+       },
+       {
+        "en": "No vehicle exists, so no reporting or oversight structure has been described.",
+        "zh": ""
+       },
+       {
+        "en": "Investors would have nothing to rely on between the commitment and an outcome. We treat that as a further discount to any price.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Liquidity path",
+        "zh": ""
+       },
+       {
+        "en": "None identified. No trade sale, secondary market, or financing route is visible.",
+        "zh": ""
+       },
+       {
+        "en": "Loss severity on committed capital approaches the full amount, with no recovery mechanism to model.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Contingent legal exposure",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed; the order's fee and damages provisions are not established in available evidence",
+        "zh": ""
+       },
+       {
+        "en": "Treated as an unquantified liability that could exceed the entity's disclosed asset base, which means downside is not bounded by the size of a check.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_highlights",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The constructive case has four legs, and each deserves to be walked to its end, because the name attached to this company will keep it circulating and a bare rejection would not explain why we stopped.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "items": [
+      {
+       "en": "Genuine 2015 priority. Ravine bought open.ai in March 2015, months before OpenAI existed, and circulated an open-collaboration research concept that Yann LeCun publicly recalled seeing. The fact is real, dated, and independently attested.",
+       "zh": ""
+      },
+      {
+       "en": "A scarce domain. open.ai is a short category domain in the most valuable software category of the decade, and premium domain value is largely independent of trademark rights.",
+       "zh": ""
+      },
+      {
+       "en": "An unresolved appeal. Counsel signalled an appeal from the July 21, 2025 order, and no appellate outcome is established in available evidence, so the legal position is not final.",
+       "zh": ""
+      },
+      {
+       "en": "Category adjacency. The open, collaborative AI thesis Ravine described in 2015 turned out to be directionally right, which is why the story keeps drawing attention.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Each leg carries less weight than it first appears. Priority was tested adversarially and lost, because US trademark rights follow use in commerce rather than registration, and the loss itself implies the company could not demonstrate protectable prior use. That inference corroborates the empty adoption record from a…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "competitive_analysis",
+     "title": {
+      "en": "Competitive position",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Competitive set",
+       "zh": ""
+      },
+      {
+       "en": "Position",
+       "zh": ""
+      },
+      {
+       "en": "Effect on the investment case",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "OpenAI",
+        "zh": ""
+       },
+       {
+        "en": "Prevailing plaintiff. Public association with the 'Open AI' name runs overwhelmingly to the ChatGPT maker.",
+        "zh": ""
+       },
+       {
+        "en": "Reverse confusion means residual brand equity accrues to the counterparty. The name is a negative-carry asset that invites enforcement exposure and confers no pricing power.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Open-weight model ecosystems, including Hugging Face",
+        "zh": ""
+       },
+       {
+        "en": "Occupy the open, collaborative research niche the 2015 concept aimed at, at scale and with real developer adoption.",
+        "zh": ""
+       },
+       {
+        "en": "We value ecosystem and standards optionality at zero. The ground the original thesis targeted is taken.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Frontier model laboratories",
+        "zh": ""
+       },
+       {
+        "en": "Set input pricing for anything built on top of their models and ship competing first-party applications.",
+        "zh": ""
+       },
+       {
+        "en": "Any wrapper product carries input costs set by others, which caps gross margin in every scenario we can construct.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Application-layer chatbot and image tools",
+        "zh": ""
+       },
+       {
+        "en": "Abundant, low-barrier, and largely undifferentiated. Cheap infrastructure and open weights put entry barriers close to zero.",
+        "zh": ""
+       },
+       {
+        "en": "Switching costs for users approach zero, so we model no retention and no expansion in the growth bridge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Competitor list in available records",
+        "zh": ""
+       },
+       {
+        "en": "Empty. Not disclosed, and treated as an uncollected field rather than a finding of no competition.",
+        "zh": ""
+       },
+       {
+        "en": "We read competitive compression as maximal rather than benign, and size the risk accordingly.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "component": "replacement_coexistence",
+     "text": {
+      "en": "Replacement and coexistence both assume a product in a market. This position was nominative rather than technical: the asset was a name, not a stack. On the brand axis, coexistence is now foreclosed by court order rather than merely difficult, because the go-to-market identity itself is enjoined, which is the…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "moat",
+     "title": {
+      "en": "Defensibility",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Claimed source of defensibility",
+       "zh": ""
+      },
+      {
+       "en": "Evidence",
+       "zh": ""
+      },
+      {
+       "en": "Our treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "The 'Open AI' word mark",
+        "zh": ""
+       },
+       {
+        "en": "Permanently enjoined July 21, 2025; USPTO registration ordered cancelled for fraud.",
+        "zh": ""
+       },
+       {
+        "en": "Carried at zero and treated as a liability rather than an intangible asset. Even a favourable ruling would not have produced durable defensibility, because the term is descriptive and category-generic.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "The open.ai domain, purchased March 2015",
+        "zh": ""
+       },
+       {
+        "en": "Real and dated. Whether the injunction reaches the domain itself is not established in available evidence.",
+        "zh": ""
+       },
+       {
+        "en": "Treated as the only plausibly surviving asset and carried at an unquantified value, with a large discount for the adverse judgment. Premium domain comparables vary by more than an order of magnitude, so we publish no point estimate.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Naming priority over OpenAI",
+        "zh": ""
+       },
+       {
+        "en": "The strongest argument available, tested in court and lost.",
+        "zh": ""
+       },
+       {
+        "en": "Given no credit as a moat or as latent claim value. We do not present it to investors as either.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Technology, patents, or standards position",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed, and no cleared patent search has been run against the entity.",
+        "zh": ""
+       },
+       {
+        "en": "Treated as unassessed rather than confirmed empty, and modeled at zero in every scenario. We assume no proprietary technical position.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Distribution and brand equity",
+        "zh": ""
+       },
+       {
+        "en": "The acquisition channel was name adjacency and type-in traffic, now enjoined.",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. A rebranded relaunch forfeits accumulated search and link equity and starts from a null demand base, so we add a multi-quarter rebuild cost to any scenario that assumes operation.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_risk",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Risk here does not concentrate where it usually does. There is no execution risk against a plan, no share loss to defend, and no runway to run out, because none of those things exist in evidence. It concentrates in three places: whether there is anything to buy, whether the one asset that might have survived actually did, and whether anything a counterparty tells us later can be believed.",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 1: There is no instrument, no price, and no counterparty, so there is nothing to buy",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Transaction Structure",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "No round, SAFE, SPV interest, secondary block, or term sheet exists in available evidence, and no sponsor, lead, or intermediary is involved. With no stated pre-money and no cap table, no ownership percentage or dilution outcome can be computed for any check size. Valuation support is not weak here; it is absent, which is why a lower price does not improve the case.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "A term sheet or subscription document naming an issuer, a security, and a pre-money valuation. An institutional sponsor or intermediary taking the mandate. A stated allocation with defined investor reporting.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "High: nothing in available evidence indicates a financing is in market, and no materials dated after July 2025 exist.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "10/10: with no instrument there is no investment case to support at any price.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 2: The July 21, 2025 injunction removed the company's only identified asset",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Legal",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "The Northern District of California granted complete summary judgment for OpenAI, permanently barred Ravine and the company from using the 'Open AI' name, and ordered the USPTO registration cancelled. The venture's entire distinguishable position was that name and the open.ai domain. Removing the name removes the brand and the customer-acquisition channel at once, and leaves any rebranded entity starting from a null demand base. We carry the mark at zero and treat it as a liability that invites further enforcement exposure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Any Ninth Circuit ruling on the signalled appeal. The text of the injunction order and whether its scope reaches the open.ai domain. Registrar records showing a change in control of the domain.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "High: the order has already been entered and no appellate reversal appears in available evidence.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "9/10: it eliminates the asset the entire story rested on.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 3: The court found the trademark evidence was fabricated, so company-supplied numbers cannot be believed",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Governance",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "The cancellation rested on a fraud finding. User comments submitted to the trademark office as proof of market traction were planted by an employee of Ravine's, and the court found knowing intent to deceive on clear and convincing evidence. Any traction, traffic, or revenue figure supplied by the company therefore carries no evidentiary weight without independent verification. That permanently discounts the cheapest and fastest evidence a private company can produce, and it makes conviction far more expensive to reach than any plausible position would justify.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Independently verifiable operating evidence such as filed financial statements, a named customer willing to speak, or third-party traffic measurement. Any post-judgment ruling that qualifies or narrows the fraud holding.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "High: the finding stands unless an appeal disturbs it, and it applies to every company-originated figure.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "9/10: it removes the ordinary path to conviction, not just one datapoint.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 4: The entity may no longer be operating, and nothing in evidence is dated after July 2025",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Going Concern",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "No website, headquarters, employee band, funding, product, or contract is on record, and the freshest dated item is the July 21, 2025 order. That leaves roughly thirteen months to August 24, 2026 with no evidence of operation, financing, appeal progress, or wind-down. Silence is not proof of dormancy, but it is not evidence of activity either, and we will not assume a going concern in order to have something to value. If the entity is dormant, every scenario above the bear case collapses.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "A state registry of record showing the entity active, suspended, or dissolved. A live product surface or DNS record at any domain the company controls. Any filing, hire, or public statement dated after July 2025.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "Medium: absence of evidence in a thin record is a realistic but unproven indicator of dormancy, and no dissolution filing appears either.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "8/10: it decides whether a company exists at all, though one primary check would resolve it.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 5: Whatever product existed is a wrapper on someone else's models, with no pricing power",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Competition",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "The offering identified in court was chatbot and image-generator tools running on third-party frontier models. Input costs in that position are set by the model providers, switching costs for users are close to zero, and the competitive set is the entire frontier-lab and open-weight ecosystem. The open, collaborative research niche the 2015 concept aimed at is now held by OpenAI, Hugging Face, and open-weight model communities. We score ecosystem and channel optionality at zero in every scenario.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "Evidence of proprietary model weights, data, or infrastructure. A cleared patent search returning a real estate. A named channel, reseller, or cloud-marketplace placement.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "High: the application layer above frontier models is abundant and low-barrier, and no differentiating technical evidence exists.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "7/10: it caps upside even in the scenarios where the legal position improves.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Risk 6: The open.ai domain may itself fall inside the injunction, leaving no residual asset",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "risk_register",
+     "layout": "key_value",
+     "headers": [],
+     "rows": [
+      [
+       {
+        "en": "Risk Type",
+        "zh": "风险类型"
+       },
+       {
+        "en": "Asset Title",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Why it matters",
+        "zh": "为什么重要"
+       },
+       {
+        "en": "An injunction against a mark does not automatically reach a domain, but a domain that functions as a source identifier can fall within such an order. The order's scope on this point is not established in available evidence. This single question drives essentially all residual value: an unencumbered, transferable domain is an asset to sell, and an encumbered one leaves close to nothing. No appraisal or comparable set exists, and premium domain comparables vary by more than an order of magnitude, so we carry the domain at an unquantified value rather than at a point estimate.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "What we watch",
+        "zh": "跟踪信号"
+       },
+       {
+        "en": "The injunction text and any post-judgment order addressing the domain. Registrar and WHOIS records showing who controls open.ai and whether it resolves. Any reported transfer or sale of the domain.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Likelihood",
+        "zh": "可能性"
+       },
+       {
+        "en": "Medium: both outcomes are realistic and the remedy scope is unread.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Risk Rating",
+        "zh": "风险评分"
+       },
+       {
+        "en": "7/10: it sets the floor value, though on its own it cannot make the position investable.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "What argues against our negative view",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "component": "disconfirming_evidence",
+     "items": [
+      {
+       "en": "Empty fields are non-disclosure, not audited zero. A private company owes no one a revenue figure, and the record we hold is thin rather than investigated. It is evidence of what has been collected, not of what exists.",
+       "zh": ""
+      },
+      {
+       "en": "The open.ai domain is genuinely scarce, was bought in March 2015, and premium domains hold market value largely independent of trademark rights. Residual value is not strictly zero.",
+       "zh": ""
+      },
+      {
+       "en": "The injunction bars a name, not a company. A rebranded product, a team, or technology could exist outside our line of sight, and losing a trademark says nothing about technical capability.",
+       "zh": ""
+      },
+      {
+       "en": "The July 21, 2025 order is a district-court decision and counsel signalled an appeal. Finality is not established, and no post-judgment procedural history is in evidence, so we carry the legal outcome as an unresolved sensitivity rather than as settled.",
+       "zh": ""
+      },
+      {
+       "en": "No dissolution, solvency, or wind-down filing appears either. Non-operation is unproven in both directions, so our going-concern point is an inference rather than a finding.",
+       "zh": ""
+      },
+      {
+       "en": "Our negative read rests on the same empty record as any positive read, so we hold it with matching humility. The main sources on the ruling are secondary press and a publication of OpenAI's own counsel, and the primary docket has not been read.",
+       "zh": ""
+      }
+     ]
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Downside scenario",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Our downside is not a lower return; it is a total loss with no recovery mechanism. Assume the entity is dormant, the appeal lapses or fails, and the injunction is read to reach the open.ai domain along with the name. In that state there is no revenue, no team, no transferable asset, and an unquantified legal exposure from an adverse judgment that could exceed anything on the balance sheet. Capital committed into that state does not return at a discount; it returns nothing, and no secondary market or trade-sale route exists to recover it. Because the loss is structural rather than valuation-driven, our recommendation does not move with price, which is the clearest way to see why this is a pass rather than a bid at a lower number.",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "financial_forecast_valuation",
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "We publish no valuation range, no forward revenue, and no multiple, because every input on both sides of every ratio is missing. None of the quantitative fields available to us are populated: no capital raised, no revenue, no headcount, no contract value, no valuation mark. Standard fallbacks all fail here.…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "revenue",
+     "title": {
+      "en": "Revenue picture",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Line",
+       "zh": ""
+      },
+      {
+       "en": "Disclosed",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Recognized revenue",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. No proxy from headcount, contract value, or comparables is defensible, so no estimate is carried.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Contracted backlog",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Treated as nil for scenario construction rather than as an unmeasured positive.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Pipeline and MOUs",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "No conversion range is applied, because there is no pipeline base to convert. We assume zero.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Historical traffic and users",
+        "zh": ""
+       },
+       {
+        "en": "Not independently established. The court found the trademark specimen's user comments were planted.",
+        "zh": ""
+       },
+       {
+        "en": "We give no credit to company-originated usage figures and treat them as non-credible without independent verification. Any historical demand was confusion-derived and does not survive a forced rebrand.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Gross margin",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Treated as an untestable valuation sensitivity. A wrapper on third-party models carries input costs set by the model providers, which caps margin structurally.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Cash burn and runway",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled as unknown with no funded runway assumed. This feeds directly into the going-concern risk rather than into a forecast.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "key_operating_metrics",
+     "title": {
+      "en": "Key operating metrics",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Metric",
+       "zh": ""
+      },
+      {
+       "en": "Status",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Named production customers",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Treated as an absence of evidence rather than an audited zero, and modeled at zero for valuation purposes.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Pilots and proofs of concept",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. No rung of the adoption ladder above narrative carries evidence.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Retention and renewal",
+        "zh": ""
+       },
+       {
+        "en": "Not computable",
+        "zh": ""
+       },
+       {
+        "en": "No installed base exists to measure, so we assume no recurring economics in any scenario.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Employees",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Estimated as founder-only from the single named principal. Even a funded relaunch would face a multi-quarter hiring lag, which we treat as a cost drag.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Partners, resellers, and marketplace placements",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Channel optionality scored at zero. There is no third-party distribution to credit in a valuation bridge.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Live product surface",
+        "zh": ""
+       },
+       {
+        "en": "No website or product endpoint is on record",
+        "zh": ""
+       },
+       {
+        "en": "Treated as blocking even basic verification. We assume no shipped product until an independent observation exists.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Patent estate",
+        "zh": ""
+       },
+       {
+        "en": "None on record; no cleared search has been run",
+        "zh": ""
+       },
+       {
+        "en": "Treated as unassessed rather than confirmed empty, and given no credit in any scenario.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "growth_bridge",
+     "title": {
+      "en": "Growth bridge",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Bridge step",
+       "zh": ""
+      },
+      {
+       "en": "Value",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Starting revenue base",
+        "zh": ""
+       },
+       {
+        "en": "Zero; none disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. The bridge has a null starting point, so every downstream step compounds from nothing rather than from an estimated base.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "New customer additions",
+        "zh": ""
+       },
+       {
+        "en": "None disclosed",
+        "zh": ""
+       },
+       {
+        "en": "Modeled at zero. A rebranded entity starts from a null demand base, because historical interest was tied to the enjoined name.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Expansion and upsell",
+        "zh": ""
+       },
+       {
+        "en": "Not computable",
+        "zh": ""
+       },
+       {
+        "en": "No installed base exists to expand. Assumed zero rather than estimated from sector averages.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Pricing",
+        "zh": ""
+       },
+       {
+        "en": "Not disclosed",
+        "zh": ""
+       },
+       {
+        "en": "No pricing page or contract exists to test. Treated as a sensitivity that cannot be evaluated, with input costs set by third-party model providers.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Rebrand and reputation drag",
+        "zh": ""
+       },
+       {
+        "en": "A new name and domain would forfeit accumulated search and link equity, and an adverse ruling surfaces in enterprise vendor diligence",
+        "zh": ""
+       },
+       {
+        "en": "Modeled as a multi-quarter cost with no offsetting revenue, plus a multi-year drag on enterprise access.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Implied forward revenue",
+        "zh": ""
+       },
+       {
+        "en": "Not computable",
+        "zh": ""
+       },
+       {
+        "en": "We decline to publish a modeled figure. A market-size-derived estimate here would be fabrication rather than estimation.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "time_base_integrity",
+     "title": {
+      "en": "Timing and data vintage",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Item",
+       "zh": ""
+      },
+      {
+       "en": "Date",
+       "zh": ""
+      },
+      {
+       "en": "Treatment",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Summary judgment and permanent injunction",
+        "zh": ""
+       },
+       "2025-07-21",
+       {
+        "en": "The freshest dated evidence we hold. Roughly thirteen months before August 24, 2026, which we treat as a staleness risk factor.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "open.ai domain purchase",
+        "zh": ""
+       },
+       "March 2015",
+       {
+        "en": "Anchors company history. Eleven years old and treated as legal background rather than as a current operating indicator.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Trademark application filed",
+        "zh": ""
+       },
+       "2015-12-11",
+       {
+        "en": "Filed the day OpenAI announced its founding. Treated as legal chronology, never as commercial evidence.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "OpenAI founding announcement",
+        "zh": ""
+       },
+       "December 2015",
+       {
+        "en": "Context for the confusion and reverse-confusion findings. Not a company metric and kept away from any value discussion.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Third-party attestation of the 2015 concept",
+        "zh": ""
+       },
+       "October 2024",
+       {
+        "en": "Independent confirmation that the early concept existed. Treated as history, with no weight given to it as traction.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Appeal status",
+        "zh": ""
+       },
+       {
+        "en": "Not established after 2025",
+        "zh": ""
+       },
+       {
+        "en": "Treated as an open legal variable that could move residual value in either direction, and carried as optionality rather than as a base-case assumption.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Valuation as-of date",
+        "zh": ""
+       },
+       {
+        "en": "None exists; no valuation has ever been put to us",
+        "zh": ""
+       },
+       {
+        "en": "No multiple is computed and no time-consistent comparison is possible, so valuation support is treated as absent.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Evidence base as-of date",
+        "zh": ""
+       },
+       "2026-08-24",
+       {
+        "en": "Every statement is stamped to this date. No present-tense operating claim is made, because nothing supports one.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "table",
+     "component": "scenario_analysis",
+     "title": {
+      "en": "Scenarios",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Scenario",
+       "zh": ""
+      },
+      {
+       "en": "Weight",
+       "zh": ""
+      },
+      {
+       "en": "What has to happen",
+       "zh": ""
+      },
+      {
+       "en": "Outcome for committed capital",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Bear",
+        "zh": ""
+       },
+       {
+        "en": "Most likely",
+        "zh": ""
+       },
+       {
+        "en": "The entity is dormant or wound down, the appeal lapses or fails, and the injunction is read to reach the open.ai domain as well as the name.",
+        "zh": ""
+       },
+       {
+        "en": "Total loss. No revenue, no transferable asset, and an unquantified legal exposure that could exceed the disclosed asset base.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Base",
+        "zh": ""
+       },
+       {
+        "en": "Realistic possibility",
+        "zh": ""
+       },
+       {
+        "en": "The entity persists as a holder of the open.ai domain, the appeal resolves without restoring the mark, and value is whatever a domain buyer will pay.",
+        "zh": ""
+       },
+       {
+        "en": "An asset disposition rather than an equity return. Proceeds cannot be estimated from available evidence, and equity value to a new investor is treated as immaterial.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Bull",
+        "zh": ""
+       },
+       {
+        "en": "Unlikely",
+        "zh": ""
+       },
+       {
+        "en": "The Ninth Circuit narrows or reverses the ruling, the domain is confirmed unencumbered, and a credible operating team relaunches with capital behind it.",
+        "zh": ""
+       },
+       {
+        "en": "A binary legal outcome rather than a growth return. Even here, an instrument and a price would have to exist before we could value participation.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Weighting basis",
+        "zh": ""
+       },
+       {
+        "en": "Judgment, not computation",
+        "zh": ""
+       },
+       {
+        "en": "Weights are stated in words rather than percentages because the evidence base does not support numerical probability.",
+        "zh": ""
+       },
+       {
+        "en": "We treat precise probability here as false precision and prefer to state the ranking and the reasoning behind it.",
+        "zh": ""
+       }
+      ]
+     ]
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "If this situation is ever worth revisiting, the right exercise is a single-asset domain and legal-claim valuation conducted with counsel, not an equity valuation of an operating company. Those are different disciplines with different inputs. We would value a confirmed, unencumbered open.ai against premium-domain…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "heading",
+     "level": 3,
+     "text": {
+      "en": "Valuation sensitivities that would move our view",
+      "zh": ""
+     }
+    },
+    {
+     "type": "bullets",
+     "component": "evidence_thresholds",
+     "items": [
+      {
+       "en": "The largest single swing factor is whether the July 21, 2025 injunction reaches the open.ai domain itself. Order text and registrar records showing the domain unencumbered would move residual value from unquantified to estimable, and it is the only item capable of supporting any price at all.",
+       "zh": ""
+      },
+      {
+       "en": "A Ninth Circuit ruling narrowing or reversing the district court would restore optionality to the mark. Absent that, we carry the mark at zero and treat the story as closed on the brand axis.",
+       "zh": ""
+      },
+      {
+       "en": "One independently verified operating fact dated after July 2025, such as a live product surface, a named customer, or a filed financial statement, would move the revenue line off zero. Company-supplied figures carry no weight given the fraud finding on the trademark specimen, so verification has to come from outside…",
+       "zh": ""
+      },
+      {
+       "en": "A priced round with an institutional sponsor, a stated pre-money, and defined investor reporting would create the first testable entry price. Without one, valuation support is absent at any number, and scarcity of allocation cannot be argued.",
+       "zh": ""
+      },
+      {
+       "en": "Entity status from a state registry of record would resolve whether this is an operating company or a shell. That distinction determines whether the base and bull scenarios have any weight at all, and it is the cheapest evidence with the largest effect on our scenario weights.",
+       "zh": ""
+      },
+      {
+       "en": "A cleared patent and trademark search would establish whether any technical estate exists. We currently model none, so a real estate would be a genuine upward revision rather than a confirmation.",
+       "zh": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "investment_decision",
+   "title": {
+    "en": "Investment Decision",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "component": "investment_decision",
+     "text": {
+      "en": "We do not recommend participating. There is no security on offer, no sponsor, no valuation, and no cap table, so there is nothing to price and nothing to allocate to. The single asset the venture was built on was permanently enjoined on July 21, 2025, and the court's fraud finding on the trademark specimen means the…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "Valuation support rests on one question we cannot answer from available evidence: whether the open.ai domain sits outside the injunction. If it does, there is an asset worth a conversation with counsel about a domain and claim purchase, valued against premium-domain transactions and discounted heavily for the adverse…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "We are not participating through any vehicle. Our view would change on primary legal documents and one independently verified operating fact, and even then the exercise would be an asset trade rather than a growth investment, which places it outside what BSH invests in. The honest summary is that the name here has…",
+      "zh": ""
+     }
+    }
+   ]
+  },
+  {
+   "id": "sources_and_source_classes",
+   "title": {
+    "en": "Sources, Source Classes, and Fact Reference Index",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "text": {
+      "en": "The evidence here divides sharply. The legal facts rest on independent and party-affiliated secondary reporting of a federal order, which we weigh as reliable on the outcome and unverified on the detail, because the primary docket has not been read. Everything commercial rests on an internal record with no populated…",
+      "zh": ""
+     }
+    },
+    {
+     "type": "table",
+     "component": "source_index",
+     "title": {
+      "en": "Source classes and how we weigh them",
+      "zh": ""
+     },
+     "headers": [
+      {
+       "en": "Source class",
+       "zh": ""
+      },
+      {
+       "en": "Weight we give it",
+       "zh": ""
+      },
+      {
+       "en": "What it supports here",
+       "zh": ""
+      }
+     ],
+     "rows": [
+      [
+       {
+        "en": "Independent secondary legal press",
+        "zh": ""
+       },
+       {
+        "en": "High on outcome, medium on detail",
+        "zh": ""
+       },
+       {
+        "en": "The fact, date, and scope of the July 21, 2025 summary judgment, the permanent injunction, and the appeal signal.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Party-affiliated secondary reporting",
+        "zh": ""
+       },
+       {
+        "en": "Medium, discounted for adversarial interest",
+        "zh": ""
+       },
+       {
+        "en": "Order length, judge, and remedy detail from OpenAI's own counsel. We use it for specifics and do not rely on its characterisation.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Third-party attestation",
+        "zh": ""
+       },
+       {
+        "en": "Medium",
+        "zh": ""
+       },
+       {
+        "en": "Confirmation that the 2015 open-collaboration concept existed and circulated, which we treat as history rather than as traction.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Internal registry record",
+        "zh": ""
+       },
+       {
+        "en": "Low, and read as non-disclosure",
+        "zh": ""
+       },
+       {
+        "en": "The absence of revenue, funding, headcount, products, and contracts. Empty fields are treated as uncollected rather than as audited zero.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Company-reported materials",
+        "zh": ""
+       },
+       {
+        "en": "None available; and discounted to zero if produced",
+        "zh": ""
+       },
+       {
+        "en": "Nothing. The fraud finding means any company-originated figure would need independent verification before we credit it.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Investor and intermediary materials",
+        "zh": ""
+       },
+       {
+        "en": "None available",
+        "zh": ""
+       },
+       {
+        "en": "Nothing. The absence of a sponsor, deck, or term sheet is itself the transaction finding.",
+        "zh": ""
+       }
+      ],
+      [
+       {
+        "en": "Primary court docket",
+        "zh": ""
+       },
+       {
+        "en": "Not read",
+        "zh": ""
+       },
+       {
+        "en": "Injunction scope, fee and damages provisions, and appeal status remain unverified, which is treated as a risk factor rather than resolved.",
+        "zh": ""
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "disclosures",
+   "title": {
+    "en": "Disclosures",
+    "zh": ""
+   },
+   "blocks": [
+    {
+     "type": "paragraph",
+     "component": "disclosures",
+     "text": {
+      "en": "Prepared for BSH limited partners and their advisers for information only. This is not an offer to sell or a solicitation of an offer to buy any security, and no security in Open Artificial Intelligence, Inc. is being offered to us or by us. Statements about the July 21, 2025 order of the Northern District of…",
+      "zh": ""
+     }
+    }
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "id": "S1",
+   "title": {
+    "en": "Courthouse News Service report: OpenAI wins trademark lawsuit against doppelganger company",
+    "zh": ""
+   },
+   "class": "third-party press",
+   "treatment": {
+    "en": "Used as the neutral account of the ruling and of the court's characterisation of the offering as chatbot and image-generator tools; weighted highly on outcome and only moderately on detail, with the publication month unestablished and the item anchored to the ruling date.",
+    "zh": ""
+   },
+   "as_of": "2025-07-21"
+  },
+  {
+   "id": "S2",
+   "title": {
+    "en": "Quinn Emanuel publication: Sweeping Summary Judgment Secured for OpenAI",
+    "zh": ""
+   },
+   "class": "party-affiliated secondary",
+   "treatment": {
+    "en": "Used for order specifics including the July 21, 2025 date, the presiding judge, the nineteen-page length, and the USPTO cancellation for fraud; discounted for the adversarial interest of OpenAI's own counsel and never relied on for characterisation.",
+    "zh": ""
+   },
+   "as_of": "2025-07-21"
+  },
+  {
+   "id": "S3",
+   "title": {
+    "en": "Daily Journal report: Battle over who owns OpenAI heads to appeal court",
+    "zh": ""
+   },
+   "class": "third-party press",
+   "treatment": {
+    "en": "Used only to establish that counsel disagreed with the ruling and signalled an appeal; the publication month is not established, so the item is anchored to the July 21, 2025 ruling date, and appellate status after 2025 is treated as unestablished and carried as optionality rather than as a base-case assumption.",
+    "zh": ""
+   },
+   "as_of": "2025-07-21"
+  },
+  {
+   "id": "S4",
+   "title": {
+    "en": "Public post by Yann LeCun and press profiles of Guy Ravine",
+    "zh": ""
+   },
+   "class": "third-party attestation",
+   "treatment": {
+    "en": "Used to confirm that the 2015 open-collaboration research concept existed and circulated; treated as company history and given no weight as evidence of product, adoption, or revenue. Vintage is October 2024 at month-level precision.",
+    "zh": ""
+   },
+   "as_of": "2024-10-01"
+  },
+  {
+   "id": "S5",
+   "title": {
+    "en": "BSH internal company record for Open Artificial Intelligence, Inc.",
+    "zh": ""
+   },
+   "class": "internal model",
+   "treatment": {
+    "en": "Used as the inventory of what is undisclosed rather than as a source of figures; empty fields are read as uncollected evidence and converted into risk factors and scenario weights, never into estimated values.",
+    "zh": ""
+   },
+   "as_of": "2026-08-24"
+  },
+  {
+   "id": "S6",
+   "title": {
+    "en": "BSH primary diligence file for this situation",
+    "zh": ""
+   },
+   "class": "BSH primary diligence",
+   "treatment": {
+    "en": "Recorded as empty for this review: no docket pull, registrar check, entity-status search, or patent search has been completed, so injunction scope and going-concern status are carried as unresolved risk factors rather than as settled facts.",
+    "zh": ""
+   },
+   "as_of": "2026-08-24"
+  }
+ ],
+ "_fixture": {
+  "copied_from": "data/memos/open-artificial-intelligence-inc/2026-08-24__233247__open-artificial-intelligence-inc__memo-run/logs/memo_package.en.attempt-1.json",
+  "trimmed": "strings over 320 characters cut at a word boundary, except in investment_risk"
+ }
+}

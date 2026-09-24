@@ -12,6 +12,7 @@ import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "./AiMark.vue";
 import Monogram from "./Monogram.vue";
+import { companyIdentityParts } from "../companyLogo.js";
 import { formatCompactNumber, formatIsoDate, isPendingValue } from "../formatters.js";
 import { useT } from "../i18n.js";
 
@@ -35,6 +36,20 @@ async function refresh(e) {
     refreshing.value = false;
   }
 }
+
+// Which entity this is — its legal name, the search's one-line
+// disambiguator, its domain and, for a subsidiary, its parent — so the right
+// one is picked here, where the choice is made: one "OpenAI" search once
+// returned both the PBC and the Foundation.
+const identityLine = computed(() => {
+  const parts = companyIdentityParts(props.company);
+  const parent = String(props.company.parent_company || "").trim();
+  const said = parts.join(" ").toLowerCase();
+  if (parent && !said.includes(parent.toLowerCase())) {
+    parts.push(t("company.identity.subsidiary_of", { parent }));
+  }
+  return parts.join(" · ");
+});
 
 const metaLine = computed(() => {
   const parts = [];
@@ -95,6 +110,14 @@ const earningsLine = computed(() => {
           {{ company.ticker }}<span v-if="company.exchange" class="opacity-70"> · {{ company.exchange }}</span>
         </span>
         <span v-if="company.category" class="text-xs text-ink-muted">{{ company.category }}</span>
+      </div>
+      <div
+        v-if="identityLine"
+        class="mt-0.5 text-xs text-ink-secondary"
+        :title="t('company.identity.hint')"
+        data-testid="company-identity"
+      >
+        {{ identityLine }}
       </div>
 
       <p

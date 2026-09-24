@@ -38,6 +38,15 @@ import ThesisTrackerCard from "./ThesisTrackerCard.vue";
 import CompanyCommentsCard from "./CompanyCommentsCard.vue";
 import UnifiedDocumentsView from "../UnifiedDocumentsView.vue";
 import api from "../../api.js";
+import { formatIsoDate } from "../../formatters.js";
+import { toggleFollowCompany, trackedCompanyIds } from "../../state.js";
+import { refreshActiveJobs } from "../../activeJobs.js";
+import {
+  reportCanOpen,
+  reportIsHidden,
+  reportIsRunning,
+  reportTypeLabel,
+} from "../../reportStatus.js";
 import {
   DOSSIER_SECTIONS,
   SECTION_LABEL_KEYS,
@@ -70,8 +79,10 @@ const router = useRouter();
 const activeSection = ref("overview");
 const showMoreMenu = ref(false);
 const isDecisionModalOpen = ref(false);
-const isFollowed = ref(false);
 const companyReports = ref([]);
+// Follow is the sidebar's follow list (state.js), which mirrors to the
+// server's tracking watchlist — the same list the Mac's Follow edits.
+const isFollowed = computed(() => trackedCompanyIds.value.has(String(props.companyId)));
 // Bumped after an upload, a delete or an Analyze run so the list reloads.
 const documentsRefresh = ref(0);
 const decisionsVersion = ref(0);
@@ -186,8 +197,8 @@ const stagePill = computed(() => props.company?.deal_stage || "");
 async function loadCompanyReports() {
   if (!props.companyId) return;
   try {
-    const res = await api.getReports({ company_id: props.companyId });
-    companyReports.value = Array.isArray(res) ? res : (res.reports || []);
+    const res = await api.listCompanyReports(props.companyId);
+    companyReports.value = Array.isArray(res) ? res : [];
   } catch {
     companyReports.value = [];
   }
@@ -195,23 +206,47 @@ async function loadCompanyReports() {
 
 watch(() => props.companyId, loadCompanyReports, { immediate: true });
 
-function isComplete(rep) {
-  return rep.status === "complete";
+function reportTitle(rep) {
+  return `${reportTypeLabel(rep, t)} · ${formatIsoDate(rep.created_at)}`;
 }
 
-function isFailed(rep) {
-  return rep.status === "failed" || rep.status === "error";
-}
-
-function canOpen(rep) {
-  return isComplete(rep) || rep.can_open === true;
-}
-
+// Runs still working: not finished, not failed, not parked for review, and
+// not a run someone cleared or a newer run replaced.
 const runningReports = computed(() =>
-  companyReports.value.filter((r) => !isComplete(r) && !isFailed(r)),
+  companyReports.value.filter((r) => reportIsRunning(r) && !reportIsHidden(r)),
 );
 
-const latestOpenableReport = computed(() => companyReports.value.find(canOpen));
+const latestOpenableReport = computed(() => companyReports.value.find(reportCanOpen));
+
+// Memo Studio and the decision sheet still read `title` and `can_open`;
+// hand them the report's label and whether a document is on file.
+const reportsForStudio = computed(() =>
+  companyReports.value.map((rep) => ({
+    ...rep,
+    title: reportTitle(rep),
+    can_open: reportCanOpen(rep),
+  })),
+);
+
+// Synthesize from the report card starts the parked studio run's memo (a
+// paid run; the card asks twice before it emits).
+const synthesizingId = ref("");
+const synthesizeError = ref("");
+
+async function synthesizeReport(rep) {
+  if (!rep?.id || synthesizingId.value) return;
+  synthesizingId.value = rep.id;
+  synthesizeError.value = "";
+  try {
+    await api.studioGenerate(rep.id);
+    refreshActiveJobs();
+    await loadCompanyReports();
+  } catch {
+    synthesizeError.value = t("research_desk.synthesize_failed");
+  } finally {
+    synthesizingId.value = "";
+  }
+}
 
 function handleCustomReport() {
   openReportCustomizer(props.companyId);
@@ -229,30 +264,9 @@ function handleAskWarren() {
   });
 }
 
-async function checkFollowState() {
-  try {
-    const list = await api.getFollowedCompanies();
-    if (Array.isArray(list)) {
-      isFollowed.value = list.some((item) => (typeof item === "string" ? item === props.companyId : item?.id === props.companyId));
-    }
-  } catch {
-    // ignore
-  }
-}
-
-async function toggleFollow() {
+function toggleFollow() {
   showMoreMenu.value = false;
-  try {
-    if (isFollowed.value) {
-      await api.unfollowCompany(props.companyId);
-      isFollowed.value = false;
-    } else {
-      await api.followCompany(props.companyId);
-      isFollowed.value = true;
-    }
-  } catch {
-    // ignore
-  }
+  toggleFollowCompany(props.companyId);
 }
 
 function onKeydown(e) {
@@ -267,7 +281,6 @@ function onKeydown(e) {
 
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
-  checkFollowState();
 });
 
 onUnmounted(() => {
@@ -463,7 +476,7 @@ onUnmounted(() => {
       >
         <span class="mac-spinner" />
         <span class="mac-t-subheadline truncate" style="font-weight: 500">
-          {{ rep.title || rep.id }}
+          {{ reportTitle(rep) }}
         </span>
         <span class="flex-1" />
         <span class="mac-t-caption10 mac-mono mac-c-secondary shrink-0">
@@ -477,14 +490,17 @@ onUnmounted(() => {
         :company-id="companyId"
         :company="company"
         :reports="companyReports"
+        :synthesizing-id="synthesizingId"
+        :synthesize-error="synthesizeError"
         @open-memo="openMemo"
         @open-customizer="handleCustomReport"
+        @synthesize="synthesizeReport"
       />
       <MemoStudioEditor
         :company-id="companyId"
         :is-public="isPublic"
         :generate-available="true"
-        :reports="companyReports"
+        :reports="reportsForStudio"
         :focus="memoFocus"
         @generate="handleCustomReport"
         @synthesized="loadCompanyReports"
@@ -510,7 +526,7 @@ onUnmounted(() => {
     <RecordDecisionModal
       :is-open="isDecisionModalOpen"
       :company="company"
-      :reports="companyReports"
+      :reports="reportsForStudio"
       @close="isDecisionModalOpen = false"
       @saved="decisionsVersion += 1"
     />

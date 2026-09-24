@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { Activity, BarChart3, Bell, Database, Download, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon, Upload } from "lucide-vue-next";
+import { Activity, BarChart3, Bell, Check, Database, Download, FileText, FlaskConical, Languages, Loader2, Moon, RefreshCw, Scale, SlidersHorizontal, Sun, SunMoon, Upload } from "lucide-vue-next";
 import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
@@ -13,7 +13,7 @@ import {
   scheduleDeskSync,
   snapshotDeskState,
 } from "../deskSync.js";
-import { accountInitials, formatModelName } from "../formatters.js";
+import { accountInitials, formatIsoDate, formatModelName } from "../formatters.js";
 import { useT } from "../i18n.js";
 import Monogram from "../components/Monogram.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -79,6 +79,30 @@ const warrenEngine = computed(
 const geminiModelLabel = computed(
   () => formatModelName(warren.value.gemini_model) || t("copilot.engine_gemini"),
 );
+// The memo template late-stage and Auto memos are written on: the standard
+// 5-section memo or the founder's IC template (v2). The server reports the
+// one in force as `memo_template_effective`; absent means the server's own
+// default, which is the IC template since v2 was turned on (memo_flags).
+const MEMO_TEMPLATE_OPTIONS = ["standard", "ic_v2"];
+const memoTemplate = computed(() => {
+  const s = settings.value || {};
+  const raw =
+    s.memo_template_effective ??
+    prefs.value.memo_template_effective ??
+    s.memo_template ??
+    prefs.value.memo_template;
+  return raw === "standard" ? "standard" : "ic_v2";
+});
+const memoTemplateNotSaved = ref(false);
+
+async function chooseMemoTemplate(option) {
+  if (option === memoTemplate.value || saving.value === "memo_template") return;
+  memoTemplateNotSaved.value = false;
+  await patchPreference("memo_template", option);
+  // A server without the field accepts the PATCH and ignores it; say so
+  // rather than leave the choice looking saved.
+  if (!error.value && memoTemplate.value !== option) memoTemplateNotSaved.value = true;
+}
 const account = computed(() => profile.value?.account || settings.value?.account || {});
 // With nobody signed in the server fills the email with a placeholder
 // ("shared-token session"); say what this browser is using instead.
@@ -123,6 +147,211 @@ async function patchPreference(key, value) {
 }
 
 onMounted(load);
+
+// ---- Fund return policy ---------------------------------------------------
+// The bar each stage's memos answer to (server/fund_policy.py): per stage a
+// target MOIC and IRR, the longest hold the target assumes, the largest
+// position as a share of the fund, and whether the bar is gross or net of
+// SPV fees and carry. It starts unset, and nothing reaches a memo until a
+// stage has a MOIC or IRR target. Admins and partners (settings:update)
+// change it; everyone else reads it.
+const POLICY_STAGES = ["early", "growth", "late"];
+// Ranges match the server's validation.
+const POLICY_FIELDS = [
+  { key: "target_moic", min: 1, max: 50, step: 0.1, value: "settings.fundPolicy.value_moic" },
+  { key: "target_irr_pct", min: 0, max: 500, step: 1, value: "settings.fundPolicy.value_pct" },
+  { key: "max_hold_years", min: 0.5, max: 30, step: 0.5, value: "settings.fundPolicy.value_years" },
+  { key: "max_position_pct", min: 0, max: 100, step: 0.5, value: "settings.fundPolicy.value_position" },
+];
+const POLICY_BASES = ["gross", "net"];
+
+const policy = ref(null);
+const policyLoading = ref(true);
+const policyLoadFailed = ref(false);
+const policySaving = ref(false);
+const policyError = ref("");
+const policySaved = ref(false);
+// /api/auth/me's permissions: the same role resolution the save checks.
+const mePermissions = ref(null);
+
+function blankStage() {
+  return { target_moic: "", target_irr_pct: "", max_hold_years: "", max_position_pct: "", basis: "gross" };
+}
+
+function draftFrom(saved) {
+  const draft = {};
+  for (const stage of POLICY_STAGES) {
+    const entry = saved?.stages?.[stage] || {};
+    draft[stage] = blankStage();
+    for (const field of POLICY_FIELDS) {
+      const value = entry[field.key];
+      draft[stage][field.key] = value === null || value === undefined ? "" : String(value);
+    }
+    draft[stage].basis = entry.basis === "net" ? "net" : "gross";
+  }
+  return draft;
+}
+
+const policyDraft = ref(draftFrom(null));
+
+const canEditPolicy = computed(() => {
+  const permissions =
+    mePermissions.value ??
+    account.value.permissions ??
+    settings.value?.account?.permissions ??
+    [];
+  return permissions.includes("settings:update");
+});
+
+function numberOrNull(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : NaN;
+}
+
+// A stage's request body, or null when it has no numbers (which clears it).
+function stageBody(draftStage) {
+  const entry = {};
+  for (const field of POLICY_FIELDS) {
+    const value = numberOrNull(draftStage[field.key]);
+    if (value !== null) entry[field.key] = value;
+  }
+  return Object.keys(entry).length ? { ...entry, basis: draftStage.basis } : null;
+}
+
+function stagePayload(stage) {
+  return stageBody(policyDraft.value[stage]);
+}
+
+function fieldInvalid(stage, field) {
+  const value = numberOrNull(policyDraft.value[stage][field.key]);
+  if (value === null) return false;
+  return Number.isNaN(value) || value < field.min || value > field.max;
+}
+
+// Out-of-range and non-numeric entries, named, per stage.
+const policyErrors = computed(() => {
+  const errors = {};
+  for (const stage of POLICY_STAGES) {
+    const messages = [];
+    for (const field of POLICY_FIELDS) {
+      if (fieldInvalid(stage, field)) {
+        messages.push(
+          t("settings.fundPolicy.invalid", {
+            field: t(`settings.fundPolicy.field_${field.key}`),
+            min: field.min,
+            max: field.max,
+          }),
+        );
+      }
+    }
+    if (messages.length) errors[stage] = messages.join(" ");
+  }
+  return errors;
+});
+const policyInvalid = computed(() => Object.keys(policyErrors.value).length > 0);
+
+const policyDirty = computed(() => {
+  const saved = draftFrom(policy.value);
+  return POLICY_STAGES.some(
+    (stage) => JSON.stringify(stagePayload(stage)) !== JSON.stringify(stageBody(saved[stage])),
+  );
+});
+
+// Set means the server will hand the stage to memos: a MOIC or IRR target.
+function stageIsSet(stage) {
+  const entry = policy.value?.stages?.[stage];
+  return Boolean(entry && (entry.target_moic != null || entry.target_irr_pct != null));
+}
+
+function policyValue(stage, field) {
+  const value = policy.value?.stages?.[stage]?.[field.key];
+  if (value === null || value === undefined) return t("settings.fundPolicy.not_set");
+  return t(field.value, { n: value });
+}
+
+function policyBasis(stage) {
+  const entry = policy.value?.stages?.[stage];
+  if (!entry) return t("settings.fundPolicy.not_set");
+  return t(`settings.fundPolicy.basis_${entry.basis === "net" ? "net" : "gross"}`);
+}
+
+function musd(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return `$${number >= 1000 ? `${Number((number / 1000).toFixed(2))}B` : `${Number(number.toFixed(2))}M`}`;
+}
+
+// Fund size and check size, read-only, from the files that own them.
+const policyContext = computed(() => {
+  const context = policy.value?.context || {};
+  const parts = [];
+  const fund = musd(context.fund_size_musd);
+  if (fund) parts.push(t("settings.fundPolicy.context_fund", { value: fund }));
+  const low = musd(context.check_size_min_musd);
+  const high = musd(context.check_size_max_musd);
+  if (low && high) parts.push(t("settings.fundPolicy.context_check", { min: low, max: high }));
+  return parts.length ? `${t("settings.fundPolicy.context_intro")} ${parts.join(t("settings.fundPolicy.context_join"))}` : "";
+});
+
+const policyUpdatedLine = computed(() => {
+  const at = policy.value?.updated_at;
+  if (!at) return "";
+  const date = formatIsoDate(at, "");
+  const who = policy.value?.updated_by;
+  return who
+    ? t("settings.fundPolicy.updated_by", { date, who })
+    : t("settings.fundPolicy.updated", { date });
+});
+
+async function loadPolicy() {
+  policyLoading.value = true;
+  policyLoadFailed.value = false;
+  try {
+    const [saved, me] = await Promise.allSettled([api.getFundPolicy(), api.me()]);
+    if (me.status === "fulfilled" && Array.isArray(me.value?.permissions)) {
+      mePermissions.value = me.value.permissions;
+    }
+    if (saved.status === "fulfilled" && saved.value && typeof saved.value === "object") {
+      policy.value = saved.value;
+      policyDraft.value = draftFrom(saved.value);
+    } else {
+      policyLoadFailed.value = true;
+    }
+  } catch {
+    policyLoadFailed.value = true;
+  } finally {
+    policyLoading.value = false;
+  }
+}
+
+function discardPolicyDraft() {
+  policyDraft.value = draftFrom(policy.value);
+  policyError.value = "";
+}
+
+async function savePolicy() {
+  if (!canEditPolicy.value || policySaving.value || !policyDirty.value || policyInvalid.value) return;
+  policySaving.value = true;
+  policyError.value = "";
+  policySaved.value = false;
+  try {
+    const stages = {};
+    for (const stage of POLICY_STAGES) stages[stage] = stagePayload(stage);
+    const saved = await api.updateFundPolicy({ stages });
+    policy.value = saved;
+    policyDraft.value = draftFrom(saved);
+    policySaved.value = true;
+  } catch (e) {
+    const detail = e?.detail?.detail || e?.message || String(e);
+    policyError.value = t("settings.fundPolicy.save_failed", { detail });
+  } finally {
+    policySaving.value = false;
+  }
+}
+
+onMounted(loadPolicy);
 
 async function regenAllCompanies() {
   if (regeneratingAll.value) return;
@@ -525,6 +754,55 @@ async function importDeskState(event) {
         </div>
       </section>
 
+      <section class="rounded-card bg-surface p-5 shadow-card" data-testid="settings-reports">
+        <div class="flex items-center gap-2">
+          <FileText class="h-4 w-4 text-accent" />
+          <h2 class="font-display text-title3 text-ink-primary">
+            {{ t("settings.reports") }}
+          </h2>
+        </div>
+        <div class="mt-4">
+          <div class="vogue-label mb-2">{{ t("settings.memo_template") }}</div>
+          <div class="space-y-2" role="radiogroup" :aria-label="t('settings.memo_template')">
+            <button
+              v-for="option in MEMO_TEMPLATE_OPTIONS"
+              :key="option"
+              type="button"
+              role="radio"
+              :aria-checked="memoTemplate === option"
+              :disabled="saving === 'memo_template'"
+              class="flex w-full items-start gap-3 rounded-subbox border px-3 py-2.5 text-left transition-colors focus-ring"
+              :class="memoTemplate === option ? 'border-accent bg-accent/5' : 'border-subtle hover:border-strong'"
+              :data-testid="`memo-template-${option}`"
+              @click="chooseMemoTemplate(option)"
+            >
+              <span
+                class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border"
+                :class="memoTemplate === option ? 'border-accent bg-accent text-white' : 'border-strong'"
+              >
+                <Check v-if="memoTemplate === option" class="h-2.5 w-2.5" />
+              </span>
+              <span class="min-w-0">
+                <span class="block text-callout font-medium text-ink-primary">
+                  {{ t(`settings.memo_template_${option}`) }}
+                </span>
+                <span class="mt-0.5 block text-footnote text-ink-muted">
+                  {{ t(`settings.memo_template_${option}_desc`) }}
+                </span>
+              </span>
+            </button>
+          </div>
+          <p class="mt-2 text-caption1 text-ink-muted">{{ t("settings.memo_template_scope") }}</p>
+          <p
+            v-if="memoTemplateNotSaved"
+            class="mt-1 text-caption1 text-warning"
+            data-testid="memo-template-not-saved"
+          >
+            {{ t("settings.memo_template_not_saved") }}
+          </p>
+        </div>
+      </section>
+
       <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <Database class="h-4 w-4 text-accent" />
@@ -615,6 +893,157 @@ async function importDeskState(event) {
             </span>
           </div>
         </div>
+      </section>
+
+      <!-- Fund return policy: the bar each stage's memos answer to. Unset
+           until someone with settings:update saves a target. -->
+      <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2" data-testid="settings-fund-policy">
+        <div class="flex flex-wrap items-center gap-2">
+          <Scale class="h-4 w-4 text-accent" />
+          <h2 class="font-display text-title3 text-ink-primary">
+            {{ t("settings.fundPolicy.title") }}
+          </h2>
+          <span
+            v-if="policy"
+            class="chip"
+            :class="policy.set ? 'bg-success-soft text-success-ink' : 'bg-fill-secondary text-ink-secondary'"
+            data-testid="fund-policy-state"
+          >
+            {{ policy.set ? t("settings.fundPolicy.state_set") : t("settings.fundPolicy.state_unset") }}
+          </span>
+        </div>
+        <p class="mt-1 max-w-3xl text-footnote text-ink-muted">{{ t("settings.fundPolicy.explain") }}</p>
+
+        <p v-if="policyLoading" class="mt-4 text-callout text-ink-muted">
+          {{ t("settings.fundPolicy.loading") }}
+        </p>
+        <p v-else-if="policyLoadFailed" class="mt-4 text-callout text-danger-ink" data-testid="fund-policy-load-failed">
+          {{ t("settings.fundPolicy.load_failed") }}
+        </p>
+        <template v-else>
+          <div class="mt-4 grid gap-3 md:grid-cols-3">
+            <fieldset
+              v-for="stage in POLICY_STAGES"
+              :key="stage"
+              class="min-w-0 rounded-subbox bg-fill-tertiary p-3"
+              :disabled="!canEditPolicy || policySaving"
+              :data-testid="`fund-policy-${stage}`"
+            >
+              <legend class="sr-only">{{ t(`settings.fundPolicy.stage_${stage}`) }}</legend>
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-callout font-semibold text-ink-primary">
+                  {{ t(`settings.fundPolicy.stage_${stage}`) }}
+                </span>
+                <span
+                  class="text-caption1"
+                  :class="stageIsSet(stage) ? 'text-success-ink' : 'text-ink-muted'"
+                  :data-testid="`fund-policy-${stage}-state`"
+                >
+                  {{ stageIsSet(stage) ? t("settings.fundPolicy.stage_set") : t("settings.fundPolicy.not_set") }}
+                </span>
+              </div>
+
+              <div v-if="canEditPolicy" class="mt-2.5 space-y-2">
+                <label
+                  v-for="field in POLICY_FIELDS"
+                  :key="field.key"
+                  class="flex items-center justify-between gap-2 text-footnote text-ink-secondary"
+                >
+                  <span class="min-w-0">{{ t(`settings.fundPolicy.field_${field.key}`) }}</span>
+                  <span class="flex shrink-0 items-center gap-1.5">
+                    <input
+                      v-model="policyDraft[stage][field.key]"
+                      type="number"
+                      inputmode="decimal"
+                      :min="field.min"
+                      :max="field.max"
+                      :step="field.step"
+                      class="field field-sm w-20 text-right tabular"
+                      :placeholder="t('settings.fundPolicy.placeholder')"
+                      :class="fieldInvalid(stage, field) ? '!ring-1 !ring-danger' : ''"
+                      :aria-invalid="fieldInvalid(stage, field)"
+                      :data-testid="`fund-policy-${stage}-${field.key}`"
+                    />
+                    <span class="w-16 whitespace-nowrap text-caption1 text-ink-muted">{{ t(`settings.fundPolicy.unit_${field.key}`) }}</span>
+                  </span>
+                </label>
+                <div class="flex items-center justify-between gap-2 text-footnote text-ink-secondary">
+                  <span>{{ t("settings.fundPolicy.field_basis") }}</span>
+                  <div class="segmented" role="group" :aria-label="t('settings.fundPolicy.field_basis')">
+                    <button
+                      v-for="basis in POLICY_BASES"
+                      :key="basis"
+                      type="button"
+                      class="segmented-item focus-ring"
+                      :data-selected="policyDraft[stage].basis === basis"
+                      :data-testid="`fund-policy-${stage}-basis-${basis}`"
+                      @click="policyDraft[stage].basis = basis"
+                    >
+                      {{ t(`settings.fundPolicy.basis_${basis}`) }}
+                    </button>
+                  </div>
+                </div>
+                <p
+                  v-if="policyErrors[stage]"
+                  class="text-caption1 text-danger-ink"
+                  :data-testid="`fund-policy-${stage}-error`"
+                >
+                  {{ policyErrors[stage] }}
+                </p>
+              </div>
+
+              <dl v-else class="mt-2.5 space-y-1 text-footnote">
+                <div v-for="field in POLICY_FIELDS" :key="field.key" class="flex justify-between gap-2">
+                  <dt class="text-ink-secondary">{{ t(`settings.fundPolicy.field_${field.key}`) }}</dt>
+                  <dd class="tabular text-ink-primary">{{ policyValue(stage, field) }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <dt class="text-ink-secondary">{{ t("settings.fundPolicy.field_basis") }}</dt>
+                  <dd class="text-ink-primary">{{ policyBasis(stage) }}</dd>
+                </div>
+              </dl>
+            </fieldset>
+          </div>
+
+          <p class="mt-2 text-caption1 text-ink-muted">{{ t("settings.fundPolicy.basis_hint") }}</p>
+          <p v-if="policyContext" class="mt-1 text-caption1 text-ink-muted" data-testid="fund-policy-context">
+            {{ policyContext }}
+          </p>
+
+          <div v-if="canEditPolicy" class="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="btn-filled btn-sm focus-ring"
+              :disabled="!policyDirty || policyInvalid || policySaving"
+              data-testid="fund-policy-save"
+              @click="savePolicy"
+            >
+              <Loader2 v-if="policySaving" class="h-3.5 w-3.5 animate-spin" />
+              {{ policySaving ? t("settings.fundPolicy.saving") : t("settings.fundPolicy.save") }}
+            </button>
+            <button
+              type="button"
+              class="btn-bordered btn-sm focus-ring"
+              :disabled="!policyDirty || policySaving"
+              data-testid="fund-policy-discard"
+              @click="discardPolicyDraft"
+            >
+              {{ t("settings.fundPolicy.discard") }}
+            </button>
+            <span v-if="policySaved && !policyDirty" class="text-footnote text-success-ink" data-testid="fund-policy-saved">
+              {{ t("settings.fundPolicy.saved") }}
+            </span>
+            <span v-if="policyError" class="text-footnote text-danger-ink" role="alert" data-testid="fund-policy-error">
+              {{ policyError }}
+            </span>
+          </div>
+          <p v-else class="mt-3 text-caption1 text-ink-muted" data-testid="fund-policy-read-only">
+            {{ t("settings.fundPolicy.read_only") }}
+          </p>
+          <p v-if="policyUpdatedLine" class="mt-1 text-caption1 text-ink-muted" data-testid="fund-policy-updated">
+            {{ policyUpdatedLine }}
+          </p>
+        </template>
       </section>
 
       <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">

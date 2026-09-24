@@ -31,6 +31,10 @@ def _slug(value: Any, fallback: str = "item") -> str:
 
 def _source_class(value: Any, default: str = "third-party market data") -> str:
     raw = _clean(value, limit=80).lower().replace("_", " ").replace("-", " ")
+    # Demo and design-mock values say so. Falling through to the default
+    # would dress a placeholder up as market data.
+    if any(word in raw for word in ("demo", "placeholder", "mock")):
+        return _clean(value, limit=80)
     aliases = {
         "company": "company material",
         "company material": "company material",
