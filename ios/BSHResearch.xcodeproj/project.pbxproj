@@ -14,6 +14,7 @@
 		04F80D68A6C57DE6029FCC96 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */; };
 		050E38E4D22F35F61CB2CBD3 /* DeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 268CF0D8CD662D0200D06372 /* DeskModels.swift */; };
 		0CD2354BB932294881502182 /* MacCopilotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A22F8717888684A04DBB1B6 /* MacCopilotView.swift */; };
+		0D4ADB81A811A4757DAD4FEC /* MacBureauMonogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4484DC5F81AD698F4F7E4C /* MacBureauMonogram.swift */; };
 		0E819C3D81E0875A8E0B4944 /* AskPersonaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9202150635CB2DC806E8BF60 /* AskPersonaStore.swift */; };
 		0EE0A1D232371855ED3126D3 /* CopilotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FC714A482FCC5566984AC9 /* CopilotModels.swift */; };
 		0FE1EDDAEA0C3AF6176EDDF7 /* PDFKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3C30BC82ECEDE667CEDB8A8 /* PDFKit.framework */; };
@@ -27,9 +28,12 @@
 		1D53993424FF3283F9DE3E41 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F04BEDA697B05B37E32ACDEE /* QuickLookUI.framework */; };
 		1E19540C79E3D0052769CF51 /* InstrumentSerif-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B2D856D15FF495D09B6148AD /* InstrumentSerif-OFL.txt */; };
 		20BD0D3168FB039F588A73CE /* ResearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05313CA9D7B73D2754CE839A /* ResearchModels.swift */; };
+		212C7D4363D09A5540B2CD0A /* MacBureauMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0350CE191219D6280840D /* MacBureauMarket.swift */; };
 		218F28A7A0DE4451973E3848 /* ResearchCompsRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D7442C0776C8148B14FD34 /* ResearchCompsRailView.swift */; };
 		2238634E9507014EFEFC1F43 /* ReportsDeskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB5F0B02965FC29549E1F40 /* ReportsDeskTests.swift */; };
 		22F2553D5272FA27E842288A /* MacBatchEViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F358126BA591FC21DD698C /* MacBatchEViews.swift */; };
+		23CA0A8E62803994019E0F64 /* MacBureauDecisions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A8B4F85059806BBC16722AA /* MacBureauDecisions.swift */; };
+		242A24AC9241679C622054B9 /* MacBureauWelcomeTour.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD07595121D16230E2E5781 /* MacBureauWelcomeTour.swift */; };
 		249BE13F0E1CBA9BBECCBA77 /* BSHResearchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60373DCF587C1E680967EAFF /* BSHResearchApp.swift */; };
 		260C8F887C0F2B163CFE255B /* BSHResearchSeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820470B968898AE02BCDC3FB /* BSHResearchSeedData.swift */; };
 		278B6638E7BB48ED2E0EEA6E /* QuoteChartCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32058E6EA8FE8490673B37CF /* QuoteChartCanvas.swift */; };
@@ -37,8 +41,10 @@
 		287B8DF9165C4BDA380BEDB4 /* DeskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D91E4E36A17C0238461FC2 /* DeskStore.swift */; };
 		29529E517FB0FADE7756351A /* BSHResearchWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2BB9B538E665356936162337 /* ResearchCapTableSimulatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2F7CE224634C06C9068641 /* ResearchCapTableSimulatorView.swift */; };
+		2DA7880F6B7A7A28DC72EA9A /* InstrumentSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2E859B7CCDF15F091648654C /* InstrumentSans-Medium.ttf */; };
 		2DCB12F4BBC9FCB67E34709F /* VoiceAskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97532D33F3B7F886867FD114 /* VoiceAskController.swift */; };
 		2E48B2EB52AF936D687BAF8C /* MacBatchEModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970E0D62C69EC25D74FEC05D /* MacBatchEModels.swift */; };
+		2EDACFF96F7437A8C693A484 /* MacBureauDecisionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0BE0A3BB8100F3333C145B0 /* MacBureauDecisionSheet.swift */; };
 		2F4F22C7017113B2DA7AD767 /* MacThesisTrackerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F3A85B88B55AF00BB35F9D /* MacThesisTrackerView.swift */; };
 		2F5AC3246F014CE197F9CB61 /* AskHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC003800189502CEEDA96A32 /* AskHistoryStore.swift */; };
 		2FC4A44B7AD7C17BB573294B /* MacFirmModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFD115DD60B1B1F05C6F9F3 /* MacFirmModels.swift */; };
@@ -47,7 +53,9 @@
 		3175C589A20A0A5CA31E30D3 /* Stores.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13C0FA2A87F5017ED39093F /* Stores.swift */; };
 		330A3162982A5CDFB13280B4 /* BSHBrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83F19825BAD21A0303D2408D /* BSHBrandMark.swift */; };
 		33B56CB15602D86C41AE048D /* BSHDesignPickers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526825D11E117C6923A26F60 /* BSHDesignPickers.swift */; };
+		352E43188DF550B24A963CD1 /* MacBureauReportCustomizerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCE271FC65D11BCEA4136CD /* MacBureauReportCustomizerModel.swift */; };
 		3560760398C9BBC98152979D /* ResearchProfileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECB2ADDEA72936DAA82777D /* ResearchProfileViews.swift */; };
+		371B41F6C3158A2341B0A4FE /* InstrumentSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6F032E4151361D56FCBA827C /* InstrumentSans-Bold.ttf */; };
 		374E5076802D06782D3C0A0D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */; };
 		3881099AF6EDAA67CF2D349D /* MacQuoteChartPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E1A869762231E5F9EE1ADC /* MacQuoteChartPanel.swift */; };
 		3DABD1C3C93F8AAE344CCF1B /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52F5FA8B64F845ED2467C96 /* WatchRootView.swift */; };
@@ -59,20 +67,28 @@
 		45D15BF65F91D93A6E18BEB9 /* MacDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C974392D208D56BA2CAAB2 /* MacDesign.swift */; };
 		46939E93DF460A13F78C58EA /* MacICPrepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C7C366B5B4C99D54BA9D98 /* MacICPrepView.swift */; };
 		46CA11D93C8A8849A1314264 /* MacPortfolioModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B60F4E120240659821A2DE /* MacPortfolioModels.swift */; };
+		47B0DCF1A22288F0AA9B8A88 /* MacBureauShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38EFCCBCE9ED1F50EE69EB2 /* MacBureauShell.swift */; };
+		4A5A21CCCE8A859D4286E058 /* InstrumentSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = DAB985C704EB0C92569D8433 /* InstrumentSans-OFL.txt */; };
 		4AD7FA7CB3A8A0FB1A49E97B /* MacPipelineDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B58F9875BE539C2D4C6A47B /* MacPipelineDeskView.swift */; };
 		4AEF0601CD282CD51ABB361D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BF8AA313E4F698A11434B62 /* Models.swift */; };
 		4B087DF88857BA4536FCA1FE /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6794228F400A2EABBFE689 /* SearchView.swift */; };
 		4C107AB88398DCBE26DE5FE3 /* WatchQuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA93B6873CB36F0E79C69B07 /* WatchQuoteModels.swift */; };
+		500E709B8BFF1B0CC50FF5CB /* MacBureauResearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02279C8FCA5944CE4C3B2939 /* MacBureauResearch.swift */; };
+		517CAFD9CC6150325C9F69FA /* MacWorkspaceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0580D292D9D482E766B34FEA /* MacWorkspaceSettings.swift */; };
 		519439E98EB34C406D23210D /* BSHBrandMarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F492C4593A13D11E6ACEBD7 /* BSHBrandMarkTests.swift */; };
+		52E2248CB16A90804D8DEDBA /* MacBureauDossier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEE97B961C4C5BC436FFE4F /* MacBureauDossier.swift */; };
 		5383F3D0F3A57179F1AC4659 /* AskMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F9D1C463DA63C92CD758CF7 /* AskMark.swift */; };
 		539EDAD1F8D79067DB06A843 /* WelcomeTourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6A937B8B9C0F26F8E0DBE5 /* WelcomeTourView.swift */; };
 		569C6D7AD70E792B59D0C9FB /* MacFirmViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACFE61385D265F08137AB9D /* MacFirmViews.swift */; };
 		56C3BB8190D9F3183781DBB8 /* MacMemoWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2311FBF8D2F3D472AD0A3317 /* MacMemoWindowView.swift */; };
+		5826402708ADF4A2D5694516 /* MacBureauSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C2D9A9FA4CE4951C46CFFF /* MacBureauSettings.swift */; };
 		5890641482B63D309EEEF7DF /* TraderCardsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F60455E0F9114FD10C1AEC2 /* TraderCardsSection.swift */; };
+		58F8474BDFAD7BC3BF207F26 /* MacBureauReportCustomizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27F4DE0E9589E8FA3375AFE /* MacBureauReportCustomizer.swift */; };
 		59F728959A2BC3FA842FF764 /* MacCompsRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF16521EF3059708256DCDC7 /* MacCompsRailView.swift */; };
 		5CA86D61728F34652AAF2BCE /* MemoInkLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F9BBCF5F9D57511120B733E /* MemoInkLayoutTests.swift */; };
 		5E11BAF01A472F11B0FD68CD /* ResearchDealPipelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46120F0EC00D5E17DDE4218 /* ResearchDealPipelineView.swift */; };
 		5F4DA9414E73A64B72ED7A70 /* MacSharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ADCDF3E537D47256608EE4 /* MacSharedViews.swift */; };
+		638A59A04AC57B3E3508A1AA /* InstrumentSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = DAB985C704EB0C92569D8433 /* InstrumentSans-OFL.txt */; };
 		63EFF3483FD1F427D1642956 /* MacICRoomModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAFBB60D1727E1AA777A9B6 /* MacICRoomModels.swift */; };
 		64301E653948D690E0462482 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AFCD7BF84D51F036B116BC62 /* Assets.xcassets */; };
 		66C5A4EDF514869C6DEBBE53 /* MacDataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0440427A3240E516454A35D5 /* MacDataCache.swift */; };
@@ -82,11 +98,14 @@
 		697AC57CA6301BA3CFA24365 /* MacInstitutionalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EC1B6CA2C6FC927E13F3F9 /* MacInstitutionalModels.swift */; };
 		6A3AA208AF2A1C4F0AB49DCB /* MacInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE413178C7C7ADCA7209544 /* MacInspectorView.swift */; };
 		6ECD3D49CFD56115E0260B0A /* InstrumentSerif-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 57DF5CF54477E97B8B72BC54 /* InstrumentSerif-Italic.ttf */; };
+		6F0441316140A079BC8C3633 /* MacBureauMemoStudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3313C1A8758D4807DD3639F3 /* MacBureauMemoStudio.swift */; };
 		704DD3A02A0D8CAA019A6A35 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B4B6BC5D280BA58747513D /* HomeView.swift */; };
 		707B96725D52781FB80BEC72 /* MacFounderRadarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF662F62FFC5A1624CD0AF2D /* MacFounderRadarView.swift */; };
 		740F2D9D82F2D08CA2782339 /* InstrumentSerif-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B046D0AFEDAE29CA7CD5CBA8 /* InstrumentSerif-Regular.ttf */; };
+		747450C026D08211F5829AD1 /* MacBureauPulseNewsKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1749C656A9A34546032C3422 /* MacBureauPulseNewsKit.swift */; };
 		755443545A09EB3E2A4A5B40 /* MacDealPipelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A8F4A0E2B97A0BA3B4416 /* MacDealPipelineView.swift */; };
 		78CFD68B954524AE51423D10 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE0650E999063FF8F014DCA /* L10n.swift */; };
+		795E1C4DCC73E447575C28F0 /* MacBureauKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD381E39EB7FB6D20C85077D /* MacBureauKit.swift */; };
 		7B5AD9148838DC76A2D0AD16 /* ResearchFounderRadarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4414817172EE73CB451E53C6 /* ResearchFounderRadarView.swift */; };
 		7C7A8A136D2BBC573147EFCB /* MemoPaperDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */; };
 		7F25713261ABD87F8DEAABA4 /* MacDeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A09AB7E568E948E9356591 /* MacDeskModels.swift */; };
@@ -98,10 +117,13 @@
 		83E1F04F7E0AF3A839138F03 /* BSHDesignTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1755462DBC18FB455AC576A /* BSHDesignTests.swift */; };
 		8456BF02FBB124E459438892 /* ReportAnnotationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A7219FBE5389FE4CD822DD /* ReportAnnotationStore.swift */; };
 		846F7AE9E43FA120379500A2 /* PulseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1AA3521C5D59E1EE5A3EA5 /* PulseView.swift */; };
+		8580E756F7CD88ECD5D76D7C /* MacBureauPulse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41DB0B67823F3E7EDF8D0A41 /* MacBureauPulse.swift */; };
 		866F0E97B21448C1FBFD4093 /* HomeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFB1AEAEB3631503D4F7A435 /* HomeModels.swift */; };
 		89A58846D003116749A1C9EB /* ResearchDeskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDF9ABEDD9285B51751E966 /* ResearchDeskStore.swift */; };
+		8CA5927086B8523E3F45347E /* MacBureauMarketKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610CCFE61345987F4178E5A5 /* MacBureauMarketKit.swift */; };
 		8FB650CD10AD969B5F47B4E3 /* MacConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12C3100F8C260BC1D16866BE /* MacConsoleView.swift */; };
 		90B0EBA109716F95B65C2D9C /* MacAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F3A80283B7F93DF09BDC57 /* MacAppStore.swift */; };
+		923C26E3562967324280D239 /* MacBureauNews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F08531BD61D09F24E1BDAEF /* MacBureauNews.swift */; };
 		9452EA196AF1FC036971058A /* SSEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940B768FB42B715411E84DFA /* SSEClient.swift */; };
 		94A0D95DE9B3D780EB4A79AB /* MacEmbeddedBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C3EEC10168323D2AE43CC4E /* MacEmbeddedBrowserPanel.swift */; };
 		9583B15577CE7206EF73BEDF /* MacPaperDeskReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */; };
@@ -117,14 +139,18 @@
 		A1A1D9DAA73991B30036D26D /* MacDocumentsDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69635BAD109B69CE344E47E2 /* MacDocumentsDeskView.swift */; };
 		A22CD255BD3BB3AA2E7850B1 /* BSHBrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB9B4E4D5E8B378533A6900 /* BSHBrandMark.swift */; };
 		A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */; };
+		A6C6E7D99EF1724146225223 /* MacBureauReportCustomizerParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54547D1D591861EE73E60150 /* MacBureauReportCustomizerParts.swift */; };
 		A74CB02D5E780DFF9EC36F78 /* MacICRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166150D89B877245CBC25F92 /* MacICRoomView.swift */; };
 		A78F0D284C2337AC8220AD97 /* TraderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4692BE31C7E03657A9FF1112 /* TraderModels.swift */; };
+		A799F480ABEAB1A2EE3DEDE2 /* MacBureauMarketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D40DACDA8DADC834B18914 /* MacBureauMarketCommands.swift */; };
 		A7ABC17EED833045B916ADE6 /* MacDesignChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A986EB64F77F56106F60618 /* MacDesignChrome.swift */; };
+		A8894FDA7DFC43021045F521 /* MacBureauFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0CB5E34A8DCF4F16E3A1687 /* MacBureauFiles.swift */; };
 		A9473794C7EFB28FD2053969 /* CompactPageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */; };
 		A97BAFF5B406F244AA148296 /* AdaptiveLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C41F62229F1D97D8F6C2D8 /* AdaptiveLayout.swift */; };
 		A9A16A4F1F0532B01D51D972 /* BSHDesignPickers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526825D11E117C6923A26F60 /* BSHDesignPickers.swift */; };
 		AB61C94F72046809A0284472 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344177AD4528799F2FC1EECD /* TokenStore.swift */; };
 		AC622C9EE8F8ADFA318EF327 /* ResearchDecisionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E9B1FF4BDE40AFF2C086D76 /* ResearchDecisionViews.swift */; };
+		AE663DEC4B35EFDA1DC68FB8 /* MacBureauMarketArticle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111D834AD7F3959227030806 /* MacBureauMarketArticle.swift */; };
 		AF50A47647D70FF02CA741F7 /* ResearchDeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7D2EF4DFDF255D269F0CEA /* ResearchDeskModels.swift */; };
 		B1D32A9BD8761122D5925F0A /* MacWelcomeTourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */; };
 		B2369B410AC0244E09DED4D8 /* WatchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ACCD950976A076053A4551E /* WatchConfig.swift */; };
@@ -136,29 +162,41 @@
 		BA2DA8B89C0C029B249D41A7 /* CreateReportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9411F444F51F8CCD59612C90 /* CreateReportSheet.swift */; };
 		BAB2F59EAD3C7DEAF0F16D19 /* ResearchICViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1897800842F28C2658DB1BAA /* ResearchICViews.swift */; };
 		BB157970A916FD3BCF0D8800 /* MacAttentionDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1947A3FDD9E3DA26A04E65B7 /* MacAttentionDeskView.swift */; };
+		BB8EE353A92CDC6C1EBDD506 /* InstrumentSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6F032E4151361D56FCBA827C /* InstrumentSans-Bold.ttf */; };
 		BBDD7609B9DFE5BD95DE14A7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11696DF32E556CEBE31ED61C /* SwiftUI.framework */; };
+		BD26AF1237540399D29843F1 /* MacBureauReportsParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C384AAA5B6C2B6C3C969177 /* MacBureauReportsParts.swift */; };
 		BF1E45A0838EE4978674AA98 /* MacTickerTapeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBDA5E4C41054BC65EB01BAF /* MacTickerTapeView.swift */; };
 		BF5DFF0F3FC9D0EE4A67F791 /* MacQuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6069CAAF1B8D8942CE8CF6DE /* MacQuoteModels.swift */; };
+		C12BFC773E3DACBDEC4DB63B /* MacBureauHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AF0A0BE50B30D240B6DABB /* MacBureauHome.swift */; };
 		C3241FEA2D1DB36F076E95C1 /* BSHDesignChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F5E1C111366792E57A2C93 /* BSHDesignChrome.swift */; };
 		C3871797BE64E64767BE746C /* MacQAStress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0717DDEE7E8E7B8B87B578AD /* MacQAStress.swift */; };
 		C5B023427E31EB2C3427779E /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B87ED44B0DECF59E8DC89EA /* WebKit.framework */; };
+		C60AEF20BD136D10AECED363 /* InstrumentSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 889E24EED6A2ED5898D87429 /* InstrumentSans-SemiBold.ttf */; };
 		C6A2CD27D5C99EC17B7A1EB5 /* MarketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E52FF3EDAFF78360D01460 /* MarketView.swift */; };
 		C6DC57E907713B3B77A7BE40 /* ReportDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917366A13310685FE92CDE55 /* ReportDetailView.swift */; };
 		C7BBB6034FD8096CD9540320 /* MacMemoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCAD3275009E6446E737E121 /* MacMemoModels.swift */; };
+		C861721FF29B198FAD97376F /* MacBureauTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399FD8E79732B122E9FA9A87 /* MacBureauTracking.swift */; };
+		C94A75EDFA434FDED8F3D3BA /* MacBureauLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B272FC477EB09ADAFEB2D4AD /* MacBureauLogin.swift */; };
 		CB11DE15F5E7640DA2CEC3D3 /* ResearchDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC8D42EE831935735BFB360 /* ResearchDesign.swift */; };
+		CC4B6E808B9E697ABEEC81F8 /* MacBureauReports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EFA7A9DBE2C1D848FB16A1B /* MacBureauReports.swift */; };
 		CCFF18476473901F42BD85F6 /* QuickLookPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA827F4F11E642A136665F1 /* QuickLookPreview.swift */; };
 		CDB27768235E756E4DC017F0 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC570C3B338732BD5539A853 /* LoginView.swift */; };
 		CF091DFDF3C230B1DB273FC9 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11696DF32E556CEBE31ED61C /* SwiftUI.framework */; };
 		D0BE3E8DDEF993CD0BB1205D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C1D5FFB024D91A311B26FD59 /* Assets.xcassets */; };
+		D16A4924AF282D6E3133DB0C /* MacBureauMarketBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420081FEBABE25CD0FCD6A55 /* MacBureauMarketBoard.swift */; };
+		D19140695FA9A5C04AC62C67 /* InstrumentSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0FD037F8ADEFD2C26F321F9E /* InstrumentSans-Regular.ttf */; };
 		D1C999CF73DFE7C4FE4F739E /* MacPulseDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E586FE151E27E1E8FA3BF61C /* MacPulseDeskView.swift */; };
+		D221C8B406517FD12735CF86 /* InstrumentSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2E859B7CCDF15F091648654C /* InstrumentSans-Medium.ttf */; };
 		D2F691B4D48EF7659D93D964 /* BSHResearchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6268F004A8C4A2A774678AA3 /* BSHResearchWatchApp.swift */; };
 		D3EEAC579B115E9375F6F0F3 /* MacThesisEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55EB68FEA12743F730B3EF27 /* MacThesisEditor.swift */; };
 		D6125342CADF8A7700D8D3A0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414F46B2F3261F6900061B30 /* APIClient.swift */; };
+		D682F74E0AAD6A65C4C8F0BB /* MacBureauWarren.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46C8C1FDC701D08D466AC64 /* MacBureauWarren.swift */; };
 		D89AF766760E3740856D8358 /* ChangeBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */; };
 		D9D256FC7CA523AA3A39BB11 /* QuoteFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */; };
 		DA1C3F1D8C5078F1896CF7B1 /* WelcomeTourStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241CBB665610B3463EB1965C /* WelcomeTourStore.swift */; };
 		DB9FEC95A8953D40411D066D /* BSHResearchWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DC1AB5C814FAAE9CF924EC8F /* ReportsDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADDC85393E96A7748546C23 /* ReportsDeskView.swift */; };
+		DC50C05D95F359ACA2CC3F5D /* InstrumentSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 889E24EED6A2ED5898D87429 /* InstrumentSans-SemiBold.ttf */; };
 		DD7BF8F7B12DA04A055547D2 /* MacGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148276F1C5703DDBD890DD06 /* MacGlassStyles.swift */; };
 		DEF7D3BA2589DC2B15322EC5 /* QuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BE894BEED6FE5E7AE765BC /* QuoteModels.swift */; };
 		DF5EF7A131BBD445A032E801 /* AppGroupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48EDA3B79E0F262273FCC6AF /* AppGroupStore.swift */; };
@@ -177,11 +215,13 @@
 		E72EF46533FD107F18DCD4E7 /* MacMemoStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC9B6657988CA273C4DF6D7 /* MacMemoStudioView.swift */; };
 		E95A9D04B486827C226F2BEA /* WarrenMarkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF7B8BEA465E8B91B6711D0 /* WarrenMarkView.swift */; };
 		EA3FB45F15C16892D3D13004 /* ResearchDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BCEA04C3226EECAF3BFD92 /* ResearchDeskView.swift */; };
+		EBA7D5BA5DC5A24F6D50F52A /* MacBureauCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF245F948C70EAF5A1FC7FF1 /* MacBureauCommandPalette.swift */; };
 		F020AAD1DEB77ECDE01533E1 /* WelcomeTourTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B89013555D0D08065E8C0F3 /* WelcomeTourTests.swift */; };
 		F09831FD108CD8F69FFF869C /* BSHDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8F7F5086B07011A264F1C5 /* BSHDesign.swift */; };
 		F0B6B4D167F325AF10110CE3 /* MacCopilotSidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1A713C68C3867444DCDCB6 /* MacCopilotSidePanel.swift */; };
 		F0D8904C88C5FBBD7CB6D1EE /* MacPortfolioDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8098655118A26868F635652D /* MacPortfolioDeskView.swift */; };
 		F2A54837918DA6F5F66A9121 /* ConsoleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D57C896463B0B354F848C7 /* ConsoleViews.swift */; };
+		F2CB3444C9AC0C2D6A7E1FF8 /* InstrumentSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0FD037F8ADEFD2C26F321F9E /* InstrumentSans-Regular.ttf */; };
 		F3451F3A204A6071B26E6312 /* L10nTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC623754EEEF95C0C19D318 /* L10nTests.swift */; };
 		F3C536D016177C4A93E8617C /* ResearchMemoStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E86696E257C6BE8E9FCC9EA /* ResearchMemoStudioView.swift */; };
 		F43F1DC8722A34C2A173B074 /* MacLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29940B67C81092E05DD2FB5F /* MacLoginView.swift */; };
@@ -262,21 +302,27 @@
 
 /* Begin PBXFileReference section */
 		014B36498E780B6DA489A6F2 /* GenerateReportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerateReportSheet.swift; sourceTree = "<group>"; };
+		02279C8FCA5944CE4C3B2939 /* MacBureauResearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauResearch.swift; sourceTree = "<group>"; };
 		0440427A3240E516454A35D5 /* MacDataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDataCache.swift; sourceTree = "<group>"; };
 		05313CA9D7B73D2754CE839A /* ResearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchModels.swift; sourceTree = "<group>"; };
+		0580D292D9D482E766B34FEA /* MacWorkspaceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWorkspaceSettings.swift; sourceTree = "<group>"; };
 		0717DDEE7E8E7B8B87B578AD /* MacQAStress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQAStress.swift; sourceTree = "<group>"; };
 		076D928CB475DBE91A8021A8 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		0BFB41BA6D24CD80996ADB54 /* BSHResearch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearch.entitlements; sourceTree = "<group>"; };
 		0EE3C1AC67D9B0F32914E6CC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0FD037F8ADEFD2C26F321F9E /* InstrumentSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSans-Regular.ttf"; sourceTree = "<group>"; };
+		111D834AD7F3959227030806 /* MacBureauMarketArticle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMarketArticle.swift; sourceTree = "<group>"; };
 		11696DF32E556CEBE31ED61C /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		12C3100F8C260BC1D16866BE /* MacConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConsoleView.swift; sourceTree = "<group>"; };
 		148276F1C5703DDBD890DD06 /* MacGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacGlassStyles.swift; sourceTree = "<group>"; };
 		14D91E4E36A17C0238461FC2 /* DeskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskStore.swift; sourceTree = "<group>"; };
 		166150D89B877245CBC25F92 /* MacICRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacICRoomView.swift; sourceTree = "<group>"; };
+		1749C656A9A34546032C3422 /* MacBureauPulseNewsKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauPulseNewsKit.swift; sourceTree = "<group>"; };
 		18744A3B1CF0A6C453E56086 /* MacPitchDeckDropZone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPitchDeckDropZone.swift; sourceTree = "<group>"; };
 		1897800842F28C2658DB1BAA /* ResearchICViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchICViews.swift; sourceTree = "<group>"; };
 		192B7F93A5A02F37A0375749 /* ResearchReportCustomizerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchReportCustomizerSheet.swift; sourceTree = "<group>"; };
 		1947A3FDD9E3DA26A04E65B7 /* MacAttentionDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAttentionDeskView.swift; sourceTree = "<group>"; };
+		1A8B4F85059806BBC16722AA /* MacBureauDecisions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauDecisions.swift; sourceTree = "<group>"; };
 		1ADDC85393E96A7748546C23 /* ReportsDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsDeskView.swift; sourceTree = "<group>"; };
 		1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPaperDeskReader.swift; sourceTree = "<group>"; };
 		1C02EDE9D932BED155D3318D /* MacConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConfig.swift; sourceTree = "<group>"; };
@@ -300,10 +346,14 @@
 		2B58F9875BE539C2D4C6A47B /* MacPipelineDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPipelineDeskView.swift; sourceTree = "<group>"; };
 		2BA4E1678BB8397B4EE795D9 /* BSHWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHWidgets.swift; sourceTree = "<group>"; };
 		2E6794228F400A2EABBFE689 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		2E859B7CCDF15F091648654C /* InstrumentSans-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSans-Medium.ttf"; sourceTree = "<group>"; };
 		32058E6EA8FE8490673B37CF /* QuoteChartCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteChartCanvas.swift; sourceTree = "<group>"; };
+		3313C1A8758D4807DD3639F3 /* MacBureauMemoStudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMemoStudio.swift; sourceTree = "<group>"; };
 		344177AD4528799F2FC1EECD /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
 		3785397A077E6363BECBCD6E /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		3878ADA92257F999D474AEB4 /* NewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewsView.swift; sourceTree = "<group>"; };
+		399FD8E79732B122E9FA9A87 /* MacBureauTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauTracking.swift; sourceTree = "<group>"; };
+		3C384AAA5B6C2B6C3C969177 /* MacBureauReportsParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauReportsParts.swift; sourceTree = "<group>"; };
 		3C7C6EC37E01F28EC550231E /* CompanyResearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanyResearchView.swift; sourceTree = "<group>"; };
 		3C7D2EF4DFDF255D269F0CEA /* ResearchDeskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchDeskModels.swift; sourceTree = "<group>"; };
 		3E8328C822AE517B2CD635C6 /* BSHResearchMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchMac.entitlements; sourceTree = "<group>"; };
@@ -312,6 +362,8 @@
 		3ED973D9F599FB9F64299441 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3F9D1C463DA63C92CD758CF7 /* AskMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskMark.swift; sourceTree = "<group>"; };
 		414F46B2F3261F6900061B30 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		41DB0B67823F3E7EDF8D0A41 /* MacBureauPulse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauPulse.swift; sourceTree = "<group>"; };
+		420081FEBABE25CD0FCD6A55 /* MacBureauMarketBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMarketBoard.swift; sourceTree = "<group>"; };
 		43BCEA04C3226EECAF3BFD92 /* ResearchDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchDeskView.swift; sourceTree = "<group>"; };
 		4414817172EE73CB451E53C6 /* ResearchFounderRadarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchFounderRadarView.swift; sourceTree = "<group>"; };
 		45BF765427758DDAF6D87117 /* ResearchPitchDeckViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchPitchDeckViews.swift; sourceTree = "<group>"; };
@@ -326,6 +378,7 @@
 		4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWelcomeTourView.swift; sourceTree = "<group>"; };
 		50F8EB6E62001F20BDA552D1 /* MacVCRatiosBlotterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVCRatiosBlotterView.swift; sourceTree = "<group>"; };
 		526825D11E117C6923A26F60 /* BSHDesignPickers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHDesignPickers.swift; sourceTree = "<group>"; };
+		54547D1D591861EE73E60150 /* MacBureauReportCustomizerParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauReportCustomizerParts.swift; sourceTree = "<group>"; };
 		54E6B7ABCA3736771C303BE8 /* MacReportCustomizerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacReportCustomizerSheet.swift; sourceTree = "<group>"; };
 		55EB68FEA12743F730B3EF27 /* MacThesisEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacThesisEditor.swift; sourceTree = "<group>"; };
 		566F2612B7C7E580762A1FC1 /* BSHResearch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BSHResearch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -340,20 +393,25 @@
 		5EEBB54B7582B5126384F1F9 /* ReportsWindowRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsWindowRootView.swift; sourceTree = "<group>"; };
 		5F0A8F4A0E2B97A0BA3B4416 /* MacDealPipelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDealPipelineView.swift; sourceTree = "<group>"; };
 		5F9BBCF5F9D57511120B733E /* MemoInkLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoInkLayoutTests.swift; sourceTree = "<group>"; };
+		5FD07595121D16230E2E5781 /* MacBureauWelcomeTour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauWelcomeTour.swift; sourceTree = "<group>"; };
 		60373DCF587C1E680967EAFF /* BSHResearchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchApp.swift; sourceTree = "<group>"; };
 		6069CAAF1B8D8942CE8CF6DE /* MacQuoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQuoteModels.swift; sourceTree = "<group>"; };
 		60828A495176E99CFDC8B47D /* SparklineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparklineView.swift; sourceTree = "<group>"; };
+		610CCFE61345987F4178E5A5 /* MacBureauMarketKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMarketKit.swift; sourceTree = "<group>"; };
 		615D216890050E6859675914 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		6268F004A8C4A2A774678AA3 /* BSHResearchWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchWatchApp.swift; sourceTree = "<group>"; };
 		62D7442C0776C8148B14FD34 /* ResearchCompsRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchCompsRailView.swift; sourceTree = "<group>"; };
 		63E8D3113E3A259E153656EF /* WatchQuotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchQuotesStore.swift; sourceTree = "<group>"; };
+		65D40DACDA8DADC834B18914 /* MacBureauMarketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMarketCommands.swift; sourceTree = "<group>"; };
 		69635BAD109B69CE344E47E2 /* MacDocumentsDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDocumentsDeskView.swift; sourceTree = "<group>"; };
 		6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeBadge.swift; sourceTree = "<group>"; };
 		6C1AA3521C5D59E1EE5A3EA5 /* PulseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseView.swift; sourceTree = "<group>"; };
 		6C3EEC10168323D2AE43CC4E /* MacEmbeddedBrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacEmbeddedBrowserPanel.swift; sourceTree = "<group>"; };
 		6DE0650E999063FF8F014DCA /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
 		6E9B1FF4BDE40AFF2C086D76 /* ResearchDecisionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchDecisionViews.swift; sourceTree = "<group>"; };
+		6F032E4151361D56FCBA827C /* InstrumentSans-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSans-Bold.ttf"; sourceTree = "<group>"; };
 		701460CB107F77E2DB77F38B /* BSHResearchMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BSHResearchMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		70AF0A0BE50B30D240B6DABB /* MacBureauHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauHome.swift; sourceTree = "<group>"; };
 		70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		71C3049F56DE02750CB747A0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7B87ED44B0DECF59E8DC89EA /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
@@ -363,6 +421,7 @@
 		820470B968898AE02BCDC3FB /* BSHResearchSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchSeedData.swift; sourceTree = "<group>"; };
 		83F19825BAD21A0303D2408D /* BSHBrandMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHBrandMark.swift; sourceTree = "<group>"; };
 		86BE894BEED6FE5E7AE765BC /* QuoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteModels.swift; sourceTree = "<group>"; };
+		889E24EED6A2ED5898D87429 /* InstrumentSans-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSans-SemiBold.ttf"; sourceTree = "<group>"; };
 		8A32C443582FA463A85940FC /* MacQuoteInsightViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQuoteInsightViews.swift; sourceTree = "<group>"; };
 		8ACFE61385D265F08137AB9D /* MacFirmViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFirmViews.swift; sourceTree = "<group>"; };
 		8BF8AA313E4F698A11434B62 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -386,6 +445,8 @@
 		9A986EB64F77F56106F60618 /* MacDesignChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDesignChrome.swift; sourceTree = "<group>"; };
 		9ACCD950976A076053A4551E /* WatchConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConfig.swift; sourceTree = "<group>"; };
 		9EAFBB60D1727E1AA777A9B6 /* MacICRoomModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacICRoomModels.swift; sourceTree = "<group>"; };
+		9EFA7A9DBE2C1D848FB16A1B /* MacBureauReports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauReports.swift; sourceTree = "<group>"; };
+		9F08531BD61D09F24E1BDAEF /* MacBureauNews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauNews.swift; sourceTree = "<group>"; };
 		A13C0FA2A87F5017ED39093F /* Stores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stores.swift; sourceTree = "<group>"; };
 		A1A7219FBE5389FE4CD822DD /* ReportAnnotationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportAnnotationStore.swift; sourceTree = "<group>"; };
 		A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteFormatTests.swift; sourceTree = "<group>"; };
@@ -403,20 +464,29 @@
 		AFCD7BF84D51F036B116BC62 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B046D0AFEDAE29CA7CD5CBA8 /* InstrumentSerif-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSerif-Regular.ttf"; sourceTree = "<group>"; };
 		B1755462DBC18FB455AC576A /* BSHDesignTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHDesignTests.swift; sourceTree = "<group>"; };
+		B272FC477EB09ADAFEB2D4AD /* MacBureauLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauLogin.swift; sourceTree = "<group>"; };
+		B27F4DE0E9589E8FA3375AFE /* MacBureauReportCustomizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauReportCustomizer.swift; sourceTree = "<group>"; };
 		B2D856D15FF495D09B6148AD /* InstrumentSerif-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "InstrumentSerif-OFL.txt"; sourceTree = "<group>"; };
+		B38EFCCBCE9ED1F50EE69EB2 /* MacBureauShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauShell.swift; sourceTree = "<group>"; };
 		B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BSHResearchWatchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B63EA08DF3486A620CDBF452 /* WatchAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAPIClient.swift; sourceTree = "<group>"; };
 		B8C7C366B5B4C99D54BA9D98 /* MacICPrepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacICPrepView.swift; sourceTree = "<group>"; };
 		BD2F7CE224634C06C9068641 /* ResearchCapTableSimulatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchCapTableSimulatorView.swift; sourceTree = "<group>"; };
+		BD381E39EB7FB6D20C85077D /* MacBureauKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauKit.swift; sourceTree = "<group>"; };
 		BDF7B8BEA465E8B91B6711D0 /* WarrenMarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarrenMarkView.swift; sourceTree = "<group>"; };
 		BEED5BE2F498826C406C1003 /* AskAnswerText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskAnswerText.swift; sourceTree = "<group>"; };
 		C061E63206FBAA6B9EA13C89 /* MacNewsDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacNewsDeskView.swift; sourceTree = "<group>"; };
+		C0BE0A3BB8100F3333C145B0 /* MacBureauDecisionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauDecisionSheet.swift; sourceTree = "<group>"; };
+		C0CB5E34A8DCF4F16E3A1687 /* MacBureauFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauFiles.swift; sourceTree = "<group>"; };
 		C1D5FFB024D91A311B26FD59 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C2F3A80283B7F93DF09BDC57 /* MacAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppStore.swift; sourceTree = "<group>"; };
 		C599B7830177E6F5B509F1D5 /* BSHResearchWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BSHResearchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C9C2D9A9FA4CE4951C46CFFF /* MacBureauSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauSettings.swift; sourceTree = "<group>"; };
 		CBDA5E4C41054BC65EB01BAF /* MacTickerTapeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTickerTapeView.swift; sourceTree = "<group>"; };
+		CCEE97B961C4C5BC436FFE4F /* MacBureauDossier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauDossier.swift; sourceTree = "<group>"; };
 		CCFD115DD60B1B1F05C6F9F3 /* MacFirmModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFirmModels.swift; sourceTree = "<group>"; };
 		CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		CE4484DC5F81AD698F4F7E4C /* MacBureauMonogram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMonogram.swift; sourceTree = "<group>"; };
 		CECB2ADDEA72936DAA82777D /* ResearchProfileViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchProfileViews.swift; sourceTree = "<group>"; };
 		CF71A4F38023FFBF7A95C64C /* ChartPrepareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPrepareTests.swift; sourceTree = "<group>"; };
 		D1E52FF3EDAFF78360D01460 /* MarketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketView.swift; sourceTree = "<group>"; };
@@ -425,23 +495,28 @@
 		D5C19FCA7398BC8A329CA5F4 /* MacHomeDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHomeDeskView.swift; sourceTree = "<group>"; };
 		D66261E5A53125BAD75BC82C /* PulseECGIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseECGIcon.swift; sourceTree = "<group>"; };
 		D9F949D166D2974E2FE2E081 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DAB985C704EB0C92569D8433 /* InstrumentSans-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "InstrumentSans-OFL.txt"; sourceTree = "<group>"; };
 		DB5A66BF53540B554B6E9340 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DC003800189502CEEDA96A32 /* AskHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskHistoryStore.swift; sourceTree = "<group>"; };
 		DC38D76A608A00A8ECCAE939 /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
 		DCAD3275009E6446E737E121 /* MacMemoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMemoModels.swift; sourceTree = "<group>"; };
 		DE499A5032AECC8139C6E71D /* MacICReviewWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacICReviewWindowView.swift; sourceTree = "<group>"; };
+		DF245F948C70EAF5A1FC7FF1 /* MacBureauCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauCommandPalette.swift; sourceTree = "<group>"; };
+		DFB0350CE191219D6280840D /* MacBureauMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauMarket.swift; sourceTree = "<group>"; };
 		E40FD4ADFFEE2CABA3FEE430 /* AdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveLayoutTests.swift; sourceTree = "<group>"; };
 		E586FE151E27E1E8FA3BF61C /* MacPulseDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPulseDeskView.swift; sourceTree = "<group>"; };
 		E60342D3A94B5083B3E68F18 /* AppDataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataCache.swift; sourceTree = "<group>"; };
 		E90085E874552A425AFE9B26 /* MacCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandPalette.swift; sourceTree = "<group>"; };
 		EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BSHResearchWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EBC9B6657988CA273C4DF6D7 /* MacMemoStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMemoStudioView.swift; sourceTree = "<group>"; };
+		EBCE271FC65D11BCEA4136CD /* MacBureauReportCustomizerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauReportCustomizerModel.swift; sourceTree = "<group>"; };
 		ED3001D6C891429628EF93D5 /* MacHoldingsDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHoldingsDeskView.swift; sourceTree = "<group>"; };
 		EF88DF1533A8A6075B286615 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		F03680E5175EDEED0BC3B4C9 /* Charts.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Charts.framework; path = System/Library/Frameworks/Charts.framework; sourceTree = SDKROOT; };
 		F04BEDA697B05B37E32ACDEE /* QuickLookUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookUI.framework; path = System/Library/Frameworks/QuickLookUI.framework; sourceTree = SDKROOT; };
 		F1D57C896463B0B354F848C7 /* ConsoleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleViews.swift; sourceTree = "<group>"; };
 		F2881FD8CB6C80853A472694 /* CopilotSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotSheet.swift; sourceTree = "<group>"; };
+		F46C8C1FDC701D08D466AC64 /* MacBureauWarren.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBureauWarren.swift; sourceTree = "<group>"; };
 		F52F5FA8B64F845ED2467C96 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		F859CFFAAF692CA636F379D8 /* MacDecisionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDecisionSheet.swift; sourceTree = "<group>"; };
 		F88C25A352F7FCF3507C32B4 /* MacBlotterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBlotterView.swift; sourceTree = "<group>"; };
@@ -544,6 +619,11 @@
 		2DE84E1F5B0CDBD450FFC421 /* Fonts */ = {
 			isa = PBXGroup;
 			children = (
+				6F032E4151361D56FCBA827C /* InstrumentSans-Bold.ttf */,
+				2E859B7CCDF15F091648654C /* InstrumentSans-Medium.ttf */,
+				DAB985C704EB0C92569D8433 /* InstrumentSans-OFL.txt */,
+				0FD037F8ADEFD2C26F321F9E /* InstrumentSans-Regular.ttf */,
+				889E24EED6A2ED5898D87429 /* InstrumentSans-SemiBold.ttf */,
 				57DF5CF54477E97B8B72BC54 /* InstrumentSerif-Italic.ttf */,
 				B2D856D15FF495D09B6148AD /* InstrumentSerif-OFL.txt */,
 				B046D0AFEDAE29CA7CD5CBA8 /* InstrumentSerif-Regular.ttf */,
@@ -680,6 +760,35 @@
 				1947A3FDD9E3DA26A04E65B7 /* MacAttentionDeskView.swift */,
 				47F358126BA591FC21DD698C /* MacBatchEViews.swift */,
 				F88C25A352F7FCF3507C32B4 /* MacBlotterView.swift */,
+				DF245F948C70EAF5A1FC7FF1 /* MacBureauCommandPalette.swift */,
+				1A8B4F85059806BBC16722AA /* MacBureauDecisions.swift */,
+				C0BE0A3BB8100F3333C145B0 /* MacBureauDecisionSheet.swift */,
+				CCEE97B961C4C5BC436FFE4F /* MacBureauDossier.swift */,
+				C0CB5E34A8DCF4F16E3A1687 /* MacBureauFiles.swift */,
+				70AF0A0BE50B30D240B6DABB /* MacBureauHome.swift */,
+				BD381E39EB7FB6D20C85077D /* MacBureauKit.swift */,
+				B272FC477EB09ADAFEB2D4AD /* MacBureauLogin.swift */,
+				DFB0350CE191219D6280840D /* MacBureauMarket.swift */,
+				111D834AD7F3959227030806 /* MacBureauMarketArticle.swift */,
+				420081FEBABE25CD0FCD6A55 /* MacBureauMarketBoard.swift */,
+				65D40DACDA8DADC834B18914 /* MacBureauMarketCommands.swift */,
+				610CCFE61345987F4178E5A5 /* MacBureauMarketKit.swift */,
+				3313C1A8758D4807DD3639F3 /* MacBureauMemoStudio.swift */,
+				CE4484DC5F81AD698F4F7E4C /* MacBureauMonogram.swift */,
+				9F08531BD61D09F24E1BDAEF /* MacBureauNews.swift */,
+				41DB0B67823F3E7EDF8D0A41 /* MacBureauPulse.swift */,
+				1749C656A9A34546032C3422 /* MacBureauPulseNewsKit.swift */,
+				B27F4DE0E9589E8FA3375AFE /* MacBureauReportCustomizer.swift */,
+				EBCE271FC65D11BCEA4136CD /* MacBureauReportCustomizerModel.swift */,
+				54547D1D591861EE73E60150 /* MacBureauReportCustomizerParts.swift */,
+				9EFA7A9DBE2C1D848FB16A1B /* MacBureauReports.swift */,
+				3C384AAA5B6C2B6C3C969177 /* MacBureauReportsParts.swift */,
+				02279C8FCA5944CE4C3B2939 /* MacBureauResearch.swift */,
+				C9C2D9A9FA4CE4951C46CFFF /* MacBureauSettings.swift */,
+				B38EFCCBCE9ED1F50EE69EB2 /* MacBureauShell.swift */,
+				399FD8E79732B122E9FA9A87 /* MacBureauTracking.swift */,
+				F46C8C1FDC701D08D466AC64 /* MacBureauWarren.swift */,
+				5FD07595121D16230E2E5781 /* MacBureauWelcomeTour.swift */,
 				216EBC6B3A9FB1B90F79C1B1 /* MacCapTableSimulatorView.swift */,
 				E90085E874552A425AFE9B26 /* MacCommandPalette.swift */,
 				AF16521EF3059708256DCDC7 /* MacCompsRailView.swift */,
@@ -903,6 +1012,7 @@
 				6069CAAF1B8D8942CE8CF6DE /* MacQuoteModels.swift */,
 				3785397A077E6363BECBCD6E /* MacRootView.swift */,
 				8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */,
+				0580D292D9D482E766B34FEA /* MacWorkspaceSettings.swift */,
 				8B84ABD3DAD08CD48713C5CE /* Views */,
 			);
 			path = BSHResearchMac;
@@ -1113,6 +1223,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0BE3E8DDEF993CD0BB1205D /* Assets.xcassets in Resources */,
+				BB8EE353A92CDC6C1EBDD506 /* InstrumentSans-Bold.ttf in Resources */,
+				D221C8B406517FD12735CF86 /* InstrumentSans-Medium.ttf in Resources */,
+				4A5A21CCCE8A859D4286E058 /* InstrumentSans-OFL.txt in Resources */,
+				F2CB3444C9AC0C2D6A7E1FF8 /* InstrumentSans-Regular.ttf in Resources */,
+				C60AEF20BD136D10AECED363 /* InstrumentSans-SemiBold.ttf in Resources */,
 				6ECD3D49CFD56115E0260B0A /* InstrumentSerif-Italic.ttf in Resources */,
 				1E19540C79E3D0052769CF51 /* InstrumentSerif-OFL.txt in Resources */,
 				740F2D9D82F2D08CA2782339 /* InstrumentSerif-Regular.ttf in Resources */,
@@ -1124,6 +1239,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				64301E653948D690E0462482 /* Assets.xcassets in Resources */,
+				371B41F6C3158A2341B0A4FE /* InstrumentSans-Bold.ttf in Resources */,
+				2DA7880F6B7A7A28DC72EA9A /* InstrumentSans-Medium.ttf in Resources */,
+				638A59A04AC57B3E3508A1AA /* InstrumentSans-OFL.txt in Resources */,
+				D19140695FA9A5C04AC62C67 /* InstrumentSans-Regular.ttf in Resources */,
+				DC50C05D95F359ACA2CC3F5D /* InstrumentSans-SemiBold.ttf in Resources */,
 				96BC59BAB37C131632909C7B /* InstrumentSerif-Italic.ttf in Resources */,
 				B9E213BE01067D74F4DE94A3 /* InstrumentSerif-OFL.txt in Resources */,
 				E0B17423BB6D97F4F325DC0D /* InstrumentSerif-Regular.ttf in Resources */,
@@ -1256,6 +1376,35 @@
 				2E48B2EB52AF936D687BAF8C /* MacBatchEModels.swift in Sources */,
 				22F2553D5272FA27E842288A /* MacBatchEViews.swift in Sources */,
 				1BEC6531E8056572AF9265EB /* MacBlotterView.swift in Sources */,
+				EBA7D5BA5DC5A24F6D50F52A /* MacBureauCommandPalette.swift in Sources */,
+				2EDACFF96F7437A8C693A484 /* MacBureauDecisionSheet.swift in Sources */,
+				23CA0A8E62803994019E0F64 /* MacBureauDecisions.swift in Sources */,
+				52E2248CB16A90804D8DEDBA /* MacBureauDossier.swift in Sources */,
+				A8894FDA7DFC43021045F521 /* MacBureauFiles.swift in Sources */,
+				C12BFC773E3DACBDEC4DB63B /* MacBureauHome.swift in Sources */,
+				795E1C4DCC73E447575C28F0 /* MacBureauKit.swift in Sources */,
+				C94A75EDFA434FDED8F3D3BA /* MacBureauLogin.swift in Sources */,
+				212C7D4363D09A5540B2CD0A /* MacBureauMarket.swift in Sources */,
+				AE663DEC4B35EFDA1DC68FB8 /* MacBureauMarketArticle.swift in Sources */,
+				D16A4924AF282D6E3133DB0C /* MacBureauMarketBoard.swift in Sources */,
+				A799F480ABEAB1A2EE3DEDE2 /* MacBureauMarketCommands.swift in Sources */,
+				8CA5927086B8523E3F45347E /* MacBureauMarketKit.swift in Sources */,
+				6F0441316140A079BC8C3633 /* MacBureauMemoStudio.swift in Sources */,
+				0D4ADB81A811A4757DAD4FEC /* MacBureauMonogram.swift in Sources */,
+				923C26E3562967324280D239 /* MacBureauNews.swift in Sources */,
+				8580E756F7CD88ECD5D76D7C /* MacBureauPulse.swift in Sources */,
+				747450C026D08211F5829AD1 /* MacBureauPulseNewsKit.swift in Sources */,
+				58F8474BDFAD7BC3BF207F26 /* MacBureauReportCustomizer.swift in Sources */,
+				352E43188DF550B24A963CD1 /* MacBureauReportCustomizerModel.swift in Sources */,
+				A6C6E7D99EF1724146225223 /* MacBureauReportCustomizerParts.swift in Sources */,
+				CC4B6E808B9E697ABEEC81F8 /* MacBureauReports.swift in Sources */,
+				BD26AF1237540399D29843F1 /* MacBureauReportsParts.swift in Sources */,
+				500E709B8BFF1B0CC50FF5CB /* MacBureauResearch.swift in Sources */,
+				5826402708ADF4A2D5694516 /* MacBureauSettings.swift in Sources */,
+				47B0DCF1A22288F0AA9B8A88 /* MacBureauShell.swift in Sources */,
+				C861721FF29B198FAD97376F /* MacBureauTracking.swift in Sources */,
+				D682F74E0AAD6A65C4C8F0BB /* MacBureauWarren.swift in Sources */,
+				242A24AC9241679C622054B9 /* MacBureauWelcomeTour.swift in Sources */,
 				962563E031EB56D768E428B4 /* MacCapTableSimulatorView.swift in Sources */,
 				E6E1107911ECBAB2652989B2 /* MacCommandPalette.swift in Sources */,
 				59F728959A2BC3FA842FF764 /* MacCompsRailView.swift in Sources */,
@@ -1312,6 +1461,7 @@
 				A0246D1C019CF2736F9D8665 /* MacTokenConfirm.swift in Sources */,
 				67539ED53DFA60E4546DF623 /* MacVCRatiosBlotterView.swift in Sources */,
 				B1D32A9BD8761122D5925F0A /* MacWelcomeTourView.swift in Sources */,
+				517CAFD9CC6150325C9F69FA /* MacWorkspaceSettings.swift in Sources */,
 				E95A9D04B486827C226F2BEA /* WarrenMarkView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

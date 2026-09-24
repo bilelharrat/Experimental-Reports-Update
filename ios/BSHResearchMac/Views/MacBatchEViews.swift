@@ -16,7 +16,7 @@ struct MacUnifiedProfileView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("Profile", systemImage: "square.on.square.dashed")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.ui(.subheadline).weight(.semibold))
                 Spacer()
                 if let p = profile {
                     MacStatusPill(text: p.isPublic ? "Public" : "Private", color: p.isPublic ? .blue : .purple)
@@ -33,9 +33,9 @@ struct MacUnifiedProfileView: View {
                             fact("1D", q.changePct1d.map { String(format: "%+.2f%%", $0) } ?? "—")
                             fact("Mkt cap", MacMoney.short(q.marketCap))
                         } else if p.isPublic {
-                            Text("Quote unavailable").font(.caption2).foregroundStyle(.secondary)
+                            Text("Quote unavailable").font(.ui(.caption2)).foregroundStyle(.secondary)
                         } else {
-                            Text("No public listing").font(.caption2).foregroundStyle(.secondary)
+                            Text("No public listing").font(.ui(.caption2)).foregroundStyle(.secondary)
                         }
                     }
                     // A listed company is not a startup deal: unless the firm holds
@@ -72,7 +72,7 @@ struct MacUnifiedProfileView: View {
                                 }
                                 fact("Mark · MOIC", [pr?.latestMark.map { MacMoney.short($0.valueUsd) }, pr?.moic.map { String(format: "%.2fx", $0) }].compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
                             } else {
-                                Text("No position on file").font(.caption2).foregroundStyle(.secondary)
+                                Text("No position on file").font(.ui(.caption2)).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -91,11 +91,11 @@ struct MacUnifiedProfileView: View {
                     }
                 }
                 if !p.description.isEmpty {
-                    Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(p.description).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(2)
                 }
             } else if loadAttempted {
                 HStack(spacing: 8) {
-                    Text("Profile unavailable on this server.").font(.caption2).foregroundStyle(.secondary)
+                    Text("Profile unavailable on this server.").font(.ui(.caption2)).foregroundStyle(.secondary)
                     Button("Retry") { Task { await load() } }.controlSize(.mini)
                 }
             } else {
@@ -126,8 +126,8 @@ struct MacUnifiedProfileView: View {
 
     private func fact(_ label: String, _ value: String, color: Color = .primary) -> some View {
         HStack(spacing: 6) {
-            Text(label).font(.caption2).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-            Text(value).font(.caption.monospacedDigit()).foregroundStyle(color).lineLimit(1)
+            Text(label).font(.ui(.caption2)).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+            Text(value).font(.ui(.caption).monospacedDigit()).foregroundStyle(color).lineLimit(1)
         }
     }
 
@@ -135,10 +135,10 @@ struct MacUnifiedProfileView: View {
     /// the full date and source on hover.
     private func reportedFact(_ label: String, _ fact: MacCompanyProfile.Reported?) -> some View {
         HStack(spacing: 6) {
-            Text(label).font(.caption2).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-            Text(fact?.value ?? "—").font(.caption.monospacedDigit()).lineLimit(1)
+            Text(label).font(.ui(.caption2)).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+            Text(fact?.value ?? "—").font(.ui(.caption).monospacedDigit()).lineLimit(1)
             if let asOf = fact?.asOfShort {
-                Text(asOf).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1)
+                Text(asOf).font(.ui(.caption2).monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1)
             }
         }
         .help(fact?.help ?? "")
@@ -229,7 +229,7 @@ struct MacEarningsFilingsView: View {
                 .font(.dsLabel)
                 .foregroundStyle(Color.dsAccent)
             if let date = earnings?.nextDate {
-                Text(date).font(.headline.monospacedDigit())
+                Text(date).font(.ui(.headline).monospacedDigit())
                 Text([whenText(earnings?.daysToNext), earnings?.nextEstimated == true ? "estimated" : nil]
                         .compactMap { $0 }.joined(separator: " · "))
                     .font(.dsCaption).foregroundStyle(.secondary)
@@ -250,12 +250,12 @@ struct MacEarningsFilingsView: View {
             }
             ForEach(quarters) { q in
                 HStack(spacing: 8) {
-                    Text(q.period ?? q.reported ?? "").font(.caption2).foregroundStyle(.secondary)
+                    Text(q.period ?? q.reported ?? "").font(.ui(.caption2)).foregroundStyle(.secondary)
                         .frame(width: 64, alignment: .leading)
-                    Text("EPS \(money(q.eps)) vs \(money(q.estimate))").font(.caption.monospacedDigit()).lineLimit(1)
+                    Text("EPS \(money(q.eps)) vs \(money(q.estimate))").font(.ui(.caption).monospacedDigit()).lineLimit(1)
                     Spacer(minLength: 4)
                     Text(surprise(q.surprisePct))
-                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .font(.ui(.caption).monospacedDigit().weight(.semibold))
                         .foregroundStyle(surpriseColor(q.surprisePct))
                 }
             }
@@ -270,13 +270,13 @@ struct MacEarningsFilingsView: View {
             if let url = URL(string: filing.url) { MacConfig.openInBrowser(url) }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "doc.text").font(.caption2).foregroundStyle(.secondary)
-                Text(filing.form).font(.caption.monospacedDigit().weight(.semibold)).frame(width: 56, alignment: .leading)
-                Text(filing.plainLabel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Image(systemName: "doc.text").font(.ui(.caption2)).foregroundStyle(.secondary)
+                Text(filing.form).font(.ui(.caption).monospacedDigit().weight(.semibold)).frame(width: 56, alignment: .leading)
+                Text(filing.plainLabel).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 6)
                 if filing.material { MacStatusPill(text: "Material", color: .orange) }
-                Text(filing.filed).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-                Image(systemName: "arrow.up.right.square").font(.caption2).foregroundStyle(.tertiary)
+                Text(filing.filed).font(.ui(.caption2).monospacedDigit()).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.up.right.square").font(.ui(.caption2)).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .appleGlassTile(cornerRadius: 8)
@@ -320,7 +320,7 @@ struct MacFilingsWatchPane: View {
         VStack(spacing: 0) {
             HStack {
                 Text(store.filingsWatch.map { "Updated \(MacTimeFormat.relative($0.generatedAt))" } ?? "SEC filings · earnings")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.ui(.caption2)).foregroundStyle(.secondary)
                 Spacer()
                 if store.filingsLoading { ProgressView().controlSize(.mini) }
                 Button { Task { await store.loadFilingsWatch(refresh: true) } } label: { Image(systemName: "arrow.clockwise") }
@@ -334,11 +334,11 @@ struct MacFilingsWatchPane: View {
                         Section("Earnings in the next 14 days") {
                             ForEach(w.upcomingEarnings) { e in
                                 HStack {
-                                    Text(e.ticker).font(.caption.monospacedDigit().weight(.bold))
-                                    Text(e.date ?? "").font(.caption)
-                                    if e.estimated == true { Text("est.").font(.caption2).foregroundStyle(.secondary) }
+                                    Text(e.ticker).font(.ui(.caption).monospacedDigit().weight(.bold))
+                                    Text(e.date ?? "").font(.ui(.caption))
+                                    if e.estimated == true { Text("est.").font(.ui(.caption2)).foregroundStyle(.secondary) }
                                     Spacer()
-                                    Text(e.days.map { $0 == 0 ? "today" : "in \($0)d" } ?? "").font(.caption2).foregroundStyle(.orange)
+                                    Text(e.days.map { $0 == 0 ? "today" : "in \($0)d" } ?? "").font(.ui(.caption2)).foregroundStyle(.orange)
                                 }
                                 .contentShape(Rectangle())
                                 .onTapGesture { store.showTicker(e.ticker) }
@@ -347,21 +347,21 @@ struct MacFilingsWatchPane: View {
                     }
                     Section("Material filings · 90 days") {
                         if w.materialFilings.isEmpty {
-                            Text("None on the watched tickers.").font(.caption).foregroundStyle(.secondary)
+                            Text("None on the watched tickers.").font(.ui(.caption)).foregroundStyle(.secondary)
                         }
                         ForEach(w.materialFilings) { f in
                             HStack(alignment: .top, spacing: 6) {
-                                Text(f.ticker ?? "").font(.caption.monospacedDigit().weight(.bold)).frame(width: 52, alignment: .leading)
+                                Text(f.ticker ?? "").font(.ui(.caption).monospacedDigit().weight(.bold)).frame(width: 52, alignment: .leading)
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 4) {
-                                        Text(f.form).font(.caption.weight(.semibold))
-                                        Text(f.filed).font(.caption2).foregroundStyle(.secondary)
+                                        Text(f.form).font(.ui(.caption).weight(.semibold))
+                                        Text(f.filed).font(.ui(.caption2)).foregroundStyle(.secondary)
                                     }
-                                    if let d = f.description, !d.isEmpty { Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                                    if let d = f.description, !d.isEmpty { Text(d).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1) }
                                 }
                                 Spacer()
                                 if let url = URL(string: f.url) {
-                                    Link(destination: url) { Image(systemName: "arrow.up.right.square") }.font(.caption)
+                                    Link(destination: url) { Image(systemName: "arrow.up.right.square") }.font(.ui(.caption))
                                 }
                             }
                         }
@@ -369,26 +369,26 @@ struct MacFilingsWatchPane: View {
                     Section("Watched tickers") {
                         ForEach(w.tickers) { row in
                             HStack {
-                                Text(row.ticker).font(.caption.monospacedDigit().weight(.bold)).frame(width: 52, alignment: .leading)
+                                Text(row.ticker).font(.ui(.caption).monospacedDigit().weight(.bold)).frame(width: 52, alignment: .leading)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(row.companyName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(row.companyName ?? "").font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1)
                                     if let e = row.earnings, let next = e.nextDate {
                                         Text("Next earnings \(next)\(e.nextEstimated == true ? " (est.)" : "")" + (e.lastSurprisePct.map { String(format: " · last surprise %+.0f%%", $0) } ?? ""))
-                                            .font(.caption2).foregroundStyle(.secondary)
+                                            .font(.ui(.caption2)).foregroundStyle(.secondary)
                                     } else if let err = row.error {
-                                        Text(err).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                        Text(err).font(.ui(.caption2)).foregroundStyle(.tertiary).lineLimit(1)
                                     }
                                 }
                                 Spacer()
-                                Text("\(row.filings.count)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                Text("\(row.filings.count)").font(.ui(.caption2).monospacedDigit()).foregroundStyle(.secondary)
                             }
                             .contentShape(Rectangle())
                             .onTapGesture { store.showTicker(row.ticker) }
                         }
                     }
-                    if let note = w.note { Text(note).font(.caption2).foregroundStyle(.tertiary) }
+                    if let note = w.note { Text(note).font(.ui(.caption2)).foregroundStyle(.tertiary) }
                 } else {
-                    Text(store.filingsLoading ? "Fetching EDGAR and earnings…" : "No data yet.").font(.caption).foregroundStyle(.secondary)
+                    Text(store.filingsLoading ? "Fetching EDGAR and earnings…" : "No data yet.").font(.ui(.caption)).foregroundStyle(.secondary)
                 }
             }
             .listStyle(.inset)
@@ -404,11 +404,11 @@ struct MacSignalMovesStrip: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label("Score moves", systemImage: "waveform.path.ecg").font(.caption.weight(.semibold))
+            Label("Score moves", systemImage: "waveform.path.ecg").font(.ui(.caption).weight(.semibold))
             if let m = store.signalMoves {
                 if m.flagged.isEmpty {
                     Text(m.previousSnapshotAt == nil ? "No snapshot yet — take one to start tracking moves." : "No threshold crossings or big moves since \(MacTimeFormat.relative(m.previousSnapshotAt)).")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.ui(.caption2)).foregroundStyle(.secondary)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -417,14 +417,14 @@ struct MacSignalMovesStrip: View {
                                     if let c = store.companies.first(where: { $0.id == move.companyId }) { store.showCompany(c) }
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Text(move.companyName).font(.caption2.weight(.semibold))
-                                        Text(move.score.map { "\($0)" } ?? "—").font(.caption2.monospacedDigit())
+                                        Text(move.companyName).font(.ui(.caption2).weight(.semibold))
+                                        Text(move.score.map { "\($0)" } ?? "—").font(.ui(.caption2).monospacedDigit())
                                         if let d = move.delta {
-                                            Text(String(format: "%+d", d)).font(.caption2.monospacedDigit().weight(.bold))
+                                            Text(String(format: "%+d", d)).font(.ui(.caption2).monospacedDigit().weight(.bold))
                                                 .foregroundStyle(d >= 0 ? Color.green : Color.red)
                                         }
-                                        if move.flags.contains("crossed_up") { Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.green) }
-                                        if move.flags.contains("crossed_down") { Image(systemName: "arrow.down.right").font(.caption2).foregroundStyle(.red) }
+                                        if move.flags.contains("crossed_up") { Image(systemName: "arrow.up.right").font(.ui(.caption2)).foregroundStyle(.green) }
+                                        if move.flags.contains("crossed_down") { Image(systemName: "arrow.down.right").font(.ui(.caption2)).foregroundStyle(.red) }
                                     }
                                     .padding(.horizontal, 7).padding(.vertical, 3)
                                     .background(Color.secondary.opacity(0.08), in: Capsule())
@@ -436,7 +436,7 @@ struct MacSignalMovesStrip: View {
                     }
                 }
             } else {
-                Text("Loading…").font(.caption2).foregroundStyle(.secondary)
+                Text("Loading…").font(.ui(.caption2)).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Snapshot now") { Task { await store.snapshotSignals() } }
@@ -462,14 +462,14 @@ struct MacNumberLintView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Numbers lint", systemImage: "number.circle").font(.subheadline.weight(.semibold))
+                Label("Numbers lint", systemImage: "number.circle").font(.ui(.subheadline).weight(.semibold))
                 Spacer()
                 if let l = lint {
                     if l.memoPackage == nil {
-                        Text("No memo yet").font(.caption2).foregroundStyle(.secondary)
+                        Text("No memo yet").font(.ui(.caption2)).foregroundStyle(.secondary)
                     } else {
                         Text("\(l.supported) of \(l.checked) figures found in sources")
-                            .font(.caption2.monospacedDigit())
+                            .font(.ui(.caption2).monospacedDigit())
                             .foregroundStyle(l.unsupported == 0 ? Color.green : Color.orange)
                         if l.unsupported > 0 {
                             Button(expanded ? "Hide" : "Show \(l.unsupported)") { expanded.toggle() }.controlSize(.mini)
@@ -487,25 +487,25 @@ struct MacNumberLintView: View {
                     ForEach(Array(l.findings.enumerated()), id: \.offset) { _, f in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
-                                Text(f.number).font(.caption.monospacedDigit().weight(.bold)).foregroundStyle(.orange)
+                                Text(f.number).font(.ui(.caption).monospacedDigit().weight(.bold)).foregroundStyle(.orange)
                                 if !f.section.isEmpty {
                                     if let findText {
-                                        Button { findText.wrappedValue = MacFindRequest(text: f.number) } label: { Text("§ \(f.section)").font(.caption2) }
+                                        Button { findText.wrappedValue = MacFindRequest(text: f.number) } label: { Text("§ \(f.section)").font(.ui(.caption2)) }
                                             .buttonStyle(.plain).foregroundStyle(Color.dsAccent)
                                             .help("Find this figure in the memo")
                                     } else {
-                                        Text("§ \(f.section)").font(.caption2).foregroundStyle(.secondary)
+                                        Text("§ \(f.section)").font(.ui(.caption2)).foregroundStyle(.secondary)
                                     }
                                 }
                             }
-                            Text(f.excerpt).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            Text(f.excerpt).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(2)
                         }
                         .padding(6)
                         .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
                     }
-                    Text("Checked against: " + l.sources.joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary)
+                    Text("Checked against: " + l.sources.joined(separator: " · ")).font(.ui(.caption2)).foregroundStyle(.tertiary)
                 }
-                if let n = l.note, !expanded { Text(n).font(.caption2).foregroundStyle(.tertiary) }
+                if let n = l.note, !expanded { Text(n).font(.ui(.caption2)).foregroundStyle(.tertiary) }
             }
         }
         .padding(10)

@@ -14,26 +14,35 @@ struct MacSettingsView: View {
     @State private var password = ""
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays Settings out as the website's page.
+            MacBureauSettingsView()
+        } else {
+            settingsForm
+        }
+    }
+
+    private var settingsForm: some View {
         Form {
             Section("Account") {
                 if let session = store.session {
                     LabeledContent("Signed in as") {
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(session.displayName).font(.body.weight(.semibold))
+                            Text(session.displayName).font(.ui(.body).weight(.semibold))
                             if let mail = session.email, mail != session.displayName {
-                                Text(mail).font(.caption).foregroundStyle(.secondary)
+                                Text(mail).font(.ui(.caption)).foregroundStyle(.secondary)
                             }
                         }
                     }
                     LabeledContent("Role", value: session.roleLabel + (session.isAnonDev ? " (local dev bypass)" : ""))
                     if store.needsPasswordReset {
                         Label("Password reset required — change it in the web portal.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.orange)
                     }
                     LabeledContent("Permissions") {
                         Text(session.permissions.isEmpty ? "read-only" : session.permissions.sorted().joined(separator: ", "))
-                            .font(.caption.monospacedDigit())
+                            .font(.ui(.caption).monospacedDigit())
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
@@ -47,9 +56,9 @@ struct MacSettingsView: View {
                     }
                 } else {
                     TextField("Email", text: $email)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.dsField)
                     SecureField("Password", text: $password)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.dsField)
                     HStack {
                         Button("Sign In") {
                             Task { await store.signIn(email: email, password: password) }
@@ -60,7 +69,7 @@ struct MacSettingsView: View {
                         }
                     }
                     if let err = store.authError {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.ui(.caption)).foregroundStyle(.red)
                     }
                 }
             }
@@ -81,7 +90,7 @@ struct MacSettingsView: View {
                         VStack(alignment: .trailing, spacing: 6) {
                             BSHBureauDeskPicker(selection: $design.bureauDesk, size: 20)
                             Text(design.bureauDesk.title)
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -89,7 +98,7 @@ struct MacSettingsView: View {
                 }
 
                 Text("Summit Glass is the Mac's original look, and the default. Bureau lays the page on a desk: white by day and black by night, or a color picked above. Folio is paper and ink. Each device and the website keep their own choice.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
 
@@ -99,7 +108,7 @@ struct MacSettingsView: View {
 
             Section("Server") {
                 TextField("Base URL", text: $serverURL)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
 
                 HStack {
                     Button("Save") {
@@ -118,7 +127,7 @@ struct MacSettingsView: View {
 
                 if let testResult {
                     Text(testResult)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(testResult.contains("Success") ? Color.green : Color.orange)
                 }
             }
@@ -138,11 +147,11 @@ struct MacSettingsView: View {
                         }
                     }
                 Text("Hides the local dev identity behind the sign-in sheet. The server still accepts unauthenticated requests while BSH_ALLOW_ANON_DEV=1.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
 
                 SecureField("Service token (read-only, for tooling)", text: $serviceToken)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
 
                 HStack {
                     Button("Use token") {
@@ -157,24 +166,24 @@ struct MacSettingsView: View {
                     }
                 }
                 Text("Sessions are stored in the macOS Keychain. Sign in above for a personal session; the service token is only for tooling.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
 
             Section("Desk sync · web, iPad and Mac") {
                 LabeledContent("Pinned Watchlist Tickers") {
                     Text("\(store.pinnedTickers.count) symbols")
-                        .font(.body.monospacedDigit())
+                        .font(.ui(.body).monospacedDigit())
                 }
 
                 LabeledContent("Portfolio Book Lots") {
                     Text("\(store.bookLots.count) positions")
-                        .font(.body.monospacedDigit())
+                        .font(.ui(.body).monospacedDigit())
                 }
 
                 LabeledContent("Price Alert Rules") {
                     Text("\(store.alertRules.filter(\.enabled).count) active of \(store.alertRules.count)")
-                        .font(.body.monospacedDigit())
+                        .font(.ui(.body).monospacedDigit())
                 }
 
                 Button {
@@ -189,9 +198,9 @@ struct MacSettingsView: View {
 
             Section("MCP connector") {
                 Text("Expose the firm's memory — memos, decisions, calls, transcripts, portfolio, signal scores — to any MCP client. Read-only.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
                 Text("uv run python scripts/bsh_mcp.py")
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .textSelection(.enabled)
                 Button("Copy Claude Desktop config") {
                     let cfg = """

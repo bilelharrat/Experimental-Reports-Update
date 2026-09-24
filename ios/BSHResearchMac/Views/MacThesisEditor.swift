@@ -38,21 +38,21 @@ struct MacThesisEditor: View {
                 } label: {
                     if saving { ProgressView().controlSize(.small) } else { Label("Save thesis", systemImage: "checkmark.circle") }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .controlSize(.small)
                 .disabled(saving || !store.thesisLoaded || !store.canUpdateSettings)
                 Button("Reload") { Task { await store.loadThesis(); syncFromStore() } }
                     .controlSize(.small)
                 if let status {
-                    Text(status).font(.caption).foregroundStyle(.secondary)
+                    Text(status).font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let at = store.thesis.updatedAt {
-                    Text("Updated \(MacTimeFormat.relative(at))").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Updated \(MacTimeFormat.relative(at))").font(.ui(.caption2)).foregroundStyle(.tertiary)
                 }
             }
             Text("Weights: sector 35 · keywords 25 · stage 20 · geography 10 · check size 10. Scores show as the Fit column on the Pipeline with the reasons on hover — nothing is inferred beyond these rules.")
-                .font(.caption2)
+                .font(.ui(.caption2))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

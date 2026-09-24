@@ -81,6 +81,10 @@ final class MacAppStore: ObservableObject {
     @Published private(set) var companies: [MacCompany] = []
     @Published private(set) var reports: [MacReport] = []
     @Published var selectedCompany: MacCompany?
+    /// Under Bureau, the company whose page the sheet shows, opened from its folder on the
+    /// rail or from a card. While one is, it holds the selection and no desk tab is lit,
+    /// as on the website.
+    @Published var heldCompanyId: String?
     @Published var selectedReport: MacReport?
 
     // MARK: - Market Radar & Quotes
@@ -99,7 +103,7 @@ final class MacAppStore: ObservableObject {
     private var tickerLoadedFor: String?
     private var chartLoadGen = 0
     private var workspaceLoadGen = 0
-    private var watchlistFetchedAt: Date?
+    private(set) var watchlistFetchedAt: Date?
 
     // MARK: - Desk Preferences (Syncs with Web & iPadOS)
     @Published private(set) var pinnedTickers: [String] = []
@@ -632,6 +636,7 @@ final class MacAppStore: ObservableObject {
             if let cid = defaults.string(forKey: "bsh.launchCompany"), let company = companies.first(where: { $0.id == cid }) { selectCompany(company) }
             if defaults.bool(forKey: "bsh.launchPalette") { openCommandPalette() }
             if defaults.bool(forKey: "bsh.launchWelcome") { showWelcomeTour = true }
+            if defaults.bool(forKey: "bsh.launchLogin") { showLoginSheet = true }
             if defaults.bool(forKey: "bsh.launchFirmSearch") { showFirmSearch = true }
             if defaults.bool(forKey: "bsh.launchDecision"), let company = selectedCompany ?? companies.first { requestDecision(for: company) }
             if defaults.bool(forKey: "bsh.launchICReview"), let report = reports.first(where: \.canOpen) { openICReview(report: report) }

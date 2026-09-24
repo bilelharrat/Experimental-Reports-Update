@@ -86,6 +86,19 @@ actor MacAPIClient {
         try await request("auth/me", method: "GET")
     }
 
+    /// Asks for an account (`POST /api/auth/register`); an administrator approves it
+    /// before it can sign in.
+    func register(email: String, password: String) async throws {
+        struct Body: Encodable { let email: String; let password: String }
+        try await requestVoid("auth/register", method: "POST", body: Body(email: email, password: password))
+    }
+
+    /// Asks an administrator to send a reset link (`POST /api/auth/reset/request`).
+    func requestPasswordReset(email: String) async throws {
+        struct Body: Encodable { let email: String }
+        try await requestVoid("auth/reset/request", method: "POST", body: Body(email: email))
+    }
+
     func logout() async throws {
         try await requestVoid("auth/logout", method: "POST")
     }
@@ -400,6 +413,68 @@ actor MacAPIClient {
             method: "GET",
             query: tickers.map { URLQueryItem(name: "ticker", value: $0.uppercased()) }
         )
+    }
+
+    // MARK: - Workspace settings (the website's Settings page)
+
+    func workspaceSettings() async throws -> MacWorkspaceSettings {
+        try await request("workspace/settings", method: "GET")
+    }
+
+    /// Changes one or more preferences; the server answers with the settings as they now are.
+    func updateWorkspaceSettings(_ patch: [String: Any?]) async throws -> MacWorkspaceSettings {
+        try await request("workspace/settings", method: "PATCH", body: MacJSONObject(patch))
+    }
+
+    func userCenter() async throws -> MacUserCenter {
+        try await request("workspace/user-center", method: "GET")
+    }
+
+    func fundPolicy() async throws -> MacFundPolicy {
+        try await request("settings/fund-policy", method: "GET")
+    }
+
+    func updateFundPolicy(stages: [String: MacFundPolicy.Stage?]) async throws -> MacFundPolicy {
+        try await request("settings/fund-policy", method: "PUT", body: MacFundPolicyUpdate(stages: stages))
+    }
+
+    /// Signs this account out of every other session.
+    func revokeOtherSessions() async throws {
+        try await requestVoid("auth/sessions/revoke", method: "POST")
+    }
+
+    struct BulkRunResult: Decodable {
+        let status: String?
+        let totalCount: Int?
+        let queuedCount: Int?
+        let publicTraderCount: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case status
+            case totalCount = "total_count"
+            case queuedCount = "queued_count"
+            case publicTraderCount = "public_trader_count"
+        }
+    }
+
+    /// Settings → Operations: regenerate every company (spends tokens).
+    func regenerateAllCompanies() async throws -> BulkRunResult {
+        try await request("companies/regen-all", method: "POST", timeout: 15)
+    }
+
+    /// Settings → Operations: refresh every listed company's stock view (spends tokens).
+    func refreshAllStockViews() async throws -> BulkRunResult {
+        try await request("companies/trader/refresh-all", method: "POST", timeout: 15)
+    }
+
+    /// The whole desk preferences blob, for a backup.
+    func deskPrefsSnapshot() async throws -> [String: Any] {
+        try await fetchDeskPrefsBlob()
+    }
+
+    /// Reads a backup's desk: the watchlist, book lots and alert rules the Mac keeps.
+    static func deskPrefs(fromBackup blob: [String: Any]) -> DeskPrefsResult {
+        deskPrefs(from: blob)
     }
 
     // MARK: - Desk preferences (one blob shared with web & iPad — never overwrite other keys)

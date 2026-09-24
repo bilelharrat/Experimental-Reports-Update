@@ -34,11 +34,38 @@ struct MacDecisionSheet: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau draws the website's card over a scrim (RecordDecisionModal.vue).
+            MacBureauDecisionSheet(
+                company: company,
+                verdict: $verdict,
+                explanation: $explanation,
+                decidedAt: $decidedAt,
+                reportId: $reportId,
+                reports: reports,
+                submitting: submitting,
+                error: error,
+                recordedAs: store.session?.displayName ?? "you",
+                submit: { Task { await submit() } },
+                cancel: { dismiss() }
+            )
+            .onAppear(perform: seedReport)
+        } else {
+            systemBody
+        }
+    }
+
+    private func seedReport() {
+        if let seedReportId { reportId = seedReportId }
+        else if let latest = reports.first { reportId = latest.id }
+    }
+
+    private var systemBody: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Record decision").font(.headline)
-                    Text(company.title).font(.caption).foregroundStyle(.secondary)
+                    Text("Record decision").font(.ui(.headline))
+                    Text(company.title).font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -71,12 +98,12 @@ struct MacDecisionSheet: View {
 
                 Section("Rationale (required — this is the firm's record)") {
                     TextEditor(text: $explanation)
-                        .font(.body)
+                        .font(.ui(.body))
                         .frame(minHeight: 140)
                 }
 
                 if let error {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                    Text(error).font(.ui(.caption)).foregroundStyle(.red)
                 }
             }
             .formStyle(.grouped)
@@ -85,13 +112,13 @@ struct MacDecisionSheet: View {
 
             HStack {
                 Text("Recorded as \(store.session?.displayName ?? "you")")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button(submitting ? "Saving…" : "Record \(verdictTitle)") {
                     Task { await submit() }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(submitting || explanation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -146,7 +173,7 @@ struct MacDecisionTimeline: View {
         VStack(alignment: .leading, spacing: 10) {
             if decisions.isEmpty {
                 Text("No decision on record yet. Press ⌘D to record Invest, Pass or Watch.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
             ForEach(decisions) { decision in
@@ -154,17 +181,17 @@ struct MacDecisionTimeline: View {
                     HStack(spacing: 8) {
                         MacStatusPill(text: decision.verdictLabel, color: color(for: decision.verdict))
                         Text(String((decision.decidedAt ?? decision.createdAt ?? "").prefix(10)))
-                            .font(.caption.monospacedDigit())
+                            .font(.ui(.caption).monospacedDigit())
                             .foregroundStyle(.secondary)
                         if let by = decision.createdBy, !by.isEmpty {
-                            Text("· \(by)").font(.caption).foregroundStyle(.secondary)
+                            Text("· \(by)").font(.ui(.caption)).foregroundStyle(.secondary)
                         }
                         if let rid = decision.reportId, let report = store.report(for: rid) {
                             Button {
                                 store.openReportWindow(report)
                             } label: {
                                 Label(report.displayTitle, systemImage: "doc.text")
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                             }
                             .buttonStyle(.link)
                         }
@@ -172,7 +199,7 @@ struct MacDecisionTimeline: View {
                         Button {
                             confirmDelete = decision
                         } label: {
-                            Image(systemName: "trash").font(.caption)
+                            Image(systemName: "trash").font(.ui(.caption))
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
@@ -180,7 +207,7 @@ struct MacDecisionTimeline: View {
                         .help("Delete this decision record")
                     }
                     Text(decision.explanation)
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .textSelection(.enabled)
                     ForEach(decision.retrospectives) { retro in
                         HStack(alignment: .top, spacing: 6) {
@@ -188,13 +215,13 @@ struct MacDecisionTimeline: View {
                                 .foregroundStyle(retro.verdict == "still_right" ? Color.green : (retro.verdict == "looks_wrong" ? Color.red : Color.orange))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(retro.label) · \(MacTimeFormat.relative(retro.assessedAt))")
-                                    .font(.caption.weight(.semibold))
+                                    .font(.ui(.caption).weight(.semibold))
                                 if let text = retro.rationaleEn, !text.isEmpty {
-                                    Text(text).font(.caption).foregroundStyle(.secondary)
+                                    Text(text).font(.ui(.caption)).foregroundStyle(.secondary)
                                 }
                                 if !retro.newsTitles.isEmpty {
                                     Text(retro.newsTitles.prefix(2).joined(separator: " · "))
-                                        .font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                                        .font(.ui(.caption2)).foregroundStyle(.tertiary).lineLimit(2)
                                 }
                             }
                         }

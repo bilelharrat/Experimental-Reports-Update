@@ -247,6 +247,20 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
     private var compact: Bool { controlSize == .small || controlSize == .mini }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // The website's `.segmented`: a groove with a slip of fresh paper for the choice.
+            MacBureauSegmented(
+                segments.map { (value: $0.value, title: $0.title, icon: Optional<String>.none) },
+                selection: $selection
+            )
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(label)
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         EqualWidthSegmentsLayout {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                 segmentButton(segment)
@@ -307,7 +321,7 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
                 }
                 Text(segment.title)
             }
-            .font(.system(size: compact ? 11 : 13, weight: isSelected && BSHDesign.active.isPaper ? .semibold : .medium))
+            .font(.ui(size: compact ? 11 : 13, weight: isSelected && BSHDesign.active.isPaper ? .semibold : .medium))
             .foregroundStyle(labelStyle(selected: isSelected))
             .lineLimit(1)
             .padding(.horizontal, compact ? 8 : 11)

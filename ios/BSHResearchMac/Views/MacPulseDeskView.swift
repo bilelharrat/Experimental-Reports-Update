@@ -4,6 +4,15 @@ struct MacPulseDeskView: View {
     @EnvironmentObject private var store: MacAppStore
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays Pulse out as the website's page (MacBureauPulse.swift).
+            MacBureauPulsePage()
+        } else {
+            deskBody
+        }
+    }
+
+    private var deskBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 MacDeskHeader("Market Pulse", subtitle: store.pulse?.date.map { "Briefing for \($0)" } ?? "The morning brief: benchmarks and the macro read.") {
@@ -29,15 +38,15 @@ struct MacPulseDeskView: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
                                         Text(idx.ticker)
-                                            .font(.body.monospacedDigit().weight(.bold))
+                                            .font(.ui(.body).monospacedDigit().weight(.bold))
                                         Spacer()
                                         Text(String(format: "%+.2f%%", idx.changePct1d ?? 0))
-                                            .font(.caption.monospacedDigit().weight(.semibold))
+                                            .font(.ui(.caption).monospacedDigit().weight(.semibold))
                                             .foregroundStyle(isUp ? Color.green : Color.red)
                                     }
 
                                     Text(idx.lastPrice != nil ? String(format: "$%.2f", idx.lastPrice!) : "—")
-                                        .font(.title3.monospacedDigit().weight(.semibold))
+                                        .font(.ui(.title3).monospacedDigit().weight(.semibold))
                                 }
                                 .padding(12)
                                 .appleGlassCard()
@@ -62,11 +71,11 @@ struct MacPulseDeskView: View {
                         // Front-page order, as on the web: headline, then dek.
                         VStack(alignment: .leading, spacing: 8) {
                             Text(headline)
-                                .font(.system(.title, design: .serif).weight(.semibold))
+                                .font(.ui(.title, design: .serif).weight(.semibold))
                                 .fixedSize(horizontal: false, vertical: true)
                             if let dek = note.dek(zh: zh) {
                                 Text(dek)
-                                    .font(.system(.title3, design: .serif))
+                                    .font(.ui(.title3, design: .serif))
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -79,12 +88,12 @@ struct MacPulseDeskView: View {
                                 ForEach(Array(bullets.enumerated()), id: \.offset) { _, bullet in
                                     HStack(alignment: .top, spacing: 10) {
                                         Image(systemName: "chevron.right.circle.fill")
-                                            .font(.caption)
+                                            .font(.ui(.caption))
                                             .foregroundStyle(Color.blue)
                                             .padding(.top, 3)
 
                                         Text(bullet)
-                                            .font(.body)
+                                            .font(.ui(.body))
                                             .lineSpacing(4)
                                     }
                                 }
@@ -96,10 +105,10 @@ struct MacPulseDeskView: View {
                                 ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(section.title)
-                                            .font(.caption.weight(.semibold))
+                                            .font(.ui(.caption).weight(.semibold))
                                             .foregroundStyle(.secondary)
                                         Text(section.body)
-                                            .font(.body)
+                                            .font(.ui(.body))
                                             .lineSpacing(4)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }

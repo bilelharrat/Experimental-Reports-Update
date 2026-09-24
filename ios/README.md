@@ -139,8 +139,9 @@ and the tour stay open through the rebuild.
   the palette (`BSHPalette`, the website's RGB values, per desk under Bureau),
   the type (`BSHType`) and `BSHJoinedTabShape`, the tab that flares into the
   page. `BSHShared/BSHDesignPickers.swift` holds the two choosers:
-  `BSHDesignCards` and `BSHBureauDeskPicker`. Instrument Serif and its
-  licence ship in `BSHShared/Fonts`; Iowan comes with the OS.
+  `BSHDesignCards` and `BSHBureauDeskPicker`. Instrument Serif and
+  Instrument Sans (Bureau's interface face) and their licences ship in
+  `BSHShared/Fonts`; Iowan comes with the OS.
 - Desks don't read the design. They use the tokens and components
   (`Color.ds*`, `Font.dsTitle`/`dsHeadline`, `appleGlassCard`/`Tile`,
   `MacSectionLabel`, `MacTabBar`: `ResearchDesign.swift` on iOS,
@@ -153,10 +154,31 @@ and the tour stay open through the rebuild.
   - Title sections with `BSHSectionTitle`.
   - Use `Color.dsPage`, `.dsBar` or `.dsFloating` where a view used
     `systemBackground`, `.bar` or a thin material.
-- Only the shells branch on the design: the iPhone and portrait-iPad desk bar
-  and the landscape-iPad rail (`RootView.swift`); on the Mac, the sidebar,
-  toolbar and page (`MacDesignChrome.swift`). Settings is presented once, from
-  the app (`SettingsPresenter`), above the content that rebuilds.
+- On iOS only the shells branch on the design: the iPhone and portrait-iPad
+  desk bar and the landscape-iPad rail (`RootView.swift`). Settings is
+  presented once, from the app (`SettingsPresenter`), above the content that
+  rebuilds. On the Mac, Summit Glass and Folio keep the split view
+  (`MacDesignChrome.swift`).
+- The Mac's Bureau is the website's Bureau, to the pixel, not a native
+  reading of it:
+  - `MacBureauShell.swift` replaces the split view with the website's window:
+    the masthead of desk tabs, the company rail, the sheet on the desk (lamp
+    and grain), and Warren as an aside (`MacBureauWarren.swift`).
+  - Each desk has a Bureau body laid out as the website's page, in a
+    `MacBureau*.swift` file or a `bureauBody` beside the desk's own. They are
+    built from `MacBureauKit.swift`: the page tokens (`MacBureauPageInk`), the
+    page header, trays, pills, segmented control, switch and fields.
+  - Text is set in Instrument Sans (`BSHType.bureauSans`, and `Font.ui(…)`
+    everywhere under Bureau). It is drawn without font smoothing
+    (`MacFontSmoothing`), as the website sets
+    `-webkit-font-smoothing: antialiased`.
+  - `.bureauLines(L, size:)` sets text on the browser's line boxes. Blink
+    rounds the face's ascent and descent and floors the half-leading; SwiftUI
+    rounds the size and then each metric. Use it wherever the website gives a
+    line-height.
+  - To compare with the website, capture both at 1280×820 and convert the
+    Mac's capture to sRGB (`sips -m …/sRGB Profile.icc`). Window captures are
+    Display P3; the browser's are untagged sRGB.
 - Gotchas:
   - UIKit's navigation bars and segmented controls take the design from
     appearance proxies (`BSHUIKitChrome`), which only reach bars created

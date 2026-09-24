@@ -132,10 +132,10 @@ struct MacHoldingsDeskView: View {
     private var footer: some View {
         HStack {
             Text("\(rows.count) holdings · positions from Invest decisions plus anything added here")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.ui(.caption)).foregroundStyle(.secondary)
             Spacer()
             if let at = store.portfolioDashboard?.generatedAt {
-                Text("Updated \(MacTimeFormat.relative(at))").font(.caption).foregroundStyle(.secondary)
+                Text("Updated \(MacTimeFormat.relative(at))").font(.ui(.caption)).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 12)
@@ -153,7 +153,7 @@ struct MacHoldingsDeskView: View {
                     } else {
                         MacMonogram(name: row.name, companyId: row.id, size: 22)
                     }
-                    Text(row.name).font(.body.weight(.medium))
+                    Text(row.name).font(.ui(.body).weight(.medium))
                 }
             }
             .width(min: 160, ideal: 200)
@@ -252,11 +252,11 @@ struct MacHoldingDetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(name).font(.title3.weight(.bold))
+                        Text(name).font(.ui(.title3).weight(.bold))
                         if let p = record?.position ?? summary?.position {
                             Text([p.round, p.security, p.investedUsd.map { "invested \(MacMoney.short($0))" }, p.ownershipPct.map { String(format: "%.1f%% owned", $0) }]
                                 .compactMap { $0 }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.ui(.caption)).foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
@@ -302,8 +302,8 @@ struct MacHoldingDetailView: View {
                             Image(systemName: alert.isHigh ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
                                 .foregroundStyle(alert.isHigh ? Color.red : (alert.severity == "medium" ? Color.orange : Color.secondary))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(alert.label).font(.caption.weight(.semibold))
-                                if let d = alert.detail { Text(d).font(.caption2).foregroundStyle(.secondary) }
+                                Text(alert.label).font(.ui(.caption).weight(.semibold))
+                                if let d = alert.detail { Text(d).font(.ui(.caption2)).foregroundStyle(.secondary) }
                             }
                         }
                     }
@@ -325,7 +325,7 @@ struct MacHoldingDetailView: View {
             }
             if kpis.isEmpty {
                 Text("No KPIs recorded. Paste a founder update or add a row by hand.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 0) {
                     HStack {
@@ -337,7 +337,7 @@ struct MacHoldingDetailView: View {
                         Text("HC").frame(width: 40, alignment: .trailing)
                         Spacer()
                     }
-                    .font(.system(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(.secondary)
+                    .font(.ui(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(Color.secondary.opacity(0.06))
                     ForEach(kpis.reversed()) { k in
@@ -350,7 +350,7 @@ struct MacHoldingDetailView: View {
                             Text(k.headcount.map(String.init) ?? "—").frame(width: 40, alignment: .trailing)
                             Spacer()
                             Image(systemName: k.isFromUpdate ? "envelope" : "pencil")
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(.ui(.caption2)).foregroundStyle(.secondary)
                                 .help(k.isFromUpdate ? "Extracted from a founder update" : "Entered by hand")
                             if store.canWriteDesk {
                                 Button { Task { await store.deletePortfolioItem(companyId, kind: "kpis", itemId: k.id) } } label: {
@@ -358,7 +358,7 @@ struct MacHoldingDetailView: View {
                                 }.buttonStyle(.plain)
                             }
                         }
-                        .font(.system(size: 11).monospacedDigit()).monospacedDigit()
+                        .font(.ui(size: 11).monospacedDigit()).monospacedDigit()
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .help(k.excerpts.values.joined(separator: "\n"))
                         Divider()
@@ -399,14 +399,14 @@ struct MacHoldingDetailView: View {
                 }
                 .padding(.top, 6)
             }
-            .font(.caption)
+            .font(.ui(.caption))
         }
     }
 
     private func kpiField(_ placeholder: String, _ key: String) -> some View {
         TextField(placeholder, text: Binding(get: { kpiDraft[key] ?? "" }, set: { kpiDraft[key] = $0 }))
-            .textFieldStyle(.roundedBorder)
-            .font(.caption)
+            .textFieldStyle(.dsField)
+            .font(.ui(.caption))
     }
 
     private func kpiChart(_ kpis: [MacKpiRow]) -> some View {
@@ -421,7 +421,7 @@ struct MacHoldingDetailView: View {
             return (d, b)
         }
         return VStack(alignment: .leading, spacing: 4) {
-            Text(points.isEmpty ? "Burn per month" : "ARR / revenue vs burn").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(points.isEmpty ? "Burn per month" : "ARR / revenue vs burn").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
             Chart {
                 ForEach(Array(points.enumerated()), id: \.offset) { _, p in
                     LineMark(x: .value("Date", p.0), y: .value("USD", p.1), series: .value("Series", p.2))
@@ -451,25 +451,25 @@ struct MacHoldingDetailView: View {
     private var updatesBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Paste a founder update").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Paste a founder update").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 HStack {
-                    TextField("Subject", text: $updateSubject).textFieldStyle(.roundedBorder)
+                    TextField("Subject", text: $updateSubject).textFieldStyle(.dsField)
                     DatePicker("", selection: $updateDate, displayedComponents: .date).labelsHidden()
                 }
                 TextEditor(text: $updateText)
-                    .font(.system(size: 12))
+                    .font(.ui(size: 12))
                     .frame(minHeight: 110)
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.25)))
                 HStack {
                     Text("ARR, revenue, burn, cash, runway, headcount and customers are extracted verbatim with their excerpts and become a KPI row.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.ui(.caption2)).foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         post()
                     } label: {
                         if posting { ProgressView().controlSize(.small) } else { Label("File update", systemImage: "tray.and.arrow.down") }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .controlSize(.small)
                     .disabled(posting || updateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.canWriteDesk)
                 }
@@ -480,12 +480,12 @@ struct MacHoldingDetailView: View {
             ForEach(record?.updates ?? []) { u in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(u.subject?.isEmpty == false ? u.subject! : "Update").font(.caption.weight(.semibold))
-                        Text(String(u.asOf.prefix(10))).font(.caption2).foregroundStyle(.secondary)
+                        Text(u.subject?.isEmpty == false ? u.subject! : "Update").font(.ui(.caption).weight(.semibold))
+                        Text(String(u.asOf.prefix(10))).font(.ui(.caption2)).foregroundStyle(.secondary)
                         Spacer()
                         if store.canWriteDesk {
                             Button { Task { await store.deletePortfolioItem(companyId, kind: "updates", itemId: u.id) } } label: {
-                                Image(systemName: "trash").font(.caption2).foregroundStyle(.secondary)
+                                Image(systemName: "trash").font(.ui(.caption2)).foregroundStyle(.secondary)
                             }.buttonStyle(.plain)
                         }
                     }
@@ -494,7 +494,7 @@ struct MacHoldingDetailView: View {
                             HStack(spacing: 6) {
                                 ForEach(u.extracted) { f in
                                     Text("\(f.label) \(f.display)")
-                                        .font(.caption2.monospacedDigit())
+                                        .font(.ui(.caption2).monospacedDigit())
                                         .padding(.horizontal, 6).padding(.vertical, 2)
                                         .background(Color.dsAccent.opacity(0.1), in: Capsule())
                                         .help(f.excerpt ?? "")
@@ -502,7 +502,7 @@ struct MacHoldingDetailView: View {
                             }
                         }
                     }
-                    Text(u.text).font(.caption).foregroundStyle(.secondary).lineLimit(6)
+                    Text(u.text).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(6)
                 }
                 .padding(10)
                 .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
@@ -526,7 +526,7 @@ struct MacHoldingDetailView: View {
     private var marksBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                TextField("Holding value $", text: $markValue).textFieldStyle(.roundedBorder).frame(width: 130)
+                TextField("Holding value $", text: $markValue).textFieldStyle(.dsField).frame(width: 130)
                 Picker("Basis", selection: $markBasis) {
                     Text("Last round").tag("last_round")
                     Text("LP report").tag("lp_report")
@@ -534,7 +534,7 @@ struct MacHoldingDetailView: View {
                     Text("At cost").tag("cost")
                     Text("Manual").tag("manual")
                 }.labelsHidden().frame(width: 120)
-                TextField("Note", text: $markNote).textFieldStyle(.roundedBorder)
+                TextField("Note", text: $markNote).textFieldStyle(.dsField)
                 Button {
                     guard !savingMark, let v = markNumber else { return }
                     savingMark = true
@@ -550,10 +550,10 @@ struct MacHoldingDetailView: View {
             if let marks = record?.marks, !marks.isEmpty {
                 ForEach(marks.reversed()) { m in
                     HStack {
-                        Text(String(m.asOf.prefix(10))).font(.caption).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
-                        Text(MacMoney.short(m.valueUsd)).font(.caption.weight(.semibold).monospacedDigit())
+                        Text(String(m.asOf.prefix(10))).font(.ui(.caption)).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
+                        Text(MacMoney.short(m.valueUsd)).font(.ui(.caption).weight(.semibold).monospacedDigit())
                         MacStatusPill(text: m.basisLabel, color: .blue)
-                        if let n = m.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                        if let n = m.note, !n.isEmpty { Text(n).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1) }
                         Spacer()
                         if store.canWriteDesk {
                             Button { Task { await store.deletePortfolioItem(companyId, kind: "marks", itemId: m.id) } } label: {
@@ -565,7 +565,7 @@ struct MacHoldingDetailView: View {
                 }
             } else {
                 Text("No marks. MOIC shows only once a mark is on record — it is never derived from a round we did not price.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
             }
         }
     }
@@ -618,7 +618,7 @@ struct MacPositionEditorSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Position").font(.headline)
+                Text("Position").font(.ui(.headline))
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             }
@@ -645,7 +645,7 @@ struct MacPositionEditorSheet: View {
                 } label: {
                     if saving { ProgressView().controlSize(.small) } else { Text("Save") }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving)
             }
@@ -696,20 +696,20 @@ struct MacAddHoldingSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Add holding").font(.headline)
+                Text("Add holding").font(.ui(.headline))
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding(16)
             Divider()
-            TextField("Search companies", text: $search).textFieldStyle(.roundedBorder).padding(12)
+            TextField("Search companies", text: $search).textFieldStyle(.dsField).padding(12)
             List(candidates, selection: $companyId) { c in
                 Text(c.title).tag(c.id)
             }
             .frame(minHeight: 240)
             Divider()
             HStack {
-                Text("Creates an empty position record; fill it in from the detail pane.").font(.caption).foregroundStyle(.secondary)
+                Text("Creates an empty position record; fill it in from the detail pane.").font(.ui(.caption)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Add") {
                     let id = companyId
@@ -717,7 +717,7 @@ struct MacAddHoldingSheet: View {
                         if await store.savePosition(id, fields: ["notes": ""]) { onAdded(id); dismiss() }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .disabled(companyId.isEmpty)
             }
             .padding(12)
@@ -783,7 +783,7 @@ struct MacReservesPlannerSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Reserves & follow-on planner").font(.headline)
+                Text("Reserves & follow-on planner").font(.ui(.headline))
                 Spacer()
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
@@ -792,9 +792,9 @@ struct MacReservesPlannerSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        TextField("Fund size ($M)", text: $fundSize).textFieldStyle(.roundedBorder).frame(width: 130)
-                        TextField("Reserve %", text: $reservePct).textFieldStyle(.roundedBorder).frame(width: 100)
-                        TextField("Notes", text: $notes).textFieldStyle(.roundedBorder)
+                        TextField("Fund size ($M)", text: $fundSize).textFieldStyle(.dsField).frame(width: 130)
+                        TextField("Reserve %", text: $reservePct).textFieldStyle(.dsField).frame(width: 100)
+                        TextField("Notes", text: $notes).textFieldStyle(.dsField)
                         Button {
                             save()
                         } label: {
@@ -803,13 +803,13 @@ struct MacReservesPlannerSheet: View {
                         .disabled(saving || !store.canWriteDesk || store.reservesPlan == nil || !fundParsed.ok || !pctParsed.ok)
                     }
                     if !fundParsed.ok {
-                        Text("Fund size must be a number in $M, e.g. 250").font(.caption).foregroundStyle(.red)
+                        Text("Fund size must be a number in $M, e.g. 250").font(.ui(.caption)).foregroundStyle(.red)
                     } else if !pctParsed.ok {
-                        Text("Reserve % must be a number from 0 to 100").font(.caption).foregroundStyle(.red)
+                        Text("Reserve % must be a number from 0 to 100").font(.ui(.caption)).foregroundStyle(.red)
                     } else if let saveMessage {
-                        Text(saveMessage).font(.caption).foregroundStyle(saveFailed ? Color.red : Color.green)
+                        Text(saveMessage).font(.ui(.caption)).foregroundStyle(saveFailed ? Color.red : Color.green)
                     } else {
-                        Text("Numbers only, e.g. 250 and 20. Leave a field empty to clear it.").font(.caption2).foregroundStyle(.secondary)
+                        Text("Numbers only, e.g. 250 and 20. Leave a field empty to clear it.").font(.ui(.caption2)).foregroundStyle(.secondary)
                     }
                 }
                 .onChange(of: fundSize) { _, _ in saveMessage = nil }
@@ -835,7 +835,7 @@ struct MacReservesPlannerSheet: View {
                             Spacer()
                             Text("RUNWAY").frame(width: 150, alignment: .leading)
                         }
-                        .font(.system(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(.secondary)
+                        .font(.ui(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .background(Color.secondary.opacity(0.06))
                         ForEach(plan.companies) { c in
@@ -853,14 +853,14 @@ struct MacReservesPlannerSheet: View {
                                     Text("—").foregroundStyle(.tertiary).frame(width: 150, alignment: .leading)
                                 }
                             }
-                            .font(.system(size: 11).monospacedDigit()).monospacedDigit()
+                            .font(.ui(size: 11).monospacedDigit()).monospacedDigit()
                             .padding(.horizontal, 8).padding(.vertical, 5)
                             Divider()
                         }
                     }
                     .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                     Text("Planned follow-on per company is set in each position record. Runway flags come from the latest KPI row that reports runway, or cash and burn.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.ui(.caption2)).foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -874,8 +874,8 @@ struct MacReservesPlannerSheet: View {
 
     private func stat(_ label: String, _ value: String, color: Color = .primary) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 16, weight: .bold).monospacedDigit()).foregroundStyle(color)
+            Text(label.uppercased()).font(.ui(size: 10, weight: .bold)).foregroundStyle(.secondary)
+            Text(value).font(.ui(size: 16, weight: .bold).monospacedDigit()).foregroundStyle(color)
         }
     }
 }

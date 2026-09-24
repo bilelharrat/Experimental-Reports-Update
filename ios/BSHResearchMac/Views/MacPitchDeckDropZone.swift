@@ -134,10 +134,10 @@ struct MacPitchDeckIntakeSheet: View {
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.badge.arrow.up")
-                        .font(.title3.weight(.semibold))
+                        .font(.ui(.title3).weight(.semibold))
                         .foregroundStyle(Color.dsAccent)
                     Text(result == nil ? "Pitch Deck Intake" : "Deck filed")
-                        .font(.headline)
+                        .font(.ui(.headline))
                 }
                 Spacer()
                 Button(result == nil ? "Cancel" : "Close") { dismiss() }
@@ -193,7 +193,7 @@ struct MacPitchDeckIntakeSheet: View {
                             Label("File & extract", systemImage: "plus.circle")
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canFile)
@@ -214,13 +214,13 @@ struct MacPitchDeckIntakeSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text.fill")
-                    .font(.system(size: 28))
+                    .font(.ui(size: 28))
                     .foregroundStyle(.red)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(fileURL?.lastPathComponent ?? "Deck")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.ui(.subheadline).weight(.semibold))
                     Text(fileURL.map { $0.pathExtension.uppercased() + " · uploads to the research server" } ?? "")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -229,7 +229,7 @@ struct MacPitchDeckIntakeSheet: View {
             .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Attach to").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Attach to").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 Picker("Attach to", selection: $attachTo) {
                     Text("New company").tag("")
                     Divider()
@@ -243,9 +243,9 @@ struct MacPitchDeckIntakeSheet: View {
 
             if attachTo.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Company name").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Company name").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                     TextField("Company", text: $companyName)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.dsField)
                         .disabled(filing)
                         .onSubmit { file() }
                 }
@@ -253,10 +253,10 @@ struct MacPitchDeckIntakeSheet: View {
 
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "info.circle")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                 Text("The deck is filed under the company, slides are read, and round / raise / post-money / ARR / burn / runway / headcount are pulled with the page each came from. The thesis fit is scored from the extracted text. Nothing is estimated: fields the deck doesn't state stay empty.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -264,7 +264,7 @@ struct MacPitchDeckIntakeSheet: View {
             .background(Color.dsAccent.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
 
             if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Text(error).font(.ui(.caption)).foregroundStyle(.red)
             }
         }
         .padding(20)
@@ -275,17 +275,17 @@ struct MacPitchDeckIntakeSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(result.company.title).font(.subheadline.weight(.semibold))
+                    Text(result.company.title).font(.ui(.subheadline).weight(.semibold))
                     Text("\(result.fileName ?? "Deck") · \(result.slideCount) slides read")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let fit = result.thesis {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(fit.score.map { "\($0)% fit" } ?? fit.label)
-                            .font(.caption.weight(.bold).monospacedDigit())
+                            .font(.ui(.caption).weight(.bold).monospacedDigit())
                             .foregroundStyle(fitColor(fit))
-                        Text(fit.label).font(.caption2).foregroundStyle(.secondary)
+                        Text(fit.label).font(.ui(.caption2)).foregroundStyle(.secondary)
                     }
                     .help(fit.reasons.joined(separator: "\n"))
                 }
@@ -293,24 +293,24 @@ struct MacPitchDeckIntakeSheet: View {
 
             if result.fields.isEmpty {
                 Text("No round or metric statements were found in the slide text. Scanned decks without a text layer read as empty — the summary job can still OCR them.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(spacing: 0) {
                     ForEach(result.fields) { field in
                         HStack(alignment: .top, spacing: 10) {
                             Text(field.label)
-                                .font(.caption.weight(.semibold))
+                                .font(.ui(.caption).weight(.semibold))
                                 .frame(width: 90, alignment: .leading)
                             Text(field.display)
-                                .font(.caption.monospacedDigit().weight(.medium))
+                                .font(.ui(.caption).monospacedDigit().weight(.medium))
                                 .frame(width: 90, alignment: .leading)
                             VStack(alignment: .leading, spacing: 1) {
                                 if let page = field.page {
-                                    Text("p. \(page)").font(.caption2.weight(.semibold)).foregroundStyle(Color.dsAccent)
+                                    Text("p. \(page)").font(.ui(.caption2).weight(.semibold)).foregroundStyle(Color.dsAccent)
                                 }
                                 if let excerpt = field.excerpt {
-                                    Text(excerpt).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(excerpt).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(2)
                                 }
                             }
                             Spacer(minLength: 0)
@@ -324,9 +324,9 @@ struct MacPitchDeckIntakeSheet: View {
 
             if let fit = result.thesis, !fit.openQuestions.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Open questions for the thesis").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Open questions for the thesis").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(fit.openQuestions, id: \.self) { q in
-                        Label(q, systemImage: "questionmark.circle").font(.caption)
+                        Label(q, systemImage: "questionmark.circle").font(.ui(.caption))
                     }
                 }
             }

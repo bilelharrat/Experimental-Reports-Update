@@ -34,16 +34,24 @@ struct MacResearchDeskView: View {
 
     var body: some View {
         #if os(macOS)
-        // The company comes from the sidebar's list, as on the web, where the desk's
-        // directory column moved into the sidebar. The deck drop that sat under the
-        // column stays on the desk.
-        VStack(spacing: 0) {
-            detailPane
-                .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            MacPitchDeckDropBanner()
+        Group {
+            if BSHDesign.active == .bureau {
+                // Bureau draws the desk as the website does: the company directory in a
+                // tray on the sheet, the dossier beside it (MacBureauResearch.swift).
+                MacBureauResearchDesk()
+            } else {
+                // The company comes from the sidebar's list, as on the web, where the desk's
+                // directory column moved into the sidebar. The deck drop that sat under the
+                // column stays on the desk.
+                VStack(spacing: 0) {
+                    detailPane
+                        .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                    Divider()
+                    MacPitchDeckDropBanner()
+                }
+            }
         }
-        .sheet(isPresented: $store.showNewReportSheet) {
+        .sheet(isPresented: $store.showNewReportSheet.systemSheetUnlessBureau) {
             if let company = store.newReportCompany {
                 MacReportCustomizerSheet(company: company, onGenerate: { rep in
                     store.showNewReportSheet = false
@@ -171,15 +179,15 @@ struct MacResearchDeskView: View {
                     Image(systemName: showOnlyModified ? "sparkle" : "sparkles")
                     Text("Diffs")
                 }
-                .font(.caption2.weight(.medium))
+                .font(.ui(.caption2).weight(.medium))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.dsBordered)
             .tint(showOnlyModified ? .dsAccent : .secondary)
             .controlSize(.mini)
             .help("Show only companies with updates or new memos since last visit")
 
             Text("\(filteredCompanies.count)")
-                .font(.caption.monospacedDigit())
+                .font(.ui(.caption).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .dsToolbarStrip()
@@ -276,7 +284,7 @@ struct CompanyListRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(company.name ?? company.id)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.ui(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(secondaryLine.isEmpty ? " " : secondaryLine)
@@ -382,7 +390,7 @@ struct CompanyDossierView: View {
                                 MacStatusPill(text: stage, color: .dsAccent)
                             }
                             if store.isFollowed(company.id) {
-                                Image(systemName: "star.fill").font(.caption).foregroundStyle(Color.yellow).help("Followed on the Pipeline board")
+                                Image(systemName: "star.fill").font(.ui(.caption)).foregroundStyle(Color.yellow).help("Followed on the Pipeline board")
                             }
                         }
                         Text(headerLine.isEmpty ? company.subtitle : headerLine)
@@ -402,7 +410,7 @@ struct CompanyDossierView: View {
                                 Text("Generate report")
                             }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.dsProminent)
                         .disabled(!store.canRunTasks)
                         .help(store.canRunTasks ? "Configure & generate custom research memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
 
@@ -498,16 +506,16 @@ struct CompanyDossierView: View {
                 if shows(.memos, .overview) && !runningReports.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Active Analysis Pipelines", systemImage: "gearshape.arrow.triangle.2.circlepath")
-                            .font(.headline)
+                            .font(.ui(.headline))
                         ForEach(runningReports) { rep in
                             HStack {
                                 ProgressView()
                                     .controlSize(.small)
                                 Text(rep.displayTitle)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.ui(.subheadline).weight(.medium))
                                 Spacer()
                                 Text(rep.stage ?? "Processing…")
-                                    .font(.caption.monospacedDigit())
+                                    .font(.ui(.caption).monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
                             .padding(10)
@@ -532,7 +540,7 @@ struct CompanyDossierView: View {
                                     Text("Generate report")
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.dsProminent)
                             .controlSize(.small)
                             .disabled(!store.canRunTasks)
                         }
@@ -550,7 +558,7 @@ struct CompanyDossierView: View {
                                         Text("Generate report")
                                     }
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.dsBordered)
                                 .disabled(!store.canRunTasks)
                             }
                             .padding(.vertical, 24)
@@ -606,14 +614,14 @@ private struct KPICard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 10, weight: .bold))
+                .font(.ui(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 17, weight: .bold).monospacedDigit())
+                .font(.ui(size: 17, weight: .bold).monospacedDigit())
                 .monospacedDigit()
                 .foregroundStyle(isGood == false ? Color.red : (isGood == true ? Color.green : Color.primary))
             Text(subtext)
-                .font(.system(size: 10))
+                .font(.ui(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -632,18 +640,18 @@ struct MemoRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: report.isComplete ? "doc.text.fill" : "doc.badge.gearshape")
-                .font(.title3)
+                .font(.ui(.title3))
                 .foregroundStyle(report.isComplete ? Color.blue : Color.orange)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(report.displayTitle)
-                        .font(.body.weight(.semibold))
+                        .font(.ui(.body).weight(.semibold))
 
                     if store.isReportNew(report) {
                         Text("NEW")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.ui(size: 10, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1.5)
@@ -652,7 +660,7 @@ struct MemoRowView: View {
 
                     if let lang = report.language {
                         Text(lang.uppercased())
-                            .font(.caption2.monospacedDigit())
+                            .font(.ui(.caption2).monospacedDigit())
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
@@ -662,7 +670,7 @@ struct MemoRowView: View {
                 }
 
                 Text("Updated \(report.dateLabel) · \(report.audience ?? "Internal")")
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
 
@@ -676,7 +684,7 @@ struct MemoRowView: View {
                 } label: {
                     Label("Synthesize Memo", systemImage: "sparkles")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .controlSize(.small)
                 .tint(.orange)
                 .help("Freeze studio cards and synthesize Phase 3 memo")
@@ -686,7 +694,7 @@ struct MemoRowView: View {
                 } label: {
                     Label("Read Memo", systemImage: "book.pages")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .controlSize(.small)
                 .help("Open in its own memo window")
             } else if !report.isComplete && !report.isFailed {
@@ -697,7 +705,7 @@ struct MemoRowView: View {
                 } label: {
                     Label("Follow run", systemImage: "waveform.path.ecg")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.dsBordered)
                 .controlSize(.small)
                 .help("Follow this run in the Jobs blotter")
             }
@@ -713,7 +721,7 @@ struct MemoRowView: View {
             } label: {
                 Image(systemName: "safari")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.dsBordered)
             .controlSize(.small)
             .help("Open memo on Web")
         }
@@ -740,7 +748,7 @@ struct StatusTag: View {
 
     var body: some View {
         Text(status)
-            .font(.caption2.weight(.medium))
+            .font(.ui(.caption2).weight(.medium))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 2.5)

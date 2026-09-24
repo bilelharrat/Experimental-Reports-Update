@@ -59,29 +59,29 @@ struct MacICReviewWindowView: View {
                     HStack(spacing: 10) {
                         MacMonogram(company: company, size: 34)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(company.title).font(.headline)
-                            Text(company.subtitle).font(.caption).foregroundStyle(.secondary)
+                            Text(company.title).font(.ui(.headline))
+                            Text(company.subtitle).font(.ui(.caption)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Label(store.stage(for: company.id).rawValue, systemImage: store.stage(for: company.id).systemImage)
-                            .font(.caption.weight(.semibold))
+                            .font(.ui(.caption).weight(.semibold))
                     }
                 }
 
                 if let spine = analysis?.thesisSpine, !spine.isEmpty {
                     section("Thesis spine", systemImage: "point.3.connected.trianglepath.dotted") {
                         if let logic = spine.recommendationLogic, !logic.isEmpty {
-                            Text(logic).font(.callout).textSelection(.enabled)
+                            Text(logic).font(.ui(.callout)).textSelection(.enabled)
                         }
                         claimList("Investment highlights", spine.investmentHighlights, color: .green)
                         claimList("Investment risks", spine.investmentRisks, color: .red)
                         if !spine.riskValuationSensitivities.isEmpty {
-                            Text("Valuation sensitivities").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Valuation sensitivities").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                             ForEach(spine.riskValuationSensitivities) { row in
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(row.sensitivity ?? "").font(.caption.weight(.medium))
+                                    Text(row.sensitivity ?? "").font(.ui(.caption).weight(.medium))
                                     if let impact = row.downsideImpact, !impact.isEmpty {
-                                        Text(impact).font(.caption2).foregroundStyle(.secondary)
+                                        Text(impact).font(.ui(.caption2)).foregroundStyle(.secondary)
                                     }
                                 }
                                 .padding(6)
@@ -94,7 +94,7 @@ struct MacICReviewWindowView: View {
                 } else {
                     section("Thesis spine", systemImage: "point.3.connected.trianglepath.dotted") {
                         Text("No thesis spine yet — run the Thesis Spine tool from IC Prep on the dossier.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.ui(.caption)).foregroundStyle(.secondary)
                     }
                 }
 
@@ -104,9 +104,9 @@ struct MacICReviewWindowView: View {
                             HStack(alignment: .top, spacing: 8) {
                                 MacStatusPill(text: (risk.severity ?? "medium").capitalized, color: risk.severity == "high" ? .red : .orange)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(risk.title ?? risk.id).font(.caption.weight(.semibold))
+                                    Text(risk.title ?? risk.id).font(.ui(.caption).weight(.semibold))
                                     if let why = risk.whyItMatters ?? risk.description, !why.isEmpty {
-                                        Text(why).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                                        Text(why).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(3)
                                     }
                                 }
                             }
@@ -130,11 +130,11 @@ struct MacICReviewWindowView: View {
                         ForEach(evidence.claims.filter { $0.status == "contradicted" || $0.status == "mixed" }.prefix(4)) { claim in
                             VStack(alignment: .leading, spacing: 2) {
                                 Label(claim.claim, systemImage: "exclamationmark.bubble")
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                                     .foregroundStyle(Color.red)
                                     .lineLimit(2)
                                 if let contra = claim.contradictingEvidence.first?.excerpt {
-                                    Text(contra).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(contra).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(2)
                                 }
                             }
                         }
@@ -154,14 +154,14 @@ struct MacICReviewWindowView: View {
                     DatePicker("Decided", selection: $decidedAt, displayedComponents: .date)
                         .controlSize(.small)
                     TextEditor(text: $explanation)
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .frame(minHeight: 90)
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
                     HStack {
-                        Text("Based on this memo").font(.caption2).foregroundStyle(.secondary)
+                        Text("Based on this memo").font(.ui(.caption2)).foregroundStyle(.secondary)
                         Spacer()
                         if saved {
-                            Label("Recorded", systemImage: "checkmark").font(.caption).foregroundStyle(Color.green)
+                            Label("Recorded", systemImage: "checkmark").font(.ui(.caption)).foregroundStyle(Color.green)
                         }
                         Button(submitting ? "Saving…" : "Record") {
                             submitting = true
@@ -181,7 +181,7 @@ struct MacICReviewWindowView: View {
                                 }
                             }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.dsProminent)
                         .controlSize(.small)
                         .disabled(submitting || !store.canRunTasks || explanation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -196,7 +196,7 @@ struct MacICReviewWindowView: View {
     private func section<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
+                .font(.ui(.subheadline).weight(.semibold))
             content()
         }
         .padding(10)
@@ -206,7 +206,7 @@ struct MacICReviewWindowView: View {
     private func claimList(_ title: String, _ claims: [MacThesisClaim], color: Color) -> some View {
         Group {
             if !claims.isEmpty {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(title).font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(claims) { claim in
                     HStack(alignment: .top, spacing: 6) {
                         Circle().fill(color).frame(width: 6, height: 6).padding(.top, 5)
@@ -214,15 +214,15 @@ struct MacICReviewWindowView: View {
                             Button {
                                 findText = MacFindRequest(text: claim.claim ?? "")
                             } label: {
-                                Text(claim.claim ?? "").font(.caption.weight(.medium)).multilineTextAlignment(.leading)
+                                Text(claim.claim ?? "").font(.ui(.caption).weight(.medium)).multilineTextAlignment(.leading)
                             }
                             .buttonStyle(.link)
                             .help("Jump to this claim in the memo")
                             if let detail = claim.detail, !detail.isEmpty {
-                                Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                                Text(detail).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(3)
                             }
                             if claim.needsStrongerEvidence == true {
-                                Text("needs stronger evidence").font(.caption2).foregroundStyle(Color.orange)
+                                Text("needs stronger evidence").font(.ui(.caption2)).foregroundStyle(Color.orange)
                             }
                         }
                     }
@@ -233,8 +233,8 @@ struct MacICReviewWindowView: View {
 
     private func evidenceStat(_ label: String, _ value: Int, _ color: Color) -> some View {
         VStack(spacing: 1) {
-            Text("\(value)").font(.subheadline.monospacedDigit().weight(.bold)).foregroundStyle(color)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text("\(value)").font(.ui(.subheadline).monospacedDigit().weight(.bold)).foregroundStyle(color)
+            Text(label).font(.ui(.caption2)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }

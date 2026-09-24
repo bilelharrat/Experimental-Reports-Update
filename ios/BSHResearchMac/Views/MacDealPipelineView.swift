@@ -76,6 +76,14 @@ struct MacDealPipelineView: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            bureauBody
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(alignment: .leading, spacing: 16) {
             MacCardHeader("Deal pipeline", subtitle: "Stage, intro path, last touchpoint and next step — as recorded by the team.", systemImage: "point.3.filled.connected.trianglepath.dotted") {
                 if let score = pipeline?.warmthScore {
@@ -123,17 +131,17 @@ struct MacDealPipelineView: View {
                                         .frame(width: 16, height: 16)
                                     if isPast {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 10, weight: .bold))
+                                            .font(.ui(size: 10, weight: .bold))
                                             .foregroundStyle(.white)
                                     } else {
                                         Text("\(index + 1)")
-                                            .font(.system(size: 10, weight: .bold))
+                                            .font(.ui(size: 10, weight: .bold))
                                             .foregroundStyle(isCurrent ? Color.white : Color.secondary)
                                     }
                                 }
 
                                 Text(stage)
-                                    .font(.system(size: 11, weight: isCurrent ? .bold : .medium))
+                                    .font(.ui(size: 11, weight: isCurrent ? .bold : .medium))
                                     .foregroundStyle(isCurrent ? Color.dsAccent : (isPast ? Color.primary : Color.secondary))
                             }
                             .padding(.horizontal, 10)
@@ -222,9 +230,9 @@ struct MacDealPipelineView: View {
 
             if editing == field {
                 TextField(field.title, text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
                     .lineLimit(2...4)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .disabled(fieldSaving)
                     .onSubmit { Task { await saveEdit() } }
                     #if os(macOS)
@@ -232,7 +240,7 @@ struct MacDealPipelineView: View {
                     #endif
                 if isNext {
                     HStack(spacing: 6) {
-                        Toggle("Due", isOn: $hasDue).toggleStyle(.checkbox).font(.caption)
+                        Toggle("Due", isOn: $hasDue).toggleStyle(.checkbox).font(.ui(.caption))
                         if hasDue {
                             DatePicker("", selection: $draftDue, displayedComponents: .date)
                                 .labelsHidden()
@@ -243,7 +251,7 @@ struct MacDealPipelineView: View {
                 }
                 HStack(spacing: 6) {
                     Button("Save") { Task { await saveEdit() } }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.dsProminent)
                         .controlSize(.small)
                         .keyboardShortcut(.defaultAction)
                     Button("Cancel") { editing = nil }
@@ -256,7 +264,7 @@ struct MacDealPipelineView: View {
                     startEdit(field)
                 } label: {
                     Text(value(field) ?? field.empty)
-                        .font(field == .introPath ? .caption.weight(.semibold) : (isNext ? .caption.weight(.medium) : .caption))
+                        .font(field == .introPath ? .ui(.caption).weight(.semibold) : (isNext ? .ui(.caption).weight(.medium) : .ui(.caption)))
                         .foregroundStyle(tint ?? (value(field) == nil ? Color.secondary : Color.primary))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -269,7 +277,7 @@ struct MacDealPipelineView: View {
 
                 if isNext, pipeline?.nextStep != nil, let due = pipeline?.nextStepDue {
                     Text(overdue ? "Overdue · was due \(due)" : "Due \(due)")
-                        .font(.caption2.monospacedDigit().weight(overdue ? .bold : .regular))
+                        .font(.ui(.caption2).monospacedDigit().weight(overdue ? .bold : .regular))
                         .foregroundStyle(tint ?? .secondary)
                 }
             }
@@ -277,6 +285,40 @@ struct MacDealPipelineView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .appleGlassTile(cornerRadius: 10, tint: tint)
+    }
+
+    // MARK: Bureau
+
+    /// Bureau draws the card as the website does (DealPipelineCard.vue): the header with the
+    /// warmth pill and the deal lead, the stage stepper in five equal cells, and the intro
+    /// path, last touchpoint and next step as tiles to click and edit.
+    private var bureauBody: some View {
+        MacBureauDealPipelineCard(
+            company: company,
+            pipeline: pipeline,
+            stages: currentStages,
+            currentStage: currentStage,
+            loadAttempted: loadAttempted,
+            saving: saving,
+            saveError: saveError,
+            editing: editing,
+            draft: $draft,
+            hasDue: $hasDue,
+            draftDue: $draftDue,
+            fieldSaving: fieldSaving,
+            canWrite: store.canWriteDesk,
+            value: value(_:),
+            reload: { Task { await load() } },
+            changeStage: { stage in Task { await changeStage(to: stage) } },
+            startEdit: startEdit(_:),
+            saveEdit: { Task { await saveEdit() } },
+            cancelEdit: { editing = nil }
+        )
+        .task(id: company.id) {
+            saveError = nil
+            loadAttempted = false
+            await load()
+        }
     }
 
     private func startEdit(_ field: PipelineField) {

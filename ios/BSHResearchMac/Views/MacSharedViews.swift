@@ -5,7 +5,7 @@ struct MacStatusPill: View {
     let color: Color
     var body: some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.ui(.caption).weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -385,6 +385,9 @@ struct MacCompanyLogoView: View {
     let fallbackName: String
     let size: CGFloat
     let round: Bool
+    /// For Bureau's initials when no logo loads (the website hashes the tint from the id).
+    var companyId: String?
+    var ticker: String?
 
     @State private var image: NSImage?
 
@@ -393,13 +396,17 @@ struct MacCompanyLogoView: View {
         fallbackUrl: URL?,
         fallbackName: String,
         size: CGFloat,
-        round: Bool
+        round: Bool,
+        companyId: String? = nil,
+        ticker: String? = nil
     ) {
         self.primaryUrl = primaryUrl
         self.fallbackUrl = fallbackUrl
         self.fallbackName = fallbackName
         self.size = size
         self.round = round
+        self.companyId = companyId
+        self.ticker = ticker
 
         if let p = primaryUrl, let cached = MacImageCache.shared.image(for: p) {
             _image = State(initialValue: cached)
@@ -410,7 +417,9 @@ struct MacCompanyLogoView: View {
 
     var body: some View {
         Group {
-            if let img = image {
+            if let img = image, BSHDesign.active == .bureau, !round {
+                MacBureauLogoTile(image: img, size: size)
+            } else if let img = image {
                 Image(nsImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -432,7 +441,20 @@ struct MacCompanyLogoView: View {
         }
     }
 
+    @ViewBuilder
     private var fallbackBadge: some View {
+        if BSHDesign.active == .bureau, !round {
+            MacBureauInitialsTile(
+                initials: MacBureauMonogram.initials(name: fallbackName, ticker: ticker),
+                tint: MacBureauMonogram.tint(for: companyId ?? fallbackName),
+                size: size
+            )
+        } else {
+            nativeFallbackBadge
+        }
+    }
+
+    private var nativeFallbackBadge: some View {
         let initials = fallbackName.split(separator: " ").prefix(2)
             .compactMap { $0.first.map(String.init) }.joined().uppercased()
         let palette: [Color] = [
@@ -440,7 +462,7 @@ struct MacCompanyLogoView: View {
         ]
         let color = palette[abs(fallbackName.hashValue) % palette.count]
         return Text(initials.isEmpty ? "?" : initials)
-            .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
+            .font(.ui(size: size * 0.38, weight: .semibold, design: .rounded))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(
@@ -582,7 +604,15 @@ struct MacMonogram: View {
                 fallbackUrl: fallbackUrl,
                 fallbackName: name,
                 size: size,
-                round: round
+                round: round,
+                companyId: companyId,
+                ticker: ticker
+            )
+        } else if BSHDesign.active == .bureau, !round {
+            MacBureauInitialsTile(
+                initials: MacBureauMonogram.initials(name: name, ticker: ticker),
+                tint: MacBureauMonogram.tint(for: companyId ?? name),
+                size: size
             )
         } else {
             fallbackBadge
@@ -594,7 +624,7 @@ struct MacMonogram: View {
             .compactMap { $0.first.map(String.init) }.joined().uppercased()
         let color = Self.palette[abs(name.hashValue) % Self.palette.count]
         return Text(initials.isEmpty ? "?" : initials)
-            .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
+            .font(.ui(size: size * 0.38, weight: .semibold, design: .rounded))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(

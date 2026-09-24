@@ -82,6 +82,17 @@ struct MacNewsDeskView: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays News out as the website's front page (MacBureauNews.swift), the
+            // story and its brief read in the lead. It adds nothing to the window's toolbar:
+            // Bureau has none, and an item there would land on the masthead's tabs.
+            MacBureauNewsPage()
+        } else {
+            deskBody
+        }
+    }
+
+    private var deskBody: some View {
         HSplitView {
             // Left Pane: News Stream Rail (Collapsible)
             if listExpanded {
@@ -128,12 +139,12 @@ struct MacNewsDeskView: View {
                         VStack(spacing: 12) {
                             Spacer()
                             Image(systemName: "newspaper")
-                                .font(.system(size: 36))
+                                .font(.ui(size: 36))
                                 .foregroundStyle(.secondary)
                             Text("No news headlines found")
-                                .font(.headline)
+                                .font(.ui(.headline))
                             Text("Try switching scopes or clearing search terms.")
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(.secondary)
                             Spacer()
                         }
@@ -263,7 +274,7 @@ struct MacNewsDeskView: View {
 
                 if isCurrent, let err = detailModel.error {
                     Label(err, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
+                        .font(.ui(.footnote))
                         .foregroundStyle(.red)
                 }
 
@@ -285,7 +296,7 @@ struct MacNewsDeskView: View {
                         store.selectedTab = .market
                     } label: {
                         Text(ticker.uppercased())
-                            .font(.caption.weight(.bold))
+                            .font(.ui(.caption).weight(.bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -297,7 +308,7 @@ struct MacNewsDeskView: View {
 
                 if let category = item.category, !category.isEmpty {
                     Text(category.uppercased())
-                        .font(.caption2.weight(.bold))
+                        .font(.ui(.caption2).weight(.bold))
                         .foregroundStyle(.secondary)
                 }
 
@@ -321,19 +332,19 @@ struct MacNewsDeskView: View {
             }
 
             Text(item.title)
-                .font(.system(.title, design: .serif).weight(.bold))
+                .font(.ui(.title, design: .serif).weight(.bold))
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 6) {
                 if let source = item.source, !source.isEmpty {
                     Text(source)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.ui(.subheadline).weight(.semibold))
                 }
                 if !item.timeAgo.isEmpty {
                     Text("·").foregroundStyle(.tertiary)
                     Text(item.timeAgo)
-                        .font(.subheadline)
+                        .font(.ui(.subheadline))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -344,7 +355,7 @@ struct MacNewsDeskView: View {
         VStack(alignment: .leading, spacing: 16) {
             if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
-                    .font(.system(.title3, design: .serif))
+                    .font(.ui(.title3, design: .serif))
                     .foregroundStyle(.secondary)
                     .lineSpacing(5)
             }
@@ -353,7 +364,7 @@ struct MacNewsDeskView: View {
                 Label("Investment brief", systemImage: "sparkles")
                     .font(.dsHeadline)
                 Text("What happened, why it matters for the valuation, the risks, and the markers to check next — written from the article and grounded sources.")
-                    .font(.subheadline)
+                    .font(.ui(.subheadline))
                     .foregroundStyle(.secondary)
 
                 Button {
@@ -366,7 +377,7 @@ struct MacNewsDeskView: View {
                         Text("Write the brief")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .controlSize(.large)
             }
             .padding(16)
@@ -379,9 +390,9 @@ struct MacNewsDeskView: View {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Writing the brief…")
-                    .font(.subheadline.weight(.medium))
+                    .font(.ui(.subheadline).weight(.medium))
                 Text("Reading the article and grounding the implications.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
         }
@@ -427,9 +438,9 @@ struct MacNewsDeskView: View {
                             Link(destination: linkURL) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "link")
-                                        .font(.caption2)
+                                        .font(.ui(.caption2))
                                     Text(s.title ?? u)
-                                        .font(.footnote)
+                                        .font(.ui(.footnote))
                                         .lineLimit(1)
                                 }
                             }
@@ -452,7 +463,7 @@ struct MacNewsDeskView: View {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .font(.caption)
+                .font(.ui(.caption))
                 .foregroundStyle(.secondary)
             }
         }
@@ -464,7 +475,7 @@ struct MacNewsDeskView: View {
                 .font(.dsLabel)
                 .foregroundStyle(.secondary)
             Text(body)
-                .font(.system(.body, design: .serif))
+                .font(.ui(.body, design: .serif))
                 .lineSpacing(5)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -483,7 +494,7 @@ struct MacNewsDeskView: View {
                         .frame(width: 5, height: 5)
                         .padding(.top, 6)
                     Text(row)
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -496,7 +507,7 @@ struct MacNewsDeskView: View {
             Label("Ask Warren", systemImage: "bubble.left.and.bubble.right")
                 .font(.dsHeadline)
             Text("Moats, capital efficiency and valuation impact of this story, in the value-investing frame.")
-                .font(.caption)
+                .font(.ui(.caption))
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
@@ -510,7 +521,7 @@ struct MacNewsDeskView: View {
                 } label: {
                     Label("Ask about this story", systemImage: "sparkles")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.dsBordered)
                 .disabled(!store.canRunTasks)
 
                 if let ticker = item.ticker, !ticker.isEmpty {
@@ -519,7 +530,7 @@ struct MacNewsDeskView: View {
                     } label: {
                         Label("Log signal", systemImage: "flag")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.dsBordered)
                     .help("Log a bullish / bearish call on \(ticker) from this story (⌘L)")
                 }
             }
@@ -537,7 +548,7 @@ struct MacNewsLeadCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundStyle(tone)
                 if let badge = item.ticker ?? item.companyName {
                     MacStatusPill(text: badge.uppercased(), color: tone)
@@ -547,7 +558,7 @@ struct MacNewsLeadCard: View {
             }
 
             Text(item.title)
-                .font(.system(size: 17, weight: .bold))
+                .font(.ui(size: 17, weight: .bold))
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -599,30 +610,30 @@ struct MacNewsStoryRow: View {
             HStack(spacing: 6) {
                 if let ticker = item.ticker, !ticker.isEmpty {
                     Text(ticker.uppercased())
-                        .font(.caption2.weight(.bold))
+                        .font(.ui(.caption2).weight(.bold))
                         .foregroundStyle(Color.dsAccent)
                 }
                 if let src = item.source, !src.isEmpty {
                     Text(src)
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if !item.timeAgo.isEmpty {
                     Text(item.timeAgo)
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.tertiary)
                 }
             }
 
             Text(item.title)
-                .font(.headline)
+                .font(.ui(.headline))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }

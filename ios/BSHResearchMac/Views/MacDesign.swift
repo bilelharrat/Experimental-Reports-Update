@@ -11,10 +11,11 @@ enum MacDS {
     static let section: CGFloat = 20
     static let tileRadius: CGFloat = 8
 
-    /// Bureau's trays are soft, Folio's cards are cut, Summit's are the Mac's own.
+    /// Bureau's trays are the website's (14pt), Folio's cards are cut, Summit's are the
+    /// Mac's own.
     static var cardRadius: CGFloat {
         switch BSHDesign.active {
-        case .bureau: return 12
+        case .bureau: return 14
         case .folio: return 6
         case .glass: return 12
         }
@@ -42,13 +43,55 @@ extension ShapeStyle where Self == Color {
 
 extension Font {
     static var dsTitle: Font { BSHType.title(22) }
-    static var dsHeadline: Font { BSHType.heading(15) }
-    static let dsSubhead = Font.system(size: 13, weight: .medium)
-    static let dsBody = Font.system(size: 13)
-    static let dsLabel = Font.system(size: 11, weight: .medium)
-    static let dsCaption = Font.system(size: 11)
-    static let dsMetric = Font.system(size: 20, weight: .semibold).monospacedDigit()
-    static let dsMetricSmall = Font.system(size: 15, weight: .semibold).monospacedDigit()
+    /// A card's heading. Bureau sets it as the website sets `.text-headline`: the
+    /// interface face, semibold; only titles are in the serif.
+    static var dsHeadline: Font {
+        BSHDesign.active == .bureau ? BSHType.bureauSans(15, weight: .semibold) : BSHType.heading(15)
+    }
+    static var dsSubhead: Font { .ui(size: 13, weight: .medium) }
+    static var dsBody: Font { .ui(size: 13) }
+    static var dsLabel: Font { .ui(size: 11, weight: .medium) }
+    static var dsCaption: Font { .ui(size: 11) }
+    static var dsMetric: Font { .ui(size: 20, weight: .semibold).monospacedDigit() }
+    static var dsMetricSmall: Font { .ui(size: 15, weight: .semibold).monospacedDigit() }
+
+    /// The interface face at a size: Instrument Sans under Bureau, as the website sets its
+    /// interface, and the system face otherwise. Serif and monospaced type stay the
+    /// system's, as the website's `font-serif` and `font-mono` do.
+    static func ui(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        guard BSHDesign.active == .bureau, design != .monospaced, design != .serif else {
+            return .system(size: size, weight: weight, design: design)
+        }
+        return BSHType.bureauSans(size, weight: weight)
+    }
+
+    /// The interface face at one of the Mac's text styles, at the style's size.
+    static func ui(_ style: Font.TextStyle, design: Font.Design = .default) -> Font {
+        guard BSHDesign.active == .bureau, design != .monospaced, design != .serif else {
+            return .system(style, design: design)
+        }
+        let (size, weight) = MacDS.metrics(of: style)
+        return BSHType.bureauSans(size, weight: weight)
+    }
+}
+
+extension MacDS {
+    /// The Mac's text styles (NSFont.preferredFont), for setting them in another face.
+    /// The headline, bold in the system face, is semibold in Bureau's, as on the website.
+    static func metrics(of style: Font.TextStyle) -> (CGFloat, Font.Weight) {
+        switch style {
+        case .largeTitle: return (26, .regular)
+        case .title: return (22, .regular)
+        case .title2: return (17, .regular)
+        case .title3: return (15, .regular)
+        case .headline: return (13, .semibold)
+        case .subheadline: return (11, .regular)
+        case .body: return (13, .regular)
+        case .callout: return (12, .regular)
+        case .footnote, .caption, .caption2: return (10, .regular)
+        @unknown default: return (13, .regular)
+        }
+    }
 }
 
 // MARK: - Card anatomy
@@ -68,17 +111,48 @@ struct MacCardHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 18)
+        if BSHDesign.active == .bureau {
+            bureauBody
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.ui(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.dsAccent)
+                        .frame(width: 18)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.dsHeadline)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.dsCaption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                trailing()
             }
+        }
+    }
+
+    /// The website's card heading (`.text-headline`, 15pt semibold, with a glyph in brass),
+    /// its line under it in 12pt muted ink.
+    private var bureauBody: some View {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.dsHeadline)
+                HStack(spacing: 8) {
+                    if let systemImage {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Color.dsAccent)
+                            .frame(width: 16, height: 16)
+                    }
+                    Text(title)
+                        .font(BSHType.bureauSans(15, weight: .semibold))
+                        .tracking(-0.15)
+                        .lineLimit(1)
+                        .frame(height: 20)
+                }
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.dsCaption).foregroundStyle(.secondary)
+                    Text(subtitle).font(.ui(size: 12)).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
@@ -101,11 +175,16 @@ struct MacSectionLabel: View {
     init(_ text: String, trailing: String? = nil) { self.text = text; self.trailing = trailing }
     var body: some View {
         HStack {
-            Text(text)
-                .font(BSHType.kicker(11))
-                .tracking(BSHType.kickerIsCapitals ? 0.8 : 0)
-                .textCase(BSHType.kickerIsCapitals ? .uppercase : nil)
-                .foregroundStyle(.secondary)
+            if BSHDesign.active == .bureau {
+                // The website's `.vogue-label`: italic serif at 15.5pt.
+                MacBureauKicker(text)
+            } else {
+                Text(text)
+                    .font(BSHType.kicker(11))
+                    .tracking(BSHType.kickerIsCapitals ? 0.8 : 0)
+                    .textCase(BSHType.kickerIsCapitals ? .uppercase : nil)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             if let trailing { Text(trailing).font(.dsCaption.monospacedDigit()).foregroundStyle(.tertiary) }
         }
@@ -151,15 +230,19 @@ struct MacDeskHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.dsTitle)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.dsBody).foregroundStyle(.secondary)
+        if BSHDesign.active == .bureau {
+            MacBureauPageHeader(title, subtitle: subtitle) { trailing() }
+        } else {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.dsTitle)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.dsBody).foregroundStyle(.secondary)
+                    }
                 }
+                Spacer()
+                trailing()
             }
-            Spacer()
-            trailing()
         }
     }
 }
@@ -174,9 +257,62 @@ extension MacDeskHeader where Trailing == EmptyView {
 struct MacTabBar<Item: Hashable>: View {
     let items: [(Item, String)]
     @Binding var selection: Item
+    /// Bureau draws the website's `.mac-tabbar` two ways: inside the Research Desk (a
+    /// `.mac-desk`) the idle tabs are muted over a hairline; elsewhere (Market) they're set
+    /// in ink with no hairline. `plain` is the second.
+    var plain = false
     @Namespace private var underline
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            bureauBody
+        } else {
+            nativeBody
+        }
+    }
+
+    /// `.mac-tab`: 13pt on a 19.5pt line, 4pt above and 8pt below, 20pt apart; the chosen
+    /// tab semibold over a 2pt brass rule at its foot.
+    private var bureauBody: some View {
+        let ink = MacBureauPageInk(scheme: colorScheme)
+        return VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .bottom, spacing: 20) {
+                    ForEach(items, id: \.0) { item, label in
+                        Button {
+                            withAnimation(.snappy(duration: 0.22)) { selection = item }
+                        } label: {
+                            Text(label)
+                                .font(BSHType.bureauSans(13, weight: selection == item ? .semibold : .regular))
+                                .foregroundStyle(selection == item || plain ? ink.ink : ink.muted)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .bureauLines(19.5, size: 13)
+                                .padding(.top, 4)
+                                .padding(.bottom, 8)
+                                .overlay(alignment: .bottom) {
+                                    if selection == item {
+                                        Rectangle()
+                                            .fill(ink.accentGlow(1))
+                                            .frame(height: 2)
+                                            .matchedGeometryEffect(id: "underline", in: underline)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            if !plain {
+                Rectangle().fill(ink.rule).frame(height: 1)
+            }
+        }
+    }
+
+    private var nativeBody: some View {
         ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 20) {
             ForEach(items, id: \.0) { item, label in
@@ -185,7 +321,7 @@ struct MacTabBar<Item: Hashable>: View {
                 } label: {
                     VStack(spacing: 6) {
                         Text(label)
-                            .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
+                            .font(.ui(size: 13, weight: selection == item ? .semibold : (BSHDesign.active == .bureau ? .medium : .regular)))
                             .foregroundStyle(selection == item ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                             .lineLimit(1)
                             .fixedSize()
@@ -209,10 +345,10 @@ struct MacTabBar<Item: Hashable>: View {
                     .overlay(alignment: .bottom) { Rectangle().fill(Color.dsHairline).frame(height: 1) }
                 }
 
-    /// Folio underlines in ink, Bureau in brass, Summit in its blue.
+    /// Folio underlines in ink, Bureau in brass (the website's accent glow), Summit in its blue.
     private static var underlineColor: Color {
         switch BSHDesign.active {
-        case .bureau: return BSHPalette.bureauBrassDeep
+        case .bureau: return BSHPalette.bureauBrass
         case .folio: return BSHPalette.folioInk
         case .glass: return .dsAccent
         }
@@ -277,9 +413,16 @@ struct MacDot: View {
 }
 
 extension View {
-    /// Standard content column for a scrolling desk.
+    /// Standard content column for a scrolling desk. Under Bureau, the website's
+    /// `.page-wide`: 32pt either side, 16pt above, 48pt below, the sheet's full width.
+    @ViewBuilder
     func dsPage() -> some View {
-        self.padding(MacDS.page).frame(maxWidth: 1180, alignment: .leading).frame(maxWidth: .infinity, alignment: .center)
+        if BSHDesign.active == .bureau {
+            self.padding(.horizontal, 32).padding(.top, 16).padding(.bottom, 48)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            self.padding(MacDS.page).frame(maxWidth: 1180, alignment: .leading).frame(maxWidth: .infinity, alignment: .center)
+        }
     }
 
     /// Slim material toolbar strip at the top of a pane.

@@ -46,6 +46,15 @@ struct MacDocumentsDeskView: View {
     @AppStorage("mac.documents.mode") private var mode: String = "files"
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays the desk out as the website's Reports page (MacBureauReports.swift).
+            MacBureauReportsDesk()
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(spacing: 0) {
             HStack {
                 GlassSegmentedPicker("Mode", selection: $mode, segments: ["files": "Files & memos", "transcripts": "Transcripts"])
@@ -131,12 +140,12 @@ struct MacDocumentsDeskView: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "doc.text.magnifyingglass")
-                            .font(.system(size: 36))
+                            .font(.ui(size: 36))
                             .foregroundStyle(.secondary)
                         Text("No documents found")
-                            .font(.headline)
+                            .font(.ui(.headline))
                         Text("Try clearing filters or search terms.")
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
@@ -158,7 +167,7 @@ struct MacDocumentsDeskView: View {
                 // Footer Count & Refresh
                 HStack {
                     Text("\(filteredReports.count) documents")
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
@@ -167,7 +176,7 @@ struct MacDocumentsDeskView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .help("Refresh documents list")
                 }
                 .padding(.horizontal, 12)
@@ -232,7 +241,7 @@ struct MacDocumentsDeskView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(report.companyName ?? report.companyId ?? "Document")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.ui(size: 13, weight: .medium))
                     .lineLimit(1)
                 Text([report.reportType ?? "Investment Memo", report.timeAgo].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.dsCaption)
@@ -245,7 +254,7 @@ struct MacDocumentsDeskView: View {
 
             if report.id == store.openReportId && store.openDocumentOverlayData != nil {
                 Image(systemName: "pencil.tip.crop.circle.fill")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(Color.orange)
                     .help("Contains iPad Apple Pencil ink")
             }
@@ -268,11 +277,11 @@ struct MacDocumentsDeskView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text(report.companyName ?? report.companyId ?? "Document")
-                        .font(.headline)
+                        .font(.ui(.headline))
                         .lineLimit(1)
 
                     Text(store.openDocumentIsPDF ? "PDF" : "DOCX")
-                        .font(.caption2.weight(.bold))
+                        .font(.ui(.caption2).weight(.bold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -280,7 +289,7 @@ struct MacDocumentsDeskView: View {
                 }
 
                 Text(report.displayTitle)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -337,7 +346,7 @@ struct MacDocumentsDeskView: View {
             } label: {
                 Image(systemName: "globe")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.dsBordered)
             .controlSize(.small)
             .help("Open this memo in the Research Browser")
 
@@ -346,7 +355,7 @@ struct MacDocumentsDeskView: View {
                 ShareLink(item: url) {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.dsBordered)
                 .controlSize(.small)
                 .help("Export or share file")
             }
@@ -386,23 +395,23 @@ struct MacDocumentsDeskView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Loading memo document…")
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "doc.questionmark")
-                        .font(.system(size: 36))
+                        .font(.ui(size: 36))
                         .foregroundStyle(.secondary)
                     Text(store.openDocumentError ?? "No document preview available")
-                        .font(.headline)
+                        .font(.ui(.headline))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Reload Document") {
                         Task { await store.openMemo(report, language: store.readerLanguage) }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.dsBordered)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

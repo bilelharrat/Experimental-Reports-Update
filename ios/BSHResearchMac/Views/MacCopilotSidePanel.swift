@@ -48,6 +48,15 @@ struct MacCopilotSidePanel: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau draws Warren's sheet as the website does.
+            MacBureauWarrenPanel()
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(spacing: 0) {
             // Header matching CopilotPanel.vue: Warren portrait (size 36) + title + company picker + close
             drawerHeader
@@ -117,7 +126,7 @@ struct MacCopilotSidePanel: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Ask Warren")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.ui(size: 15, weight: .bold))
                     .foregroundStyle(.primary)
 
                 // Company Picker Dropdown
@@ -151,12 +160,12 @@ struct MacCopilotSidePanel: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(activeCompany != nil ? (activeCompany!.ticker ?? activeCompany!.name ?? activeCompany!.title) : "Choose a company")
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .fontWeight(.medium)
                             .foregroundStyle(Color.dsAccent)
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.ui(size: 8, weight: .bold))
                             .foregroundStyle(Color.dsAccent)
                     }
                     .padding(.horizontal, 6)
@@ -187,7 +196,7 @@ struct MacCopilotSidePanel: View {
                 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
+                    .font(.ui(.caption).weight(.semibold))
                     .padding(5)
                     .background(Color.primary.opacity(0.06), in: Circle())
             }
@@ -215,7 +224,7 @@ struct MacCopilotSidePanel: View {
             Text(store.copilotDeepMode
                  ? "A longer research session with full document access"
                  : "A fast answer from this company’s files and memo")
-                .font(.system(size: 10))
+                .font(.ui(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -233,11 +242,11 @@ struct MacCopilotSidePanel: View {
                 .padding(.top, 16)
 
             Text(activeCompany != nil ? "Ask Warren about \(companyLabel)" : "Ask Warren")
-                .font(.system(size: 16, weight: .bold))
+                .font(.ui(size: 16, weight: .bold))
                 .foregroundStyle(.primary)
 
             Text("Moat, management, intrinsic value and margin of safety — grounded in this company’s files and memo.")
-                .font(.caption)
+                .font(.ui(.caption))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
@@ -245,7 +254,7 @@ struct MacCopilotSidePanel: View {
             // Suggested Starters: "Try asking"
             VStack(alignment: .leading, spacing: 8) {
                 Text("TRY ASKING")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.ui(size: 10, weight: .bold))
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 2)
                     .padding(.top, 10)
@@ -256,11 +265,11 @@ struct MacCopilotSidePanel: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "text.bubble")
-                                .font(.caption2)
+                                .font(.ui(.caption2))
                                 .foregroundStyle(Color.dsAccent)
 
                             Text(prompt)
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(.primary)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -268,7 +277,7 @@ struct MacCopilotSidePanel: View {
                             Spacer(minLength: 4)
 
                             Image(systemName: "arrow.up.right")
-                                .font(.caption2)
+                                .font(.ui(.caption2))
                                 .foregroundStyle(.tertiary)
                         }
                         .padding(.horizontal, 10)
@@ -301,11 +310,11 @@ struct MacCopilotSidePanel: View {
                 WarrenMarkView(size: 22, isBusy: false)
 
                 Text("Warren")
-                    .font(.footnote.weight(.semibold))
+                    .font(.ui(.footnote).weight(.semibold))
                     .foregroundStyle(.primary)
 
                 Text(msg.date.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(.tertiary)
 
                 Spacer()
@@ -316,7 +325,7 @@ struct MacCopilotSidePanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 if msg.isError {
                     Label(msg.text, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .foregroundStyle(Color.dsWarning)
                         .textSelection(.enabled)
                 } else {
@@ -343,7 +352,7 @@ struct MacCopilotSidePanel: View {
                         Image(systemName: copiedTurnId == msg.id ? "checkmark" : "doc.on.doc")
                         Text(copiedTurnId == msg.id ? "Copied" : "Copy")
                     }
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -355,7 +364,7 @@ struct MacCopilotSidePanel: View {
                         Image(systemName: "arrow.clockwise")
                         Text("Ask again")
                     }
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -375,7 +384,7 @@ struct MacCopilotSidePanel: View {
                 WarrenMarkView(size: 22, isBusy: true)
 
                 Text("Warren")
-                    .font(.footnote.weight(.semibold))
+                    .font(.ui(.footnote).weight(.semibold))
                     .foregroundStyle(.primary)
 
                 HStack(spacing: 4) {
@@ -383,7 +392,7 @@ struct MacCopilotSidePanel: View {
                         .fill(Color.dsAccent)
                         .frame(width: 5, height: 5)
                     Text("Buffetting…")
-                        .font(.caption2.weight(.medium))
+                        .font(.ui(.caption2).weight(.medium))
                         .foregroundStyle(Color.dsAccent)
                 }
 
@@ -393,7 +402,7 @@ struct MacCopilotSidePanel: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.mini)
                 Text("Analyzing disclosures and value thesis…")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
             .padding(.leading, 30)
@@ -417,7 +426,7 @@ struct MacCopilotSidePanel: View {
 
                 TextField(placeholderText, text: $inputPrompt, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.callout)
+                    .font(.ui(.callout))
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                     .onSubmit {
@@ -428,7 +437,7 @@ struct MacCopilotSidePanel: View {
                     submitCurrentPrompt()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
+                        .font(.ui(.title2))
                         .foregroundStyle(
                             canSubmit ? Color.dsAccent : Color.secondary.opacity(0.35)
                         )
@@ -448,13 +457,13 @@ struct MacCopilotSidePanel: View {
 
             HStack {
                 Text("Enter to send · Shift+Enter for newline")
-                    .font(.system(size: 10))
+                    .font(.ui(size: 10))
                     .foregroundStyle(.secondary)
 
                 Spacer()
 
                 Text("Perspective: Warren Buffett")
-                    .font(.system(size: 10))
+                    .font(.ui(size: 10))
                     .foregroundStyle(.secondary)
             }
         }

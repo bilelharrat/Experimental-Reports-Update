@@ -95,7 +95,7 @@ struct MacMemoStudioView: View {
     private var studioHeader: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.ui(size: 16, weight: .semibold))
                 .foregroundStyle(Color.dsAccent)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -103,7 +103,7 @@ struct MacMemoStudioView: View {
                     Text("Memo Studio Workbench")
                         .font(.dsHeadline)
                     Text("HUMAN-IN-THE-LOOP")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.dsAccent.opacity(0.12))
@@ -125,7 +125,7 @@ struct MacMemoStudioView: View {
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)
             .help("Refresh Studio State")
@@ -143,7 +143,7 @@ struct MacMemoStudioView: View {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(Color.orange)
-                    .font(.system(size: 14))
+                    .font(.ui(size: 14))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Not investigated yet")
                         .font(.dsSubhead.weight(.semibold))
@@ -159,7 +159,7 @@ struct MacMemoStudioView: View {
                     Label("Run Deep Investigate", systemImage: "sparkles")
                         .font(.dsSubhead.weight(.semibold))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .disabled(!store.canRunTasks)
                 .help(store.canRunTasks ? "Opens the report customizer on Studio review" : "Sign in with an analyst or partner role to run investigations")
             }
@@ -205,7 +205,7 @@ struct MacMemoStudioView: View {
                     }
                     .font(.dsSubhead.weight(.semibold))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .disabled(isSynthesizing)
             }
             .padding(12)
@@ -219,7 +219,7 @@ struct MacMemoStudioView: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.green)
-                    .font(.system(size: 14))
+                    .font(.ui(size: 14))
 
                 Text("Spine Editor Active · Live mutations persist immediately to the server.")
                     .font(.dsCaption)
@@ -257,7 +257,7 @@ struct MacMemoStudioView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: tab.icon)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.ui(size: 11, weight: .medium))
                         Text(tab.rawValue)
                             .font(.dsSubhead)
                         if tab == .thesis, let count = editorState?.sections.investmentThesis?.cards.count {
@@ -296,7 +296,7 @@ struct MacMemoStudioView: View {
 
     private func countPill(_ count: String) -> some View {
         Text(count)
-            .font(.system(size: 10, weight: .bold))
+            .font(.ui(size: 10, weight: .bold))
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Color.primary.opacity(0.08))
@@ -327,7 +327,7 @@ struct MacMemoStudioView: View {
             if cards.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "brain.head.profile")
-                        .font(.system(size: 28))
+                        .font(.ui(size: 28))
                         .foregroundStyle(.tertiary)
                     Text("No thesis spine cards generated yet.")
                         .font(.dsSubhead)
@@ -360,14 +360,14 @@ struct MacMemoStudioView: View {
                     }
                 } label: {
                     Image(systemName: card.isCardIncluded ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15))
+                        .font(.ui(size: 15))
                         .foregroundStyle(card.isCardIncluded ? Color.dsAccent : Color.secondary)
                 }
                 .buttonStyle(.plain)
 
                 if card.placeholder {
                     Text("TEMPLATE")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.orange.opacity(0.15))
@@ -379,7 +379,7 @@ struct MacMemoStudioView: View {
                 // Category pill
                 if let cat = card.category, !cat.isEmpty {
                     Text(cat.uppercased())
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.primary.opacity(0.06))
@@ -427,7 +427,7 @@ struct MacMemoStudioView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.up")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .buttonStyle(.plain)
                     .disabled(index == 0)
@@ -443,7 +443,7 @@ struct MacMemoStudioView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .buttonStyle(.plain)
                     .disabled(index == total - 1)
@@ -458,7 +458,7 @@ struct MacMemoStudioView: View {
                         }
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 11))
+                            .font(.ui(size: 11))
                             .foregroundStyle(Color.red.opacity(0.7))
                     }
                     .buttonStyle(.plain)
@@ -501,7 +501,7 @@ struct MacMemoStudioView: View {
             if cards.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 28))
+                        .font(.ui(size: 28))
                         .foregroundStyle(.tertiary)
                     Text("No strategic risk cards extracted yet.")
                         .font(.dsSubhead)
@@ -535,14 +535,14 @@ struct MacMemoStudioView: View {
                     }
                 } label: {
                     Image(systemName: card.isCardIncluded ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15))
+                        .font(.ui(size: 15))
                         .foregroundStyle(card.isCardIncluded ? Color.dsAccent : Color.secondary)
                 }
                 .buttonStyle(.plain)
 
                 if card.placeholder {
                     Text("TEMPLATE")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.orange.opacity(0.15))
@@ -638,7 +638,7 @@ struct MacMemoStudioView: View {
                                 refiningRiskId = nil
                             }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.dsProminent)
                         .font(.dsCaption.weight(.semibold))
                     }
                 }
@@ -669,7 +669,7 @@ struct MacMemoStudioView: View {
         }()
 
         return Text(label)
-            .font(.system(size: 9, weight: .bold))
+            .font(.ui(size: 9, weight: .bold))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))
@@ -685,7 +685,7 @@ struct MacMemoStudioView: View {
             if areas.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "checklist.checked")
-                        .font(.system(size: 28))
+                        .font(.ui(size: 28))
                         .foregroundStyle(.tertiary)
                     Text("No diligence readiness areas logged yet.")
                         .font(.dsSubhead)
@@ -702,7 +702,7 @@ struct MacMemoStudioView: View {
                     HStack(spacing: 12) {
                         Image(systemName: statIcon)
                             .foregroundStyle(statColor)
-                            .font(.system(size: 14))
+                            .font(.ui(size: 14))
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(area.area ?? area.id)
@@ -717,7 +717,7 @@ struct MacMemoStudioView: View {
                         Spacer()
 
                         Text((area.status ?? "Open").capitalized)
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.ui(size: 10, weight: .bold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(statColor.opacity(0.15))
@@ -762,7 +762,7 @@ struct MacMemoStudioView: View {
             if claims.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass.circle")
-                        .font(.system(size: 28))
+                        .font(.ui(size: 28))
                         .foregroundStyle(.tertiary)
                     Text("No factual claims logged in evidence matrix.")
                         .font(.dsSubhead)
@@ -786,7 +786,7 @@ struct MacMemoStudioView: View {
                             ForEach(claim.supportingEvidence, id: \.self) { entry in
                                 HStack(alignment: .top, spacing: 6) {
                                     Image(systemName: "doc.text")
-                                        .font(.system(size: 10))
+                                        .font(.ui(size: 10))
                                         .foregroundStyle(Color.dsAccent)
                                     if let exc = entry.excerpt {
                                         Text(exc)
@@ -822,7 +822,7 @@ struct MacMemoStudioView: View {
         }()
 
         return Text(text)
-            .font(.system(size: 9, weight: .bold))
+            .font(.ui(size: 9, weight: .bold))
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(color.opacity(0.12))
@@ -846,7 +846,7 @@ struct MacMemoStudioView: View {
                 Text("Thesis Headline / Argument")
                     .font(.dsCaption.weight(.medium))
                 TextField("e.g. Proprietary data moat compounds faster than open-weight checkpoints", text: $newCardTitle)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
             }
 
             HStack(spacing: 14) {
@@ -892,7 +892,7 @@ struct MacMemoStudioView: View {
                         showAddCardSheet = false
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .disabled(newCardTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }

@@ -52,6 +52,11 @@ struct BSHResearchMacApp: App {
 
     init() {
         BSHType.registerBundledFonts()
+        MacFontSmoothing.apply(BSHDesign.active)
+        // Auto, Light or Dark, as Settings (and the website) keep it.
+        if MacAppearance.stored != .auto {
+            DispatchQueue.main.async { MacAppearance.stored.apply() }
+        }
     }
 
     var body: some Scene {
@@ -62,6 +67,7 @@ struct BSHResearchMacApp: App {
                 .environmentObject(design)
                 .bshDesignRoot()
                 .id(design.identity)
+                .onChange(of: design.design) { _, next in MacFontSmoothing.apply(next) }
                 .frame(minWidth: 1050, minHeight: 680)
         }
         .windowToolbarStyle(.unified)
@@ -69,7 +75,7 @@ struct BSHResearchMacApp: App {
         .commands {
             SidebarCommands()
             InspectorCommands()
-            MacDeskCommands(store: store)
+            MacDeskCommands(store: store, design: design)
         }
 
         MenuBarExtra {
@@ -124,8 +130,10 @@ struct BSHResearchMacApp: App {
 /// with no target they front the main window and act there.
 struct MacDeskCommands: Commands {
     @ObservedObject var store: MacAppStore
+    @ObservedObject var design: BSHDesignStore
     @FocusedValue(\.deskTarget) private var target
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     private var targetCompany: MacCompany? {
         if let target {
@@ -158,6 +166,18 @@ struct MacDeskCommands: Commands {
     }
 
     var body: some Commands {
+        // Under Bureau, Settings is a page on the sheet, as on the website.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                if design.design == .bureau {
+                    onMainWindow { store.selectedTab = .settings }
+                } else {
+                    openSettings()
+                }
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("New Window") {
                 openWindow(id: "main")
@@ -342,6 +362,20 @@ struct MacDeskCommands: Commands {
             Button("Open Research Portal on Web") {
                 MacConfig.openInBrowser(MacConfig.baseURL)
             }
+        }
+    }
+}
+
+/// The website sets its text with `-webkit-font-smoothing: antialiased`, without the stem
+/// darkening macOS adds; Bureau's pages are the website's, so under Bureau the Mac draws its
+/// text the same way. Summit Glass and Folio keep the system's smoothing. (A change takes
+/// hold as the text is next drawn, or at the next launch.)
+enum MacFontSmoothing {
+    static func apply(_ design: BSHDesign) {
+        if design == .bureau {
+            UserDefaults.standard.set(0, forKey: "AppleFontSmoothing")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "AppleFontSmoothing")
         }
     }
 }

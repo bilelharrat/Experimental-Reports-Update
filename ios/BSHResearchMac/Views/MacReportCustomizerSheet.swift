@@ -122,6 +122,16 @@ struct MacReportCustomizerSheet: View {
     ]
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau draws the website's dialog (MacBureauReportCustomizer.swift). The window
+            // shows it over itself; this is the same dialog when it is presented as a sheet.
+            MacBureauReportCustomizerSheet(company: company, onGenerate: onGenerate)
+        } else {
+            summitBody
+        }
+    }
+
+    private var summitBody: some View {
         VStack(spacing: 0) {
             headerBar
             Divider().opacity(0.15)
@@ -179,7 +189,7 @@ struct MacReportCustomizerSheet: View {
 
                     if let ticker = company.ticker, !ticker.isEmpty {
                         Text(ticker.uppercased())
-                            .font(.system(size: 11, weight: .bold).monospaced())
+                            .font(.ui(size: 11, weight: .bold).monospaced())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.dsAccent.opacity(0.12))
@@ -209,7 +219,7 @@ struct MacReportCustomizerSheet: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.ui(size: 12, weight: .semibold))
                     .frame(width: 26, height: 26)
                     .background(Color.primary.opacity(0.06))
                     .clipShape(Circle())
@@ -230,7 +240,7 @@ struct MacReportCustomizerSheet: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: tab.icon)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.ui(size: 12, weight: .medium))
                         Text(tab.rawValue)
                             .font(.dsSubhead)
                     }
@@ -318,7 +328,7 @@ struct MacReportCustomizerSheet: View {
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: option.icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.ui(size: 16, weight: .semibold))
                     .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 24, height: 24)
 
@@ -330,7 +340,7 @@ struct MacReportCustomizerSheet: View {
                         Spacer()
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.ui(size: 14))
                                 .foregroundStyle(Color.dsAccent)
                         }
                     }
@@ -359,7 +369,7 @@ struct MacReportCustomizerSheet: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.ui(size: 14, weight: .semibold))
                     .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     .frame(width: 20)
 
@@ -371,7 +381,7 @@ struct MacReportCustomizerSheet: View {
                         Spacer()
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 13))
+                                .font(.ui(size: 13))
                                 .foregroundStyle(Color.dsAccent)
                         }
                     }
@@ -401,14 +411,14 @@ struct MacReportCustomizerSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(label)
                         .font(.dsSubhead.weight(.semibold))
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13))
+                            .font(.ui(size: 13))
                             .foregroundStyle(Color.dsAccent)
                     }
                 }
@@ -519,10 +529,10 @@ struct MacReportCustomizerSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.ui(size: 16, weight: .semibold))
                         .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
@@ -531,7 +541,7 @@ struct MacReportCustomizerSheet: View {
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15))
+                            .font(.ui(size: 15))
                             .foregroundStyle(Color.dsAccent)
                     }
                 }
@@ -565,10 +575,10 @@ struct MacReportCustomizerSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Image(systemName: icon)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.ui(size: 14, weight: .semibold))
                         .foregroundStyle(isSelected ? Color.dsAccent : Color.secondary)
                     Text(badge)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.ui(size: 9, weight: .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(isSelected ? Color.dsAccent.opacity(0.2) : Color.primary.opacity(0.06))
@@ -577,7 +587,7 @@ struct MacReportCustomizerSheet: View {
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13))
+                            .font(.ui(size: 13))
                             .foregroundStyle(Color.dsAccent)
                     }
                 }
@@ -624,7 +634,7 @@ struct MacReportCustomizerSheet: View {
                 // Starter chips
                 HStack(alignment: .center, spacing: 6) {
                     Text("Suggestions:")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -638,7 +648,7 @@ struct MacReportCustomizerSheet: View {
                                     }
                                 } label: {
                                     Text(starter)
-                                        .font(.system(size: 10))
+                                        .font(.ui(size: 10))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
                                         .background(Color.primary.opacity(0.05))
@@ -708,7 +718,7 @@ struct MacReportCustomizerSheet: View {
             if reports.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 32))
+                        .font(.ui(size: 32))
                         .foregroundStyle(.tertiary)
                     Text("No prior research dossiers for \(company.name ?? company.id) yet.")
                         .font(.dsSubhead)
@@ -747,7 +757,7 @@ struct MacReportCustomizerSheet: View {
                                 Spacer()
                                 if isSelected {
                                     Text("PRIOR CONTEXT")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.ui(size: 9, weight: .bold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(Color.dsAccent.opacity(0.15))
@@ -799,7 +809,7 @@ struct MacReportCustomizerSheet: View {
                 }
                 .font(.dsSubhead.weight(.semibold))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.dsProminent)
             .disabled(isSubmitting)
             .keyboardShortcut(.defaultAction)
         }
@@ -810,7 +820,7 @@ struct MacReportCustomizerSheet: View {
 
     private func summaryBadge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
+            .font(.ui(size: 10, weight: .medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Color.primary.opacity(0.06))

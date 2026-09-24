@@ -436,12 +436,23 @@ enum BSHPalette {
 
 // MARK: - Type
 
-/// Titles and kickers per design. Figures and controls stay in the system face.
+/// Titles and kickers per design, and Bureau's interface face.
 enum BSHType {
     static let bureauSerif = "InstrumentSerif-Regular"
     static let bureauSerifItalic = "InstrumentSerif-Italic"
     static let folioSerif = "IowanOldStyle-Roman"
     static let folioSerifItalic = "IowanOldStyle-Italic"
+
+    /// Bureau sets its interface in Instrument Sans, as the website does. The website loads
+    /// the variable font; the app bundles its 400, 500, 600 and 700 instances as one family,
+    /// so `Font.weight(_:)` picks the right face.
+    static let bureauSans = "InstrumentSans-Regular"
+    static let bureauSansFaces = ["InstrumentSans-Regular", "InstrumentSans-Medium", "InstrumentSans-SemiBold", "InstrumentSans-Bold"]
+
+    /// Bureau's interface face at a size and weight.
+    static func bureauSans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom(bureauSans, size: size).weight(weight)
+    }
 
     /// A desk or page title. Instrument Serif is set larger than SF because it is a
     /// lighter, narrower face; Iowan sits close to SF's size.
@@ -480,10 +491,10 @@ enum BSHType {
     /// Folio sets its labels in small tracked capitals.
     static var kickerIsCapitals: Bool { BSHDesign.active == .folio }
 
-    /// Registers the bundled faces (Instrument Serif) for this process. Iowan Old Style
-    /// ships with iOS and macOS. Safe to call more than once.
+    /// Registers the bundled faces (Instrument Serif and Instrument Sans) for this process.
+    /// Iowan Old Style ships with iOS and macOS. Safe to call more than once.
     static func registerBundledFonts(in bundle: Bundle = .main) {
-        for name in [bureauSerif, bureauSerifItalic] {
+        for name in [bureauSerif, bureauSerifItalic] + bureauSansFaces {
             guard let url = bundle.url(forResource: name, withExtension: "ttf") else { continue }
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }

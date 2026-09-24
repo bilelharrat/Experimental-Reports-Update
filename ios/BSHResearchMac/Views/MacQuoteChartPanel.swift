@@ -35,6 +35,40 @@ struct MacCompareSeries: Identifiable {
     let points: [MacChartPoint]
 }
 
+/// The chart's strokes under Bureau, from the page's ink (QuoteChart.vue's palette).
+struct MacChartPalette {
+    let sma: (Color, Color, Color)
+    let vwap: Color
+    let bandInner: Color
+    let bandOuter: Color
+    let compare: [Color]
+    let accent: Color
+    let notice: Color
+    let danger: Color
+
+    static func bureau(_ ink: MacBureauPageInk) -> MacChartPalette {
+        MacChartPalette(
+            sma: (ink.accent, ink.secondary, ink.notice),
+            vwap: ink.notice,
+            bandInner: ink.accent,
+            bandOuter: ink.muted,
+            compare: [ink.accent, ink.secondary, ink.notice, ink.muted],
+            accent: ink.accent,
+            notice: ink.notice,
+            danger: ink.danger
+        )
+    }
+
+    /// Splits in danger, dividends in brass, earnings and calls in notice yellow.
+    func marker(_ kind: MacChartMarker.Kind) -> Color {
+        switch kind {
+        case .split: return danger
+        case .dividend: return accent
+        default: return notice
+        }
+    }
+}
+
 @MainActor
 final class MacChartInteraction: ObservableObject {
     @Published var hoverIndex: Int?
@@ -64,7 +98,13 @@ struct MacQuoteChartPanel: View {
     let compare: [MacCompareSeries]
     let peers: [MacCompareSeries]
     @Binding var compareTickers: [String]
+    /// Bureau draws the website's "Loading…" in place of the plot while the chart loads.
+    var loading = false
 
+    @Environment(\.colorScheme) private var colorScheme
+    /// Bureau keeps the website's own Peers toggle (on by default there); peers are drawn
+    /// once the plot is rebased (Relative %).
+    @AppStorage("mac.chart.bureau.peers") private var bureauShowPeers = true
     @AppStorage("mac.chart.sma20") private var showSMA20 = true
     @AppStorage("mac.chart.sma50") private var showSMA50 = true
     @AppStorage("mac.chart.sma200") private var showSMA200 = false
@@ -96,6 +136,15 @@ struct MacQuoteChartPanel: View {
     private var peersAvailable: Bool { !peers.isEmpty && !isIntraday }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            bureauBody
+        } else {
+            glassBody
+        }
+    }
+
+    @ViewBuilder
+    private var glassBody: some View {
         let model = MacQuoteChartModel(
             points: points,
             previousClose: payload.previousClose,
@@ -132,6 +181,93 @@ struct MacQuoteChartPanel: View {
                     .frame(height: 96)
             }
             MacChartReadout(points: points, model: model, range: range, interaction: interaction, showDrawdownHint: showDrawdown)
+        }
+        .onChange(of: range) { _, newRange in
+            interaction.reset()
+            applyRangeDefaults(newRange)
+        }
+        .onChange(of: ticker) { _, _ in interaction.reset() }
+        .onChange(of: points.count) { _, _ in interaction.reset() }
+        .onChange(of: expanded) { _, _ in interaction.reset() }
+        .onAppear { applyRangeDefaults(range) }
+    }
+
+    // MARK: Bureau (QuoteChart.vue)
+
+    /// Compare lines rebase the plot, as on the Mac; the website's Relative % does the same.
+    private var bureauRelative: Bool { relativeMode || !compare.isEmpty }
+
+    /// The website's chart: its tool groups, then a bare plot (no axes) with the day's
+    /// area under the price line, the panes under it, and the readout centered below.
+    @ViewBuilder
+    private var bureauBody: some View {
+        let ink = MacBureauPageInk(scheme: colorScheme)
+        let relative = bureauRelative
+        let peerLines = bureauShowPeers && relative && peersAvailable ? peers.map { ($0.ticker, $0.points) } : []
+        let model = MacQuoteChartModel(
+            points: points,
+            previousClose: payload.previousClose,
+            relative: relative,
+            logScale: logScale && !relative,
+            sma: (showSMA20 && !relative, showSMA50 && !relative, showSMA200 && !relative),
+            vwap: showVWAP && !relative && hasVolume,
+            vwapBands: showVWAPBands && !relative && hasVolume,
+            profile: false,
+            compare: compare.map { ($0.ticker, $0.points) } + peerLines,
+            markers: showMarkers ? markers : [],
+            palette: .bureau(ink),
+            tight: true
+        )
+        let lineColor = MacQuoteMath.direction(points, previousClose: payload.previousClose) >= 0 ? ink.success : ink.danger
+
+        VStack(alignment: .leading, spacing: 0) {
+            MacBureauMarketChartTools(
+                peersAvailable: !peers.isEmpty || !compare.isEmpty,
+                eventsAvailable: !markers.isEmpty,
+                hasVolume: hasVolume,
+                relativeLocked: !compare.isEmpty,
+                onExport: points.count > 1 ? { exportCSV() } : nil
+            )
+            .padding(.bottom, 8)
+
+            if points.count < 2 {
+                Text(loading ? "Loading…" : "No chart data for this range yet.")
+                    .font(BSHType.bureauSans(14))
+                    .tracking(-0.084)
+                    .foregroundStyle(ink.muted)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 20)
+                    .padding(.vertical, 64)
+            } else {
+                MacChartMainPlot(model: model, lineColor: lineColor, range: range, interaction: interaction, bureau: ink)
+                    .frame(height: expanded ? 380 : 220)
+                if showProfile && hasVolume && !relative {
+                    MacBureauMarketChartProfile(buckets: MacQuoteMath.volumeProfile(points, buckets: 18), ink: ink)
+                        .padding(.top, 5.6)
+                }
+                if showVolume && hasVolume {
+                    MacChartVolumePane(model: model, color: lineColor, interaction: interaction, bureau: ink)
+                        .frame(height: 72)
+                        .padding(.top, 4)
+                }
+                if showRSI {
+                    MacChartLinePane(title: "RSI 14", values: MacQuoteMath.rsi(points), count: points.count, color: ink.accent, domain: 0...100, guides: [30, 50, 70], interaction: interaction, bureau: ink)
+                        .frame(height: 72)
+                        .padding(.top, 4)
+                }
+                if showDrawdown {
+                    MacChartLinePane(title: "Drawdown %", values: MacQuoteMath.drawdown(points), count: points.count, color: ink.danger, domain: nil, guides: [0], interaction: interaction, bureau: ink)
+                        .frame(height: 72)
+                        .padding(.top, 4)
+                }
+                if showSeasonality {
+                    MacChartSeasonalityPane(months: MacQuoteMath.seasonality(points), bureau: ink)
+                        .frame(height: 96)
+                        .padding(.top, 4)
+                }
+            }
+            MacChartReadout(points: points, model: model, range: range, interaction: interaction, showDrawdownHint: points.count > 1, bureau: ink)
+                .padding(.top, 8)
         }
         .onChange(of: range) { _, newRange in
             interaction.reset()
@@ -202,7 +338,7 @@ struct MacQuoteChartPanel: View {
     private var compareBar: some View {
         HStack(spacing: 6) {
             Text("Compare")
-                .font(.caption.weight(.semibold))
+                .font(.ui(.caption).weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(Array(compareTickers.enumerated()), id: \.element) { index, symbol in
                 Button {
@@ -210,8 +346,8 @@ struct MacQuoteChartPanel: View {
                 } label: {
                     HStack(spacing: 4) {
                         Circle().fill(Self.comparePalette[index % Self.comparePalette.count]).frame(width: 6, height: 6)
-                        Text(symbol).font(.caption.monospacedDigit().weight(.semibold))
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
+                        Text(symbol).font(.ui(.caption).monospacedDigit().weight(.semibold))
+                        Image(systemName: "xmark").font(.ui(size: 8, weight: .bold)).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -222,7 +358,7 @@ struct MacQuoteChartPanel: View {
             }
             if compareTickers.count < 4 {
                 TextField("Ticker", text: $compareDraft)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
                     .controlSize(.small)
                     .frame(width: 80)
                     .onSubmit(addCompare)
@@ -267,6 +403,10 @@ struct MacQuoteChartModel {
         let color: Color
         let dashed: Bool
         let samples: [Sample]
+        var lineWidth: CGFloat = 1.25
+        var dash: [CGFloat]? = nil
+
+        var stroke: StrokeStyle { StrokeStyle(lineWidth: lineWidth, dash: dash ?? (dashed ? [4, 3] : [])) }
     }
 
     struct PlacedMarker: Identifiable {
@@ -300,7 +440,9 @@ struct MacQuoteChartModel {
         vwapBands: Bool,
         profile: Bool,
         compare: [(String, [MacChartPoint])],
-        markers: [MacChartMarker]
+        markers: [MacChartMarker],
+        palette: MacChartPalette? = nil,
+        tight: Bool = false
     ) {
         count = points.count
         times = points.map(\.t)
@@ -316,24 +458,47 @@ struct MacQuoteChartModel {
         volumes = points.enumerated().compactMap { index, p in p.volume.flatMap { $0 > 0 ? Sample(index: index, value: $0) : nil } }
 
         var overlays: [Overlay] = []
-        if sma.0 { overlays.append(Overlay(id: "SMA 20", color: MacQuoteChartPanel.smaColors.0, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 20)))) }
-        if sma.1 { overlays.append(Overlay(id: "SMA 50", color: MacQuoteChartPanel.smaColors.1, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 50)))) }
-        if sma.2 { overlays.append(Overlay(id: "SMA 200", color: MacQuoteChartPanel.smaColors.2, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 200)))) }
-        if vwap || vwapBands {
-            let bands = MacQuoteMath.vwapBands(points)
-            if vwap { overlays.append(Overlay(id: "VWAP", color: MacQuoteChartPanel.vwapColor, dashed: true, samples: samples(bands.map(\.vwap)))) }
-            if vwapBands {
-                let band = MacQuoteChartPanel.vwapColor.opacity(0.45)
-                overlays.append(Overlay(id: "+1σ", color: band, dashed: true, samples: samples(bands.map(\.upper1))))
-                overlays.append(Overlay(id: "−1σ", color: band, dashed: true, samples: samples(bands.map(\.lower1))))
-                overlays.append(Overlay(id: "+2σ", color: band.opacity(0.6), dashed: true, samples: samples(bands.map(\.upper2))))
-                overlays.append(Overlay(id: "−2σ", color: band.opacity(0.6), dashed: true, samples: samples(bands.map(\.lower2))))
+        if let palette {
+            // QuoteChart.vue's strokes: SMA 20 brass, SMA 50 secondary ink, SMA 200 notice,
+            // VWAP notice dashed, the bands brass (±1σ) and muted (±2σ), peers dashed.
+            if sma.0 { overlays.append(Overlay(id: "SMA 20", color: palette.sma.0, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 20)), lineWidth: 1.25)) }
+            if sma.1 { overlays.append(Overlay(id: "SMA 50", color: palette.sma.1, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 50)), lineWidth: 1.25)) }
+            if sma.2 { overlays.append(Overlay(id: "SMA 200", color: palette.sma.2, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 200)), lineWidth: 1.4)) }
+            if vwap || vwapBands {
+                let bands = MacQuoteMath.vwapBands(points)
+                if vwapBands {
+                    overlays.append(Overlay(id: "+2σ", color: palette.bandOuter.opacity(0.7), dashed: true, samples: samples(bands.map(\.upper2)), lineWidth: 1, dash: [2, 4]))
+                    overlays.append(Overlay(id: "−2σ", color: palette.bandOuter.opacity(0.7), dashed: true, samples: samples(bands.map(\.lower2)), lineWidth: 1, dash: [2, 4]))
+                    overlays.append(Overlay(id: "+1σ", color: palette.bandInner.opacity(0.85), dashed: true, samples: samples(bands.map(\.upper1)), lineWidth: 1.1, dash: [3, 3]))
+                    overlays.append(Overlay(id: "−1σ", color: palette.bandInner.opacity(0.85), dashed: true, samples: samples(bands.map(\.lower1)), lineWidth: 1.1, dash: [3, 3]))
+                }
+                if vwap { overlays.append(Overlay(id: "VWAP", color: palette.vwap, dashed: true, samples: samples(bands.map(\.vwap)), lineWidth: 1.35, dash: [5, 3])) }
             }
-        }
-        for (offset, series) in compare.enumerated() {
-            let aligned = MacQuoteMath.relative(MacQuoteMath.aligned(series.1, to: points))
-            let color = series.0 == "SPY" ? Color.secondary : MacQuoteChartPanel.comparePalette[offset % MacQuoteChartPanel.comparePalette.count]
-            overlays.append(Overlay(id: series.0, color: color, dashed: true, samples: samples(aligned)))
+            for (offset, series) in compare.enumerated() {
+                let aligned = MacQuoteMath.relative(MacQuoteMath.aligned(series.1, to: points))
+                let color = palette.compare[offset % palette.compare.count].opacity(0.85)
+                overlays.append(Overlay(id: series.0, color: color, dashed: true, samples: samples(aligned), lineWidth: 1.25, dash: [4, 3]))
+            }
+        } else {
+            if sma.0 { overlays.append(Overlay(id: "SMA 20", color: MacQuoteChartPanel.smaColors.0, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 20)))) }
+            if sma.1 { overlays.append(Overlay(id: "SMA 50", color: MacQuoteChartPanel.smaColors.1, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 50)))) }
+            if sma.2 { overlays.append(Overlay(id: "SMA 200", color: MacQuoteChartPanel.smaColors.2, dashed: false, samples: samples(MacQuoteMath.movingAverage(points, window: 200)))) }
+            if vwap || vwapBands {
+                let bands = MacQuoteMath.vwapBands(points)
+                if vwap { overlays.append(Overlay(id: "VWAP", color: MacQuoteChartPanel.vwapColor, dashed: true, samples: samples(bands.map(\.vwap)))) }
+                if vwapBands {
+                    let band = MacQuoteChartPanel.vwapColor.opacity(0.45)
+                    overlays.append(Overlay(id: "+1σ", color: band, dashed: true, samples: samples(bands.map(\.upper1))))
+                    overlays.append(Overlay(id: "−1σ", color: band, dashed: true, samples: samples(bands.map(\.lower1))))
+                    overlays.append(Overlay(id: "+2σ", color: band.opacity(0.6), dashed: true, samples: samples(bands.map(\.upper2))))
+                    overlays.append(Overlay(id: "−2σ", color: band.opacity(0.6), dashed: true, samples: samples(bands.map(\.lower2))))
+                }
+            }
+            for (offset, series) in compare.enumerated() {
+                let aligned = MacQuoteMath.relative(MacQuoteMath.aligned(series.1, to: points))
+                let color = series.0 == "SPY" ? Color.secondary : MacQuoteChartPanel.comparePalette[offset % MacQuoteChartPanel.comparePalette.count]
+                overlays.append(Overlay(id: series.0, color: color, dashed: true, samples: samples(aligned)))
+            }
         }
         self.overlays = overlays
 
@@ -341,10 +506,16 @@ struct MacQuoteChartModel {
         var values = plotted.compactMap { $0 }
         if relative { values += overlays.flatMap { $0.samples.map(\.value) } }
         let lo = values.min() ?? 0, hi = values.max() ?? 1
-        let pad = Swift.max((hi - lo) * 0.08, Swift.max(abs(hi) * 0.002, 0.01))
-        var lower = lo - pad
-        if logScale { lower = Swift.max(lower, lo * 0.98, 0.0001) }
-        domain = lower...(hi + pad)
+        if tight {
+            // chartGeometry: the line spans exactly its low to its high inside the plot's pad.
+            let span = hi - lo
+            domain = span > 0 ? lo...hi : (lo - 1)...(hi + 1)
+        } else {
+            let pad = Swift.max((hi - lo) * 0.08, Swift.max(abs(hi) * 0.002, 0.01))
+            var lower = lo - pad
+            if logScale { lower = Swift.max(lower, lo * 0.98, 0.0001) }
+            domain = lower...(hi + pad)
+        }
 
         if !relative, !logScale, let previousClose, domain.contains(previousClose) {
             previousCloseLine = previousClose
@@ -366,7 +537,7 @@ struct MacQuoteChartModel {
                 bestDistance = abs(stamp - marker.t)
             }
             guard bestDistance <= 86400 * 3 else { return nil }
-            return PlacedMarker(id: marker.id, index: best, label: marker.label, color: marker.color)
+            return PlacedMarker(id: marker.id, index: best, label: marker.label, color: palette?.marker(marker.kind) ?? marker.color)
         }
     }
 
@@ -426,8 +597,93 @@ private struct MacChartMainPlot: View {
     let lineColor: Color
     let range: MacChartRange
     let interaction: MacChartInteraction
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
+        if let bureau {
+            bureauPlot(bureau)
+        } else {
+            glassPlot
+        }
+    }
+
+    /// QuoteChart.vue's plot: no axes or grid, the area under the line at 16%, a 2pt line,
+    /// the previous close dashed, events as dashed rules with a dot and label at the top,
+    /// all inside an 18 × 14pt margin (the SVG's pad of 18 in a 280-high box drawn 220 high).
+    private func bureauPlot(_ ink: MacBureauPageInk) -> some View {
+        Chart {
+            ForEach(model.profile) { bucket in
+                RectangleMark(
+                    xStart: .value("Profile start", Double(model.count - 1) * (1 - bucket.share * 0.22)),
+                    xEnd: .value("Profile end", Double(model.count - 1)),
+                    yStart: .value("Low", bucket.low),
+                    yEnd: .value("High", bucket.high)
+                )
+                .foregroundStyle(ink.accent.opacity(0.18))
+            }
+
+            ForEach(model.mainSamples) { sample in
+                AreaMark(
+                    x: .value("Index", sample.index),
+                    yStart: .value("Floor", model.domain.lowerBound),
+                    yEnd: .value("Price", sample.value)
+                )
+                .foregroundStyle(lineColor.opacity(0.16))
+            }
+
+            if let previousClose = model.previousCloseLine {
+                RuleMark(y: .value("Previous close", previousClose))
+                    .foregroundStyle(ink.muted)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            }
+
+            ForEach(model.overlays) { overlay in
+                ForEach(overlay.samples) { sample in
+                    LineMark(x: .value("Index", sample.index), y: .value("Value", sample.value), series: .value("Series", overlay.id))
+                        .foregroundStyle(overlay.color)
+                        .lineStyle(overlay.stroke)
+                }
+            }
+
+            ForEach(model.mainSamples) { sample in
+                LineMark(x: .value("Index", sample.index), y: .value("Price", sample.value), series: .value("Series", "main"))
+                    .foregroundStyle(lineColor)
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            }
+
+            ForEach(model.markers) { marker in
+                RuleMark(x: .value("Event", marker.index))
+                    .foregroundStyle(marker.color)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                    .annotation(position: .top, alignment: .leading, spacing: -3.5) {
+                        HStack(alignment: .bottom, spacing: 0.5) {
+                            Circle().fill(marker.color).frame(width: 7, height: 7)
+                            Text(marker.label)
+                                .font(BSHType.bureauSans(9))
+                                .foregroundStyle(ink.secondary)
+                                .fixedSize()
+                                .offset(y: -3.5)
+                        }
+                        .offset(x: -3.5)
+                    }
+            }
+        }
+        .chartXScale(domain: model.xDomain)
+        .chartYScale(domain: model.domain, type: model.logScale ? .log : .linear)
+        .chartLegend(.hidden)
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                MacChartPriceInteractionLayer(model: model, lineColor: lineColor, proxy: proxy, geo: geo, interaction: interaction, bureau: ink)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .clipped()
+    }
+
+    private var glassPlot: some View {
         Chart {
             ForEach(model.profile) { bucket in
                 RectangleMark(
@@ -468,7 +724,7 @@ private struct MacChartMainPlot: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     .annotation(position: .top, alignment: .leading, spacing: 2) {
                         Text("Prev close \(MacChartFormat.price(previousClose))")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.ui(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
             }
@@ -479,7 +735,7 @@ private struct MacChartMainPlot: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     .annotation(position: .top, spacing: 0) {
                         Text(marker.label)
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.ui(size: 9, weight: .bold))
                             .foregroundStyle(marker.color)
                     }
             }
@@ -526,12 +782,14 @@ private struct MacChartPriceInteractionLayer: View {
     let proxy: ChartProxy
     let geo: GeometryProxy
     @ObservedObject var interaction: MacChartInteraction
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
         let plot = proxy.plotFrame.map { geo[$0] } ?? .zero
         ZStack(alignment: .topLeading) {
             if let span = interaction.span, let a = model.plotted[span.lower], let b = model.plotted[span.upper] {
-                let tone: Color = (model.closes[span.upper] ?? b) >= (model.closes[span.lower] ?? a) ? .green : .red
+                let rising = (model.closes[span.upper] ?? b) >= (model.closes[span.lower] ?? a)
+                let tone: Color = bureau.map { rising ? $0.success : $0.danger } ?? (rising ? .green : .red)
                 let x0 = x(span.lower, plot), x1 = x(span.upper, plot)
                 Rectangle()
                     .fill(tone.opacity(0.14))
@@ -545,7 +803,7 @@ private struct MacChartPriceInteractionLayer: View {
                     path.move(to: CGPoint(x: x(hover, plot), y: plot.minY))
                     path.addLine(to: CGPoint(x: x(hover, plot), y: plot.maxY))
                 }
-                .stroke(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                .stroke(bureau?.muted ?? Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: bureau == nil ? [4, 4] : [3, 3]))
                 Circle()
                     .fill(lineColor)
                     .frame(width: 8, height: 8)
@@ -623,11 +881,13 @@ private struct MacChartPriceInteractionLayer: View {
                     path.move(to: CGPoint(x: plot.minX, y: yPos))
                     path.addLine(to: CGPoint(x: plot.maxX, y: yPos))
                 }
-                .stroke(tone.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
-                Text("\(Int((level.ratio * 100).rounded()))%")
-                    .font(.system(size: 8, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(tone.opacity(0.8))
-                    .position(x: plot.minX + 14, y: yPos - 6)
+                .stroke(bureau?.secondary ?? tone.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+                if bureau == nil {
+                    Text("\(Int((level.ratio * 100).rounded()))%")
+                        .font(.ui(size: 8, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(tone.opacity(0.8))
+                        .position(x: plot.minX + 14, y: yPos - 6)
+                }
             }
         }
     }
@@ -639,8 +899,39 @@ private struct MacChartVolumePane: View {
     let model: MacQuoteChartModel
     let color: Color
     let interaction: MacChartInteraction
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
+        if bureau != nil {
+            bureauPane
+        } else {
+            glassPane
+        }
+    }
+
+    /// The website's volume pane: 2.4pt bars at 45% of the line's color, 8pt clear above
+    /// the tallest and 4pt below, no axis.
+    private var bureauPane: some View {
+        let peak = Swift.max(model.volumes.map(\.value).max() ?? 1, 1)
+        return Chart(model.volumes) { sample in
+            BarMark(x: .value("Index", sample.index), y: .value("Volume", sample.value), width: .fixed(2.4))
+                .foregroundStyle(color.opacity(0.45))
+        }
+        .chartXScale(domain: model.xDomain)
+        .chartYScale(domain: 0...peak)
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                MacChartPaneHoverLayer(proxy: proxy, geo: geo, interaction: interaction, bureau: bureau)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    private var glassPane: some View {
         Chart(model.volumes) { sample in
             BarMark(x: .value("Index", sample.index), y: .value("Volume", sample.value))
                 .foregroundStyle(color.opacity(0.45))
@@ -673,8 +964,50 @@ private struct MacChartLinePane: View {
     let domain: ClosedRange<Double>?
     let guides: [Double]
     let interaction: MacChartInteraction
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
+        if let bureau {
+            bureauPane(bureau)
+        } else {
+            glassPane
+        }
+    }
+
+    /// The website's RSI and drawdown panes: a 1.5pt line inside an 8pt pad, dashed guides
+    /// in subtle ink, no axis or title.
+    private func bureauPane(_ ink: MacBureauPageInk) -> some View {
+        let samples = values.enumerated().compactMap { index, value in value.map { MacQuoteChartModel.Sample(index: index, value: $0) } }
+        let lo = samples.map(\.value).min() ?? 0
+        let yDomain = domain ?? Swift.min(lo, -1)...0
+        return Chart {
+            ForEach(guides, id: \.self) { guide in
+                RuleMark(y: .value("Guide", guide))
+                    .foregroundStyle(ink.subtle)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+            ForEach(samples) { sample in
+                LineMark(x: .value("Index", sample.index), y: .value(title, sample.value))
+                    .foregroundStyle(color)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+            }
+        }
+        .chartXScale(domain: 0...Swift.max(count - 1, 1))
+        .chartYScale(domain: yDomain)
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                MacChartPaneHoverLayer(proxy: proxy, geo: geo, interaction: interaction, bureau: ink)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private var glassPane: some View {
         let samples = values.enumerated().compactMap { index, value in value.map { MacQuoteChartModel.Sample(index: index, value: $0) } }
         let lo = samples.map(\.value).min() ?? 0
         let yDomain = domain ?? (Swift.min(lo, -1) * 1.05)...Swift.max(samples.map(\.value).max() ?? 0, 0.5)
@@ -714,9 +1047,39 @@ private struct MacChartLinePane: View {
 
 private struct MacChartSeasonalityPane: View {
     let months: [MacQuoteMath.SeasonalityMonth]
+    var bureau: MacBureauPageInk? = nil
     private let symbols = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
 
     var body: some View {
+        if let bureau {
+            bureauPane(bureau)
+        } else {
+            glassPane
+        }
+    }
+
+    /// `.yf-season`: twelve cells, each a bar (4 to 36pt, 8pt per percent) over its initial.
+    private func bureauPane(_ ink: MacBureauPageInk) -> some View {
+        HStack(alignment: .bottom, spacing: 4) {
+            ForEach(months) { month in
+                VStack(spacing: 2) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 2, style: .circular)
+                        .fill(((month.average ?? 0) >= 0 ? ink.success : ink.danger).opacity(0.55))
+                        .frame(height: Swift.min(36, Swift.max(4, abs(month.average ?? 0) * 8)))
+                    Text(symbols[month.month])
+                        .font(BSHType.bureauSans(10))
+                        .foregroundStyle(ink.muted)
+                        .frame(height: 13)
+                }
+                .frame(maxWidth: .infinity)
+                .help(month.average.map { String(format: "%.2f%%", $0) } ?? "—")
+            }
+        }
+        .padding(.horizontal, 18)
+    }
+
+    private var glassPane: some View {
         Chart(months) { month in
             BarMark(x: .value("Month", "\(month.month)"), y: .value("Average %", month.average ?? 0))
                 .foregroundStyle((month.average ?? 0) >= 0 ? Color.green.opacity(0.6) : Color.red.opacity(0.6))
@@ -748,6 +1111,7 @@ private struct MacChartPaneHoverLayer: View {
     let proxy: ChartProxy
     let geo: GeometryProxy
     @ObservedObject var interaction: MacChartInteraction
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
         let plot = proxy.plotFrame.map { geo[$0] } ?? .zero
@@ -756,7 +1120,7 @@ private struct MacChartPaneHoverLayer: View {
                 path.move(to: CGPoint(x: plot.minX + position, y: plot.minY))
                 path.addLine(to: CGPoint(x: plot.minX + position, y: plot.maxY))
             }
-            .stroke(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            .stroke(bureau?.muted.opacity(0.7) ?? Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: bureau == nil ? [4, 4] : [3, 3]))
             .allowsHitTesting(false)
         }
     }
@@ -764,7 +1128,7 @@ private struct MacChartPaneHoverLayer: View {
 
 private func paneTitle(_ text: String) -> some View {
     Text(text)
-        .font(.system(size: 9, weight: .semibold))
+        .font(.ui(size: 9, weight: .semibold))
         .foregroundStyle(.secondary)
         .padding(.leading, 2)
 }
@@ -777,42 +1141,106 @@ private struct MacChartReadout: View {
     let range: MacChartRange
     @ObservedObject var interaction: MacChartInteraction
     let showDrawdownHint: Bool
+    var bureau: MacBureauPageInk? = nil
 
     var body: some View {
+        if let bureau {
+            bureauReadout(bureau)
+        } else {
+            glassReadout
+        }
+    }
+
+    /// The website's readout, centered under the chart: the drawdown note, then the
+    /// measured move (or the hovered print, or the hint).
+    private func bureauReadout(_ ink: MacBureauPageInk) -> some View {
+        VStack(spacing: 0) {
+            if showDrawdownHint {
+                let maxDD = MacQuoteMath.maxDrawdown(points)
+                if maxDD < 0 {
+                    Text(String(format: "Max drawdown %.1f%%", maxDD))
+                        .font(BSHType.bureauSans(12))
+                        .foregroundStyle(ink.secondary)
+                        .frame(height: 16)
+                        .padding(.bottom, 8)
+                }
+            }
+            if let span = interaction.span, let measure = MacQuoteMath.measure(points, from: span.lower, to: span.upper) {
+                Text("\(measure.change >= 0 ? "+" : "-")\(MacBureauMarketFormat.price(abs(measure.change))) (\(String(format: "%+.2f", measure.changePct))%) · \(MacQuoteMath.duration(measure.durationSec))")
+                    .font(BSHType.bureauSans(18, weight: .semibold).monospacedDigit())
+                    .tracking(-0.18)
+                    .foregroundStyle(measure.change >= 0 ? ink.success : ink.danger)
+                    .frame(height: 24)
+                Text("\(MacBureauMarketFormat.price(measure.start)) → \(MacBureauMarketFormat.price(measure.end)) · \(MacChartFormat.stamp(points[span.lower].t, range: range)) → \(MacChartFormat.stamp(points[span.upper].t, range: range))")
+                    .font(MacBureauMarketText.font(14, weight: .medium, tabular: true))
+                    .tracking(-0.084)
+                    .foregroundStyle(ink.ink)
+                    .frame(height: 20)
+                    .padding(.top, 4)
+                Text("High \(MacBureauMarketFormat.price(measure.high)) · Low \(MacBureauMarketFormat.price(measure.low))")
+                    .font(BSHType.bureauSans(12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(ink.secondary)
+                    .frame(height: 16)
+                    .padding(.top, 2)
+                Text("Fibonacci " + MacQuoteMath.fibonacci(high: measure.high, low: measure.low)
+                    .map { "\(Int(($0.ratio * 100).rounded()))% \(MacBureauMarketFormat.price($0.value))" }
+                    .joined(separator: " · "))
+                    .font(BSHType.bureauSans(12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(ink.secondary)
+                    .multilineTextAlignment(.center)
+                    .bureauLines(16, size: 12)
+                    .padding(.top, 2)
+            } else if let hover = interaction.hoverIndex, points.indices.contains(hover), let close = points[hover].close {
+                Text([MacBureauMarketFormat.price(close), MacChartFormat.stamp(points[hover].t, range: range)].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(BSHType.bureauSans(14, weight: .medium).monospacedDigit())
+                    .tracking(-0.084)
+                    .foregroundStyle(ink.ink)
+                    .frame(height: 20)
+            } else {
+                Text("Hover for a print. Drag to measure a range.")
+                    .font(BSHType.bureauSans(12))
+                    .foregroundStyle(ink.secondary)
+                    .frame(height: 16)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var glassReadout: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let span = interaction.span, let measure = MacQuoteMath.measure(points, from: span.lower, to: span.upper) {
                 let tone: Color = measure.change >= 0 ? .green : .red
                 Text("\(measure.change >= 0 ? "+" : "−")\(MacChartFormat.price(abs(measure.change))) (\(MacChartFormat.signedPct(measure.changePct))) · \(MacQuoteMath.duration(measure.durationSec))")
-                    .font(.headline.monospacedDigit())
+                    .font(.ui(.headline).monospacedDigit())
                     .foregroundStyle(tone)
                 Text("\(MacChartFormat.price(measure.start)) → \(MacChartFormat.price(measure.end)) · \(MacChartFormat.stamp(points[span.lower].t, range: range)) → \(MacChartFormat.stamp(points[span.upper].t, range: range))")
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                 Text("High \(MacChartFormat.price(measure.high)) · Low \(MacChartFormat.price(measure.low))")
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
                 Text("Fibonacci " + MacQuoteMath.fibonacci(high: measure.high, low: measure.low)
                     .map { "\(Int(($0.ratio * 100).rounded()))% \(MacChartFormat.price($0.value))" }
                     .joined(separator: " · "))
-                    .font(.caption2.monospacedDigit())
+                    .font(.ui(.caption2).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             } else if let hover = interaction.hoverIndex, points.indices.contains(hover), let close = points[hover].close {
                 HStack(spacing: 6) {
-                    Text(MacChartFormat.price(close)).font(.headline.monospacedDigit())
+                    Text(MacChartFormat.price(close)).font(.ui(.headline).monospacedDigit())
                     if model.relative, let rel = model.plotted[hover] {
-                        Text(MacChartFormat.signedPct(rel)).font(.subheadline.monospacedDigit()).foregroundStyle(rel >= 0 ? Color.green : Color.red)
+                        Text(MacChartFormat.signedPct(rel)).font(.ui(.subheadline).monospacedDigit()).foregroundStyle(rel >= 0 ? Color.green : Color.red)
                     }
-                    Text("· \(MacChartFormat.stamp(points[hover].t, range: range))").font(.caption).foregroundStyle(.secondary)
+                    Text("· \(MacChartFormat.stamp(points[hover].t, range: range))").font(.ui(.caption)).foregroundStyle(.secondary)
                 }
             } else {
                 Text("Hover for a print. Drag to measure a range.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
             if showDrawdownHint {
                 let maxDD = MacQuoteMath.maxDrawdown(points)
                 if maxDD < 0 {
-                    Text(String(format: "Max drawdown %.1f%%", maxDD)).font(.caption2).foregroundStyle(.red)
+                    Text(String(format: "Max drawdown %.1f%%", maxDD)).font(.ui(.caption2)).foregroundStyle(.red)
                 }
             }
         }
@@ -844,7 +1272,7 @@ struct MacChartChip: View {
                 }
                 Text(title)
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(.ui(size: 11, weight: .medium))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(isOn ? Color.primary : Color.secondary)
@@ -899,5 +1327,103 @@ struct MacChipFlowLayout: Layout {
         }
         if !current.indices.isEmpty { rows.append(current) }
         return rows
+    }
+}
+
+// MARK: - Bureau tools (QuoteChart.vue `.yf-chart-tools-grouped`)
+
+/// The website's chart tools: "Overlays", "Panes" and "Export", each a muted label and its
+/// toggles as range pills, the groups wrapping 20pt apart across and 8pt down. They read
+/// and write the same settings as the Mac's chart, so both designs keep one set.
+struct MacBureauMarketChartTools: View {
+    let peersAvailable: Bool
+    let eventsAvailable: Bool
+    let hasVolume: Bool
+    /// Compare lines keep the plot rebased (Relative % stays on while they are there).
+    let relativeLocked: Bool
+    let onExport: (() -> Void)?
+
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("mac.chart.sma20") private var showSMA20 = true
+    @AppStorage("mac.chart.sma50") private var showSMA50 = true
+    @AppStorage("mac.chart.sma200") private var showSMA200 = false
+    @AppStorage("mac.chart.vwap") private var showVWAP = true
+    @AppStorage("mac.chart.vwapBands") private var showVWAPBands = false
+    @AppStorage("mac.chart.log") private var logScale = false
+    @AppStorage("mac.chart.relative") private var relativeMode = false
+    @AppStorage("mac.chart.bureau.peers") private var showPeers = true
+    @AppStorage("mac.chart.events") private var showMarkers = true
+    @AppStorage("mac.chart.volume") private var showVolume = true
+    @AppStorage("mac.chart.profile") private var showProfile = false
+    @AppStorage("mac.chart.rsi") private var showRSI = false
+    @AppStorage("mac.chart.drawdown") private var showDrawdown = false
+    @AppStorage("mac.chart.seasonality") private var showSeasonality = false
+
+    var body: some View {
+        let relative = relativeMode || relativeLocked
+        MacBureauMarketFlow(spacing: 20, lineSpacing: 8) {
+            group("Overlays") {
+                MacBureauMarketRangeItem("SMA 20", selected: showSMA20) { showSMA20.toggle() }
+                MacBureauMarketRangeItem("SMA 50", selected: showSMA50) { showSMA50.toggle() }
+                MacBureauMarketRangeItem("SMA 200", selected: showSMA200) { showSMA200.toggle() }
+                MacBureauMarketRangeItem("VWAP", selected: showVWAP) { showVWAP.toggle() }
+                MacBureauMarketRangeItem("VWAP bands", selected: showVWAPBands) { showVWAPBands.toggle() }
+                MacBureauMarketRangeItem("Log", selected: logScale) { logScale.toggle() }
+                if peersAvailable {
+                    MacBureauMarketRangeItem("Peers", selected: showPeers) { showPeers.toggle() }
+                    MacBureauMarketRangeItem("Relative %", selected: relative) {
+                        if !relativeLocked { relativeMode.toggle() }
+                    }
+                }
+                if eventsAvailable {
+                    MacBureauMarketRangeItem("Earnings", selected: showMarkers) { showMarkers.toggle() }
+                }
+            }
+            group("Panes") {
+                MacBureauMarketRangeItem("Volume", selected: showVolume) { showVolume.toggle() }
+                MacBureauMarketRangeItem("Profile", selected: showProfile) { showProfile.toggle() }
+                MacBureauMarketRangeItem("RSI", selected: showRSI) { showRSI.toggle() }
+                MacBureauMarketRangeItem("Drawdown", selected: showDrawdown) { showDrawdown.toggle() }
+                MacBureauMarketRangeItem("Seasonality", selected: showSeasonality) { showSeasonality.toggle() }
+            }
+            group("Export") {
+                MacBureauMarketRangeItem("Export CSV") { onExport?() }
+            }
+        }
+    }
+
+    private func group<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        MacBureauMarketFlow(spacing: 4, lineSpacing: 8) {
+            Text(label)
+                .font(BSHType.bureauSans(11, weight: .semibold))
+                .tracking(0.066)
+                .foregroundStyle(MacBureauPageInk(scheme: colorScheme).muted)
+                .fixedSize()
+                .frame(height: 14)
+                .padding(.trailing, 4)
+            content()
+        }
+    }
+}
+
+/// `.yf-profile`: the volume at each price as brass bars, low prices at the foot.
+struct MacBureauMarketChartProfile: View {
+    let buckets: [MacQuoteMath.ProfileBucket]
+    let ink: MacBureauPageInk
+
+    var body: some View {
+        let peak = max(buckets.map(\.volume).max() ?? 1, 1)
+        GeometryReader { geo in
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(buckets.reversed()) { bucket in
+                    RoundedRectangle(cornerRadius: 1, style: .circular)
+                        .fill(ink.accent.opacity(0.55))
+                        .frame(width: geo.size.width * max(bucket.volume / peak * 100, 2) / 100, height: 3)
+                        .help("\(MacBureauMarketFormat.price(bucket.mid)) · \(Int((bucket.volume / peak * 100).rounded()))%")
+                }
+            }
+        }
+        .frame(height: min(96, CGFloat(buckets.count) * 4 - 1))
+        .padding(.vertical, 4)
     }
 }

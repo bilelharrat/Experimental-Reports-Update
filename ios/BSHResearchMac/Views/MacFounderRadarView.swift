@@ -34,7 +34,18 @@ struct MacFounderRadarView: View {
             || dossier.developerTraction != nil
     }
 
+    @Environment(\.bureauResearchDesk) private var bureauDesk
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        if BSHDesign.active == .bureau && bureauDesk {
+            bureauBody
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(alignment: .leading, spacing: 18) {
             MacCardHeader("Founders & team", subtitle: "People from the company record and Gemini web research: prior companies and exits, board seats, headcount, and open-source velocity when a repo is known.", systemImage: "person.3") {
                 Button {
@@ -56,7 +67,7 @@ struct MacFounderRadarView: View {
                         }
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.dsBordered)
                 .controlSize(.small)
                 .disabled(isSearching)
                 .help("Search the web with Gemini for founders, board, headcount and hiring, and add what it finds to the record")
@@ -80,7 +91,7 @@ struct MacFounderRadarView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("\(dossier.founders.count) key executives")
-                            .font(.caption2.monospacedDigit())
+                            .font(.ui(.caption2).monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
 
@@ -101,7 +112,7 @@ struct MacFounderRadarView: View {
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Text("\(board.count) board & advisors")
-                                .font(.caption2.monospacedDigit())
+                                .font(.ui(.caption2).monospacedDigit())
                                 .foregroundStyle(.tertiary)
                         }
 
@@ -123,7 +134,7 @@ struct MacFounderRadarView: View {
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Text(team.hiringVelocity ?? "")
-                                .font(.caption2.weight(.semibold))
+                                .font(.ui(.caption2).weight(.semibold))
                                 .foregroundStyle(Color.green)
                         }
 
@@ -199,9 +210,9 @@ struct MacFounderRadarView: View {
                                 Link(destination: url) {
                                     HStack(spacing: 4) {
                                         Text(repo.replacingOccurrences(of: "https://github.com/", with: ""))
-                                            .font(.caption2.monospacedDigit())
+                                            .font(.ui(.caption2).monospacedDigit())
                                         Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 10))
+                                            .font(.ui(size: 10))
                                     }
                                 }
                             }
@@ -249,7 +260,7 @@ struct MacFounderRadarView: View {
                                 .font(.dsLabel)
                                 .foregroundStyle(.orange)
                             Text(dev.inflectionSignal ?? "—")
-                                .font(.caption.weight(.semibold))
+                                .font(.ui(.caption).weight(.semibold))
                             Spacer()
                         }
                         .padding(10)
@@ -275,11 +286,11 @@ struct MacFounderRadarView: View {
                 } else if let engine = dossier.engine {
                     let sourceCount = dossier.sources?.count ?? 0
                     Text("Researched by \(engine)\(dossier.model.map { " (\($0))" } ?? "") · \(sourceCount > 0 ? "read \(sourceCount) sources" : "no sources reported")")
-                        .font(.system(size: 10))
+                        .font(.ui(size: 10))
                         .foregroundStyle(.tertiary)
                 } else {
                     Text("Built from the company record")
-                        .font(.system(size: 10))
+                        .font(.ui(size: 10))
                         .foregroundStyle(.tertiary)
                 }
             } else if loadFailed && !loading {
@@ -296,7 +307,7 @@ struct MacFounderRadarView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Loading people from the company record…")
-                        .font(.subheadline)
+                        .font(.ui(.subheadline))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 20)
@@ -320,6 +331,411 @@ struct MacFounderRadarView: View {
     }
 }
 
+// MARK: - Bureau
+
+/// FounderRadarCard.vue on the Research Desk: leadership and board on tiles two to a row,
+/// headcount and open-source velocity on stat tiles, and where the people came from.
+extension MacFounderRadarView {
+    private var bureauBody: some View {
+        let ink = MacBureauDeskInk(colorScheme)
+        return VStack(alignment: .leading, spacing: 18) {
+            MacBureauDeskCardHeader(
+                icon: "users",
+                title: "Founders & team",
+                subtitle: "People from the company record and Gemini web research: prior companies and exits, board seats, headcount, and open-source velocity when a repo is known."
+            ) {
+                Button {
+                    // A Gemini web-research call, so it asks first like every paid button.
+                    guard MacTokenConfirm.ask(detail: "Researches this team on the web with Gemini 3.8 Flash (about a minute).") else { return }
+                    Task { await store.deepSearchFounder(for: company.id) }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isSearching {
+                            MacBureauDeskSpinner(size: 12)
+                        } else {
+                            MacBureauDeskIcon("rotate-cw", size: 12)
+                        }
+                        MacBureauDeskButtonLabel(title: isSearching ? "Researching… about a minute" : "Research team", size: .small)
+                    }
+                }
+                .buttonStyle(MacBureauDeskButtonStyle(kind: .bordered, size: .small))
+                .disabled(isSearching)
+                .help("Search the web with Gemini for founders, board, headcount and hiring, and add what it finds to the record")
+                .fixedSize()
+            }
+
+            if let dossier {
+                if !hasPeople(dossier) {
+                    bureauUnavailable(
+                        icon: "users",
+                        title: "No people on the company record",
+                        detail: "Nothing on the company record yet. Research team finds the founders, board and headcount on the web.",
+                        ink: ink
+                    )
+                }
+                if !dossier.founders.isEmpty {
+                    bureauSection("Leadership", icon: "users", count: "\(dossier.founders.count) key executives", ink: ink) {
+                        MacBureauDeskGrid(columns: 2, spacing: 14) {
+                            ForEach(dossier.founders) { founder in
+                                bureauPerson(founder, details: true, ink: ink)
+                            }
+                        }
+                    }
+                }
+                if let board = dossier.advisorsAndBoard, !board.isEmpty {
+                    bureauSection("Board & advisors", icon: "briefcase", count: "\(board.count) board & advisors", ink: ink) {
+                        MacBureauDeskGrid(columns: 2, spacing: 14) {
+                            ForEach(board) { advisor in
+                                bureauPerson(advisor, details: false, ink: ink)
+                            }
+                        }
+                    }
+                }
+                if let team = dossier.teamHeadcount {
+                    bureauHeadcount(team, ink: ink)
+                }
+                if let dev = dossier.developerTraction {
+                    bureauTraction(dev, ink: ink)
+                }
+                if let refreshError = store.founderDossierErrors[company.id] {
+                    bureauWarning("Research failed: \(refreshError)", tint: ink.red)
+                }
+                if let researchError = dossier.researchError, !researchError.isEmpty {
+                    bureauWarning("The research pass could not run — \(researchError)", tint: ink.orange)
+                } else if let engine = dossier.engine {
+                    let sourceCount = dossier.sources?.count ?? 0
+                    MacBureauWebParagraph(
+                        text: "Researched by \(engine)\(dossier.model.map { " (\($0))" } ?? "") · \(sourceCount > 0 ? "read \(sourceCount) sources" : "no sources reported")",
+                        size: 10,
+                        lineHeight: 12.5
+                    )
+                    .foregroundStyle(ink.tertiary)
+                } else {
+                    MacBureauDeskCaption(text: "Built from the company record", color: ink.tertiary)
+                }
+            } else if loadFailed && !loading {
+                VStack(spacing: 8) {
+                    bureauUnavailable(
+                        icon: "triangle-alert",
+                        title: "Couldn't load people",
+                        detail: store.founderDossierErrors[company.id] ?? "The company record could not be read from the server.",
+                        ink: ink
+                    )
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        MacBureauDeskButtonLabel(title: "Retry", size: .small)
+                    }
+                    .buttonStyle(MacBureauDeskButtonStyle(kind: .bordered, size: .small))
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                HStack(spacing: 12) {
+                    MacBureauDeskSpinner()
+                    Text("Loading people from the company record…")
+                        .font(BSHType.bureauSans(11))
+                        .foregroundStyle(ink.secondary)
+                        .bureauDeskLine(14.3, 11)
+                }
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .bureauDeskCard(padding: 16)
+        .task(id: company.id) {
+            loadFailed = false
+            await load()
+        }
+    }
+
+    private func bureauSection<Content: View>(_ title: String, icon: String, count: String, ink: MacBureauDeskInk, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                MacBureauDeskIcon(icon, size: 12)
+                MacBureauDeskCaption(text: title, size: 11, weight: .medium, lineHeight: 13.75, color: ink.secondary)
+                Spacer(minLength: 0)
+                MacBureauDeskCaption(text: count, mono: true, color: ink.tertiary)
+            }
+            .foregroundStyle(ink.secondary)
+            content()
+        }
+    }
+
+    private func bureauPerson(_ person: MacFounderProfile, details: Bool, ink: MacBureauDeskInk) -> some View {
+        let link = [person.linkedinUrl, person.profileUrl].compactMap { $0 }.first { !$0.isEmpty }.flatMap(URL.init(string:))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(Self.initials(person.name))
+                    .font(BSHType.bureauSans(13, weight: .bold))
+                    .foregroundStyle(ink.accent)
+                    .bureauDeskLine(19.5, 13)
+                    .frame(width: 36, height: 36)
+                    .bureauBox(Circle(), fill: ink.accent.opacity(0.15))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(person.name)
+                        .font(BSHType.bureauSans(11))
+                        .foregroundStyle(ink.label)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .bureauDeskLine(14.3, 11)
+                    Text(person.role.isEmpty ? (details ? "Founder" : "Advisor") : person.role)
+                        .font(BSHType.bureauSans(10))
+                        .foregroundStyle(ink.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .bureauDeskLine(12.5, 10)
+                }
+                Spacer(minLength: 0)
+                if let link {
+                    Link(destination: link) {
+                        MacBureauDeskIcon("link", size: 16)
+                            .foregroundStyle(ink.secondary)
+                    }
+                    .buttonStyle(MacBureauFlatButtonStyle())
+                    .help("Open LinkedIn Profile")
+                }
+            }
+            if !person.pedigreeTags.isEmpty {
+                MacBureauDeskFlow(spacing: 6) {
+                    ForEach(person.pedigreeTags, id: \.self) { tag in
+                        MacBureauDeskPill(text: tag, tint: Self.pedigreeTint(tag, ink: ink))
+                    }
+                }
+            }
+            if let bio = person.bio, !bio.isEmpty {
+                MacBureauWebParagraph(text: bio, size: 10, lineHeight: 12.5, maxLines: 2)
+                    .foregroundStyle(ink.secondary)
+            }
+            if details {
+                MacBureauGridRule(color: ink.hairline)
+                VStack(alignment: .leading, spacing: 5) {
+                    if let edu = person.education, !edu.isEmpty {
+                        bureauDetail("graduation-cap", edu, tint: ink.secondary, ink: ink)
+                    }
+                    if !person.pastCompanies.isEmpty {
+                        bureauDetail("building-2", person.pastCompanies.joined(separator: ", "), tint: ink.secondary, ink: ink)
+                    }
+                    if let exit = person.priorExits, !exit.isEmpty {
+                        bureauDetail("circle-dollar-sign", "Prior Exit: \(exit)", tint: ink.green, ink: ink)
+                    }
+                }
+                .frame(minHeight: 0)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .bureauBox(RoundedRectangle(cornerRadius: 10, style: .circular), fill: ink.tile)
+    }
+
+    private func bureauDetail(_ icon: String, _ text: String, tint: Color, ink: MacBureauDeskInk) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            MacBureauDeskIcon(icon, size: 12)
+                .frame(width: 14)
+                .padding(.top, 1)
+            Text(text)
+                .font(BSHType.bureauSans(10))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bureauDeskLine(12.5, 10)
+        }
+        .foregroundStyle(tint)
+    }
+
+    private func bureauStat(_ icon: String, _ title: String, value: String, caption: String, tint: Color, ink: MacBureauDeskInk) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                MacBureauDeskIcon(icon, size: 10)
+                    .foregroundStyle(tint)
+                MacBureauDeskCaption(text: title, size: 11, weight: .medium, lineHeight: 13.75, color: ink.secondary)
+            }
+            Text(value)
+                .font(BSHType.bureauSans(15, weight: .semibold).monospacedDigit())
+                .foregroundStyle(ink.label)
+                .lineLimit(1)
+                .bureauDeskLine(18, 15)
+            Text(caption)
+                .font(BSHType.bureauSans(10))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bureauDeskLine(12.5, 10)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .bureauBox(RoundedRectangle(cornerRadius: 8, style: .circular), fill: ink.tile)
+    }
+
+    private func bureauHeadcount(_ team: MacTeamHeadcount, ink: MacBureauDeskInk) -> some View {
+        let eng = CGFloat(team.engineeringPct ?? 0), gtm = CGFloat(team.gtmSalesPct ?? 0), ops = CGFloat(team.operationsPct ?? 0)
+        let total = max(1, eng + gtm + ops)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                MacBureauDeskIcon("chart-bar", size: 12)
+                    .foregroundStyle(ink.secondary)
+                MacBureauDeskCaption(text: "Headcount", size: 11, weight: .medium, lineHeight: 13.75, color: ink.secondary)
+                Spacer(minLength: 0)
+                if let velocity = team.hiringVelocity, !velocity.isEmpty {
+                    MacBureauDeskCaption(text: velocity, color: ink.green)
+                }
+            }
+            .frame(height: 13.75)
+            MacBureauDeskGrid(columns: 4, spacing: 12) {
+                bureauStat("users", "Total headcount", value: team.employeeCountEstimate ?? "—",
+                           caption: team.openRolesCount.map { "\($0) open roles" } ?? "Open roles unknown", tint: ink.blue, ink: ink)
+                bureauStat("code", "Engineering & R&D", value: team.engineeringPct.map { "\($0)%" } ?? "—",
+                           caption: "of headcount", tint: ink.indigo, ink: ink)
+                bureauStat("megaphone", "Go-to-market", value: team.gtmSalesPct.map { "\($0)%" } ?? "—",
+                           caption: "of headcount", tint: ink.green, ink: ink)
+                bureauStat("settings", "Operations & G&A", value: team.operationsPct.map { "\($0)%" } ?? "—",
+                           caption: "of headcount", tint: ink.orange, ink: ink)
+            }
+            // The department split: each share of the width, a sliver at least.
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                HStack(spacing: 2) {
+                    RoundedRectangle(cornerRadius: 3, style: .circular)
+                        .fill(ink.indigo.opacity(0.85))
+                        .frame(width: width * max(0.01, eng / total))
+                    RoundedRectangle(cornerRadius: 3, style: .circular)
+                        .fill(ink.green.opacity(0.85))
+                        .frame(width: width * max(0.01, gtm / total))
+                    RoundedRectangle(cornerRadius: 3, style: .circular)
+                        .fill(ink.orange.opacity(0.85))
+                        .frame(width: width * max(0.01, ops / total))
+                }
+                .bureauSnap(x: .whole)
+            }
+            .frame(height: 7)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bureauBox(RoundedRectangle(cornerRadius: 10, style: .circular), fill: ink.tile)
+    }
+
+    private func bureauTraction(_ dev: MacDeveloperTraction, ink: MacBureauDeskInk) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                MacBureauDeskIcon("code", size: 12)
+                    .foregroundStyle(ink.secondary)
+                MacBureauDeskCaption(text: "Open source velocity", size: 11, weight: .medium, lineHeight: 13.75, color: ink.secondary)
+                Spacer(minLength: 0)
+                if let repo = dev.repoUrl, let url = URL(string: repo) {
+                    Link(destination: url) {
+                        HStack(spacing: 4) {
+                            MacBureauDeskCaption(text: repo.replacingOccurrences(of: "https://github.com/", with: ""), mono: true, color: ink.accent)
+                            MacBureauDeskIcon("arrow-up-right", size: 10)
+                                .foregroundStyle(ink.accent)
+                        }
+                    }
+                    .buttonStyle(MacBureauFlatButtonStyle())
+                }
+            }
+            MacBureauDeskGrid(columns: 4, spacing: 12) {
+                bureauStat("star", "GitHub stars", value: dev.stars.map { $0.formatted() } ?? "—",
+                           caption: dev.starsGrowthWeekly ?? "Not tracked yet", tint: ink.yellow, ink: ink)
+                bureauStat("git-fork", "Forks", value: dev.forks.map { $0.formatted() } ?? "—",
+                           caption: "Forks", tint: ink.blue, ink: ink)
+                if let downloads = dev.weeklyDownloads {
+                    bureauStat("circle-arrow-down", "Weekly downloads", value: downloads, caption: "Weekly", tint: ink.green, ink: ink)
+                }
+                bureauStat("history", "Commit cadence", value: dev.commitCadence ?? "—",
+                           caption: "Commit cadence", tint: ink.purple, ink: ink)
+            }
+            HStack(spacing: 8) {
+                MacBureauDeskIcon("flame", size: 14)
+                    .foregroundStyle(ink.orange)
+                MacBureauDeskCaption(text: "Traction signal", size: 11, weight: .medium, lineHeight: 13.75, color: ink.orange)
+                Text(dev.inflectionSignal ?? "—")
+                    .font(BSHType.bureauSans(10))
+                    .foregroundStyle(ink.label)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .bureauDeskLine(12.5, 10)
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .bureauBox(RoundedRectangle(cornerRadius: 8, style: .circular), fill: ink.orange.opacity(0.10))
+        }
+    }
+
+    private func bureauUnavailable(icon: String, title: String, detail: String, ink: MacBureauDeskInk) -> some View {
+        VStack(spacing: 8) {
+            MacBureauDeskIcon(icon, size: 36)
+                .foregroundStyle(ink.secondary)
+            Text(title)
+                .font(BSHType.bureauSans(15, weight: .semibold))
+                .foregroundStyle(ink.label)
+                .bureauDeskLine(18.75, 15)
+            MacBureauWebParagraph(text: detail, size: 13, lineHeight: 17.55, alignment: .center)
+                .foregroundStyle(ink.secondary)
+                .frame(maxWidth: 384)
+        }
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bureauWarning(_ text: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            MacBureauDeskIcon("triangle-alert", size: 12)
+            Text(text)
+                .font(BSHType.bureauSans(11))
+                .lineLimit(2)
+        }
+        .foregroundStyle(tint)
+    }
+
+    private static func initials(_ name: String) -> String {
+        let parts = name.split(whereSeparator: \.isWhitespace)
+        if parts.count >= 2 { return (String(parts[0].prefix(1)) + String(parts[1].prefix(1))).uppercased() }
+        return String(name.isEmpty ? "?" : String(name.prefix(2))).uppercased()
+    }
+
+    private static func pedigreeTint(_ tag: String, ink: MacBureauDeskInk) -> Color {
+        let lower = tag.lowercased()
+        if lower.contains("openai") || lower.contains("deepmind") || lower.contains("fair") { return ink.purple }
+        if lower.contains("stanford") || lower.contains("mit") || lower.contains("berkeley") { return ink.red }
+        if lower.contains("founder") || lower.contains("exit") { return ink.green }
+        if lower.contains("yc") || lower.contains("stripe") { return ink.orange }
+        return ink.blue
+    }
+}
+
+/// Pills that wrap onto as many rows as they need (`flex flex-wrap`).
+struct MacBureauDeskFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 300
+        var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > width && x > 0 {
+                y += row + spacing
+                x = 0
+                row = 0
+            }
+            x += size.width + spacing
+            row = max(row, size.height)
+        }
+        return CGSize(width: width, height: y + row)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, row: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX && x > bounds.minX {
+                y += row + spacing
+                x = bounds.minX
+                row = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            row = max(row, size.height)
+        }
+    }
+}
+
 // MARK: - Founder Card View
 private struct FounderCardView: View {
     let founder: MacFounderProfile
@@ -333,15 +749,15 @@ private struct FounderCardView: View {
                         .fill(Color.dsAccent.opacity(0.15))
                         .frame(width: 36, height: 36)
                     Text(initials(founder.name))
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.ui(size: 13, weight: .bold))
                         .foregroundStyle(Color.dsAccent)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(founder.name)
-                        .font(.subheadline.weight(.bold))
+                        .font(.ui(.subheadline).weight(.bold))
                     Text(founder.role)
-                        .font(.caption2.weight(.medium))
+                        .font(.ui(.caption2).weight(.medium))
                         .foregroundStyle(.secondary)
                 }
 
@@ -350,7 +766,7 @@ private struct FounderCardView: View {
                 if let url = founder.linkedinUrl, let dest = URL(string: url) {
                     Link(destination: dest) {
                         Image(systemName: "link.circle.fill")
-                            .font(.system(size: 16))
+                            .font(.ui(size: 16))
                             .foregroundStyle(.secondary)
                     }
                     .help("Open LinkedIn Profile")
@@ -367,7 +783,7 @@ private struct FounderCardView: View {
             // Bio
             if let bio = founder.bio, !bio.isEmpty {
                 Text(bio)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
@@ -379,11 +795,11 @@ private struct FounderCardView: View {
                 if let edu = founder.education {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "graduationcap.fill")
-                            .font(.system(size: 10))
+                            .font(.ui(size: 10))
                             .foregroundStyle(.secondary)
                             .frame(width: 14)
                         Text(edu)
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -392,11 +808,11 @@ private struct FounderCardView: View {
                 if !founder.pastCompanies.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "building.2.fill")
-                            .font(.system(size: 10))
+                            .font(.ui(size: 10))
                             .foregroundStyle(.secondary)
                             .frame(width: 14)
                         Text(founder.pastCompanies.joined(separator: ", "))
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -405,11 +821,11 @@ private struct FounderCardView: View {
                 if let exit = founder.priorExits {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "dollarsign.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.ui(size: 10))
                             .foregroundStyle(.green)
                             .frame(width: 14)
                         Text("Prior Exit: \(exit)")
-                            .font(.caption2.weight(.semibold))
+                            .font(.ui(.caption2).weight(.semibold))
                             .foregroundStyle(.green)
                             .lineLimit(1)
                     }
@@ -464,7 +880,7 @@ private struct DevMetricPill: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.ui(size: 10))
                     .foregroundStyle(color)
                 Text(title)
                     .font(.dsLabel)
@@ -473,7 +889,7 @@ private struct DevMetricPill: View {
             Text(value)
                 .font(.dsMetricSmall)
             Text(delta)
-                .font(.system(size: 10))
+                .font(.ui(size: 10))
                 .foregroundStyle(color)
                 .lineLimit(1)
         }

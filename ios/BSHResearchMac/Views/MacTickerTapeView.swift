@@ -28,7 +28,7 @@ struct MacTickerTapeView: View {
         Group {
             if items.isEmpty {
                 Text("Ticker tape — pin tickers on Market Radar to fill it")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -79,11 +79,11 @@ private struct MacTapeItemLabel: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(entry.ticker)
-                .font(.caption.monospacedDigit().weight(.bold))
+                .font(.ui(.caption).monospacedDigit().weight(.bold))
             Text(entry.price)
-                .font(.caption.monospacedDigit())
+                .font(.ui(.caption).monospacedDigit())
             Text(entry.change)
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .font(.ui(.caption).monospacedDigit().weight(.semibold))
                 .foregroundStyle(entry.isUp ? Color.green : Color.red)
         }
         .fixedSize()

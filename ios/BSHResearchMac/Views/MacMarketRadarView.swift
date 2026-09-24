@@ -62,6 +62,15 @@ struct MacMarketRadarView: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays the desk out as the website's Market page (MacBureauMarket.swift).
+            MacBureauMarketDesk()
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         HSplitView {
             // Left Pane: Quotes Radar & Screeners
             VStack(spacing: 0) {
@@ -90,7 +99,7 @@ struct MacMarketRadarView: View {
                         .background(Color.dsTile, in: RoundedRectangle(cornerRadius: 7))
                         if let pinError {
                             Text(pinError)
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(Color.orange)
                                 .padding(.horizontal, 4)
                         }
@@ -115,7 +124,7 @@ struct MacMarketRadarView: View {
                             } label: {
                                 Image(systemName: store.isPinned(q.ticker) ? "star.fill" : "star")
                                     .foregroundStyle(store.isPinned(q.ticker) ? Color.yellow : Color.secondary)
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                             }
                             .disabled(!store.canWriteDesk)
                             .buttonStyle(.plain)
@@ -123,10 +132,10 @@ struct MacMarketRadarView: View {
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(q.ticker)
-                                    .font(.body.monospacedDigit().weight(.bold))
+                                    .font(.ui(.body).monospacedDigit().weight(.bold))
                                 if let name = q.name, !name.isEmpty {
                                     Text(name)
-                                        .font(.caption2)
+                                        .font(.ui(.caption2))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -136,10 +145,10 @@ struct MacMarketRadarView: View {
 
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(q.priceText)
-                                    .font(.body.monospacedDigit().weight(.medium))
+                                    .font(.ui(.body).monospacedDigit().weight(.medium))
 
                                 Text(q.pctText)
-                                    .font(.caption.monospacedDigit().weight(.semibold))
+                                    .font(.ui(.caption).monospacedDigit().weight(.semibold))
                                     .foregroundStyle(q.isUp ? Color.green : Color.red)
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
@@ -171,7 +180,7 @@ struct MacMarketRadarView: View {
                                         Task { await store.toggleWatchlist(ticker) }
                                     } label: {
                                         Image(systemName: store.isPinned(ticker) ? "star.fill" : "star")
-                                            .font(.title2)
+                                            .font(.ui(.title2))
                                             .foregroundStyle(store.isPinned(ticker) ? Color.yellow : Color.secondary)
                                     }
                                     .buttonStyle(.plain)
@@ -180,14 +189,14 @@ struct MacMarketRadarView: View {
 
                                     if let name = store.selectedChart?.name ?? store.selectedWorkspace?.profile?.name {
                                         Text(name)
-                                            .font(.headline)
+                                            .font(.ui(.headline))
                                             .foregroundStyle(.secondary)
                                     }
                                 }
 
                                 if let exchange = store.selectedChart?.exchange ?? store.selectedWorkspace?.summary?.exchange {
                                     Text(exchange)
-                                        .font(.caption.monospacedDigit())
+                                        .font(.ui(.caption).monospacedDigit())
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -217,7 +226,7 @@ struct MacMarketRadarView: View {
                                 } label: {
                                     Label("Ask Warren", systemImage: "bubble.left.and.bubble.right.fill")
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.dsProminent)
                                 .disabled(!store.canRunTasks)
                             }
                         }
@@ -315,13 +324,13 @@ struct MacMarketRadarView: View {
                                 } label: {
                                     Label("Add lot", systemImage: "plus")
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.dsBordered)
                                 .controlSize(.small)
                             }
 
                             if matchingLots.isEmpty {
                                 Text("No open book lots for \(ticker).")
-                                    .font(.subheadline)
+                                    .font(.ui(.subheadline))
                                     .foregroundStyle(.secondary)
                                     .padding(.vertical, 8)
                             } else {
@@ -336,9 +345,9 @@ struct MacMarketRadarView: View {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(String(format: "%.1f shares @ $%.2f", lot.shares, lot.costBasis))
-                                                .font(.body.monospacedDigit().weight(.medium))
+                                                .font(.ui(.body).monospacedDigit().weight(.medium))
                                             Text(String(format: "Cost: $%.2f · Equity: $%.2f", lot.totalCost, lot.currentEquity(currentPrice: curPrice)))
-                                                .font(.caption)
+                                                .font(.ui(.caption))
                                                 .foregroundStyle(.secondary)
                                         }
 
@@ -346,10 +355,10 @@ struct MacMarketRadarView: View {
 
                                         VStack(alignment: .trailing, spacing: 2) {
                                             Text((gain >= 0 ? "+$" : "-$") + String(format: "%.2f", abs(gain)))
-                                                .font(.body.monospacedDigit().weight(.semibold))
+                                                .font(.ui(.body).monospacedDigit().weight(.semibold))
                                                 .foregroundStyle(gain >= 0 ? Color.green : Color.red)
                                             Text(String(format: "%+.2f%%", gainPct))
-                                                .font(.caption.monospacedDigit())
+                                                .font(.ui(.caption).monospacedDigit())
                                                 .foregroundStyle(gain >= 0 ? Color.green : Color.red)
                                         }
 
@@ -357,7 +366,7 @@ struct MacMarketRadarView: View {
                                             Task { await store.removeLot(id: lot.id) }
                                         } label: {
                                             Image(systemName: "trash")
-                                                .font(.caption)
+                                                .font(.ui(.caption))
                                                 .foregroundStyle(.secondary)
                                         }
                                         .buttonStyle(.plain)
@@ -384,13 +393,13 @@ struct MacMarketRadarView: View {
                                 } label: {
                                     Label("New alert", systemImage: "bell.badge")
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.dsBordered)
                                 .controlSize(.small)
                             }
 
                             if matchingAlerts.isEmpty {
                                 Text("No alerts set for \(ticker).")
-                                    .font(.subheadline)
+                                    .font(.ui(.subheadline))
                                     .foregroundStyle(.secondary)
                                     .padding(.vertical, 8)
                             } else {
@@ -401,7 +410,7 @@ struct MacMarketRadarView: View {
                                             set: { _ in Task { await store.toggleAlertRule(id: rule.id) } }
                                         )) {
                                             Text(alertRuleLabel(rule))
-                                                .font(.body.monospacedDigit())
+                                                .font(.ui(.body).monospacedDigit())
                                         }
                                         .disabled(!store.canWriteDesk)
 
@@ -411,7 +420,7 @@ struct MacMarketRadarView: View {
                                             Task { await store.deleteAlertRule(id: rule.id) }
                                         } label: {
                                             Image(systemName: "trash")
-                                                .font(.caption)
+                                                .font(.ui(.caption))
                                                 .foregroundStyle(.secondary)
                                         }
                                         .buttonStyle(.plain)
@@ -554,7 +563,7 @@ struct AddBookLotSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Add Portfolio Position")
-                    .font(.headline)
+                    .font(.ui(.headline))
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -566,7 +575,7 @@ struct AddBookLotSheet: View {
 
             Form {
                 LabeledContent("Ticker") {
-                    Text(ticker).font(.body.monospacedDigit().weight(.bold))
+                    Text(ticker).font(.ui(.body).monospacedDigit().weight(.bold))
                 }
                 TextField("Shares (Quantity)", text: $sharesText)
                 TextField("Cost Basis per Share ($)", text: $costBasisText)
@@ -579,7 +588,7 @@ struct AddBookLotSheet: View {
             HStack {
                 if let message = errorText ?? validationHint {
                     Text(message)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(errorText == nil ? Color.secondary : Color.orange)
                         .lineLimit(2)
                 }
@@ -599,7 +608,7 @@ struct AddBookLotSheet: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving || validationHint != nil || !store.canWriteDesk)
             }
@@ -635,7 +644,7 @@ struct AddPriceAlertSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Add Price Alert")
-                    .font(.headline)
+                    .font(.ui(.headline))
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -647,7 +656,7 @@ struct AddPriceAlertSheet: View {
 
             Form {
                 LabeledContent("Ticker") {
-                    Text(ticker).font(.body.monospacedDigit().weight(.bold))
+                    Text(ticker).font(.ui(.body).monospacedDigit().weight(.bold))
                 }
                 Picker("Direction", selection: $direction) {
                     Text("Rises Above").tag("above")
@@ -663,7 +672,7 @@ struct AddPriceAlertSheet: View {
             HStack {
                 if let message = errorText ?? validationHint {
                     Text(message)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(errorText == nil ? Color.secondary : Color.orange)
                         .lineLimit(2)
                 }
@@ -683,7 +692,7 @@ struct AddPriceAlertSheet: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving || validationHint != nil || !store.canWriteDesk)
             }

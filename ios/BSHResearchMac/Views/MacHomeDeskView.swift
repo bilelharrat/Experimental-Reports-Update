@@ -9,6 +9,40 @@ struct MacHomeDeskView: View {
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            bureauBody
+        } else {
+            deskBody
+        }
+    }
+
+    /// Bureau's Home is the website's: the title page, then the companies you opened last
+    /// and the ones you follow. (The markets, memos and news are on their own desks.)
+    private var bureauBody: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                MacBureauHomeHero(query: $searchQuery, hits: autocompleteHits, searching: searching, open: open)
+                if searchQuery.isEmpty {
+                    MacBureauHomeSections()
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 64)
+            .frame(maxWidth: 1024)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.dsCanvas)
+        .onChange(of: searchQuery) { _, newValue in
+            performSearch(query: newValue)
+        }
+        .task {
+            if shouldRefreshOnAppear {
+                await store.refreshHome()
+            }
+        }
+    }
+
+    private var deskBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // Command Center Search Bar
@@ -89,12 +123,12 @@ struct MacHomeDeskView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.ui(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
 
                 TextField("Search companies and tickers — or press ⌘K for the command line", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 15))
+                    .font(.ui(size: 15))
                     .onChange(of: searchQuery) { _, newValue in
                         performSearch(query: newValue)
                     }
@@ -156,14 +190,14 @@ struct MacHomeDeskView: View {
                                     .font(.dsHeadline)
                 Spacer()
                 Text("\(autocompleteHits.count) results")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
 
             if autocompleteHits.isEmpty && !searching {
                 HStack(spacing: 12) {
                     Text("No matching companies found for '\(searchQuery)'")
-                        .font(.subheadline)
+                        .font(.ui(.subheadline))
                         .foregroundStyle(.secondary)
                     Button {
                         store.openCommandPalette(seed: searchQuery)
@@ -184,7 +218,7 @@ struct MacHomeDeskView: View {
                             HStack(spacing: 12) {
                                 if let ticker = hit.ticker, !ticker.isEmpty {
                                     Text(ticker.uppercased())
-                                        .font(.caption.monospacedDigit().weight(.bold))
+                                        .font(.ui(.caption).monospacedDigit().weight(.bold))
                                         .foregroundStyle(Color.dsAccent)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
@@ -193,11 +227,11 @@ struct MacHomeDeskView: View {
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(hit.displayTitle)
-                                        .font(.subheadline.weight(.medium))
+                                        .font(.ui(.subheadline).weight(.medium))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
                                     Text(hit.displaySubtitle)
-                                        .font(.caption2)
+                                        .font(.ui(.caption2))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -205,7 +239,7 @@ struct MacHomeDeskView: View {
                                 Spacer()
 
                                 Image(systemName: "arrow.right.circle")
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(10)
@@ -241,17 +275,17 @@ struct MacHomeDeskView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
                                 Text(report.companyName ?? report.companyId ?? "Research Memo")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.ui(.subheadline).weight(.semibold))
                                 Text("·")
                                     .foregroundStyle(.secondary)
                                 Text(report.reportType ?? "Analysis")
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                                     .foregroundStyle(.secondary)
                             }
 
                             if let stage = report.stage, !stage.isEmpty {
                                 Text(stage)
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -260,7 +294,7 @@ struct MacHomeDeskView: View {
 
                         if let prog = report.progress {
                             Text("\(prog)%")
-                                .font(.caption.monospacedDigit().weight(.bold))
+                                .font(.ui(.caption).monospacedDigit().weight(.bold))
                                 .foregroundStyle(Color.dsAccent)
                         }
 
@@ -269,7 +303,7 @@ struct MacHomeDeskView: View {
                             store.blotterTab = .jobs
                             store.selectedJobId = report.id
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.dsBordered)
                         .controlSize(.small)
                         .help("Follow this run in the Jobs blotter")
                     }
@@ -285,10 +319,10 @@ struct MacHomeDeskView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(job.title ?? job.kind ?? "Background Task")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.ui(.subheadline).weight(.semibold))
                             if let msg = job.lastMessage ?? job.subtitle {
                                 Text(msg)
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -297,7 +331,7 @@ struct MacHomeDeskView: View {
 
                         if let prog = job.progress {
                             Text("\(prog)%")
-                                .font(.caption.monospacedDigit())
+                                .font(.ui(.caption).monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -331,7 +365,7 @@ struct MacHomeDeskView: View {
                         .fill(postureColor(posture))
                         .frame(width: 10, height: 10)
                     Text(posture)
-                        .font(.title3.weight(.bold))
+                        .font(.ui(.title3).weight(.bold))
                         .foregroundStyle(.primary)
                 }
             }
@@ -345,7 +379,7 @@ struct MacHomeDeskView: View {
                                     .font(.dsLabel)
                     .foregroundStyle(.secondary)
                 Text(topSignal)
-                    .font(.subheadline)
+                    .font(.ui(.subheadline))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
             }
@@ -358,7 +392,7 @@ struct MacHomeDeskView: View {
                                             .font(.dsLabel)
                         .foregroundStyle(.secondary)
                     Text("\(breadth.positiveSignals ?? 0) up · \(breadth.negativeSignals ?? 0) down · \(breadth.neutralSignals ?? 0) flat")
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .font(.ui(.subheadline).monospacedDigit().weight(.semibold))
                         .foregroundStyle((breadth.positiveSignals ?? 0) >= (breadth.negativeSignals ?? 0) ? Color.green : Color.orange)
                 }
                 .padding(.trailing, 8)
@@ -396,7 +430,7 @@ struct MacHomeDeskView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .font(.caption)
+                .font(.ui(.caption))
                 .help("Refresh market indices")
             }
 
@@ -416,24 +450,24 @@ struct MacHomeDeskView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text(quote.ticker)
-                                    .font(.subheadline.monospacedDigit().weight(.bold))
+                                    .font(.ui(.subheadline).monospacedDigit().weight(.bold))
                                 Spacer()
                                 Image(systemName: (quote.pct ?? 0) >= 0 ? "arrow.up.right" : "arrow.down.right")
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle((quote.pct ?? 0) >= 0 ? Color.green : Color.red)
                             }
 
                             if let last = quote.last {
                                 Text(String(format: "$%.2f", last))
-                                    .font(.headline.monospacedDigit())
+                                    .font(.ui(.headline).monospacedDigit())
                             } else {
                                 Text("—")
-                                    .font(.headline)
+                                    .font(.ui(.headline))
                             }
 
                             if let pct = quote.pct {
                                 Text(String(format: "%+.2f%%", pct))
-                                    .font(.caption.monospacedDigit().weight(.semibold))
+                                    .font(.ui(.caption).monospacedDigit().weight(.semibold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
@@ -474,12 +508,12 @@ struct MacHomeDeskView: View {
 
             if store.pinnedTickers.isEmpty {
                 Text("No pinned tickers. Star tickers in Market Radar to track them here.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else if pinnedQuotes.isEmpty {
                 Text("No quotes yet for your pinned tickers.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
@@ -491,12 +525,12 @@ struct MacHomeDeskView: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Text(quote.ticker)
-                                    .font(.subheadline.monospacedDigit().weight(.bold))
+                                    .font(.ui(.subheadline).monospacedDigit().weight(.bold))
                                     .frame(width: 55, alignment: .leading)
 
                                 if let name = quote.name, !name.isEmpty {
                                     Text(name)
-                                        .font(.caption)
+                                        .font(.ui(.caption))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -505,12 +539,12 @@ struct MacHomeDeskView: View {
 
                                 if let last = quote.last {
                                     Text(String(format: "$%.2f", last))
-                                        .font(.subheadline.monospacedDigit())
+                                        .font(.ui(.subheadline).monospacedDigit())
                                 }
 
                                 if let pct = quote.pct {
                                     Text(String(format: "%+.2f%%", pct))
-                                        .font(.caption.monospacedDigit().weight(.semibold))
+                                        .font(.ui(.caption).monospacedDigit().weight(.semibold))
                                         .foregroundStyle(pct >= 0 ? Color.green : Color.red)
                                         .frame(width: 55, alignment: .trailing)
                                 }
@@ -543,15 +577,15 @@ struct MacHomeDeskView: View {
                     } label: {
                         HStack {
                             Text(quote.ticker)
-                                .font(.caption.monospacedDigit().weight(.bold))
+                                .font(.ui(.caption).monospacedDigit().weight(.bold))
                             Spacer()
                             if let last = quote.last {
                                 Text(String(format: "$%.2f", last))
-                                    .font(.caption.monospacedDigit())
+                                    .font(.ui(.caption).monospacedDigit())
                             }
                             if let pct = quote.pct {
                                 Text(String(format: "+%.2f%%", pct))
-                                    .font(.caption.monospacedDigit().weight(.bold))
+                                    .font(.ui(.caption).monospacedDigit().weight(.bold))
                                     .foregroundStyle(Color.green)
                             }
                         }
@@ -569,15 +603,15 @@ struct MacHomeDeskView: View {
                     } label: {
                         HStack {
                             Text(quote.ticker)
-                                .font(.caption.monospacedDigit().weight(.bold))
+                                .font(.ui(.caption).monospacedDigit().weight(.bold))
                             Spacer()
                             if let last = quote.last {
                                 Text(String(format: "$%.2f", last))
-                                    .font(.caption.monospacedDigit())
+                                    .font(.ui(.caption).monospacedDigit())
                             }
                             if let pct = quote.pct {
                                 Text(String(format: "%.2f%%", pct))
-                                    .font(.caption.monospacedDigit().weight(.bold))
+                                    .font(.ui(.caption).monospacedDigit().weight(.bold))
                                     .foregroundStyle(Color.red)
                             }
                         }
@@ -607,7 +641,7 @@ struct MacHomeDeskView: View {
 
             if store.recentReports.isEmpty {
                 Text("No memos yet. Press ⌘N to run the first one.")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
@@ -626,16 +660,16 @@ struct MacHomeDeskView: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(report.companyName ?? report.companyId ?? "Investment Memo")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.ui(.subheadline).weight(.semibold))
                                     .lineLimit(1)
                                 HStack(spacing: 6) {
                                     Text(report.reportType ?? "Memo")
-                                        .font(.caption)
+                                        .font(.ui(.caption))
                                         .foregroundStyle(.secondary)
                                     Text("·")
                                         .foregroundStyle(.tertiary)
                                     Text(report.timeAgo)
-                                        .font(.caption)
+                                        .font(.ui(.caption))
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -662,7 +696,7 @@ struct MacHomeDeskView: View {
                                 .help("Follow this run in the Jobs blotter")
                             } else {
                                 Text(report.statusLabel)
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                                     .foregroundStyle(.secondary)
                             }
                                 }
@@ -704,7 +738,7 @@ struct MacHomeDeskView: View {
                         HStack(spacing: 12) {
                             if let ticker = item.ticker, !ticker.isEmpty {
                                 Text(ticker.uppercased())
-                                    .font(.caption2.monospacedDigit().weight(.bold))
+                                    .font(.ui(.caption2).monospacedDigit().weight(.bold))
                                     .foregroundStyle(Color.dsAccent)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
@@ -712,7 +746,7 @@ struct MacHomeDeskView: View {
                             }
 
                             Text(item.title)
-                                .font(.subheadline)
+                                .font(.ui(.subheadline))
                                 .lineLimit(1)
                                 .foregroundStyle(.primary)
 
@@ -720,13 +754,13 @@ struct MacHomeDeskView: View {
 
                             if let src = item.source {
                                 Text(src)
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle(.secondary)
                             }
 
                             if !item.timeAgo.isEmpty {
                                 Text(item.timeAgo)
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle(.tertiary)
                             }
                         }

@@ -90,14 +90,24 @@ struct MacCommandPalette: View {
     private var parsed: MacParsedCommand { MacParsedCommand.parse(query) }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau presents the website's palette over the window (macCommandPalette); in a
+            // sheet it shows the same panel.
+            MacBureauCommandPalette(inSheet: true)
+        } else {
+            palette
+        }
+    }
+
+    private var palette: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "terminal")
-                    .font(.title3)
+                    .font(.ui(.title3))
                     .foregroundStyle(Color.dsAccent)
                 TextField("Company or ticker — add a code: MEMO · DES · GP · N · NEW · ASK · FIRM · HOLD", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.title3)
+                    .font(.ui(.title3))
                     .focused($focused)
                     .onSubmit { runSelected() }
                     .onKeyPress(.downArrow) {
@@ -164,7 +174,7 @@ struct MacCommandPalette: View {
                                 .font(.caption2.monospaced().weight(.bold))
                                 .foregroundStyle(Color.dsAccent)
                             Text(code.help)
-                                .font(.caption2)
+                                .font(.ui(.caption2))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -172,7 +182,7 @@ struct MacCommandPalette: View {
                 }
                 if let deepStatus {
                     Text(deepStatus)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -278,25 +288,25 @@ struct MacCommandPalette: View {
             HStack(spacing: 10) {
                 MacMonogram(company: company, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(company.title).font(.body.weight(.medium))
+                    Text(company.title).font(.ui(.body).weight(.medium))
                     Text(company.subtitle.isEmpty ? "In pipeline" : company.subtitle)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(actionLabel(for: company))
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
             }
         case .hit(let hit):
             HStack(spacing: 10) {
                 Image(systemName: "plus.circle").foregroundStyle(Color.dsAccent).frame(width: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(hit.displayTitle).font(.body.weight(.medium))
-                    Text(hit.displaySubtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(hit.displayTitle).font(.ui(.body).weight(.medium))
+                    Text(hit.displaySubtitle).font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(store.canEditSources ? "Add to pipeline" : (hit.ticker != nil ? "Chart" : ""))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
             }
         case .symbol(let symbol):
             HStack(spacing: 10) {
@@ -304,29 +314,29 @@ struct MacCommandPalette: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(symbol.symbol).font(.body.monospaced().weight(.semibold))
                     Text([symbol.name, symbol.exchange].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("Quote").font(.caption).foregroundStyle(.secondary)
+                Text("Quote").font(.ui(.caption)).foregroundStyle(.secondary)
             }
         case .match(let match):
             HStack(spacing: 10) {
                 Image(systemName: "sparkles").foregroundStyle(Color.purple).frame(width: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(match.name).font(.body.weight(.medium))
+                    Text(match.name).font(.ui(.body).weight(.medium))
                     Text([match.ticker, match.sector ?? match.industry, match.description]
                             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                Text("Add to pipeline").font(.caption).foregroundStyle(.secondary)
+                Text("Add to pipeline").font(.ui(.caption)).foregroundStyle(.secondary)
             }
         case .deepSearch(let q):
             HStack(spacing: 10) {
                 Image(systemName: "sparkle.magnifyingglass").foregroundStyle(Color.purple).frame(width: 26)
-                Text("Deep Search with Claude for “\(q)”").font(.body)
+                Text("Deep Search with Claude for “\(q)”").font(.ui(.body))
                 Spacer()
-                Text("⌘↩").font(.caption).foregroundStyle(.secondary)
+                Text("⌘↩").font(.ui(.caption)).foregroundStyle(.secondary)
             }
         }
     }

@@ -28,6 +28,14 @@ struct MacLoginView: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            MacBureauLoginView(canCancel: canCancel)
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(spacing: 20) {
             // Header & Brand Hero
             VStack(spacing: 12) {
@@ -35,11 +43,11 @@ struct MacLoginView: View {
 
                 VStack(spacing: 4) {
                     Text("BSH Research Center")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.ui(size: 22, weight: .bold))
                         .foregroundStyle(.primary)
 
                     Text("Institutional Terminal · Berkeley Summit House")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.ui(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
 
@@ -50,12 +58,12 @@ struct MacLoginView: View {
                         .frame(width: 6, height: 6)
 
                     Text(MacConfig.baseURL.host ?? "Local Node")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     if let port = MacConfig.baseURL.port {
                         Text(":\(port)")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -102,7 +110,7 @@ struct MacLoginView: View {
                             store.authError = nil
                             dismiss()
                         }
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.ui(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                         .buttonStyle(.plain)
                         .keyboardShortcut(.cancelAction)
@@ -117,9 +125,9 @@ struct MacLoginView: View {
                             HStack(spacing: 4) {
                                 Text("Continue without signing in")
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.ui(size: 9, weight: .semibold))
                             }
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.ui(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -129,7 +137,7 @@ struct MacLoginView: View {
 
             // Footer note
             Text("Memos, decisions and pipeline data synchronize with your institutional account.")
-                .font(.system(size: 11))
+                .font(.ui(size: 11))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
         }
@@ -175,13 +183,13 @@ struct MacLoginView: View {
     private var emailField: some View {
         HStack(spacing: 10) {
             Image(systemName: "envelope.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.ui(size: 13, weight: .medium))
                 .foregroundStyle(focus == .email ? Color.dsAccent : Color.secondary.opacity(0.8))
                 .frame(width: 18)
 
             TextField("Institutional Email", text: $email)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.ui(size: 13))
                 .textContentType(.username)
                 .focused($focus, equals: .email)
                 .onSubmit { focus = .password }
@@ -191,7 +199,7 @@ struct MacLoginView: View {
                     email = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.ui(size: 11))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
@@ -222,21 +230,21 @@ struct MacLoginView: View {
     private var passwordField: some View {
         HStack(spacing: 10) {
             Image(systemName: "lock.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.ui(size: 13, weight: .medium))
                 .foregroundStyle(focus == .password ? Color.dsAccent : Color.secondary.opacity(0.8))
                 .frame(width: 18)
 
             if isPasswordVisible {
                 TextField("Password", text: $password)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.ui(size: 13))
                     .textContentType(.password)
                     .focused($focus, equals: .password)
                     .onSubmit { submit() }
             } else {
                 SecureField("Password", text: $password)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.ui(size: 13))
                     .textContentType(.password)
                     .focused($focus, equals: .password)
                     .onSubmit { submit() }
@@ -246,7 +254,7 @@ struct MacLoginView: View {
                 isPasswordVisible.toggle()
             } label: {
                 Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                    .font(.system(size: 12))
+                    .font(.ui(size: 12))
                     .foregroundStyle(isPasswordVisible ? Color.dsAccent : Color.secondary)
             }
             .buttonStyle(.plain)
@@ -288,14 +296,14 @@ struct MacLoginView: View {
                         .controlSize(.small)
                         .tint(.white)
                     Text("Authenticating…")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                 } else {
                     Text("Sign In to Terminal")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.ui(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.9))
                 }
             }
@@ -346,10 +354,10 @@ struct MacLoginView: View {
     private func noticeBanner(_ text: String, icon: String, color: Color) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.ui(size: 13, weight: .semibold))
                 .foregroundStyle(color)
             Text(text)
-                .font(.system(size: 12))
+                .font(.ui(size: 12))
                 .foregroundStyle(color == .red ? Color.red : .primary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

@@ -7,7 +7,6 @@ struct MacPortfolioDeskView: View {
     @AppStorage("mac.portfolio.mode") private var mode: String = "holdings"
     @State private var selectedId: String?
     @State private var reunderwritingOnly = false
-    @State private var executeResults: [String: MacAutoRunExecuteResult] = [:]
 
     private var entries: [(company: MacCompany, decision: MacDecision)] {
         let all = store.portfolioEntries
@@ -22,6 +21,16 @@ struct MacPortfolioDeskView: View {
     }
 
     var body: some View {
+        if BSHDesign.active == .bureau {
+            // Bureau lays the desk out as the website's Tracking page, with the holdings and
+            // the monitoring at its foot (MacBureauTracking.swift).
+            MacBureauTrackingView()
+        } else {
+            deskBody
+        }
+    }
+
+    private var deskBody: some View {
         VStack(spacing: 0) {
             HStack {
                 GlassSegmentedPicker("Mode", selection: $mode, segments: ["holdings": "Holdings", "monitoring": "Monitoring"])
@@ -47,7 +56,7 @@ struct MacPortfolioDeskView: View {
                         .toggleStyle(.checkbox)
                     Spacer()
                     Text("\(entries.count) positions")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 12)
@@ -67,16 +76,16 @@ struct MacPortfolioDeskView: View {
                         HStack(spacing: 10) {
                             MacMonogram(company: entry.company, size: 30)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.company.title).font(.body.weight(.medium))
+                                Text(entry.company.title).font(.ui(.body).weight(.medium))
                                 HStack(spacing: 6) {
                                     MacStatusPill(text: entry.decision.verdictLabel, color: entry.decision.verdict == "invest" ? .green : .orange)
                                     if let retro = entry.decision.latestRetrospective, retro.verdict != "still_right" {
-                                        Text(retro.label).font(.caption2).foregroundStyle(Color.red)
+                                        Text(retro.label).font(.ui(.caption2)).foregroundStyle(Color.red)
                                     }
                                     if let updates = store.trackingByCompany[entry.company.id] {
                                         let high = updates.items.filter { $0.impact == "high" }.count
                                         if high > 0 {
-                                            Text("\(high) high-impact").font(.caption2).foregroundStyle(Color.red)
+                                            Text("\(high) high-impact").font(.ui(.caption2)).foregroundStyle(Color.red)
                                         }
                                     }
                                 }
@@ -122,130 +131,144 @@ struct MacPortfolioDeskView: View {
     @ViewBuilder
     private var detail: some View {
         if let id = selectedId, let company = store.companies.first(where: { $0.id == id }) {
-            let updates = store.trackingByCompany[id]
-            let busy = store.trackingBusy.contains(id)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(company.title).font(.title2.weight(.bold))
-                            Text(company.subtitle).font(.subheadline).foregroundStyle(.secondary)
-                            if let synced = updates?.lastSyncedAt {
-                                Text("Tracked news synced \(MacTimeFormat.relative(synced))").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        if busy { ProgressView().controlSize(.small) }
-                        Button {
-                            guard MacTokenConfirm.ask() else { return }
-                            Task { await store.loadTracking(id, sync: true) }
-                        } label: {
-                            Label("Sync news", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .disabled(busy || !store.canRunTasks)
-                        .help("Pull fresh tracked news and re-assess the standing decision")
-                        Button {
-                            store.showCompany(company)
-                        } label: {
-                            Label("Dossier", systemImage: "building.columns")
-                        }
-                        Button {
-                            store.requestDecision(for: company)
-                        } label: {
-                            Label("Re-decide", systemImage: "checkmark.seal")
-                        }
-                        .disabled(!store.canRunTasks)
-                    }
-                    .padding()
-                    .appleGlassCard()
-
-                    // Recommended auto-run
-                    if let auto = updates?.recommendedAutoRun {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("Recommended: \(auto.actionLabel)", systemImage: "sparkles")
-                                .font(.headline)
-                            if !auto.newsTitles.isEmpty {
-                                Text("Triggered by: " + auto.newsTitles.prefix(3).joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                            }
-                            let resultKey = "\(id)|\(auto.id)"
-                            HStack {
-                                Button {
-                                    Task { executeResults[resultKey] = await store.executeAutoRun(companyId: id, autoRun: auto) }
-                                } label: {
-                                    Label("Execute", systemImage: "play.fill")
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!store.canRunTasks)
-                                if let result = executeResults[resultKey] {
-                                    Text(result.executed ? "Started — follow it in the Jobs blotter." : result.reasonLabel)
-                                        .font(.caption)
-                                        .foregroundStyle(result.executed ? Color.green : Color.orange)
-                                }
-                            }
-                        }
-                        .padding()
-                        .background(Color.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    // Decision + retrospectives
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Decision record").font(.headline)
-                        MacDecisionTimeline(companyId: id)
-                    }
-                    .padding()
-                    .appleGlassCard()
-
-                    // Tracked news by impact
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Tracked news").font(.headline)
-                            Spacer()
-                            if let updates {
-                                Text("\(updates.items.count) items").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if let updates, !updates.items.isEmpty {
-                            ForEach(updates.items.sorted { a, b in
-                                if a.impactRank != b.impactRank { return a.impactRank < b.impactRank }
-                                return (a.publishedAt ?? "") > (b.publishedAt ?? "")
-                            }.prefix(30)) { item in
-                                HStack(alignment: .top, spacing: 10) {
-                                    MacStatusPill(text: item.impact.capitalized, color: item.impact == "high" ? .red : (item.impact == "medium" ? .orange : .secondary))
-                                        .frame(width: 70, alignment: .leading)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.title ?? "Untitled").font(.subheadline.weight(.medium))
-                                        if let summary = item.summary, !summary.isEmpty {
-                                            Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                        }
-                                        HStack(spacing: 6) {
-                                            if let source = item.source { Text(source).font(.caption2).foregroundStyle(.tertiary) }
-                                            Text(MacTimeFormat.relative(item.publishedAt ?? item.capturedAt)).font(.caption2).foregroundStyle(.tertiary)
-                                            if let action = item.recommendedAction, action != "none" {
-                                                Text(action.replacingOccurrences(of: "_", with: " ")).font(.caption2).foregroundStyle(Color.purple)
-                                            }
-                                        }
-                                    }
-                                    Spacer()
-                                    if let url = item.url, let link = URL(string: url) {
-                                        Link(destination: link) { Image(systemName: "arrow.up.right.square") }
-                                    }
-                                }
-                                .padding(8)
-                                .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                            }
-                        } else {
-                            Text(busy ? "Loading…" : "No tracked news yet — press Sync news.")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                    .appleGlassCard()
-                }
-                .padding(20)
-            }
+            MacMonitoringDetail(company: company)
         } else {
             ContentUnavailableView("Portfolio & Watch", systemImage: "briefcase", description: Text("Select a position to see tracked news, auto-run recommendations and the decision record."))
+        }
+    }
+}
+
+/// One position's monitoring: its tracked news sync, the recommended auto-run, the decision
+/// record and the tracked news by impact. The desk shows it beside its list; Bureau's
+/// Tracking page opens it in a sheet.
+struct MacMonitoringDetail: View {
+    let company: MacCompany
+    @EnvironmentObject private var store: MacAppStore
+    @State private var executeResults: [String: MacAutoRunExecuteResult] = [:]
+
+    var body: some View {
+        let id = company.id
+        let updates = store.trackingByCompany[id]
+        let busy = store.trackingBusy.contains(id)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(company.title).font(.ui(.title2).weight(.bold))
+                        Text(company.subtitle).font(.ui(.subheadline)).foregroundStyle(.secondary)
+                        if let synced = updates?.lastSyncedAt {
+                            Text("Tracked news synced \(MacTimeFormat.relative(synced))").font(.ui(.caption)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if busy { ProgressView().controlSize(.small) }
+                    Button {
+                        guard MacTokenConfirm.ask() else { return }
+                        Task { await store.loadTracking(id, sync: true) }
+                    } label: {
+                        Label("Sync news", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(busy || !store.canRunTasks)
+                    .help("Pull fresh tracked news and re-assess the standing decision")
+                    Button {
+                        store.showCompany(company)
+                    } label: {
+                        Label("Dossier", systemImage: "building.columns")
+                    }
+                    Button {
+                        store.requestDecision(for: company)
+                    } label: {
+                        Label("Re-decide", systemImage: "checkmark.seal")
+                    }
+                    .disabled(!store.canRunTasks)
+                }
+                .padding()
+                .appleGlassCard()
+
+                // Recommended auto-run
+                if let auto = updates?.recommendedAutoRun {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Recommended: \(auto.actionLabel)", systemImage: "sparkles")
+                            .font(.ui(.headline))
+                        if !auto.newsTitles.isEmpty {
+                            Text("Triggered by: " + auto.newsTitles.prefix(3).joined(separator: " · "))
+                                .font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(3)
+                        }
+                        let resultKey = "\(id)|\(auto.id)"
+                        HStack {
+                            Button {
+                                Task { executeResults[resultKey] = await store.executeAutoRun(companyId: id, autoRun: auto) }
+                            } label: {
+                                Label("Execute", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.dsProminent)
+                            .disabled(!store.canRunTasks)
+                            if let result = executeResults[resultKey] {
+                                Text(result.executed ? "Started — follow it in the Jobs blotter." : result.reasonLabel)
+                                    .font(.ui(.caption))
+                                    .foregroundStyle(result.executed ? Color.green : Color.orange)
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Decision + retrospectives
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Decision record").font(.ui(.headline))
+                    MacDecisionTimeline(companyId: id)
+                }
+                .padding()
+                .appleGlassCard()
+
+                // Tracked news by impact
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Tracked news").font(.ui(.headline))
+                        Spacer()
+                        if let updates {
+                            Text("\(updates.items.count) items").font(.ui(.caption)).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let updates, !updates.items.isEmpty {
+                        ForEach(updates.items.sorted { a, b in
+                            if a.impactRank != b.impactRank { return a.impactRank < b.impactRank }
+                            return (a.publishedAt ?? "") > (b.publishedAt ?? "")
+                        }.prefix(30)) { item in
+                            HStack(alignment: .top, spacing: 10) {
+                                MacStatusPill(text: item.impact.capitalized, color: item.impact == "high" ? .red : (item.impact == "medium" ? .orange : .secondary))
+                                    .frame(width: 70, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title ?? "Untitled").font(.ui(.subheadline).weight(.medium))
+                                    if let summary = item.summary, !summary.isEmpty {
+                                        Text(summary).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                    HStack(spacing: 6) {
+                                        if let source = item.source { Text(source).font(.ui(.caption2)).foregroundStyle(.tertiary) }
+                                        Text(MacTimeFormat.relative(item.publishedAt ?? item.capturedAt)).font(.ui(.caption2)).foregroundStyle(.tertiary)
+                                        if let action = item.recommendedAction, action != "none" {
+                                            Text(action.replacingOccurrences(of: "_", with: " ")).font(.ui(.caption2)).foregroundStyle(Color.purple)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                if let url = item.url, let link = URL(string: url) {
+                                    Link(destination: link) { Image(systemName: "arrow.up.right.square") }
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    } else {
+                        Text(busy ? "Loading…" : "No tracked news yet — press Sync news.")
+                            .font(.ui(.subheadline)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+                .appleGlassCard()
+            }
+            .padding(20)
         }
     }
 }

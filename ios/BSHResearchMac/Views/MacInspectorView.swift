@@ -9,7 +9,7 @@ struct MacInspectorView: View {
                 // Header
                 HStack {
                     Text("Inspector")
-                        .font(.headline)
+                        .font(.ui(.headline))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Image(systemName: "sidebar.trailing")
@@ -22,7 +22,7 @@ struct MacInspectorView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text(company.name ?? company.id)
-                                .font(.title3.weight(.bold))
+                                .font(.ui(.title3).weight(.bold))
                             Spacer()
                             if let ticker = company.ticker, !ticker.isEmpty {
                                 Button {
@@ -38,14 +38,14 @@ struct MacInspectorView: View {
 
                         if let ticker = company.ticker {
                             Text(ticker)
-                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                                .font(.ui(.subheadline).monospacedDigit().weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.dsAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                         }
 
                         Text(company.subtitle)
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.secondary)
                     }
                     .padding(12)
@@ -54,7 +54,7 @@ struct MacInspectorView: View {
                     // Desk Sync Status
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Desk State Sync", systemImage: "arrow.triangle.2.circlepath")
-                            .font(.caption.weight(.semibold))
+                            .font(.ui(.caption).weight(.semibold))
                             .foregroundStyle(.secondary)
 
                         if let ticker = company.ticker, store.isPinned(ticker) {
@@ -62,11 +62,11 @@ struct MacInspectorView: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
                                 Text("Pinned on Web & iPad Desk")
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                             }
                         } else {
                             Text("Not pinned to shared desk watchlist.")
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -77,16 +77,16 @@ struct MacInspectorView: View {
                     let reports = store.reports(for: company.id)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Research Documents (\(reports.count))")
-                            .font(.caption.weight(.semibold))
+                            .font(.ui(.caption).weight(.semibold))
                             .foregroundStyle(.secondary)
 
                         ForEach(reports.prefix(3)) { rep in
                             HStack {
                                 Image(systemName: rep.isComplete ? "doc.text.fill" : "gearshape")
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .foregroundStyle(rep.isComplete ? Color.blue : Color.orange)
                                 Text(rep.displayTitle)
-                                    .font(.caption)
+                                    .font(.ui(.caption))
                                     .lineLimit(1)
                                 Spacer()
                             }
@@ -98,19 +98,19 @@ struct MacInspectorView: View {
                     // Ask Warren — suggested actions for what's on screen
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Ask Warren", systemImage: "sparkles")
-                            .font(.caption.weight(.semibold))
+                            .font(.ui(.caption).weight(.semibold))
                             .foregroundStyle(.secondary)
                         if let chip = store.copilotContext.chipLabel {
-                            Text(chip).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Text(chip).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         if let actions = store.visibleCopilotContextInfo?.actions, !actions.isEmpty {
                             ForEach(actions.prefix(5)) { action in
                                 Button {
                                     store.askWarren(action.prompt, context: store.copilotContext, company: company)
                                 } label: {
-                                    Text(action.label).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(action.label).font(.ui(.caption)).frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.dsBordered)
                                 .controlSize(.small)
                                 .disabled(!store.canRunTasks)
                             }
@@ -125,15 +125,15 @@ struct MacInspectorView: View {
                                 Label("Thesis summary", systemImage: "bubble.left.and.bubble.right.fill")
                                     .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.dsProminent)
                             .controlSize(.small)
                             .disabled(!store.canRunTasks)
                         }
                         if let prov = store.visibleCopilotContextInfo?.provenance, !prov.sources.isEmpty {
-                            Text("Sources").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Sources").font(.ui(.caption2).weight(.semibold)).foregroundStyle(.secondary)
                             ForEach(prov.sources.prefix(4)) { source in
                                 Label(source.filename ?? source.locator ?? "source", systemImage: "doc.text")
-                                    .font(.caption2)
+                                    .font(.ui(.caption2))
                                     .lineLimit(1)
                                     .help(source.excerpt ?? "")
                             }
@@ -161,14 +161,14 @@ struct MacInspectorView: View {
                             Label("Open in Web", systemImage: "safari")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.dsBordered)
                     }
                 } else if let ticker = store.selectedTicker {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(ticker)
-                            .font(.title2.monospacedDigit().weight(.bold))
+                            .font(.ui(.title2).monospacedDigit().weight(.bold))
                         Text("Selected quote on Market Radar")
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.secondary)
 
                         Button {
@@ -178,13 +178,13 @@ struct MacInspectorView: View {
                             Label("Open on Web", systemImage: "safari")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.dsBordered)
                     }
                     .padding(12)
                     .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 } else {
                     Text("Select a company or ticker to inspect financial metadata and desk synchronization.")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                 }
             }

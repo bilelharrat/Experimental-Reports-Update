@@ -9,10 +9,10 @@ struct MacShortcutOverlay: View {
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "command")
-                        .font(.title2.weight(.bold))
+                        .font(.ui(.title2).weight(.bold))
                         .foregroundStyle(Color.dsAccent)
                     Text("Terminal Keyboard Shortcuts")
-                        .font(.title3.weight(.bold))
+                        .font(.ui(.title3).weight(.bold))
                 }
 
                 Spacer()
@@ -21,7 +21,7 @@ struct MacShortcutOverlay: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .controlSize(.small)
             }
             .padding(.horizontal, 20)
@@ -79,7 +79,7 @@ struct MacShortcutOverlay: View {
             // Footer
             HStack {
                 Text("BSH Research Terminal Edition · Apple Human Interface Guidelines")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -101,10 +101,10 @@ private struct ShortcutSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.caption.weight(.bold))
+                    .font(.ui(.caption).weight(.bold))
                     .foregroundStyle(Color.dsAccent)
                 Text(title.uppercased())
-                    .font(.caption.weight(.bold))
+                    .font(.ui(.caption).weight(.bold))
                     .foregroundStyle(.secondary)
             }
 
@@ -124,7 +124,7 @@ private struct ShortcutRow: View {
     var body: some View {
         HStack {
             Text(description)
-                .font(.system(size: 13))
+                .font(.ui(size: 13))
             Spacer()
             HStack(spacing: 4) {
                 ForEach(keys, id: \.self) { key in
@@ -140,7 +140,7 @@ private struct KeyCapView: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.ui(size: 11, weight: .semibold, design: .monospaced))
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)

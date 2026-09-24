@@ -69,7 +69,18 @@ struct MacVCRatiosBlotterView: View {
         return burnMultiple <= 1.5
     }
 
+    @Environment(\.bureauResearchDesk) private var bureauDesk
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        if BSHDesign.active == .bureau && bureauDesk {
+            bureauBody
+        } else {
+            glassBody
+        }
+    }
+
+    private var glassBody: some View {
         VStack(alignment: .leading, spacing: 18) {
             MacCardHeader("VC ratios", subtitle: "A calculator over figures you type from the memo or the latest founder update. Nothing is fetched or estimated.", systemImage: "gauge.with.needle") {
                 Button {
@@ -146,14 +157,14 @@ struct MacVCRatiosBlotterView: View {
             if let burnMultiple {
             HStack(spacing: 12) {
                 Image(systemName: isTopTier ? "checkmark.seal.fill" : (readoutIsPositive ? "checkmark.circle" : "exclamationmark.triangle.fill"))
-                    .font(.title3)
+                    .font(.ui(.title3))
                     .foregroundStyle(isTopTier || readoutIsPositive ? Color.green : Color.orange)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verdictTitle(burnMultiple))
-                        .font(.caption.weight(.bold))
+                        .font(.ui(.caption).weight(.bold))
                     Text(verdictDescription(burnMultiple))
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.secondary)
                 }
 
@@ -163,10 +174,10 @@ struct MacVCRatiosBlotterView: View {
                 if let magicNumber {
                     HStack(spacing: 6) {
                         Text("Magic Number:")
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.secondary)
                         Text(String(format: "%.2fx", magicNumber))
-                            .font(.caption.weight(.bold).monospacedDigit())
+                            .font(.ui(.caption).weight(.bold).monospacedDigit())
                             .foregroundStyle(magicNumber >= 1.0 ? Color.green : Color.primary)
                         Text(magicNumber >= 1.0 ? "expand S&M" : "tune efficiency")
                             .font(.dsCaption)
@@ -192,15 +203,15 @@ struct MacVCRatiosBlotterView: View {
     private func inputField(_ label: String, unit: String, value: Binding<Double?>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption2)
+                .font(.ui(.caption2))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             HStack(spacing: 4) {
                 TextField("—", value: value, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption.monospacedDigit())
+                    .textFieldStyle(.dsField)
+                    .font(.ui(.caption).monospacedDigit())
                 Text(unit)
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -276,6 +287,200 @@ struct MacVCRatiosBlotterView: View {
     }
 }
 
+// MARK: - Bureau
+
+/// VCRatiosCard.vue on the Research Desk: the four ratios on tiles, the typed inputs on a
+/// tile, and the read-out once there is a burn multiple to read.
+extension MacVCRatiosBlotterView {
+    private var bureauBody: some View {
+        let ink = MacBureauDeskInk(colorScheme)
+        return VStack(alignment: .leading, spacing: 18) {
+            MacBureauDeskCardHeader(
+                icon: "gauge",
+                title: "VC ratios",
+                subtitle: "A calculator over figures you type from the memo or the latest founder update. Nothing is fetched or estimated."
+            ) {
+                Button {
+                    copyRatiosSummary()
+                } label: {
+                    MacBureauDeskButtonLabel(title: copiedToClipboard ? "Copied" : "Copy ratios", icon: copiedToClipboard ? "check" : "copy", iconSize: 12, size: .small)
+                }
+                .buttonStyle(MacBureauDeskButtonStyle(kind: .bordered, size: .small))
+                .disabled(!hasAnyMetric)
+                .fixedSize()
+            }
+
+            MacBureauDeskGrid(columns: 4, spacing: 12) {
+                bureauTile(
+                    "Burn multiple",
+                    value: burnMultiple.map { String(format: "%.2fx", $0) },
+                    badge: burnMultiple.map { value in
+                        value < 1.0 ? ("Exceptional", ink.green) : value <= 1.5 ? ("Good", ink.blue) : value <= 2.0 ? ("Manageable", ink.orange) : ("High burn", ink.red)
+                    },
+                    caption: "Net burn ÷ net new ARR",
+                    target: "Under 1.0x is top decile",
+                    ink: ink
+                )
+                bureauTile(
+                    "Rule of 40",
+                    value: ruleOf40.map { String(format: "%.1f%%", $0) },
+                    badge: ruleOf40.map { $0 >= 40 ? ("Elite", ink.green) : ("Below 40", ink.orange) },
+                    caption: "Growth (\(arrGrowthRate.map { String(format: "%.0f%%", $0) } ?? "—")) + FCF (\(fcfMargin.map { String(format: "%.0f%%", $0) } ?? "—"))",
+                    target: "40% or more",
+                    ink: ink
+                )
+                bureauTile(
+                    "Net retention",
+                    value: ndr.map { String(format: "%.0f%%", $0) },
+                    badge: ndr.map { $0 >= 130 ? ("Best in class", ink.purple) : $0 >= 115 ? ("Strong", ink.green) : ("Churn risk", ink.red) },
+                    caption: "Existing-cohort ARR expansion",
+                    target: "120% or more for enterprise",
+                    ink: ink
+                )
+                bureauTile(
+                    "CAC payback",
+                    value: cacPaybackMonths.map { String(format: "%.1f mo", $0) },
+                    badge: cacPaybackMonths.map { $0 <= 12 ? ("Efficient", ink.green) : ("Slow payback", ink.orange) },
+                    caption: "Months to recoup CAC",
+                    target: "12 months or less",
+                    ink: ink
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 0) {
+                    MacBureauDeskCaption(text: "Inputs", size: 11, weight: .medium, lineHeight: 13.75, color: ink.secondary)
+                    Spacer(minLength: 0)
+                    MacBureauDeskCaption(text: "figures from the memo or founder update", size: 11, lineHeight: 13.75, mono: true, color: ink.tertiary)
+                }
+                MacBureauDeskGrid(columns: 4, spacing: 12) {
+                    bureauField("Current ARR", unit: "$M", value: $arr, ink: ink)
+                    bureauField("Net new ARR (TTM)", unit: "$M", value: $netNewArr, ink: ink)
+                    bureauField("Annual net burn", unit: "$M", value: $netBurn, ink: ink)
+                    bureauField("S&M spend (TTM)", unit: "$M", value: $smSpend, ink: ink)
+                    bureauField("ARR growth (YoY)", unit: "%", value: $arrGrowthRate, ink: ink)
+                    bureauField("FCF margin", unit: "%", value: $fcfMargin, ink: ink)
+                    bureauField("Net dollar retention", unit: "%", value: $ndr, ink: ink)
+                    bureauField("CAC payback", unit: "months", value: $cacPaybackMonths, ink: ink)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bureauBox(RoundedRectangle(cornerRadius: 10, style: .circular), fill: ink.tile)
+
+            if let burnMultiple {
+                bureauReadout(burnMultiple, ink: ink)
+            } else {
+                MacBureauWebParagraph(
+                    text: "Enter net burn and net new ARR for the burn multiple; growth and FCF margin for Rule of 40; retention, CAC payback and S&M spend for the rest.",
+                    size: 11,
+                    lineHeight: 13.75
+                )
+                .foregroundStyle(ink.secondary)
+            }
+        }
+        .bureauDeskCard(padding: 16)
+    }
+
+    private func bureauTile(
+        _ title: String,
+        value: String?,
+        badge: (String, Color)?,
+        caption: String,
+        target: String,
+        ink: MacBureauDeskInk
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(BSHType.bureauSans(11, weight: .medium))
+                    .foregroundStyle(ink.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .bureauDeskLine(13.75, 11)
+                Spacer(minLength: 0)
+                if value != nil, let badge {
+                    MacBureauDeskPill(text: badge.0, tint: badge.1)
+                }
+            }
+            .frame(height: 13.75)
+            Text(value ?? "—")
+                .font(BSHType.bureauSans(20, weight: .semibold).monospacedDigit())
+                .foregroundStyle(value == nil ? ink.secondary : ink.label)
+                .lineLimit(1)
+                .bureauDeskLine(23, 20)
+            Text(caption)
+                .font(BSHType.bureauSans(10))
+                .foregroundStyle(ink.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bureauDeskLine(12.5, 10)
+            MacBureauGridRule(color: ink.hairline)
+            HStack(spacing: 6) {
+                MacBureauDeskIcon("crosshair", size: 10)
+                    .foregroundStyle(ink.secondary)
+                MacBureauDeskCaption(text: target, color: ink.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .bureauBox(RoundedRectangle(cornerRadius: 10, style: .circular), fill: ink.tile)
+    }
+
+    /// A number field: 13pt figures on the card colour, ruled like a button, the unit after it.
+    private func bureauField(_ label: String, unit: String, value: Binding<Double?>, ink: MacBureauDeskInk) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(BSHType.bureauSans(10))
+                .foregroundStyle(ink.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bureauDeskLine(12.5, 10)
+            HStack(spacing: 4) {
+                TextField("", value: value, format: .number, prompt: Text("—").foregroundStyle(ink.tertiary))
+                    .textFieldStyle(.plain)
+                    .font(BSHType.bureauSans(13).monospacedDigit())
+                    .foregroundStyle(ink.label)
+                    .padding(.horizontal, 6)
+                    .frame(height: 25.5)
+                    .frame(maxWidth: .infinity)
+                    .bureauBox(RoundedRectangle(cornerRadius: 6, style: .circular), fill: ink.card, stroke: ink.label(0.2))
+                MacBureauDeskCaption(text: unit, color: ink.tertiary)
+            }
+        }
+    }
+
+    private func bureauReadout(_ burn: Double, ink: MacBureauDeskInk) -> some View {
+        let good = isTopTier || readoutIsPositive
+        let tint = good ? ink.green : ink.orange
+        return HStack(spacing: 12) {
+            MacBureauDeskIcon(isTopTier ? "badge-check" : (readoutIsPositive ? "circle-check" : "triangle-alert"), size: 17)
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                MacBureauWebParagraph(text: verdictTitle(burn), size: 10, lineHeight: 12.5)
+                    .foregroundStyle(ink.label)
+                MacBureauWebParagraph(text: verdictDescription(burn), size: 10, lineHeight: 12.5)
+                    .foregroundStyle(ink.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let magicNumber {
+                HStack(spacing: 6) {
+                    MacBureauDeskCaption(text: "Magic Number:", color: ink.secondary)
+                    MacBureauDeskCaption(text: String(format: "%.2fx", magicNumber), mono: true, color: magicNumber >= 1 ? ink.green : ink.label)
+                    MacBureauDeskCaption(text: magicNumber >= 1 ? "expand S&M" : "tune efficiency", size: 11, lineHeight: 13.75, color: magicNumber >= 1 ? ink.green : ink.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .bureauBox(Capsule(), fill: (magicNumber >= 1 ? ink.green : ink.secondary).opacity(0.14))
+                .fixedSize()
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bureauBox(RoundedRectangle(cornerRadius: 10, style: .circular), fill: tint.opacity(0.10))
+    }
+}
+
 // MARK: - Ratio Metric Card
 private struct RatioMetricCard: View {
     let title: String
@@ -302,7 +507,7 @@ private struct RatioMetricCard: View {
                 .foregroundStyle(value == nil ? Color.secondary : Color.primary)
 
             Text(caption)
-                .font(.caption2)
+                .font(.ui(.caption2))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
@@ -310,10 +515,10 @@ private struct RatioMetricCard: View {
 
             HStack {
                 Image(systemName: "scope")
-                    .font(.system(size: 10))
+                    .font(.ui(size: 10))
                     .foregroundStyle(.secondary)
                 Text(target)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.ui(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }

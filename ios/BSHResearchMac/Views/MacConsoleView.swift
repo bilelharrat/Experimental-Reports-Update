@@ -45,7 +45,7 @@ struct MacConsoleView: View {
     private var sessionList: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Sessions").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Sessions").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button(action: startSession) {
                     if creating { ProgressView().controlSize(.mini) } else { Label("New", systemImage: "plus") }
@@ -59,14 +59,14 @@ struct MacConsoleView: View {
 
             Toggle("Load the document library too", isOn: $includeLibraryDocs)
                 .toggleStyle(.checkbox)
-                .font(.caption)
+                .font(.ui(.caption))
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
 
             if let consoleError = store.consoleError {
                 HStack(alignment: .top, spacing: 6) {
                     Text(consoleError)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -83,30 +83,30 @@ struct MacConsoleView: View {
             List(selection: $store.consoleSelectedSessionId) {
                 if sessions.isEmpty {
                     Text("No sessions yet. Press New to start one.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.ui(.caption)).foregroundStyle(.secondary)
                 }
                 ForEach(sessions) { session in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Text(session.displayTitle).font(.subheadline.weight(.medium)).lineLimit(1)
+                            Text(session.displayTitle).font(.ui(.subheadline).weight(.medium)).lineLimit(1)
                             if session.isArchived {
-                                Text("archived").font(.caption2).foregroundStyle(.secondary)
+                                Text("archived").font(.ui(.caption2)).foregroundStyle(.secondary)
                             }
                         }
                         HStack(spacing: 6) {
-                            Text(MacTimeFormat.relative(session.lastUsedAt)).font(.caption2).foregroundStyle(.secondary)
+                            Text(MacTimeFormat.relative(session.lastUsedAt)).font(.ui(.caption2)).foregroundStyle(.secondary)
                             if let pct = session.pctUsed {
-                                Text("· \(Int(pct * 100))% ctx").font(.caption2).foregroundStyle(.secondary)
+                                Text("· \(Int(pct * 100))% ctx").font(.ui(.caption2)).foregroundStyle(.secondary)
                             }
                             if let cost = session.totalCostUsd, cost > 0 {
-                                Text(String(format: "· $%.2f", cost)).font(.caption2).foregroundStyle(.secondary)
+                                Text(String(format: "· $%.2f", cost)).font(.ui(.caption2)).foregroundStyle(.secondary)
                             }
                             if session.hydrationStatus == "in_progress" {
                                 ProgressView().controlSize(.mini)
                             }
                         }
                         if !session.includedFiles.isEmpty {
-                            Text("\(session.includedFiles.count) staged file(s)").font(.caption2).foregroundStyle(.tertiary)
+                            Text("\(session.includedFiles.count) staged file(s)").font(.ui(.caption2)).foregroundStyle(.tertiary)
                         }
                     }
                     .padding(.vertical, 2)
@@ -134,17 +134,17 @@ struct MacConsoleView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(session.displayTitle).font(.headline)
+                        Text(session.displayTitle).font(.ui(.headline))
                         if let headline = session.summaryHeadline, !headline.isEmpty {
-                            Text(headline).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(headline).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         } else if !session.includedFiles.isEmpty {
                             Text(session.includedFiles.prefix(4).compactMap(\.filename).joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     Spacer()
                     if let activity = store.consoleActivity, streaming {
-                        HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(activity).font(.caption).foregroundStyle(.secondary) }
+                        HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(activity).font(.ui(.caption)).foregroundStyle(.secondary) }
                     }
                     if !session.isArchived {
                         Button {
@@ -167,7 +167,7 @@ struct MacConsoleView: View {
                         LazyVStack(spacing: 12) {
                             if turns.isEmpty {
                                 Text(session.isArchived ? "Archived session." : "Ask anything about \(company.title). Staged documents are already in context.")
-                                    .font(.subheadline).foregroundStyle(.secondary).padding(.top, 30)
+                                    .font(.ui(.subheadline)).foregroundStyle(.secondary).padding(.top, 30)
                             }
                             ForEach(turns) { turn in
                                 turnBubble(turn)
@@ -187,7 +187,7 @@ struct MacConsoleView: View {
                     inputBar(session: session)
                 } else if let bullets = Optional(session.summaryBullets), !bullets.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(bullets, id: \.self) { Text("• \($0)").font(.caption) }
+                        ForEach(bullets, id: \.self) { Text("• \($0)").font(.ui(.caption)) }
                     }
                     .padding(12)
                 }
@@ -201,7 +201,7 @@ struct MacConsoleView: View {
                 Button(action: startSession) {
                     if creating { ProgressView().controlSize(.small) } else { Text("Start a Session") }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .disabled(creating || !store.canRunTasks)
             }
         }
@@ -210,32 +210,32 @@ struct MacConsoleView: View {
     private func turnBubble(_ turn: MacConsoleTurn) -> some View {
         HStack(alignment: .top, spacing: 12) {
             if turn.isUser { Spacer() } else {
-                Image(systemName: "building.columns.circle.fill").font(.title2).foregroundStyle(Color.dsAccent).padding(.top, 2)
+                Image(systemName: "building.columns.circle.fill").font(.ui(.title2)).foregroundStyle(Color.dsAccent).padding(.top, 2)
             }
             VStack(alignment: turn.isUser ? .trailing : .leading, spacing: 4) {
                 if !turn.isUser && turn.text.isEmpty {
-                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(store.consoleActivity ?? "Thinking…").font(.subheadline).foregroundStyle(.secondary) }
+                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(store.consoleActivity ?? "Thinking…").font(.ui(.subheadline)).foregroundStyle(.secondary) }
                         .padding(12)
                         .appleGlassCard()
                 } else {
                     Group {
-                        if turn.isUser { Text(turn.text).font(.system(size: 14)) } else { MacMarkdownText(text: turn.text) }
+                        if turn.isUser { Text(turn.text).font(.ui(size: 14)) } else { MacMarkdownText(text: turn.text) }
                     }
                         .textSelection(.enabled)
                         .padding(12)
                         .background(turn.isUser ? Color.dsAccent.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 if !turn.attachments.isEmpty {
-                    Text(turn.attachments.compactMap(\.name).joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
+                    Text(turn.attachments.compactMap(\.name).joined(separator: ", ")).font(.ui(.caption2)).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
-                    Text(MacTimeFormat.relative(turn.ts)).font(.caption2).foregroundStyle(.secondary)
-                    if let cost = turn.costUsd { Text(String(format: "$%.3f", cost)).font(.caption2).foregroundStyle(.tertiary) }
-                    if let err = turn.error, !err.isEmpty { Text(err).font(.caption2).foregroundStyle(Color.red).lineLimit(1) }
+                    Text(MacTimeFormat.relative(turn.ts)).font(.ui(.caption2)).foregroundStyle(.secondary)
+                    if let cost = turn.costUsd { Text(String(format: "$%.3f", cost)).font(.ui(.caption2)).foregroundStyle(.tertiary) }
+                    if let err = turn.error, !err.isEmpty { Text(err).font(.ui(.caption2)).foregroundStyle(Color.red).lineLimit(1) }
                 }
             }
             if turn.isUser {
-                Image(systemName: "person.circle.fill").font(.title2).foregroundStyle(.secondary).padding(.top, 2)
+                Image(systemName: "person.circle.fill").font(.ui(.title2)).foregroundStyle(.secondary).padding(.top, 2)
             } else { Spacer() }
         }
     }
@@ -246,9 +246,9 @@ struct MacConsoleView: View {
                 HStack(spacing: 6) {
                     ForEach(attachments, id: \.self) { url in
                         HStack(spacing: 4) {
-                            Image(systemName: "paperclip").font(.caption2)
-                            Text(url.lastPathComponent).font(.caption).lineLimit(1)
-                            Button { attachments.removeAll { $0 == url } } label: { Image(systemName: "xmark.circle.fill").font(.caption2) }
+                            Image(systemName: "paperclip").font(.ui(.caption2))
+                            Text(url.lastPathComponent).font(.ui(.caption)).lineLimit(1)
+                            Button { attachments.removeAll { $0 == url } } label: { Image(systemName: "xmark.circle.fill").font(.ui(.caption2)) }
                                 .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 3)
@@ -284,11 +284,11 @@ struct MacConsoleView: View {
                         ProgressView().controlSize(.mini)
                     } else if store.consoleStreamingTurn != nil {
                         Text("A turn is running in another session")
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.secondary)
                     }
                     Button { send(session) } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.title2)
+                        Image(systemName: "arrow.up.circle.fill").font(.ui(.title2))
                             .foregroundStyle(canSend ? Color.dsAccent : Color.secondary)
                     }
                     .buttonStyle(.plain)

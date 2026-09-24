@@ -85,7 +85,7 @@ struct MacMemoWindowView: View {
                         )
                     }
                     if let page = currentPage {
-                        Text("p. \(page)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        Text("p. \(page)").font(.ui(.caption2).monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -190,7 +190,7 @@ struct MacMemoWindowView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Loading memo…")
-                        .font(.callout)
+                        .font(.ui(.callout))
                         .foregroundStyle(.secondary)
                 }
             } else {

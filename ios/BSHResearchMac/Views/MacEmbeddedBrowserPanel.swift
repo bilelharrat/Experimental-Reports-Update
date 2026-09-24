@@ -223,12 +223,12 @@ struct MacEmbeddedBrowserPanel: View {
             // Omnibox / Address Field
             HStack(spacing: 6) {
                 Image(systemName: store.browserCurrentURL.scheme == "https" ? "lock.fill" : "globe")
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(store.browserCurrentURL.scheme == "https" ? .green : .secondary)
 
                 TextField("Enter URL or search…", text: $inputURLString)
                     .textFieldStyle(.plain)
-                    .font(.callout.monospacedDigit())
+                    .font(.ui(.callout).monospacedDigit())
                     .onSubmit {
                         commitAddressInput()
                     }
@@ -397,9 +397,9 @@ private struct PresetChip: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                 Text(label)
-                    .font(.caption2.weight(.medium))
+                    .font(.ui(.caption2).weight(.medium))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

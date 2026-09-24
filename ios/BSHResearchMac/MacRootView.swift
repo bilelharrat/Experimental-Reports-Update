@@ -77,14 +77,25 @@ struct MacRootView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detail
-                .modifier(MacDeskSheet())
+        Group {
+            if BSHDesign.active == .bureau {
+                // Bureau draws the whole window as the website does: the desks as tabs
+                // across a masthead, the companies down a rail, the desk on one sheet.
+                MacBureauShell(showInspector: $showInspector) {
+                    bureauPage
+                }
+            } else {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    sidebar
+                } detail: {
+                    detail
+                }
+                .navigationSplitViewStyle(.balanced)
+                .modifier(MacWindowChrome())
+            }
         }
-        .navigationSplitViewStyle(.balanced)
-        .modifier(MacWindowChrome())
+        // Under Bureau, Generate report is the website's dialog over the whole window.
+        .bureauReportCustomizerOverlay()
         // The tour rides over the whole window so it can ring the sidebar row
         // and the toolbar button it is describing.
         .macWelcomeTourOverlay()
@@ -165,7 +176,7 @@ struct MacRootView: View {
                 .environmentObject(store)
                 .interactiveDismissDisabled(store.session == nil || signInRequired)
         }
-        .sheet(isPresented: $store.showNewReportSheet) {
+        .sheet(isPresented: $store.showNewReportSheet.systemSheetUnlessBureau) {
             if let company = store.newReportCompany ?? store.selectedCompany ?? store.companies.first {
                 MacGenerateReportSheet(company: company) { newRep in
                     store.handleCreatedReport(newRep)
@@ -180,10 +191,8 @@ struct MacRootView: View {
                 .padding(24)
             }
         }
-        .sheet(isPresented: $store.showCommandPalette) {
-            MacCommandPalette()
-                .environmentObject(store)
-        }
+        // Under Bureau the website's palette over the whole window; otherwise the Mac's sheet.
+        .macCommandPalette(isPresented: $store.showCommandPalette)
         .sheet(isPresented: $store.showShortcutSheet) {
             MacShortcutOverlay()
         }
@@ -259,7 +268,6 @@ struct MacRootView: View {
             Text(tab.title)
             Spacer()
         }
-        .modifier(MacSidebarRowInk(isSelected: store.selectedTab == tab))
         .badge(badge)
         .tag(tab)
         .glassListRow(isSelected: store.selectedTab == tab, cornerRadius: 10)
@@ -273,23 +281,23 @@ struct MacRootView: View {
                 MacMonogram(name: session.displayName, size: 26)
             } else {
                 Image(systemName: "person.crop.circle.badge.exclamationmark")
-                    .font(.title3)
+                    .font(.ui(.title3))
                     .foregroundStyle(Color.orange)
             }
 
             VStack(alignment: .leading, spacing: 1) {
                 if let session = store.session {
                     Text(session.displayName)
-                        .font(.caption.weight(.semibold))
+                        .font(.ui(.caption).weight(.semibold))
                         .lineLimit(1)
                     Text(session.isAnonDev ? "Local dev · \(session.roleLabel)" : session.roleLabel)
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.secondary)
                 } else {
                     Text(store.authChecked ? "Not signed in" : "Connecting…")
-                        .font(.caption.weight(.semibold))
+                        .font(.ui(.caption).weight(.semibold))
                     Text(store.authChecked ? "Read-only until you sign in" : MacConfig.baseURL.host ?? "")
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -318,6 +326,56 @@ struct MacRootView: View {
 
     // MARK: - Detail
 
+    /// The desk on screen.
+    @ViewBuilder
+    private var deskView: some View {
+        switch shownTab {
+        case .home:
+            MacHomeDeskView()
+        case .attention:
+            MacAttentionDeskView()
+        case .pipeline:
+            MacPipelineDeskView()
+        case .portfolio:
+            MacPortfolioDeskView()
+        case .research:
+            MacResearchDeskView()
+        case .documents:
+            MacDocumentsDeskView()
+        case .market:
+            MacMarketRadarView()
+        case .news:
+            MacNewsDeskView()
+        case .pulse:
+            MacPulseDeskView()
+        case .copilot:
+            MacCopilotView()
+        case .settings:
+            MacSettingsView()
+        }
+    }
+
+    /// Bureau's sheet: the desk, with Jobs & Alerts along its foot. Warren, the research
+    /// browser and the inspector open as sheets of their own beside it (MacBureauShell).
+    private var bureauPage: some View {
+        VStack(spacing: 0) {
+            if let message = store.error {
+                errorBanner(message)
+                Divider()
+            }
+
+            deskView
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+
+            if blotterShown {
+                Divider()
+                MacBlotterView()
+                    .frame(minHeight: 180, idealHeight: 240, maxHeight: 360)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
     private var detail: some View {
         VStack(spacing: 0) {
             if let message = store.error {
@@ -326,34 +384,9 @@ struct MacRootView: View {
             }
 
             HSplitView {
-                Group {
-                    switch shownTab {
-                    case .home:
-                        MacHomeDeskView()
-                    case .attention:
-                        MacAttentionDeskView()
-                    case .pipeline:
-                        MacPipelineDeskView()
-                    case .portfolio:
-                        MacPortfolioDeskView()
-                    case .research:
-                        MacResearchDeskView()
-                    case .documents:
-                        MacDocumentsDeskView()
-                    case .market:
-                        MacMarketRadarView()
-                    case .news:
-                        MacNewsDeskView()
-                    case .pulse:
-                        MacPulseDeskView()
-                    case .copilot:
-                        MacCopilotView()
-                    case .settings:
-                        MacSettingsView()
-                    }
-                }
-                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
+                deskView
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
 
                 if store.showBrowserPanel {
                     MacEmbeddedBrowserPanel()
@@ -384,26 +417,26 @@ struct MacRootView: View {
                 if store.isOfflineMode {
                     HStack(spacing: 4) {
                         Circle().fill(Color.orange).frame(width: 6, height: 6)
-                        Text("Offline · cached").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        Text("Offline · cached").font(.ui(.caption2).weight(.medium)).foregroundStyle(.secondary)
                     }
                     .help("The server is unreachable; showing the last cached data")
                 } else if let syncError = store.homeSyncError {
                     HStack(spacing: 4) {
                         Circle().fill(Color.red).frame(width: 6, height: 6)
-                        Text("Sync failed").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        Text("Sync failed").font(.ui(.caption2).weight(.medium)).foregroundStyle(.secondary)
                     }
                     .help(syncError)
                 } else if let sync = store.lastSyncDate {
                     HStack(spacing: 4) {
                         Circle().fill(Color.green).frame(width: 6, height: 6)
-                        Text("Synced \(sync, style: .time)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        Text("Synced \(sync, style: .time)").font(.ui(.caption2).monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .help("Last successful sync; data is cached locally for instant launch")
                 }
                 if store.needsPasswordReset {
                     HStack(spacing: 4) {
                         Circle().fill(Color.orange).frame(width: 6, height: 6)
-                        Text("Password reset required").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        Text("Password reset required").font(.ui(.caption2).weight(.medium)).foregroundStyle(.secondary)
                     }
                     .help("Your account is on a temporary password; change it in the web portal")
                 }
@@ -422,7 +455,7 @@ struct MacRootView: View {
                     HStack(spacing: 5) {
                         AiOrbView(size: 14)
                         Text("Generate report")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.ui(size: 12, weight: .medium))
                     }
                 }
                 .help(store.canRunTasks ? "Generate research report / memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
@@ -446,7 +479,7 @@ struct MacRootView: View {
                     HStack(spacing: 5) {
                         WarrenMarkView(size: 19, isBusy: store.copilotStreaming)
                         Text("Ask")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.ui(size: 12, weight: .medium))
                     }
                 }
                 .help("Ask Warren (⌥⌘C)")
@@ -751,7 +784,7 @@ struct MacSidebarCompaniesSection: View {
                 .help("Clear the filter")
             }
         }
-        .font(.system(size: 12))
+        .font(.ui(size: 12))
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -774,9 +807,9 @@ struct MacSidebarCompaniesSection: View {
                 diffsOnly.toggle()
             } label: {
                 Label("Diffs", systemImage: diffsOnly ? "sparkle" : "sparkles")
-                    .font(.caption2.weight(.medium))
+                    .font(.ui(.caption2).weight(.medium))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.dsBordered)
             .controlSize(.mini)
             .tint(diffsOnly ? .dsAccent : .secondary)
             .help("Only companies with updates or new memos since you last looked")
@@ -795,11 +828,10 @@ struct MacSidebarCompaniesSection: View {
             HStack(spacing: 4) {
                 CompanyListRow(company: company)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(open ? 0 : -90))
             }
-            .modifier(MacSidebarRowInk(isSelected: isShowing(company)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -855,11 +887,11 @@ struct MacSidebarCompaniesSection: View {
                 Spacer(minLength: 4)
                 if let count {
                     Text("\(count)")
-                        .font(.caption.monospacedDigit())
+                        .font(.ui(.caption).monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
             }
-            .font(.system(size: 12))
+            .font(.ui(size: 12))
             .padding(.leading, 30)
             .padding(.vertical, 1)
             .contentShape(Rectangle())

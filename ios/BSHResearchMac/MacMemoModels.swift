@@ -67,6 +67,8 @@ struct MacFounderProfile: Identifiable, Hashable, Codable {
     let patentsOrPapersCount: Int?
     let githubHandle: String?
     let linkedinUrl: String?
+    /// A page about the person when there's no LinkedIn profile (a team page, a fund's site).
+    let profileUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case name, role, bio, education
@@ -76,6 +78,7 @@ struct MacFounderProfile: Identifiable, Hashable, Codable {
         case patentsOrPapersCount = "patents_papers_count"
         case githubHandle = "github_handle"
         case linkedinUrl = "linkedin_url"
+        case profileUrl = "profile_url"
     }
 }
 

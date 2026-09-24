@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 /// on-screen context rides above the input like an attachment.
 struct MacCopilotView: View {
     @EnvironmentObject private var store: MacAppStore
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var inputPrompt = ""
     @State private var showSessions = false
@@ -220,10 +221,15 @@ struct MacCopilotView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.dsLabel)
-            .foregroundStyle(.secondary)
+        if BSHDesign.active == .bureau {
+            MacBureauKicker(text)
+        } else {
+            Text(text.uppercased())
+                .font(.dsLabel)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func lensCard(_ p: MacCopilotPersona) -> some View {
@@ -297,7 +303,7 @@ struct MacCopilotView: View {
                     HStack(spacing: 6) {
                         ForEach(MacCopilotPersona.followUps, id: \.self) { f in
                             Button(f) { store.sendCopilotMessage(prompt: f) }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.dsBordered)
                                 .controlSize(.small)
                                 .disabled(!canAsk)
                         }
@@ -333,13 +339,16 @@ struct MacCopilotView: View {
             if store.copilotViewingThread != nil {
                 MacWarrenViewingBar()
             } else {
+            if BSHDesign.active == .bureau {
+                bureauInputBox
+            } else {
             HStack(alignment: .bottom, spacing: 10) {
                 MacWarrenAttachButton()
                     .padding(.bottom, 3)
 
                 TextField(placeholder, text: $inputPrompt, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 14))
+                    .font(.ui(size: 14))
                     .lineLimit(1...8)
                     .focused($isInputFocused)
                     .onSubmit(submitPrompt)
@@ -349,14 +358,14 @@ struct MacCopilotView: View {
                     Button {
                         store.cancelCopilot()
                     } label: {
-                        Image(systemName: "stop.circle.fill").font(.system(size: 22))
+                        Image(systemName: "stop.circle.fill").font(.ui(size: 22))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.primary)
                     .help("Stop the answer")
                 } else {
                     Button(action: submitPrompt) {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 22))
+                        Image(systemName: "arrow.up.circle.fill").font(.ui(size: 22))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(canSend ? Color.dsAccent : Color.secondary.opacity(0.5))
@@ -373,6 +382,7 @@ struct MacCopilotView: View {
                     .stroke(isInputFocused || fileDropTargeted ? Color.dsAccent.opacity(0.5) : Color.dsHairline,
                             lineWidth: fileDropTargeted ? 2 : 1)
             )
+            }
             }
 
             HStack(spacing: 6) {
@@ -394,14 +404,64 @@ struct MacCopilotView: View {
         .padding(.horizontal, 24)
         .padding(.top, 10)
         .padding(.bottom, 14)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .background(BSHDesign.active == .bureau ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
+        .overlay(alignment: .top) { if BSHDesign.active != .bureau { Divider() } }
         .modifier(MacWarrenFileDrop(targeted: $fileDropTargeted))
+    }
+
+    /// Under Bureau, the question box of Warren's aside (`.ask-composer`): fresh paper ruled
+    /// in ink, a brass edge and its glow while typing, a round brass send button.
+    private var bureauInputBox: some View {
+        let ink = MacBureauPageInk(scheme: colorScheme)
+        return HStack(alignment: .bottom, spacing: 8) {
+            MacWarrenAttachButton(glyph: "paperclip")
+                .padding(.bottom, 2)
+            TextField(placeholder, text: $inputPrompt, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(BSHType.bureauSans(13))
+                .tracking(-0.039)
+                .lineLimit(1...8)
+                .focused($isInputFocused)
+                .onSubmit(submitPrompt)
+                .bureauLines(17.55, size: 13)
+                .padding(.vertical, 8)
+                .frame(minHeight: 36, alignment: .top)
+            Button {
+                if store.copilotStreaming { store.cancelCopilot() } else { submitPrompt() }
+            } label: {
+                LucideIcon(store.copilotStreaming ? "square" : "arrow-up", size: 16)
+                    .foregroundStyle(canSend || store.copilotStreaming ? Color.white : ink.subtle)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(canSend || store.copilotStreaming ? ink.accent : ink.ink(0.06)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend && !store.copilotStreaming)
+            .keyboardShortcut(.return, modifiers: .command)
+            .help(store.copilotStreaming ? "Stop the answer" : (askBlockedReason ?? "Send (Return)"))
+            .padding(.bottom, 2)
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 16, style: .circular).fill(ink.raised))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .circular)
+                .strokeBorder(isInputFocused || fileDropTargeted ? ink.accent : ink.ink(0.14), lineWidth: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .circular)
+                .inset(by: -2)
+                .stroke(isInputFocused ? ink.accentGlow(0.24) : .clear, lineWidth: 3)
+                .padding(-0.5)
+                .allowsHitTesting(false)
+        )
+        .shadow(color: ink.shadow(0.35 * 0.4), radius: 6, y: 5)
     }
 
     private func contextChip(_ chip: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "scope").font(.caption)
+            Image(systemName: "scope").font(.ui(.caption))
             Text("About: \(chip)").font(.dsCaption.weight(.medium)).lineLimit(1)
             if let prov = store.visibleCopilotContextInfo?.provenance, !prov.sources.isEmpty || !prov.contradictions.isEmpty {
                 Text("· \(prov.sources.count) source\(prov.sources.count == 1 ? "" : "s")"
@@ -415,7 +475,7 @@ struct MacCopilotView: View {
             Button {
                 store.clearCopilotContext()
             } label: {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                Image(systemName: "xmark").font(.ui(size: 9, weight: .bold))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -463,29 +523,47 @@ private struct SuggestionRow: View {
     let action: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Bureau's `.ask-suggestion`: no fill until the pointer is on it, then fresh paper.
+    private var rowFill: Color {
+        if BSHDesign.active == .bureau {
+            return hovering && isEnabled ? MacBureauPageInk(scheme: colorScheme).raised : .clear
+        }
+        return hovering && isEnabled ? Color.primary.opacity(0.06) : Color.dsCard
+    }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(Color.dsAccent)
-                    .frame(width: 16)
-                Text(text)
-                    .font(.dsBody)
-                    .multilineTextAlignment(.leading)
+                if BSHDesign.active == .bureau {
+                    LucideIcon(icon == "text.bubble" ? "message-square-text" : icon, size: 14)
+                        .foregroundStyle(MacBureauPageInk(scheme: colorScheme).accent)
+                    Text(text)
+                        .font(BSHType.bureauSans(13))
+                        .tracking(-0.039)
+                        .multilineTextAlignment(.leading)
+                        .bureauLines(18, size: 13)
+                } else {
+                    Image(systemName: icon)
+                        .foregroundStyle(Color.dsAccent)
+                        .frame(width: 16)
+                    Text(text)
+                        .font(.dsBody)
+                        .multilineTextAlignment(.leading)
+                }
                 Spacer(minLength: 8)
                 Image(systemName: "arrow.right")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .opacity(hovering ? 1 : 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(hovering && isEnabled ? Color.primary.opacity(0.06) : Color.dsCard,
-                        in: RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous))
+            .padding(.vertical, BSHDesign.active == .bureau ? 10 : 9)
+            .background(rowFill, in: RoundedRectangle(cornerRadius: BSHDesign.active == .bureau ? 12 : MacDS.tileRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: MacDS.tileRadius, style: .continuous)
-                    .stroke(Color.dsHairline, lineWidth: 1)
+                RoundedRectangle(cornerRadius: BSHDesign.active == .bureau ? 12 : MacDS.tileRadius, style: .continuous)
+                    .strokeBorder(BSHDesign.active == .bureau ? MacBureauPageInk(scheme: colorScheme).ink(0.14) : Color.dsHairline, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -525,7 +603,7 @@ struct CopilotBubbleView: View {
         let persona = message.persona ?? .warren
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: persona.icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.ui(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(Color.dsAccent, in: Circle())
@@ -628,14 +706,14 @@ struct MacMarkdownText: View {
         switch block {
         case .heading(let s, let level):
             Text(Self.inline(s))
-                .font(level <= 1 ? .system(size: 17, weight: .bold) : (level == 2 ? .system(size: 15, weight: .semibold) : .system(size: 14, weight: .semibold)))
+                .font(level <= 1 ? .ui(size: 17, weight: .bold) : (level == 2 ? .ui(size: 15, weight: .semibold) : .ui(size: 14, weight: .semibold)))
                 .padding(.top, 4)
         case .bullet(let s, let depth):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(depth == 0 ? "•" : "◦").foregroundStyle(.secondary)
                 Text(Self.inline(s)).fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 14))
+            .font(.ui(size: 14))
             .lineSpacing(3)
             .padding(.leading, CGFloat(depth) * 16)
         case .numbered(let n, let s):
@@ -643,16 +721,16 @@ struct MacMarkdownText: View {
                 Text(n + ".").foregroundStyle(.secondary).monospacedDigit()
                 Text(Self.inline(s)).fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 14))
+            .font(.ui(size: 14))
             .lineSpacing(3)
         case .code(let s):
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(s).font(.system(size: 12, design: .monospaced)).padding(10)
+                Text(s).font(.ui(size: 12, design: .monospaced)).padding(10)
             }
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
         case .paragraph(let s):
             Text(Self.inline(s))
-                .font(.system(size: 14))
+                .font(.ui(size: 14))
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         case .rule:
@@ -758,13 +836,19 @@ struct MacWarrenFileDrop: ViewModifier {
 
 struct MacWarrenAttachButton: View {
     @EnvironmentObject private var store: MacAppStore
+    /// A lucide glyph in a round button (Bureau), in place of the paperclip symbol.
+    var glyph: String? = nil
 
     var body: some View {
         Button {
             store.stageCopilotAttachments(MacWarrenFiles.pick())
         } label: {
-            Image(systemName: "paperclip")
-                .font(.system(size: 15))
+            if let glyph {
+                MacBureauIconCircle(icon: glyph)
+            } else {
+                Image(systemName: "paperclip")
+                    .font(.ui(size: 15))
+            }
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
@@ -806,20 +890,20 @@ struct MacWarrenAttachmentStrip: View {
             case .staging:
                 ProgressView().controlSize(.mini)
             case .ready:
-                Image(systemName: "paperclip").font(.caption2)
+                Image(systemName: "paperclip").font(.ui(.caption2))
             case .failed:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
+                    .font(.ui(.caption2))
                     .foregroundStyle(Color.dsWarning)
             }
             Text(item.name)
-                .font(.caption)
+                .font(.ui(.caption))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Button {
                 store.removeCopilotAttachment(item.id)
             } label: {
-                Image(systemName: "xmark.circle.fill").font(.caption2)
+                Image(systemName: "xmark.circle.fill").font(.ui(.caption2))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -874,7 +958,7 @@ struct MacWarrenQuestionBubble: View {
                     HStack(spacing: 8) {
                         if !byline.isEmpty {
                             Text(byline)
-                                .font(.caption2)
+                                .font(.ui(.caption2))
                                 .foregroundStyle(.tertiary)
                         }
                         if canEdit {
@@ -884,7 +968,7 @@ struct MacWarrenQuestionBubble: View {
                                 Label("Edit", systemImage: "pencil")
                             }
                             .buttonStyle(.borderless)
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.secondary)
                             .opacity(hovering ? 1 : 0)
                             .help("Rewrite this question and ask it again")
@@ -900,13 +984,13 @@ struct MacWarrenQuestionBubble: View {
     private var bubble: some View {
         VStack(alignment: .trailing, spacing: 6) {
             Text(message.text)
-                .font(.system(size: compact ? 13 : 14))
+                .font(.ui(size: compact ? 13 : 14))
                 .textSelection(.enabled)
             if !message.files.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(message.files, id: \.self) { name in
                         Label(name, systemImage: "paperclip")
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .padding(.horizontal, 7)
@@ -935,7 +1019,7 @@ struct MacWarrenQuestionBubble: View {
         VStack(alignment: .trailing, spacing: 6) {
             TextField("Question", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 14))
+                .font(.ui(size: 14))
                 .lineLimit(1...8)
                 .focused($focused)
                 .onSubmit(save)
@@ -945,7 +1029,7 @@ struct MacWarrenQuestionBubble: View {
             HStack(spacing: 8) {
                 Button("Cancel") { editing = false }
                 Button("Save & Ask", action: save)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .controlSize(.small)
@@ -982,7 +1066,7 @@ struct MacWarrenWorkCard: View {
                     .foregroundStyle(Color.dsAccent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(work.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.ui(size: 13, weight: .semibold))
                     if !work.why.isEmpty {
                         Text(work.why)
                             .font(.dsCaption)
@@ -991,7 +1075,7 @@ struct MacWarrenWorkCard: View {
                     }
                     if let detail = work.detailLine {
                         Text(detail)
-                            .font(.caption2)
+                            .font(.ui(.caption2))
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -1015,7 +1099,7 @@ struct MacWarrenWorkCard: View {
                             Text(work.confirmLabel)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .disabled(store.copilotWorkRunning || !store.canRunTasks)
                     if work.kind == .report, let company = store.selectedCompany {
                         Button("Set Options…") { store.requestNewReport(for: company) }
@@ -1039,6 +1123,8 @@ struct MacWarrenWorkCard: View {
 struct MacWarrenNewChatButton: View {
     @EnvironmentObject private var store: MacAppStore
     var iconOnly = false
+    /// Under Bureau: the website's round icon button with this lucide glyph.
+    var glyph: String? = nil
     var onStart: () -> Void = {}
 
     var body: some View {
@@ -1046,8 +1132,10 @@ struct MacWarrenNewChatButton: View {
             onStart()
             Task { await store.newCopilotThread() }
         } label: {
-            if iconOnly {
-                Image(systemName: "square.and.pencil").font(.caption)
+            if let glyph {
+                MacBureauIconCircle(icon: glyph)
+            } else if iconOnly {
+                Image(systemName: "square.and.pencil").font(.ui(.caption))
             } else {
                 Label("New Chat", systemImage: "square.and.pencil")
             }
@@ -1062,6 +1150,8 @@ struct MacWarrenNewChatButton: View {
 struct MacWarrenThreadsButton: View {
     @EnvironmentObject private var store: MacAppStore
     var iconOnly = false
+    /// Under Bureau: the website's round icon button with this lucide glyph.
+    var glyph: String? = nil
     @State private var showing = false
 
     var body: some View {
@@ -1069,8 +1159,10 @@ struct MacWarrenThreadsButton: View {
             showing.toggle()
             if showing { Task { await store.refreshCopilotThreads() } }
         } label: {
-            if iconOnly {
-                Image(systemName: "clock.arrow.circlepath").font(.caption)
+            if let glyph {
+                MacBureauIconCircle(icon: glyph, isLit: showing)
+            } else if iconOnly {
+                Image(systemName: "clock.arrow.circlepath").font(.ui(.caption))
             } else {
                 Label("Earlier Threads", systemImage: "clock.arrow.circlepath")
             }
@@ -1086,7 +1178,7 @@ struct MacWarrenThreadsButton: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Earlier threads").font(.headline)
+            Text("Earlier threads").font(.ui(.headline))
             Text("Warren's threads are shared with everyone on this company.")
                 .font(.dsCaption)
                 .foregroundStyle(.secondary)
@@ -1117,11 +1209,11 @@ struct MacWarrenThreadsButton: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(thread.openingQuestion.isEmpty ? "Nothing asked yet" : thread.openingQuestion)
-                        .font(.system(size: 13))
+                        .font(.ui(size: 13))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     Text(when(thread))
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(.tertiary)
                 }
                 HStack(spacing: 4) {
@@ -1133,7 +1225,7 @@ struct MacWarrenThreadsButton: View {
                         Text("· " + thread.askers.joined(separator: ", ")).lineLimit(1)
                     }
                 }
-                .font(.caption2)
+                .font(.ui(.caption2))
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 8)

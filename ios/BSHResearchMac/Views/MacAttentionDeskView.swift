@@ -30,11 +30,11 @@ struct MacAttentionDeskView: View {
                                 .frame(width: 20)
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
-                                    Text(item.companyName ?? item.companyId ?? "").font(.subheadline.weight(.semibold))
-                                    Text(item.label ?? item.kind ?? "").font(.subheadline)
+                                    Text(item.companyName ?? item.companyId ?? "").font(.ui(.subheadline).weight(.semibold))
+                                    Text(item.label ?? item.kind ?? "").font(.ui(.subheadline))
                                 }
                                 if let detail = item.detail, !detail.isEmpty {
-                                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(detail).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(2)
                                 }
                             }
                             Spacer()
@@ -65,8 +65,8 @@ struct MacAttentionDeskView: View {
                         ForEach(staleCoverage) { item in
                             HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(item.title ?? item.id).font(.subheadline.weight(.medium))
-                                    Text(item.detail ?? "").font(.caption).foregroundStyle(.secondary)
+                                    Text(item.title ?? item.id).font(.ui(.subheadline).weight(.medium))
+                                    Text(item.detail ?? "").font(.ui(.caption)).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if let cid = item.companyId, let company = store.companies.first(where: { $0.id == cid }) {
@@ -85,8 +85,8 @@ struct MacAttentionDeskView: View {
                     section("Watchlist drawdowns", systemImage: "arrow.down.right.circle", count: drawdowns.count, empty: "No pinned ticker is down more than 3% today.", error: loadError("screener")) {
                         ForEach(drawdowns) { item in
                             HStack(spacing: 8) {
-                                Text(item.ticker ?? "").font(.subheadline.monospacedDigit().weight(.bold))
-                                Text(item.title ?? "").font(.subheadline).foregroundStyle(Color.red)
+                                Text(item.ticker ?? "").font(.ui(.subheadline).monospacedDigit().weight(.bold))
+                                Text(item.title ?? "").font(.ui(.subheadline)).foregroundStyle(Color.red)
                                 Spacer()
                                 if let t = item.ticker {
                                     Button("Chart") { store.showTicker(t) }.controlSize(.small)
@@ -106,8 +106,8 @@ struct MacAttentionDeskView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 18)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(item.title ?? "").font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(item.detail ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(item.title ?? "").font(.ui(.subheadline).weight(.medium)).lineLimit(1)
+                                Text(item.detail ?? "").font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
                             if let rid = item.reportId, let report = store.report(for: rid), report.canOpen {
@@ -128,17 +128,17 @@ struct MacAttentionDeskView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "doc.badge.ellipsis").foregroundStyle(.secondary).frame(width: 18)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(item.title ?? item.id).font(.subheadline.weight(.medium)).lineLimit(1)
+                                Text(item.title ?? item.id).font(.ui(.subheadline).weight(.medium)).lineLimit(1)
                                 HStack(spacing: 6) {
-                                    if let kind = item.kind { Text(kind.replacingOccurrences(of: "_", with: " ")).font(.caption).foregroundStyle(.secondary) }
+                                    if let kind = item.kind { Text(kind.replacingOccurrences(of: "_", with: " ")).font(.ui(.caption)).foregroundStyle(.secondary) }
                                     if let a = item.assignment {
                                         if let name = a.companyName {
-                                            Text("→ \(name) (\(Int((a.companyConfidence ?? 0) * 100))%)").font(.caption).foregroundStyle(.secondary)
+                                            Text("→ \(name) (\(Int((a.companyConfidence ?? 0) * 100))%)").font(.ui(.caption)).foregroundStyle(.secondary)
                                         } else if let reason = a.reviewReason, !reason.isEmpty {
-                                            Text(reason).font(.caption).foregroundStyle(Color.orange)
+                                            Text(reason).font(.ui(.caption)).foregroundStyle(Color.orange)
                                         }
                                     }
-                                    Text(MacTimeFormat.relative(item.createdAt)).font(.caption).foregroundStyle(.tertiary)
+                                    Text(MacTimeFormat.relative(item.createdAt)).font(.ui(.caption)).foregroundStyle(.tertiary)
                                 }
                             }
                             Spacer()

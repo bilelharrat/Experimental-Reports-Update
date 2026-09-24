@@ -20,7 +20,7 @@ struct MacFirmSearchSheet: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search everything the firm has written: memos, decisions, calls, updates, chat…", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.title3)
+                    .font(.ui(.title3))
                     .focused($focused)
                     .onChange(of: query) { _, _ in schedule() }
                 if searching { ProgressView().controlSize(.small) }
@@ -35,14 +35,14 @@ struct MacFirmSearchSheet: View {
                         schedule(immediate: true)
                     } label: {
                         Text(k.isEmpty ? "All" : k.replacingOccurrences(of: "_", with: " ").capitalized)
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(kind == k ? Color.dsAccent.opacity(0.18) : Color.secondary.opacity(0.08), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
                 Spacer()
-                if let r = result { Text("\(r.total) hits").font(.caption).foregroundStyle(.secondary) }
+                if let r = result { Text("\(r.total) hits").font(.ui(.caption)).foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             Divider()
@@ -53,14 +53,14 @@ struct MacFirmSearchSheet: View {
                             Image(systemName: hit.systemImage).foregroundStyle(Color.dsAccent).frame(width: 18)
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 6) {
-                                    Text(hit.title).font(.callout.weight(.semibold)).lineLimit(1)
-                                    Text(hit.kindLabel).font(.caption2).foregroundStyle(.secondary)
+                                    Text(hit.title).font(.ui(.callout).weight(.semibold)).lineLimit(1)
+                                    Text(hit.kindLabel).font(.ui(.caption2)).foregroundStyle(.secondary)
                                         .padding(.horizontal, 5).padding(.vertical, 1).background(Color.secondary.opacity(0.1), in: Capsule())
                                     if let v = hit.verdict { MacStatusPill(text: v.capitalized, color: v == "invest" ? .green : (v == "pass" ? .red : .orange)) }
                                     Spacer()
-                                    if let at = hit.at { Text(MacTimeFormat.relative(at)).font(.caption2).foregroundStyle(.tertiary) }
+                                    if let at = hit.at { Text(MacTimeFormat.relative(at)).font(.ui(.caption2)).foregroundStyle(.tertiary) }
                                 }
-                                Text(hit.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                                Text(hit.excerpt).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(3)
                             }
                         }
                         .padding(.vertical, 3)
@@ -117,10 +117,10 @@ struct MacCommentsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Comments · \(target.label ?? target.ref)", systemImage: "text.bubble").font(.subheadline.weight(.semibold))
+                Label("Comments · \(target.label ?? target.ref)", systemImage: "text.bubble").font(.ui(.subheadline).weight(.semibold))
                 Spacer()
                 let open = scoped.filter { $0.parentId == nil && !$0.isResolved }.count
-                if open > 0 { Text("\(open) open").font(.caption2).foregroundStyle(.orange) }
+                if open > 0 { Text("\(open) open").font(.ui(.caption2)).foregroundStyle(.orange) }
                 Toggle("Resolved", isOn: $showResolved).toggleStyle(.checkbox).controlSize(.small)
             }
             ForEach(roots) { c in
@@ -130,19 +130,19 @@ struct MacCommentsView: View {
                 }
             }
             if roots.isEmpty {
-                Text("No comments yet. Mention a colleague with @handle to put it in their inbox.").font(.caption).foregroundStyle(.secondary)
+                Text("No comments yet. Mention a colleague with @handle to put it in their inbox.").font(.ui(.caption)).foregroundStyle(.secondary)
             }
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     if let r = replyTo {
                         HStack {
-                            Text("Replying to \(r.authorHandle)").font(.caption2).foregroundStyle(.secondary)
-                            Button("×") { replyTo = nil }.buttonStyle(.plain).font(.caption2)
+                            Text("Replying to \(r.authorHandle)").font(.ui(.caption2)).foregroundStyle(.secondary)
+                            Button("×") { replyTo = nil }.buttonStyle(.plain).font(.ui(.caption2))
                         }
                     }
                     TextField("Comment… use @handle to mention", text: $draft, axis: .vertical)
                         .lineLimit(1...4)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.dsField)
                         .onSubmit { post() }
                     if !store.chatHandles.isEmpty, let at = draft.lastIndex(of: "@") {
                         let partial = String(draft[draft.index(after: at)...]).lowercased()
@@ -165,7 +165,7 @@ struct MacCommentsView: View {
                 .disabled(posting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.canEditMemo)
             }
             if let postError {
-                Text(postError).font(.caption2).foregroundStyle(.red)
+                Text(postError).font(.ui(.caption2)).foregroundStyle(.red)
             }
         }
         .padding(10)
@@ -182,21 +182,21 @@ struct MacCommentsView: View {
     private func commentRow(_ c: MacComment) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(c.authorHandle).font(.caption.weight(.semibold))
-                Text(MacTimeFormat.relative(c.createdAt)).font(.caption2).foregroundStyle(.secondary)
-                if c.isResolved { Label("Resolved", systemImage: "checkmark").font(.caption2).foregroundStyle(.green) }
+                Text(c.authorHandle).font(.ui(.caption).weight(.semibold))
+                Text(MacTimeFormat.relative(c.createdAt)).font(.ui(.caption2)).foregroundStyle(.secondary)
+                if c.isResolved { Label("Resolved", systemImage: "checkmark").font(.ui(.caption2)).foregroundStyle(.green) }
                 Spacer()
                 if c.parentId == nil {
-                    Button("Reply") { replyTo = c }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
+                    Button("Reply") { replyTo = c }.buttonStyle(.plain).font(.ui(.caption2)).foregroundStyle(Color.dsAccent)
                     Button(c.isResolved ? "Reopen" : "Resolve") {
                         Task { await store.resolveComment(companyId, commentId: c.id, resolved: !c.isResolved) }
                     }
-                    .buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
+                    .buttonStyle(.plain).font(.ui(.caption2)).foregroundStyle(Color.dsAccent)
                     .disabled(!store.canEditMemo)
                 }
                 if store.canEditMemo {
                     Button { Task { await store.deleteComment(companyId, commentId: c.id) } } label: {
-                        Image(systemName: "trash").font(.caption2).foregroundStyle(.secondary)
+                        Image(systemName: "trash").font(.ui(.caption2)).foregroundStyle(.secondary)
                     }.buttonStyle(.plain)
                 }
             }
@@ -212,7 +212,7 @@ struct MacCommentsView: View {
             let piece = part.hasPrefix("@") ? Text(String(part)).foregroundColor(.dsAccent).bold() : Text(String(part))
             out = i == 0 ? piece : out + Text(" ") + piece
         }
-        return out.font(.caption)
+        return out.font(.ui(.caption))
     }
 
     private func post() {
@@ -250,14 +250,14 @@ struct MacFirmChatPane: View {
         HSplitView {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Channels").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Channels").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
                     if let m = store.mentions, m.openCount > 0 {
                         Button {
                             showMentions.toggle()
                         } label: {
                             Label("@\(m.openCount)", systemImage: "at")
-                                .font(.caption.weight(.semibold))
+                                .font(.ui(.caption).weight(.semibold))
                                 .foregroundStyle(.orange)
                         }
                         .buttonStyle(.plain)
@@ -279,13 +279,13 @@ struct MacFirmChatPane: View {
                     ForEach(store.chatChannels) { ch in
                         VStack(alignment: .leading, spacing: 1) {
                             HStack {
-                                Image(systemName: ch.kind == "company" ? "building.2" : "number").font(.caption2).foregroundStyle(.secondary)
-                                Text(ch.label).font(.caption.weight(.medium))
+                                Image(systemName: ch.kind == "company" ? "building.2" : "number").font(.ui(.caption2)).foregroundStyle(.secondary)
+                                Text(ch.label).font(.ui(.caption).weight(.medium))
                                 Spacer()
-                                if ch.messageCount > 0 { Text("\(ch.messageCount)").font(.caption2).foregroundStyle(.tertiary) }
+                                if ch.messageCount > 0 { Text("\(ch.messageCount)").font(.ui(.caption2)).foregroundStyle(.tertiary) }
                             }
                             if let last = ch.lastMessage {
-                                Text("\(last.authorHandle): \(last.text)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Text("\(last.authorHandle): \(last.text)").font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         .tag(ch.id)
@@ -304,18 +304,18 @@ struct MacFirmChatPane: View {
                 if showMentions, let m = store.mentions {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Mentions for @\(m.handle)").font(.caption.weight(.semibold))
+                            Text("Mentions for @\(m.handle)").font(.ui(.caption).weight(.semibold))
                             Spacer()
                             Button("Hide") { showMentions = false }.controlSize(.mini)
                         }
                         ForEach(m.items.prefix(8)) { item in
                             HStack(spacing: 6) {
-                                Image(systemName: item.kind == "chat" ? "bubble.left" : "text.bubble").font(.caption2).foregroundStyle(.secondary)
-                                Text("\(item.from ?? "?"):").font(.caption2.weight(.semibold))
-                                Text(item.text).font(.caption2).lineLimit(1)
+                                Image(systemName: item.kind == "chat" ? "bubble.left" : "text.bubble").font(.ui(.caption2)).foregroundStyle(.secondary)
+                                Text("\(item.from ?? "?"):").font(.ui(.caption2).weight(.semibold))
+                                Text(item.text).font(.ui(.caption2)).lineLimit(1)
                                 Spacer()
-                                if item.resolved { Image(systemName: "checkmark").font(.caption2).foregroundStyle(.green) }
-                                Text(MacTimeFormat.relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+                                if item.resolved { Image(systemName: "checkmark").font(.ui(.caption2)).foregroundStyle(.green) }
+                                Text(MacTimeFormat.relative(item.at)).font(.ui(.caption2)).foregroundStyle(.tertiary)
                             }
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -336,20 +336,20 @@ struct MacFirmChatPane: View {
                                     MacMonogram(name: m.authorHandle, size: 22)
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
-                                            Text(m.authorHandle).font(.caption.weight(.semibold))
-                                            Text(MacTimeFormat.relative(m.at)).font(.caption2).foregroundStyle(.tertiary)
+                                            Text(m.authorHandle).font(.ui(.caption).weight(.semibold))
+                                            Text(MacTimeFormat.relative(m.at)).font(.ui(.caption2)).foregroundStyle(.tertiary)
                                             if let cid = m.companyId, let c = store.companies.first(where: { $0.id == cid }) {
-                                                Button(c.title) { store.showCompany(c) }.buttonStyle(.plain).font(.caption2).foregroundStyle(Color.dsAccent)
+                                                Button(c.title) { store.showCompany(c) }.buttonStyle(.plain).font(.ui(.caption2)).foregroundStyle(Color.dsAccent)
                                             }
                                         }
-                                        Text(m.text).font(.callout).textSelection(.enabled)
+                                        Text(m.text).font(.ui(.callout)).textSelection(.enabled)
                                     }
                                 }
                                 .id(m.id)
                                 .padding(.horizontal, 10)
                             }
                             if store.chatMessages.isEmpty {
-                                Text("No messages in #\(store.chatChannel) yet.").font(.caption).foregroundStyle(.secondary).padding(10)
+                                Text("No messages in #\(store.chatChannel) yet.").font(.ui(.caption)).foregroundStyle(.secondary).padding(10)
                             }
                         }
                         .padding(.vertical, 8)
@@ -362,7 +362,7 @@ struct MacFirmChatPane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         TextField("Message #\(store.chatChannel) — @handle to mention", text: $draft)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.dsField)
                             .onSubmit { send() }
                         Button { send() } label: {
                             if sending { ProgressView().controlSize(.small) } else { Image(systemName: "paperplane.fill") }
@@ -370,7 +370,7 @@ struct MacFirmChatPane: View {
                         .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.canEditMemo)
                     }
                     if let sendError {
-                        Text(sendError).font(.caption2).foregroundStyle(.red)
+                        Text(sendError).font(.ui(.caption2)).foregroundStyle(.red)
                     }
                 }
                 .padding(8)
@@ -417,23 +417,23 @@ struct MacAuditPane: View {
                     .disabled(store.selectedCompany == nil)
                     .onChange(of: onlySelected) { _, _ in reload() }
                 Spacer()
-                Text("Every change made through the API, with who made it").font(.caption2).foregroundStyle(.secondary)
+                Text("Every change made through the API, with who made it").font(.ui(.caption2)).foregroundStyle(.secondary)
                 Button { reload() } label: { Image(systemName: "arrow.clockwise") }.controlSize(.small)
             }
             .padding(8)
             Divider()
             Table(store.auditRows) {
-                TableColumn("When") { r in Text(MacTimeFormat.relative(r.at)).font(.caption) }.width(80)
-                TableColumn("Who") { r in Text(r.actor).font(.caption) }.width(min: 90, ideal: 140)
-                TableColumn("Action") { r in Text(r.action).font(.caption.monospacedDigit()) }.width(min: 200, ideal: 320)
+                TableColumn("When") { r in Text(MacTimeFormat.relative(r.at)).font(.ui(.caption)) }.width(80)
+                TableColumn("Who") { r in Text(r.actor).font(.ui(.caption)) }.width(min: 90, ideal: 140)
+                TableColumn("Action") { r in Text(r.action).font(.ui(.caption).monospacedDigit()) }.width(min: 200, ideal: 320)
                 TableColumn("Company") { r in
                     if let cid = r.companyId {
-                        Text(store.companies.first { $0.id == cid }?.title ?? cid).font(.caption)
+                        Text(store.companies.first { $0.id == cid }?.title ?? cid).font(.ui(.caption))
                     } else { Text("—").foregroundStyle(.tertiary) }
                 }
                 .width(min: 100, ideal: 160)
                 TableColumn("Status") { r in
-                    Text("\(r.status)").font(.caption.monospacedDigit()).foregroundStyle(r.status >= 400 ? Color.red : Color.secondary)
+                    Text("\(r.status)").font(.ui(.caption).monospacedDigit()).foregroundStyle(r.status >= 400 ? Color.red : Color.secondary)
                 }
                 .width(50)
             }
@@ -470,7 +470,7 @@ struct MacSignalScoreView: View {
                         .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .opacity(thinCoverage ? 0.4 : 1)
-                    Text(score?.score.map { "\($0)" } ?? "—").font(.system(size: compact ? 12 : 15, weight: .bold, design: .rounded)).monospacedDigit()
+                    Text(score?.score.map { "\($0)" } ?? "—").font(.ui(size: compact ? 12 : 15, weight: .bold, design: .rounded)).monospacedDigit()
                 }
                 .frame(width: compact ? 40 : 52, height: compact ? 40 : 52)
                 VStack(alignment: .leading, spacing: 2) {
@@ -492,14 +492,14 @@ struct MacSignalScoreView: View {
                 VStack(spacing: 0) {
                     ForEach(s.components) { c in
                         HStack(alignment: .top, spacing: 8) {
-                            Text(c.name).font(.caption.weight(.semibold)).frame(width: 110, alignment: .leading)
+                            Text(c.name).font(.ui(.caption).weight(.semibold)).frame(width: 110, alignment: .leading)
                             Text(c.available ? String(format: "%.1f / %d", c.points ?? 0, c.max) : "not scored · \(c.max) max")
-                                .font(.caption.monospacedDigit())
+                                .font(.ui(.caption).monospacedDigit())
                                 .foregroundStyle(c.available ? Color.primary : Color.secondary)
                                 .frame(width: 120, alignment: .leading)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(c.formula).font(.caption2).foregroundStyle(.secondary)
-                                Text(c.basis).font(.caption2).foregroundStyle(.tertiary)
+                                Text(c.formula).font(.ui(.caption2)).foregroundStyle(.secondary)
+                                Text(c.basis).font(.ui(.caption2)).foregroundStyle(.tertiary)
                             }
                             Spacer(minLength: 0)
                         }
@@ -561,16 +561,16 @@ struct MacTranscriptLibraryView: View {
                 Divider()
                 List(store.transcripts, selection: $selection) { t in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(t.title).font(.callout.weight(.medium)).lineLimit(1)
+                        Text(t.title).font(.ui(.callout).weight(.medium)).lineLimit(1)
                         HStack(spacing: 6) {
-                            Text(t.kindLabel).font(.caption2).foregroundStyle(.secondary)
-                            if let n = t.companyName { Text("· \(n)").font(.caption2).foregroundStyle(.secondary) }
+                            Text(t.kindLabel).font(.ui(.caption2)).foregroundStyle(.secondary)
+                            if let n = t.companyName { Text("· \(n)").font(.ui(.caption2)).foregroundStyle(.secondary) }
                             Spacer()
-                            Text(t.callDate ?? "").font(.caption2).foregroundStyle(.tertiary)
+                            Text(t.callDate ?? "").font(.ui(.caption2)).foregroundStyle(.tertiary)
                         }
                         HStack(spacing: 6) {
-                            Text("\(t.wordCount) words").font(.caption2).foregroundStyle(.tertiary)
-                            if t.highlightCount > 0 { Text("· \(t.highlightCount) highlights").font(.caption2).foregroundStyle(.orange) }
+                            Text("\(t.wordCount) words").font(.ui(.caption2)).foregroundStyle(.tertiary)
+                            if t.highlightCount > 0 { Text("· \(t.highlightCount) highlights").font(.ui(.caption2)).foregroundStyle(.orange) }
                         }
                     }
                     .tag(t.id)
@@ -635,13 +635,13 @@ struct MacTranscriptLibraryView: View {
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(t.title).font(.title3.weight(.bold))
+                        Text(t.title).font(.ui(.title3).weight(.bold))
                         Text([t.kindLabel, t.companyName, t.callDate, t.participants.isEmpty ? nil : t.participants.joined(separator: ", ")].compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.ui(.caption)).foregroundStyle(.secondary)
                         if !t.tags.isEmpty {
                             HStack(spacing: 4) {
                                 ForEach(t.tags, id: \.self) { tag in
-                                    Text(tag).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2).background(Color.secondary.opacity(0.1), in: Capsule())
+                                    Text(tag).font(.ui(.caption2)).padding(.horizontal, 6).padding(.vertical, 2).background(Color.secondary.opacity(0.1), in: Capsule())
                                 }
                             }
                         }
@@ -657,24 +657,24 @@ struct MacTranscriptLibraryView: View {
                 }
                 .padding(14)
                 if let deleteError {
-                    Text(deleteError).font(.caption2).foregroundStyle(.red).padding(.horizontal, 14).padding(.bottom, 8)
+                    Text(deleteError).font(.ui(.caption2)).foregroundStyle(.red).padding(.horizontal, 14).padding(.bottom, 8)
                 }
                 Divider()
                 HSplitView {
                     ScrollView {
                         Text(t.text)
-                            .font(.system(size: 13))
+                            .font(.ui(size: 13))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
                     }
                     .frame(minWidth: 300)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Highlights").font(.subheadline.weight(.semibold))
+                        Text("Highlights").font(.ui(.subheadline).weight(.semibold))
                         Text("Paste a passage from the transcript and a note; highlights show up in Firm Memory and the IC room.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        TextField("Quote", text: $highlightDraft, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder)
-                        TextField("Why it matters", text: $highlightNote).textFieldStyle(.roundedBorder)
+                            .font(.ui(.caption2)).foregroundStyle(.secondary)
+                        TextField("Quote", text: $highlightDraft, axis: .vertical).lineLimit(2...5).textFieldStyle(.dsField)
+                        TextField("Why it matters", text: $highlightNote).textFieldStyle(.dsField)
                         Button("Add highlight") {
                             let q = highlightDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !q.isEmpty, !savingHighlight else { return }
@@ -697,21 +697,21 @@ struct MacTranscriptLibraryView: View {
                         .controlSize(.small)
                         .disabled(highlightDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.canEditMemo || savingHighlight)
                         if let highlightError {
-                            Text(highlightError).font(.caption2).foregroundStyle(.red)
+                            Text(highlightError).font(.ui(.caption2)).foregroundStyle(.red)
                         }
                         Divider()
                         ScrollView {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(t.highlights) { h in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("“\(h.text)”").font(.caption.italic())
-                                        if let n = h.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
+                                        Text("“\(h.text)”").font(.ui(.caption).italic())
+                                        if let n = h.note, !n.isEmpty { Text(n).font(.ui(.caption2)).foregroundStyle(.secondary) }
                                         HStack {
-                                            Text(h.createdBy?.isEmpty == false ? h.createdBy! : "dev").font(.caption2).foregroundStyle(.tertiary)
+                                            Text(h.createdBy?.isEmpty == false ? h.createdBy! : "dev").font(.ui(.caption2)).foregroundStyle(.tertiary)
                                             Spacer()
                                             if store.canEditMemo {
                                                 Button { Task { await store.removeHighlight(transcriptId: t.id, highlightId: h.id) } } label: {
-                                                    Image(systemName: "minus.circle").font(.caption2).foregroundStyle(.secondary)
+                                                    Image(systemName: "minus.circle").font(.ui(.caption2)).foregroundStyle(.secondary)
                                                 }.buttonStyle(.plain)
                                             }
                                         }
@@ -749,7 +749,7 @@ struct MacAddTranscriptSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text("Add transcript").font(.headline); Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }.padding(16)
+            HStack { Text("Add transcript").font(.ui(.headline)); Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }.padding(16)
             Divider()
             Form {
                 TextField("Title", text: $title)
@@ -781,7 +781,7 @@ struct MacAddTranscriptSheet: View {
                 #endif
                 if fileURL == nil {
                     TextEditor(text: $text)
-                        .font(.system(size: 12))
+                        .font(.ui(size: 12))
                         .frame(minHeight: 160)
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.25)))
                 }
@@ -789,10 +789,10 @@ struct MacAddTranscriptSheet: View {
             .formStyle(.grouped)
             Divider()
             HStack {
-                Text("Timestamps and cue numbers are stripped; speaker labels are kept.").font(.caption2).foregroundStyle(.secondary)
+                Text("Timestamps and cue numbers are stripped; speaker labels are kept.").font(.ui(.caption2)).foregroundStyle(.secondary)
                 Spacer()
                 if let errorText {
-                    Text(errorText).font(.caption2).foregroundStyle(.red).lineLimit(2)
+                    Text(errorText).font(.ui(.caption2)).foregroundStyle(.red).lineLimit(2)
                 }
                 Button {
                     saving = true
@@ -814,7 +814,7 @@ struct MacAddTranscriptSheet: View {
                         }
                     }
                 } label: { if saving { ProgressView().controlSize(.small) } else { Text("Add") } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.dsProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving || (fileURL == nil && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
             }

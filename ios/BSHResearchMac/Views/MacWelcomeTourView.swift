@@ -59,8 +59,17 @@ extension View {
     /// this view's own space.
     func macWelcomeTourOverlay() -> some View {
         overlay {
-            GeometryReader { proxy in
-                MacWelcomeTourFrame(origin: proxy.frame(in: .global).origin, container: proxy.size)
+            if BSHDesign.active == .bureau {
+                // Bureau walks the website's tour, and its dim covers the whole window,
+                // the masthead's band included, as the website's covers the page.
+                GeometryReader { proxy in
+                    MacBureauWelcomeTourFrame(origin: proxy.frame(in: .global).origin, container: proxy.size)
+                }
+                .ignoresSafeArea()
+            } else {
+                GeometryReader { proxy in
+                    MacWelcomeTourFrame(origin: proxy.frame(in: .global).origin, container: proxy.size)
+                }
             }
         }
     }
@@ -234,12 +243,12 @@ struct MacWelcomeTourView: View {
                 .padding(.bottom, 16)
 
             Text(page.title)
-                .font(.system(size: 24, weight: .bold))
+                .font(.ui(size: 24, weight: .bold))
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("welcome-tour-title")
 
             Text(page.body)
-                .font(.system(size: 12.5))
+                .font(.ui(size: 12.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -250,9 +259,9 @@ struct MacWelcomeTourView: View {
                     HStack(alignment: .top, spacing: 12) {
                         rowIcon(row)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.title).font(.system(size: 13, weight: .semibold))
+                            Text(row.title).font(.ui(size: 13, weight: .semibold))
                             Text(row.body)
-                                .font(.system(size: 12))
+                                .font(.ui(size: 12))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -272,10 +281,10 @@ struct MacWelcomeTourView: View {
                 glyph(page)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(page.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.ui(size: 16, weight: .semibold))
                         .accessibilityIdentifier("welcome-tour-title")
                     Text(page.body)
-                        .font(.system(size: 12))
+                        .font(.ui(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -290,11 +299,11 @@ struct MacWelcomeTourView: View {
                 ForEach(page.tips) { tip in
                     HStack(spacing: 10) {
                         Image(systemName: tip.symbol)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundStyle(Color.dsAccent)
                             .frame(width: 16)
                         Text(tip.text)
-                            .font(.system(size: 12))
+                            .font(.ui(size: 12))
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         MacTourKeyCaps(keys: tip.keys)
@@ -317,12 +326,12 @@ struct MacWelcomeTourView: View {
             if design.design == .bureau {
                 HStack(spacing: 10) {
                     Text("Desk color")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.ui(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
                     BSHBureauDeskPicker(selection: $design.bureauDesk, size: 20)
                     Spacer(minLength: 0)
                     Text(design.bureauDesk.title)
-                        .font(.system(size: 12))
+                        .font(.ui(size: 12))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("welcome-tour-desks")
@@ -336,7 +345,7 @@ struct MacWelcomeTourView: View {
             WarrenMarkView(size: 42)
         } else {
             Image(systemName: entry.symbol)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.ui(size: 17, weight: .semibold))
                 .foregroundStyle(Color.dsAccent)
                 .frame(width: 42, height: 42)
                 .background(
@@ -352,7 +361,7 @@ struct MacWelcomeTourView: View {
             WarrenMarkView(size: 32)
         } else {
             Image(systemName: row.symbol)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.ui(size: 14, weight: .semibold))
                 .foregroundStyle(Color.dsAccent)
                 .frame(width: 32, height: 32)
                 .background(
@@ -378,13 +387,13 @@ struct MacWelcomeTourView: View {
                 if !isFirst {
                     Button("Back") { store.welcomeTourStep -= 1 }
                         .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.ui(size: 12, weight: .medium))
                         .foregroundStyle(Color.dsAccent)
                         .accessibilityIdentifier("welcome-tour-back")
                 } else if !isLast {
                     Button("Skip") { store.completeWelcomeTour() }
                         .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.ui(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("welcome-tour-skip")
                 }
@@ -392,7 +401,7 @@ struct MacWelcomeTourView: View {
                 Spacer(minLength: 0)
 
                 Button(isLast ? "Get started" : "Continue") { advance() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .controlSize(.regular)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("welcome-tour-next")
@@ -400,7 +409,7 @@ struct MacWelcomeTourView: View {
 
             if page.isHero {
                 Text("Replay this tour any time from Settings.")
-                    .font(.system(size: 11))
+                    .font(.ui(size: 11))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -427,7 +436,7 @@ struct MacTourKeyCaps: View {
             HStack(spacing: 3) {
                 ForEach(keys, id: \.self) { key in
                     Text(key)
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -492,7 +501,13 @@ enum MacWelcomeTourCatalog {
                           body: "The research assistant who sees what's on your desk.", keys: ["⌘", "9"]),
     ]
 
-    static let pages: [MacWelcomeTourPage] = [
+    /// The tour for the design in use: Bureau walks the website's steps, over the window
+    /// Bureau lays out as the website does.
+    static var pages: [MacWelcomeTourPage] {
+        BSHDesign.active == .bureau ? bureauPages : macPages
+    }
+
+    static let macPages: [MacWelcomeTourPage] = [
         MacWelcomeTourPage(
             id: "welcome", symbol: "",
             title: "Welcome to BSH Research",

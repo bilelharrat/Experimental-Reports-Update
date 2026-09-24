@@ -123,7 +123,7 @@ struct MacQuotePriceLine: View {
             }()
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(MacChartFormat.price(last))
-                    .font(.system(size: 30, weight: .semibold).monospacedDigit())
+                    .font(.ui(size: 30, weight: .semibold).monospacedDigit())
                     .fixedSize()
                 if let change {
                     Label {
@@ -131,18 +131,18 @@ struct MacQuotePriceLine: View {
                     } icon: {
                         Image(systemName: change >= 0 ? "arrow.up.right" : "arrow.down.right")
                     }
-                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .font(.ui(.title3).monospacedDigit().weight(.semibold))
                     .foregroundStyle(change >= 0 ? Color.green : Color.red)
                     .fixedSize()
                 }
                 if let asOf = payload.asOf, let date = MacQuoteInsight.parseISO(asOf) {
                     Text("As of \(date.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                     let minutes = Int(Date().timeIntervalSince(date) / 60)
                     if minutes >= 20 && minutes < 60 * 24 * 3 {
                         Text("Stale \(minutes)m")
-                            .font(.caption2.weight(.semibold))
+                            .font(.ui(.caption2).weight(.semibold))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -188,15 +188,15 @@ struct MacQuoteSessionCard: View {
         return MacInsightCard(title: "Session & returns", systemImage: "clock.arrow.2.circlepath") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 18) {
-                    Text("Gap split").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    HStack(spacing: 4) { Text("Overnight").font(.caption).foregroundStyle(.secondary); pctText(gap.gap).font(.callout.monospacedDigit().weight(.semibold)) }
-                    HStack(spacing: 4) { Text("Open→last").font(.caption).foregroundStyle(.secondary); pctText(gap.session).font(.callout.monospacedDigit().weight(.semibold)) }
+                    Text("Gap split").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
+                    HStack(spacing: 4) { Text("Overnight").font(.ui(.caption)).foregroundStyle(.secondary); pctText(gap.gap).font(.ui(.callout).monospacedDigit().weight(.semibold)) }
+                    HStack(spacing: 4) { Text("Open→last").font(.ui(.caption)).foregroundStyle(.secondary); pctText(gap.session).font(.ui(.callout).monospacedDigit().weight(.semibold)) }
                 }
                 HStack(spacing: 8) {
                     ForEach(ladder) { rung in
                         VStack(spacing: 2) {
-                            Text(rung.label).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                            pctText(rung.value, digits: 1).font(.callout.monospacedDigit().weight(.semibold))
+                            Text(rung.label).font(.ui(.caption2).weight(.semibold)).foregroundStyle(.secondary)
+                            pctText(rung.value, digits: 1).font(.ui(.callout).monospacedDigit().weight(.semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -214,9 +214,9 @@ struct MacQuoteSessionCard: View {
         let high = payload.fiftyTwoWeekHigh ?? peers?.primary?.high1y
         if let low, let high, high > low {
             VStack(alignment: .leading, spacing: 4) {
-                Text("52-week range").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("52-week range").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
-                    Text(money(low)).font(.caption.monospacedDigit())
+                    Text(money(low)).font(.ui(.caption).monospacedDigit())
                     GeometryReader { geo in
                         let position = last.map { min(max(($0 - low) / (high - low), 0), 1) } ?? 0.5
                         ZStack(alignment: .leading) {
@@ -230,7 +230,7 @@ struct MacQuoteSessionCard: View {
                         .frame(maxHeight: .infinity)
                     }
                     .frame(height: 12)
-                    Text(money(high)).font(.caption.monospacedDigit())
+                    Text(money(high)).font(.ui(.caption).monospacedDigit())
                 }
             }
         }
@@ -354,14 +354,14 @@ struct MacQuoteWorkspaceCard: View {
     }
 
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased()).font(.caption2.weight(.semibold)).tracking(0.5).foregroundStyle(.secondary)
+        Text(text.uppercased()).font(.ui(.caption2).weight(.semibold)).tracking(0.5).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var profile: some View {
         let p = workspace?.profile
         let s = workspace?.summary
         Text(p?.description?.isEmpty == false ? p!.description! : "No company profile for this symbol.")
-            .font(.callout)
+            .font(.ui(.callout))
             .foregroundStyle(p?.description?.isEmpty == false ? .primary : .secondary)
             .textSelection(.enabled)
         grid([
@@ -371,7 +371,7 @@ struct MacQuoteWorkspaceCard: View {
             ("Website", p?.website ?? "—"),
         ])
         if let site = p?.website, let url = URL(string: site) {
-            Link(destination: url) { Label("Open website", systemImage: "safari") }.font(.caption)
+            Link(destination: url) { Label("Open website", systemImage: "safari") }.font(.ui(.caption))
         }
     }
 
@@ -389,7 +389,7 @@ struct MacQuoteWorkspaceCard: View {
     @ViewBuilder private var financials: some View {
         let lines = MacQuoteMath.faLite(workspace?.financials)
         if !lines.isEmpty {
-            HStack { sectionLabel("FA lite"); Spacer(); Text("YoY").font(.caption2).foregroundStyle(.secondary) }
+            HStack { sectionLabel("FA lite"); Spacer(); Text("YoY").font(.ui(.caption2)).foregroundStyle(.secondary) }
             LazyVGrid(columns: statColumns, alignment: .leading, spacing: 10) {
                 ForEach(lines) { line in
                     MacStatTile(label: line.label, value: line.latestRaw, detail: line.yoy.map { String(format: "%+.1f%% YoY", $0) }, compact: true)
@@ -407,7 +407,7 @@ struct MacQuoteWorkspaceCard: View {
             if let table = sheet.1, !table.rows.isEmpty {
                 MacFinTableView(table: table)
             } else {
-                Text("No financial statements for this symbol.").font(.callout).foregroundStyle(.secondary)
+                Text("No financial statements for this symbol.").font(.ui(.callout)).foregroundStyle(.secondary)
             }
         }
     }
@@ -421,7 +421,7 @@ struct MacQuoteWorkspaceCard: View {
         let total = (a?.buy ?? 0) + (a?.hold ?? 0) + (a?.sell ?? 0)
         if total > 0, let a {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(total) analyst ratings").font(.footnote).foregroundStyle(.secondary)
+                Text("\(total) analyst ratings").font(.ui(.footnote)).foregroundStyle(.secondary)
                 GeometryReader { geo in
                     HStack(spacing: 2) {
                         Rectangle().fill(Color.green.opacity(0.7)).frame(width: geo.size.width * CGFloat(a.buy) / CGFloat(total))
@@ -451,13 +451,13 @@ struct MacQuoteWorkspaceCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionLabel("Top increases")
                     ForEach(movers.buyers) { row in
-                        HStack { Text(row.owner).font(.footnote); Text(row.changePct ?? "—").font(.footnote.monospacedDigit()).foregroundStyle(.green) }
+                        HStack { Text(row.owner).font(.ui(.footnote)); Text(row.changePct ?? "—").font(.ui(.footnote).monospacedDigit()).foregroundStyle(.green) }
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     sectionLabel("Top decreases")
                     ForEach(movers.sellers) { row in
-                        HStack { Text(row.owner).font(.footnote); Text(row.changePct ?? "—").font(.footnote.monospacedDigit()).foregroundStyle(.red) }
+                        HStack { Text(row.owner).font(.ui(.footnote)); Text(row.changePct ?? "—").font(.ui(.footnote).monospacedDigit()).foregroundStyle(.red) }
                     }
                 }
             }
@@ -482,11 +482,11 @@ struct MacQuoteWorkspaceCard: View {
         if let move = MacQuoteMath.expectedMove(rows, spot: lastPrice) {
             HStack(spacing: 8) {
                 sectionLabel("Expected move")
-                Text(String(format: "±%.1f%%", move.movePct)).font(.callout.monospacedDigit().weight(.semibold))
+                Text(String(format: "±%.1f%%", move.movePct)).font(.ui(.callout).monospacedDigit().weight(.semibold))
                 Text("to \(move.expiry) (\(move.days)d) · straddle \(money(move.moveUsd)) at \(String(format: "%.2f", move.strike))")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.ui(.caption)).foregroundStyle(.secondary)
                 if let next = workspace?.earnings?.nextDate, let nextDate = MacQuoteMath.expiryDate(next), nextDate <= move.expiryDate {
-                    Text("EARNINGS INSIDE").font(.caption2.weight(.bold)).foregroundStyle(.orange)
+                    Text("EARNINGS INSIDE").font(.ui(.caption2).weight(.bold)).foregroundStyle(.orange)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Capsule().fill(Color.orange.opacity(0.15)))
                 }
@@ -506,9 +506,9 @@ struct MacQuoteWorkspaceCard: View {
             ])
         }
         if rows.isEmpty {
-            Text("No option chain for this symbol.").font(.callout).foregroundStyle(.secondary)
+            Text("No option chain for this symbol.").font(.ui(.callout)).foregroundStyle(.secondary)
         } else {
-            if let lastTrade = workspace?.options?.lastTrade { Text(lastTrade).font(.caption2).foregroundStyle(.secondary) }
+            if let lastTrade = workspace?.options?.lastTrade { Text(lastTrade).font(.ui(.caption2)).foregroundStyle(.secondary) }
             MacSimpleTable(headers: ["Expiry", "Call", "Strike", "Put", "Volume"],
                            rows: rows.map { [$0.expiry, $0.callLast ?? "—", $0.strike.map { String(format: "%.2f", $0) } ?? "—", $0.putLast ?? "—", "\($0.callVolume ?? "—") / \($0.putVolume ?? "—")"] })
         }
@@ -533,7 +533,7 @@ struct MacQuoteWorkspaceCard: View {
                            rows: past.map { [$0.period, $0.reported ?? "—", $0.eps.map { String(format: "%.2f", $0) } ?? "—",
                                              $0.estimate.map { String(format: "%.2f", $0) } ?? "—", $0.surprisePct.map { String(format: "%+.1f%%", $0) } ?? "—"] })
         } else {
-            Text("No earnings history for this symbol.").font(.callout).foregroundStyle(.secondary)
+            Text("No earnings history for this symbol.").font(.ui(.callout)).foregroundStyle(.secondary)
         }
     }
 }
@@ -548,19 +548,19 @@ private struct MacFinTableView: View {
                 GridRow {
                     Text("").gridColumnAlignment(.leading)
                     ForEach(Array(table.headers.enumerated()), id: \.offset) { _, header in
-                        Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(header).font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                     }
                 }
                 Divider().gridCellUnsizedAxes(.horizontal)
                 ForEach(table.rows) { row in
                     GridRow {
                         Text(row.label)
-                            .font(row.section ? .caption.weight(.bold) : .caption)
+                            .font(row.section ? .ui(.caption).weight(.bold) : .ui(.caption))
                             .foregroundStyle(row.section ? .primary : .secondary)
                             .frame(minWidth: 200, alignment: .leading)
                         ForEach(0..<table.headers.count, id: \.self) { index in
                             Text(index < row.values.count && !row.values[index].isEmpty ? row.values[index] : (row.section ? "" : "—"))
-                                .font(.caption.monospacedDigit())
+                                .font(.ui(.caption).monospacedDigit())
                         }
                     }
                 }
@@ -581,7 +581,7 @@ struct MacSimpleTable: View {
                 Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 5) {
                     GridRow {
                         ForEach(Array(headers.enumerated()), id: \.offset) { index, header in
-                            Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(header).font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                                 .gridColumnAlignment(index == 0 ? .leading : .trailing)
                         }
                     }
@@ -590,7 +590,7 @@ struct MacSimpleTable: View {
                         GridRow {
                             ForEach(Array(row.enumerated()), id: \.offset) { index, value in
                                 Text(value)
-                                    .font(index == 0 ? .caption : .caption.monospacedDigit())
+                                    .font(index == 0 ? .ui(.caption) : .ui(.caption).monospacedDigit())
                                     .lineLimit(1)
                             }
                         }
@@ -640,33 +640,33 @@ struct MacQuoteCompCard: View {
                                     onSelect(row.ticker)
                                 } label: {
                                     VStack(alignment: .leading, spacing: 0) {
-                                        Text(row.ticker).font(.caption.monospacedDigit().weight(row.ticker == primary.ticker ? .heavy : .bold))
-                                        if let name = row.name { Text(name).font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 140, alignment: .leading) }
+                                        Text(row.ticker).font(.ui(.caption).monospacedDigit().weight(row.ticker == primary.ticker ? .heavy : .bold))
+                                        if let name = row.name { Text(name).font(.ui(.caption2)).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 140, alignment: .leading) }
                                     }
                                 }
                                 .buttonStyle(.plain)
                                 .help("Open \(row.ticker)")
                                 MacSparkline(values: row.spark.isEmpty ? row.points.compactMap(\.close) : row.spark)
                                     .frame(width: 72, height: 22)
-                                Text(money(row.last)).font(.caption.monospacedDigit())
-                                pctText(row.ret1y, digits: 1).font(.caption.monospacedDigit())
-                                pctText(row.vsSpy1y, digits: 1).font(.caption.monospacedDigit())
-                                Text(stats.beta.map { String(format: "%.2f", $0) } ?? "—").font(.caption.monospacedDigit())
-                                Text(stats.corr.map { String(format: "%.2f", $0) } ?? "—").font(.caption.monospacedDigit())
+                                Text(money(row.last)).font(.ui(.caption).monospacedDigit())
+                                pctText(row.ret1y, digits: 1).font(.ui(.caption).monospacedDigit())
+                                pctText(row.vsSpy1y, digits: 1).font(.ui(.caption).monospacedDigit())
+                                Text(stats.beta.map { String(format: "%.2f", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
+                                Text(stats.corr.map { String(format: "%.2f", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
                                 if showMore {
-                                    Text(row.revenueGrowth.map { String(format: "%.1f%%", $0) } ?? "—").font(.caption.monospacedDigit())
-                                    Text(row.grossMargin.map { String(format: "%.1f%%", $0) } ?? "—").font(.caption.monospacedDigit())
-                                    Text(row.operatingMargin.map { String(format: "%.1f%%", $0) } ?? "—").font(.caption.monospacedDigit())
-                                    Text(row.peRatio.map { String(format: "%.1f", $0) } ?? "—").font(.caption.monospacedDigit())
+                                    Text(row.revenueGrowth.map { String(format: "%.1f%%", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
+                                    Text(row.grossMargin.map { String(format: "%.1f%%", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
+                                    Text(row.operatingMargin.map { String(format: "%.1f%%", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
+                                    Text(row.peRatio.map { String(format: "%.1f", $0) } ?? "—").font(.ui(.caption).monospacedDigit())
                                 }
-                                Text(row.drawdown1y.map { String(format: "%.1f%%", $0) } ?? "—").font(.caption.monospacedDigit()).foregroundStyle(.red)
-                                Text(row.marketCap.map { MacNumber.compact($0) } ?? "—").font(.caption.monospacedDigit())
+                                Text(row.drawdown1y.map { String(format: "%.1f%%", $0) } ?? "—").font(.ui(.caption).monospacedDigit()).foregroundStyle(.red)
+                                Text(row.marketCap.map { MacNumber.compact($0) } ?? "—").font(.ui(.caption).monospacedDigit())
                             }
                         }
                     }
                     .padding(.vertical, 4)
                 }
-                Text("β and ρ from 60 daily returns vs \(peers.benchmark?.ticker ?? "SPY").").font(.caption2).foregroundStyle(.secondary)
+                Text("β and ρ from 60 daily returns vs \(peers.benchmark?.ticker ?? "SPY").").font(.ui(.caption2)).foregroundStyle(.secondary)
             } else {
                 HStack { ProgressView().controlSize(.small); Text("Loading peers…").foregroundStyle(.secondary) }
             }
@@ -674,7 +674,7 @@ struct MacQuoteCompCard: View {
     }
 
     private func header(_ text: String) -> some View {
-        Text(text).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        Text(text).font(.ui(.caption2).weight(.semibold)).foregroundStyle(.secondary)
     }
 }
 
@@ -711,19 +711,19 @@ struct MacQuoteCalendarCard: View {
                     .controlSize(.small)
                     .frame(maxWidth: 360)
                 if shown.isEmpty {
-                    Text("No events in this filter.").font(.callout).foregroundStyle(.secondary)
+                    Text("No events in this filter.").font(.ui(.callout)).foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(shown)) { event in
                         HStack(spacing: 10) {
-                            Text(event.date).font(.caption.monospacedDigit()).frame(width: 84, alignment: .leading)
+                            Text(event.date).font(.ui(.caption).monospacedDigit()).frame(width: 84, alignment: .leading)
                             Text(event.kind.capitalized)
-                                .font(.caption2.weight(.semibold))
+                                .font(.ui(.caption2).weight(.semibold))
                                 .foregroundStyle(event.kind == "earnings" ? .orange : (event.kind == "macro" ? .secondary : .dsAccent))
                                 .frame(width: 70, alignment: .leading)
-                            Text(event.title).font(.caption).lineLimit(1)
+                            Text(event.title).font(.ui(.caption)).lineLimit(1)
                             Spacer()
-                            if let time = event.time, !time.isEmpty { Text(time).font(.caption2).foregroundStyle(.secondary) }
-                            if !event.confirmed { Text("unconfirmed").font(.caption2).foregroundStyle(.tertiary) }
+                            if let time = event.time, !time.isEmpty { Text(time).font(.ui(.caption2)).foregroundStyle(.secondary) }
+                            if !event.confirmed { Text("unconfirmed").font(.ui(.caption2)).foregroundStyle(.tertiary) }
                         }
                     }
                 }
@@ -745,21 +745,21 @@ struct MacQuoteFilingsCard: View {
                 HStack(spacing: 12) {
                     ForEach([("EDGAR", ""), ("10-K", "10-K"), ("10-Q", "10-Q"), ("8-K", "8-K")], id: \.0) { item in
                         if let url = URL(string: edgar + (item.1.isEmpty ? "" : "&type=\(item.1)")) {
-                            Link(item.0, destination: url).font(.caption.weight(.semibold))
+                            Link(item.0, destination: url).font(.ui(.caption).weight(.semibold))
                         }
                     }
                 }
                 if filings.isEmpty {
-                    Text("No filing headlines in the desk feed — use EDGAR links above.").font(.callout).foregroundStyle(.secondary)
+                    Text("No filing headlines in the desk feed — use EDGAR links above.").font(.ui(.callout)).foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(filings)) { item in
                         VStack(alignment: .leading, spacing: 2) {
                             if let link = item.url, let url = URL(string: link) {
-                                Link(item.title, destination: url).font(.callout)
+                                Link(item.title, destination: url).font(.ui(.callout))
                             } else {
-                                Text(item.title).font(.callout)
+                                Text(item.title).font(.ui(.callout))
                             }
-                            if let summary = item.summary { Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                            if let summary = item.summary { Text(summary).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(2) }
                         }
                     }
                 }
@@ -782,24 +782,24 @@ struct MacQuoteNoteAndActionsCard: View {
         MacInsightCard(title: "Desk note & calls", systemImage: "note.text") {
             VStack(alignment: .leading, spacing: 10) {
                 TextEditor(text: $note)
-                    .font(.callout)
+                    .font(.ui(.callout))
                     .frame(minHeight: 60, maxHeight: 110)
                     .scrollContentBackground(.hidden)
                     .padding(6)
                     .appleGlassTile()
                     .overlay(alignment: .topLeading) {
                         if note.isEmpty {
-                            Text("Desk note for this symbol…").font(.callout).foregroundStyle(.tertiary).padding(11).allowsHitTesting(false)
+                            Text("Desk note for this symbol…").font(.ui(.callout)).foregroundStyle(.tertiary).padding(11).allowsHitTesting(false)
                         }
                     }
                     .onChange(of: note) { _, value in UserDefaults.standard.set(value, forKey: noteKey) }
                 HStack(spacing: 8) {
-                    Text("Log call").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Log call").font(.ui(.caption).weight(.semibold)).foregroundStyle(.secondary)
                     Button { logCall("bullish") } label: { Label("Bullish", systemImage: "arrow.up.right") }
                         .tint(.green)
                     Button { logCall("bearish") } label: { Label("Bearish", systemImage: "arrow.down.right") }
                         .tint(.red)
-                    if let logStatus { Text(logStatus).font(.caption).foregroundStyle(.secondary) }
+                    if let logStatus { Text(logStatus).font(.ui(.caption)).foregroundStyle(.secondary) }
                     Spacer()
                     Button { askWhyMoving() } label: { Label("Why is this moving?", systemImage: "sparkles") }
                         .disabled(!store.canRunTasks)

@@ -73,13 +73,13 @@ struct MacBlotterView: View {
             case .alerts:
                 if let last = store.lastAlertCheck {
                     Text("Checked \(last.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                 }
                 Text(!MacAppStore.isUSMarketOpen()
                      ? "Market closed"
                      : (store.armedAlertRules.isEmpty ? "Market open · no armed alert rules" : "Market open · auto-check every minute"))
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                 Button {
                     Task { await store.runAlertCheck(notify: true, reveal: true) }
@@ -147,17 +147,17 @@ struct MacBlotterView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(job.title ?? job.kind ?? "Task")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.ui(.subheadline).weight(.semibold))
                         .lineLimit(1)
                     if let cid = job.companyId, let company = store.companies.first(where: { $0.id == cid }) {
                         Text(company.name ?? cid)
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                 }
                 Text(job.stageText)
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -166,12 +166,12 @@ struct MacBlotterView: View {
 
             if let progress = job.progress {
                 Text("\(progress)%")
-                    .font(.caption.monospacedDigit().weight(.bold))
+                    .font(.ui(.caption).monospacedDigit().weight(.bold))
                     .foregroundStyle(Color.dsAccent)
             }
             if !job.elapsedText.isEmpty {
                 Text(job.elapsedText)
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 64, alignment: .trailing)
             }
@@ -200,11 +200,11 @@ struct MacBlotterView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(row.title ?? row.kind ?? "Task")
-                        .font(.subheadline.weight(.medium))
+                        .font(.ui(.subheadline).weight(.medium))
                         .lineLimit(1)
                     if let cid = row.companyId, let company = store.companies.first(where: { $0.id == cid }) {
                         Text(company.name ?? cid)
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -212,7 +212,7 @@ struct MacBlotterView: View {
                 Text([row.outcomeLabel, MacTimeFormat.relative(row.finishedAt), row.error ?? row.subtitle ?? ""]
                         .filter { !$0.isEmpty }
                         .joined(separator: " · "))
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(row.failed ? Color.red.opacity(0.85) : Color.secondary)
                     .lineLimit(1)
             }
@@ -221,7 +221,7 @@ struct MacBlotterView: View {
 
             if let cost = row.claudeCostUsd {
                 Text(String(format: "$%.2f", cost))
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
 
@@ -257,12 +257,12 @@ struct MacBlotterView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Live log")
-                    .font(.caption.weight(.semibold))
+                    .font(.ui(.caption).weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let id = store.selectedJobId, store.activeJobs.contains(where: { $0.id == id }) {
                     Text("streaming")
-                        .font(.caption2)
+                        .font(.ui(.caption2))
                         .foregroundStyle(Color.green)
                 }
             }
@@ -276,14 +276,14 @@ struct MacBlotterView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(selectedLogLines.enumerated()), id: \.offset) { index, line in
                             Text(line)
-                                .font(.caption.monospacedDigit())
+                                .font(.ui(.caption).monospacedDigit())
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(index)
                         }
                         if selectedLogLines.isEmpty {
                             Text(store.selectedJobId == nil ? "Select a job to follow its log." : "Waiting for events…")
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -321,18 +321,18 @@ struct MacBlotterView: View {
                     Image(systemName: "bell.fill")
                         .foregroundStyle(Color.orange)
                     Text(event.ticker ?? "—")
-                        .font(.subheadline.monospacedDigit().weight(.bold))
+                        .font(.ui(.subheadline).monospacedDigit().weight(.bold))
                         .frame(width: 64, alignment: .leading)
                     Text(event.headline)
-                        .font(.subheadline)
+                        .font(.ui(.subheadline))
                         .lineLimit(1)
                     Spacer()
                     if let price = event.lastPrice {
                         Text(String(format: "$%.2f", price))
-                            .font(.caption.monospacedDigit())
+                            .font(.ui(.caption).monospacedDigit())
                     }
                     Text(MacTimeFormat.relative(event.firedAt))
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                         .frame(width: 70, alignment: .trailing)
                     if let ticker = event.ticker {
@@ -361,16 +361,16 @@ struct MacSignalsPane: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 TextField("Ticker", text: $ticker)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
                     .frame(width: 90)
                     .onSubmit { log() }
                 GlassSegmentedPicker("Direction", selection: $direction, segments: ["bullish": "Bullish", "bearish": "Bearish", "watch": "Watch"])
                 .frame(width: 220)
                 TextField("What's the call? (e.g. breakout above 200d, guide raise into print)", text: $label)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.dsField)
                     .onSubmit { log() }
                 Button(saving ? "Logging…" : "Log signal") { log() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.dsProminent)
                     .controlSize(.small)
                     .disabled(saving || !store.canWriteDesk || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
                     .help(store.canWriteDesk ? "Record the call in the signal ledger" : "A read-only session cannot log signals")
@@ -392,33 +392,33 @@ struct MacSignalsPane: View {
                 ForEach(store.signals) { signal in
                     HStack(spacing: 10) {
                         Text(signal.ticker)
-                            .font(.subheadline.monospacedDigit().weight(.bold))
+                            .font(.ui(.subheadline).monospacedDigit().weight(.bold))
                             .frame(width: 64, alignment: .leading)
                         Text(signal.direction.capitalized)
-                            .font(.caption.weight(.semibold))
+                            .font(.ui(.caption).weight(.semibold))
                             .foregroundStyle(signal.direction == "bullish" ? Color.green : (signal.direction == "bearish" ? Color.red : Color.orange))
                             .frame(width: 56, alignment: .leading)
-                        Text(signal.label ?? "").font(.subheadline).lineLimit(1)
+                        Text(signal.label ?? "").font(.ui(.subheadline)).lineLimit(1)
                         Spacer()
                         if let base = signal.priceAtSignal {
-                            Text(String(format: "@ %.2f", base)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Text(String(format: "@ %.2f", base)).font(.ui(.caption).monospacedDigit()).foregroundStyle(.secondary)
                         }
                         if let last = signal.lastPrice {
-                            Text(String(format: "→ %.2f", last)).font(.caption.monospacedDigit())
+                            Text(String(format: "→ %.2f", last)).font(.ui(.caption).monospacedDigit())
                         }
                         if let score = signal.scorePct {
                             Text(String(format: "%+.1f%%", score))
-                                .font(.caption.monospacedDigit().weight(.bold))
+                                .font(.ui(.caption).monospacedDigit().weight(.bold))
                                 .foregroundStyle(score >= 0 ? Color.green : Color.red)
                                 .frame(width: 60, alignment: .trailing)
                         } else if let ret = signal.returnSincePct {
                             Text(String(format: "%+.1f%%", ret))
-                                .font(.caption.monospacedDigit())
+                                .font(.ui(.caption).monospacedDigit())
                                 .foregroundStyle(.secondary)
                                 .frame(width: 60, alignment: .trailing)
                         }
                         Text(MacTimeFormat.relative(signal.recordedAt))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.ui(.caption)).foregroundStyle(.secondary)
                             .frame(width: 70, alignment: .trailing)
                         Button("Chart") { store.showTicker(signal.ticker) }.controlSize(.small)
                         Button {
