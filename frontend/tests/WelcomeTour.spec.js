@@ -11,6 +11,7 @@ import {
   shouldShowWelcomeTour,
   welcomeTourOpen,
 } from "../src/welcomeTour.js";
+import { DEFAULT_BUREAU_DESK, DEFAULT_DESIGN, setBureauDesk, setDesign } from "../src/design.js";
 import { setCompanySort, setLastCompanyId } from "../src/state.js";
 
 const push = vi.fn(() => Promise.resolve());
@@ -97,6 +98,14 @@ describe("welcome tour state", () => {
     expect(shouldShowWelcomeTour()).toBe(true);
   });
 
+  it("shows the look step once more to people who finished the v2 tour", () => {
+    expect(WELCOME_TOUR_VERSION).toBe(3);
+    window.localStorage.setItem(WELCOME_TOUR_KEY, "2");
+    expect(shouldShowWelcomeTour()).toBe(true);
+    window.localStorage.setItem(WELCOME_TOUR_KEY, "3");
+    expect(shouldShowWelcomeTour()).toBe(false);
+  });
+
   it("gives every step after the welcome card a screen to visit", () => {
     const [hero, ...walk] = WELCOME_TOUR_STEPS;
     expect(hero.kind).toBe("hero");
@@ -104,8 +113,19 @@ describe("welcome tour state", () => {
     for (const entry of walk) {
       // A step either drives the app somewhere or points at something here.
       expect(Boolean(entry.route) || Boolean(entry.target)).toBe(true);
-      expect(entry.target).toBeTruthy();
+      // It points at a control, or (a choice) asks over the screen it visits.
+      if (entry.kind === "choice") expect(entry.route).toBeTruthy();
+      else expect(entry.target).toBeTruthy();
     }
+  });
+
+  it("asks for a look near the end, just before the last page", () => {
+    const ids = WELCOME_TOUR_STEPS.map((entry) => entry.id);
+    expect(ids.indexOf("look")).toBe(ids.length - 2);
+    expect(WELCOME_TOUR_STEPS.find((entry) => entry.id === "look")).toMatchObject({
+      kind: "choice",
+      route: { name: "home" },
+    });
   });
 });
 
@@ -189,6 +209,14 @@ describe("WelcomeTour", () => {
     await next();
     expect(title()).toBe("Tracking");
     expect(push).toHaveBeenLastCalledWith({ name: "tracking" });
+
+    // Having seen the app, choose how it looks, over Home, with nothing
+    // spotlit: the callout holds the choices.
+    await next();
+    expect(title()).toBe("Choose a look");
+    expect(push).toHaveBeenLastCalledWith({ name: "home" });
+    expect(spotlight()).toBeNull();
+    expect(document.body.querySelector("[data-testid='design-look-cards']")).not.toBeNull();
 
     // Warren lives in the toolbar on every screen, so this step stays put.
     const pushesBeforeWarren = push.mock.calls.length;
@@ -292,5 +320,97 @@ describe("WelcomeTour", () => {
     await wrapper.setProps({ open: true });
     await flushPromises();
     expect(title()).toBe("Welcome to BSH Research Center");
+  });
+});
+
+describe("WelcomeTour look step", () => {
+  let wrapper;
+  const lookIndex = WELCOME_TOUR_STEPS.findIndex((entry) => entry.id === "look");
+  const card = (id) => document.body.querySelector(`[data-testid='design-look-${id}']`);
+  const deskPicker = () => document.body.querySelector("[data-testid='bureau-desk-picker']");
+
+  async function openLookStep() {
+    wrapper = mountTour();
+    await flushPromises();
+    document.body.querySelectorAll(".welcome-tour-dot")[lookIndex].click();
+    await flushPromises();
+    await flushPromises();
+    expect(title()).toBe("Choose a look");
+  }
+
+  beforeEach(() => {
+    push.mockClear();
+    mockRoute.fullPath = "/";
+    workspaceCompanies.value = [];
+    window.localStorage.clear();
+    setDesign(DEFAULT_DESIGN);
+    setBureauDesk(DEFAULT_BUREAU_DESK);
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    document.body.innerHTML = "";
+    setDesign(DEFAULT_DESIGN);
+    setBureauDesk(DEFAULT_BUREAU_DESK);
+    window.localStorage.clear();
+  });
+
+  it("offers Summit Glass, Bureau and Folio, with Summit Glass the default and current", async () => {
+    await openLookStep();
+    const cards = [...document.body.querySelectorAll(".look-card")];
+    expect(cards.map((el) => el.dataset.testid)).toEqual([
+      "design-look-glass",
+      "design-look-bureau",
+      "design-look-folio",
+    ]);
+    expect(card("glass").dataset.selected).toBe("true");
+    expect(card("glass").querySelector("input").checked).toBe(true);
+    expect(card("glass").querySelector(".look-card-default").textContent.trim()).toBe("Default");
+    expect(card("bureau").querySelector(".look-card-default")).toBeNull();
+    expect(card("bureau").dataset.selected).toBe("false");
+    expect(card("bureau").textContent).toContain("The page laid on a desk");
+    // One radio group, each card a radio named by its own words.
+    const radios = [...document.body.querySelectorAll(".look-card input[type='radio']")];
+    expect(radios).toHaveLength(3);
+    expect(new Set(radios.map((radio) => radio.name)).size).toBe(1);
+    expect(radios.every((radio) => radio.closest("label"))).toBe(true);
+    // No desk colors until Bureau is picked.
+    expect(deskPicker()).toBeNull();
+  });
+
+  it("applies the design picked at once, with Bureau's desk colors while it is on", async () => {
+    await openLookStep();
+    card("bureau").querySelector("input").click();
+    await flushPromises();
+    expect(document.documentElement.dataset.design).toBe("bureau");
+    expect(card("bureau").dataset.selected).toBe("true");
+    expect(card("glass").dataset.selected).toBe("false");
+    expect(deskPicker()).not.toBeNull();
+    expect(document.body.querySelector("[data-testid='bureau-desk-onyx']").dataset.selected).toBe("true");
+
+    document.body.querySelector("[data-testid='bureau-desk-navy'] input").click();
+    await flushPromises();
+    expect(document.documentElement.dataset.desk).toBe("navy");
+    expect(window.localStorage.getItem("bsh.research.bureauDesk")).toBe("navy");
+
+    card("folio").querySelector("input").click();
+    await flushPromises();
+    expect(document.documentElement.dataset.design).toBe("folio");
+    expect(deskPicker()).toBeNull();
+    // The desk waits for Bureau to come back.
+    expect(document.documentElement.dataset.desk).toBe("navy");
+  });
+
+  it("leaves the arrow keys to its radio groups", async () => {
+    await openLookStep();
+    const radio = card("glass").querySelector("input");
+    radio.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await flushPromises();
+    expect(title()).toBe("Choose a look");
+    // Anywhere else in the callout they still turn the page.
+    const panel = document.body.querySelector("[role='dialog']");
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await flushPromises();
+    expect(title()).toBe("Meet Warren");
   });
 });

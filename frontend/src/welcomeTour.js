@@ -3,7 +3,9 @@ import { ref } from "vue";
 // Bump when the tour's content changes enough that returning users should
 // see it again, the way iOS re-shows "What's New" after a major update.
 // v2: the tour stopped describing the app from behind a modal and now walks it.
-export const WELCOME_TOUR_VERSION = 2;
+// v3: a step for choosing a look (Summit Glass, Bureau and its desk colors, or
+// Folio), now that Summit Glass is the default.
+export const WELCOME_TOUR_VERSION = 3;
 export const WELCOME_TOUR_KEY = "bsh.welcomeTourSeen";
 
 export const welcomeTourOpen = ref(false);
@@ -23,6 +25,9 @@ export const welcomeTourOpen = ref(false);
  *             real screen (this is what happens on narrow windows where the
  *             sidebar is a drawer).
  * - `placement` preferred side of the target for the callout.
+ * - `kind`    "hero" for the welcome card; "choice" for a step that asks
+ *             rather than points (the look step): it visits its route and
+ *             centers a wider callout holding the choices.
  */
 export const WELCOME_TOUR_STEPS = [
   { id: "welcome", kind: "hero" },
@@ -67,6 +72,15 @@ export const WELCOME_TOUR_STEPS = [
     route: { name: "tracking" },
     target: '[data-tour="nav-tracking"]',
     placement: "right",
+  },
+  {
+    // Near the end, once the app has been seen: Summit Glass, Bureau or
+    // Folio, applied as it is picked (with Bureau's desk colors when Bureau
+    // is). Home stays behind the callout, where a new look is easiest to
+    // judge; there is nothing to spotlight.
+    id: "look",
+    kind: "choice",
+    route: { name: "home" },
   },
   {
     id: "warren",

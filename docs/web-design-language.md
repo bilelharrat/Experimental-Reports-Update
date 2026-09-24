@@ -1,11 +1,13 @@
 # Web design language
 
-The web app has three designs. **Bureau** (the page on the desk) is the
-default. **Folio** (paper and ink) and **Summit Glass**, the Mac twin
-described in the rest of this document, stay one click away in Settings →
-Preferences → Design. The choice is kept per browser (`bsh.research.design`)
-and set as `data-design` on `<html>` before first paint (`index.html`,
-`src/design.js`), which also gives the browser chrome the design's ground.
+The web app has three designs. **Summit Glass**, the Mac twin described in
+the rest of this document, is the original look and the default. **Bureau**
+(the page on the desk) and **Folio** (paper and ink) are one click away in
+Settings → Preferences → Design, and in the welcome tour's "Choose a look"
+step. The choice is kept per browser (`bsh.research.design`; a browser that
+already chose keeps its choice) and set as `data-design` on `<html>` before
+first paint (`index.html`, `src/design.js`), which also gives the browser
+chrome the design's ground.
 The iPhone/iPad and Mac apps offer the same three designs with the same
 colors and faces. Each device keeps its own choice. See "Designs" in
 `ios/README.md`.
@@ -13,12 +15,15 @@ colors and faces. Each device keeps its own choice. See "Designs" in
 ## Bureau
 
 Everything Bureau changes lives in `frontend/src/bureau.css`, scoped under
-`:root[data-design="bureau"]`. Four rules:
+`:root[data-design="bureau"]`, and its desk colors in
+`frontend/src/bureau-desks.css` (see "Desk colors" below). Four rules:
 
-- **A page on a desk.** The window is a bottle-green desk (`--bureau-frame`,
-  `15 31 26`) with a faint grain and a warm lamp glow in its top-left corner;
-  the work is one ivory sheet (`--bureau-sheet`, `247 244 236`) laid on it
-  (`.app-sheet`, the routed view's wrapper in `App.vue`). Chrome lives on the
+- **A page on a desk.** The window is a desk (`--bureau-frame`) with a faint
+  grain and a warm lamp glow in its top-left corner; the work is one sheet
+  (`--bureau-sheet`) laid on it (`.app-sheet`, the routed view's wrapper in
+  `App.vue`). The desk is Onyx & White unless Settings picks another color;
+  `bureau.css` itself is written in the bottle green (`15 31 26`, with an
+  ivory sheet, `247 244 236`). Chrome lives on the
   desk: the masthead, the company rail, the drawer. Inside the sheet a group
   is a tray pressed a shade into the paper (`surface`, drawn with an inset
   edge, never lifted); only what sits over the page — menus, dialogs, the
@@ -37,7 +42,8 @@ Everything Bureau changes lives in `frontend/src/bureau.css`, scoped under
   that white type on it passes AA, so a view's own `bg-accent text-white`
   stays legible: primary buttons, links (`accent-ink`), focus rings
   (`accent-glow`, a brighter brass) and Generate report. Switches and checks
-  that are on take the desk's green. Green and red belong to prices.
+  that are on take the desk's color by day (`--bureau-switch`) and brass by
+  night. Green and red belong to prices.
 - **Type carries the hierarchy.** Titles are set in Instrument Serif (page
   titles, headings in `text-title2`/`text-title3`, the Home title, a
   company's name, the News lead, the brand); the interface in Instrument
@@ -46,15 +52,54 @@ Everything Bureau changes lives in `frontend/src/bureau.css`, scoped under
   from a third party; Songti and PingFang set Chinese. Section labels
   (`.vogue-label`) are italic serif kickers in sentence case.
 
-Dark mode keeps the idea: the desk goes almost black, the sheet a deep green
-slate, and the ink turns to the ivory the desk is written in.
+Dark mode keeps the idea: the desk goes almost black (Onyx's is black), the
+sheet a deep slate in the desk's color (charcoal on Onyx), and the ink turns
+to the ivory the desk is written in.
 
 **The desk re-points the tokens.** `.app-toolbar` and `.app-sidebar`
-redefine the `--color-*` tokens to ivory-on-green, so every control inside
-them — rows, icon buttons, filters, the sort and account menus, the `+`
-menu — is written on the desk without knowing where it is. Reach the
-page's own colors from there through `--bureau-sheet` and `--bureau-ink`,
-which the desk leaves alone.
+redefine the `--color-*` tokens to what is written on the desk (ivory on a
+dark desk, ink on Onyx's white one), so every control inside them — rows,
+icon buttons, filters, the sort and account menus, the `+` menu — is
+written on the desk without knowing where it is. Reach the page's own
+colors from there through `--bureau-sheet` and `--bureau-ink`, which the
+desk leaves alone.
+
+**Desk colors.** The desk comes in seven colors. **Onyx & White** is the
+default: a white desk by day (`255 255 255`, written in ink, with a stone
+sheet, `241 240 236`) and a black one by night (`5 5 5`, a charcoal sheet,
+a lighter neutral grain and no lamp). While Bureau is on, Settings →
+Preferences → Design offers the others as a row of swatches ("Desk color"):
+Bottle green, Maroon, Navy, Aubergine, Tobacco and Graphite. The welcome
+tour's look step shows the same swatches once Bureau is picked
+(`BureauDeskPicker.vue`, a native radio group). The choice is kept per
+browser in `bsh.research.bureauDesk`, next to the design, and set as
+`data-desk` on `<html>` before first paint; a missing or unknown value is
+Onyx. It stays set while another design is on, so coming back to Bureau
+finds the desk it left.
+
+- `bureau-desks.css` scopes each color under
+  `:root[data-design="bureau"][data-desk="…"]`. A desk's day carries
+  `:not(.dark)` so it never leaks into its night, and the night falls back
+  to `bureau.css`'s `.dark` block for whatever it leaves alone. Bottle green
+  is `bureau.css` itself and needs no overrides.
+- A desk re-points the desk (`--bureau-frame` and its two lifted shades),
+  the page's ink ladder (near-neutral, tinted toward the desk; the green
+  desk's ink has green in it), what the desk tints (`--bureau-shadow` for the
+  shadows cast on the sheet, `--bureau-switch` for a switch that is on, and
+  the scrim) and the chrome's rules, fills and lighter inks. By day the
+  colored desks keep the ivory sheet and brass.
+- Onyx's white day needs a few rules of its own: text set on brass takes
+  the ink (not the desk's white), the brand is struck in the deep brass, the
+  chrome's `color-scheme` is light and its menus are white paper, shadows cut
+  for a dark desk are lightened, and a pencil rim (`--bureau-rim`) is drawn
+  along the sheet's top edge, round the desk tab and the company tab on the
+  rail, and through their flares: the masthead covers the sheet's own rim,
+  and a stone tab on white would otherwise read only by a change of tone.
+- The ids and the swatch colors are listed in `src/design.js`
+  (`BUREAU_DESKS`, `BUREAU_DESK_COLORS`, which also gives the browser chrome
+  its ground) and in `index.html`'s pre-paint script. Keep the three in step
+  with the stylesheet; `tests/design.spec.js` runs the pre-paint script and
+  checks each desk's day and night against `bureau-desks.css`.
 
 **The shell changes shape.** `DESK_TAB_DESIGNS` in `src/design.js` lists the
 designs whose shell works this way (`desksAsTabs`):
@@ -85,7 +130,9 @@ Hook classes: `.app-sheet`, `.app-toolbar-row`, `.masthead-desk-tabs`,
 sign-in sheet's `.login-sheet` / `.login-glow` (Summit and Folio ignore them).
 When you build something new, style it in `style.css` as usual; if it floats
 over the page, give it `surface-raised` and `--shadow-sheet`, and check it in
-all three designs and both appearances. A pseudo-element can't go inside
+all three designs and both appearances, and in Bureau on Onyx's white desk
+as well as a dark one (text on the desk is ink there, not ivory). A
+pseudo-element can't go inside
 `:is()` — the whole argument is dropped silently — so give
 `.foo::before` a rule of its own.
 
@@ -253,7 +300,20 @@ one page per desk with a glyph, two lines and tips. `src/welcomeTour.js` owns
 the state: it opens once per browser (`bsh.welcomeTourSeen` stores the tour
 version; bump `WELCOME_TOUR_VERSION` when the content changes enough to show
 again) and Settings can replay it. Classes: `.welcome-tour-*` and the
-`tour-forward` / `tour-back` page transitions. The iPhone/iPad and Mac apps
+`tour-forward` / `tour-back` page transitions.
+
+Near the end, once the app has been seen and just before the last page
+(Meet Warren), "Choose a look" asks rather than points (`kind: "choice"`):
+over Home, with nothing spotlit, a wider callout holds the three designs as
+cards (`DesignLookCards.vue`, `.look-card-*`): a miniature of each one's
+ground and page, its name and a line about it, Summit Glass marked Default
+and the design that is on marked with a check. Picking one applies it at
+once, as Settings does; while Bureau is picked the desk swatches appear
+under the cards. Cards and swatches are native radio groups, so Tab lands on
+the chosen one, the arrow keys move the choice (the tour leaves them to the
+group rather than turning the page) and screen readers hear each one's
+name. The step arrived in tour version 3, so people who finished version 2
+see the tour once more. The iPhone/iPad and Mac apps
 carry the same tour (`WelcomeTourView.swift`, `MacWelcomeTourView.swift`),
 except for the web's "Open a company like a folder" step: it opens the last
 company visited (else the top of the list) and spotlights its folder in the

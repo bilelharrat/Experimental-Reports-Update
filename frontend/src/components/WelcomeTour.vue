@@ -9,15 +9,19 @@ import {
   FolderOpen,
   Gauge,
   Newspaper,
+  Palette,
   Search,
   TrendingUp,
   X,
 } from "lucide-vue-next";
 import { sortCompanies } from "../companyLists.js";
+import { design } from "../design.js";
 import { useT } from "../i18n.js";
 import { companySort, companyViews, lastCompanyId, trackedCompanyIds } from "../state.js";
 import { WELCOME_TOUR_STEPS } from "../welcomeTour.js";
 import BrandMark from "./BrandMark.vue";
+import BureauDeskPicker from "./BureauDeskPicker.vue";
+import DesignLookCards from "./DesignLookCards.vue";
 import PulseECGIcon from "./PulseECGIcon.vue";
 import WarrenMark from "./WarrenMark.vue";
 
@@ -35,6 +39,8 @@ const route = useRoute();
 const TARGET_TIMEOUT_MS = 1600;
 const SPOTLIGHT_PADDING = 8;
 const CALLOUT_WIDTH = 380;
+// A choice step (the look step) holds three cards and the desk swatches.
+const CHOICE_WIDTH = 560;
 const VIEWPORT_MARGIN = 16;
 const CALLOUT_GAP = 14;
 
@@ -126,6 +132,11 @@ const content = computed(() => ({
     body: t("welcome.tracking_body"),
     tips: [{ text: t("welcome.tracking_tip_badge") }],
   },
+  look: {
+    icon: Palette,
+    title: t("welcome.look_title"),
+    body: t("welcome.look_body"),
+  },
   warren: {
     warren: true,
     title: t("welcome.warren_title"),
@@ -144,6 +155,7 @@ const steps = computed(() =>
 
 const current = computed(() => steps.value[step.value] || steps.value[0]);
 const isHero = computed(() => current.value.kind === "hero");
+const isChoice = computed(() => current.value.kind === "choice");
 const isFirst = computed(() => step.value === 0);
 const isLast = computed(() => step.value === steps.value.length - 1);
 // A spotlit step dims through the cutout; hero and unanchored steps dim flat.
@@ -166,7 +178,7 @@ const calloutStyle = computed(() => {
   const s = spot.value;
   const vw = typeof window === "undefined" ? 1024 : window.innerWidth;
   const vh = typeof window === "undefined" ? 768 : window.innerHeight;
-  const width = Math.min(CALLOUT_WIDTH, vw - VIEWPORT_MARGIN * 2);
+  const width = Math.min(isChoice.value ? CHOICE_WIDTH : CALLOUT_WIDTH, vw - VIEWPORT_MARGIN * 2);
 
   if (!s || isHero.value) {
     return {
@@ -350,9 +362,14 @@ function onScrimClick() {
 }
 
 function onKeydown(event) {
+  // Inside a radio group (the look step's designs and desks) the arrow keys
+  // move the choice, as they do in any radio group; elsewhere they turn pages.
+  const inRadioGroup = Boolean(event.target?.matches?.('input[type="radio"]'));
   if (event.key === "Escape") {
     event.stopPropagation();
     emit("close");
+  } else if (inRadioGroup) {
+    return;
   } else if (event.key === "ArrowRight") {
     event.preventDefault();
     if (!isLast.value) goTo(step.value + 1);
@@ -495,6 +512,12 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
               </div>
+              <!-- The look step: the designs as cards, and Bureau's desk
+                   colors once Bureau is picked. Each applies at once. -->
+              <template v-if="isChoice">
+                <DesignLookCards class="mt-4" />
+                <BureauDeskPicker v-if="design === 'bureau'" class="mt-4" />
+              </template>
               <ul v-if="current.tips?.length" class="mt-4 space-y-2">
                 <li v-for="(tip, index) in current.tips" :key="index" class="welcome-tour-tip">
                   <span class="welcome-tour-tip-icon" aria-hidden="true">

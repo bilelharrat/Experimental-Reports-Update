@@ -5,6 +5,7 @@ import { Activity, BarChart3, Bell, Check, Database, Download, FileText, FlaskCo
 import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
+import BureauDeskPicker from "../components/BureauDeskPicker.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
 import { DESIGNS, design, setDesign } from "../design.js";
 import { isSignedIn, signInRoute } from "../auth.js";
@@ -622,6 +623,8 @@ async function importDeskState(event) {
             </button>
           </div>
           <p class="mt-1.5 text-footnote text-ink-muted">{{ t("settings.design_help") }}</p>
+          <!-- Bureau's desk color: only Bureau lays the page on a desk. -->
+          <BureauDeskPicker v-if="design === 'bureau'" class="mt-4" />
         </div>
         <div class="mt-5 flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
           <div class="min-w-0">

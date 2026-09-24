@@ -1,19 +1,22 @@
 /* ===========================================================================
    Bureau — the page on the desk.
 
-   The design the app wears by default (src/design.js). Folio and Summit
-   Glass stay underneath: every rule here is scoped under
-   :root[data-design="bureau"], so switching in Settings drops this whole
-   file and nothing else changes.
+   One of the app's three designs (src/design.js; Summit Glass is the
+   default). Summit Glass and Folio stay underneath: every rule here is
+   scoped under :root[data-design="bureau"], so switching in Settings drops
+   this whole file and nothing else changes.
 
    Four ideas, used everywhere:
 
-   - A page on a desk. The window is a bottle-green desk with a little grain
-     and the warmth of a lamp in its top corner; the work is one ivory sheet
-     laid on it. Chrome lives on the desk (the masthead, the company rail,
-     the drawer), content lives on the sheet. There are no floating cards on
+   - A page on a desk. The window is a desk with a little grain and the
+     warmth of a lamp in its top corner; the work is one ivory sheet laid on
+     it. Chrome lives on the desk (the masthead, the company rail, the
+     drawer), content lives on the sheet. There are no floating cards on
      gray: inside the sheet a group is a tray pressed into the paper, and
-     only what sits over the page (menus, dialogs) lifts off it.
+     only what sits over the page (menus, dialogs) lifts off it. This file
+     is written in the bottle-green desk; the other desk colors, Onyx &
+     White (the default) among them, re-point its tokens in
+     bureau-desks.css, under data-desk.
    - Where you are is cut from the page. The desks are index tabs along the
      top edge of the sheet and the companies a rail of logos down its left
      edge. The one you are on is made of the sheet itself and flares into
@@ -21,7 +24,7 @@
      sheet a chosen segment or row is a slip of fresh paper lifted from it.
    - Brass is for acting. Primary buttons, links, focus and Generate report
      are brass; the accent is deep enough to carry white type. Green and red
-     belong to prices, so the desk's green never marks a number.
+     belong to prices, so the desk's color never marks a number.
    - Type carries the hierarchy. Titles are set in Instrument Serif, the
      interface in Instrument Sans (both bundled, nothing fetched from a
      third party; Songti and PingFang set Chinese). Section labels are
@@ -38,6 +41,11 @@
   --bureau-on-frame: 238 232 216;
   --bureau-brass: 208 172 100;
   --bureau-brass-deep: 176 138 66;
+
+  /* What the desk tints: the shadows things cast on the sheet, and a switch
+     that is on (the desk's own color, a shade livelier). */
+  --bureau-shadow: 15 31 26;
+  --bureau-switch: 26 62 51;
 
   /* The sheet and its ink, named apart from the tokens so the desk (which
      re-points the tokens at itself) can still reach the page's colors. */
@@ -117,8 +125,8 @@
   --glass-blur-soft: none;
   --glass-rim: 0 0 0 0 transparent;
   --glass-edge: 0 0 0 1px rgb(var(--color-text-primary) / 0.08);
-  --glass-shadow: 0 18px 44px -24px rgb(15 31 26 / 0.38);
-  --pill-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.07), 0 1px 2px rgb(15 31 26 / 0.12);
+  --glass-shadow: 0 18px 44px -24px rgb(var(--bureau-shadow) / 0.38);
+  --pill-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.07), 0 1px 2px rgb(var(--bureau-shadow) / 0.12);
   --scrim: rgba(8, 16, 13, 0.22);
 
   --material-bar: rgb(var(--bureau-frame));
@@ -129,11 +137,11 @@
 
   /* A tray is pressed in, not lifted: a faint inner edge instead of a drop
      shadow. Depth is kept for things over the page. */
-  --shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.035), inset 0 1px 2px rgb(15 31 26 / 0.04);
-  --shadow-hover: inset 0 0 0 1px rgb(var(--color-accent) / 0.38), inset 0 1px 2px rgb(15 31 26 / 0.04);
+  --shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.035), inset 0 1px 2px rgb(var(--bureau-shadow) / 0.04);
+  --shadow-hover: inset 0 0 0 1px rgb(var(--color-accent) / 0.38), inset 0 1px 2px rgb(var(--bureau-shadow) / 0.04);
   --shadow-sheet: 0 0 0 1px rgb(var(--color-text-primary) / 0.08),
-    0 26px 60px -26px rgb(15 31 26 / 0.5), 0 6px 16px -8px rgb(15 31 26 / 0.18);
-  --shadow-control: 0 0 0 1px rgb(var(--color-text-primary) / 0.12), 0 1px 2px rgb(15 31 26 / 0.06);
+    0 26px 60px -26px rgb(var(--bureau-shadow) / 0.5), 0 6px 16px -8px rgb(var(--bureau-shadow) / 0.18);
+  --shadow-control: 0 0 0 1px rgb(var(--color-text-primary) / 0.12), 0 1px 2px rgb(var(--bureau-shadow) / 0.06);
 
   --font-sans: var(--bureau-sans);
 
@@ -467,7 +475,7 @@
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
     0 0 0 1px rgb(var(--color-accent-hover) / 0.55),
-    0 1px 2px rgb(15 31 26 / 0.18);
+    0 1px 2px rgb(var(--bureau-shadow) / 0.18);
 }
 
 :root[data-design="bureau"] .btn-filled:hover:not(:disabled) {
@@ -550,15 +558,15 @@
   box-shadow: inset 0 0 0 1px rgb(var(--color-accent)), 0 0 0 3px rgb(var(--color-accent-glow) / 0.28);
 }
 
-/* Switches and checks are set in the desk's green: the one place the desk
-   reaches into the page, for a thing that is on. */
+/* Switches and checks are set in the desk's color (--bureau-switch): the one
+   place the desk reaches into the page, for a thing that is on. */
 :root[data-design="bureau"] .switch,
 :root[data-design="bureau"].dark .switch {
   background-color: rgb(var(--color-text-primary) / 0.16);
 }
 
 :root[data-design="bureau"] .switch:checked {
-  background-color: rgb(26 62 51);
+  background-color: rgb(var(--bureau-switch));
 }
 
 :root[data-design="bureau"].dark .switch:checked {
@@ -572,7 +580,7 @@
 
 :root[data-design="bureau"] .memo-checkbox:checked,
 :root[data-design="bureau"].dark .memo-checkbox:checked {
-  background: rgb(26 62 51);
+  background: rgb(var(--bureau-switch));
   box-shadow: none;
 }
 
@@ -587,7 +595,7 @@
 :root[data-design="bureau"] .segmented,
 :root[data-design="bureau"].dark .segmented {
   background-color: rgb(var(--color-text-primary) / 0.06);
-  box-shadow: inset 0 1px 2px rgb(15 31 26 / 0.06);
+  box-shadow: inset 0 1px 2px rgb(var(--bureau-shadow) / 0.06);
 }
 
 :root[data-design="bureau"] .segmented-item {
@@ -600,7 +608,7 @@
 
 :root[data-design="bureau"] .segmented-item::before {
   background-color: rgb(var(--color-surface-raised));
-  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(15 31 26 / 0.14);
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(var(--bureau-shadow) / 0.14);
 }
 
 :root[data-design="bureau"] .segmented-item:is([aria-selected="true"], [data-selected="true"], [aria-checked="true"], .router-link-active, .router-link-exact-active) {
@@ -618,24 +626,24 @@
 :root[data-design="bureau"] .doc-row[data-selected="true"] {
   background-color: rgb(var(--color-surface-raised));
   box-shadow: inset 3px 0 0 rgb(var(--color-accent-glow)), 0 0 0 1px rgb(var(--color-text-primary) / 0.06),
-    0 1px 3px rgb(15 31 26 / 0.08);
+    0 1px 3px rgb(var(--bureau-shadow) / 0.08);
 }
 
 :root[data-design="bureau"] .home-action[data-selected="true"] {
   color: rgb(var(--color-text-primary));
   background-color: rgb(var(--color-surface-raised));
-  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(15 31 26 / 0.12);
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.08), 0 1px 3px rgb(var(--bureau-shadow) / 0.12);
   animation: none;
 }
 
 :root[data-design="bureau"] .yf-range-item[data-selected="true"] {
   color: rgb(var(--color-text-primary));
   background-color: rgb(var(--color-surface-raised));
-  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 1px 3px rgb(15 31 26 / 0.12);
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 1px 3px rgb(var(--bureau-shadow) / 0.12);
 }
 
 :root[data-design="bureau"] .yf-index-card[data-selected="true"] {
-  box-shadow: 0 0 0 1.5px rgb(var(--color-accent-glow)), 0 8px 22px -14px rgb(15 31 26 / 0.4);
+  box-shadow: 0 0 0 1.5px rgb(var(--color-accent-glow)), 0 8px 22px -14px rgb(var(--bureau-shadow) / 0.4);
 }
 
 /* A chosen option card in a form (the Generate dialog) is edged in brass. */
@@ -1393,7 +1401,7 @@
 :root[data-design="bureau"].dark .ask-composer {
   border-radius: 16px;
   background-color: rgb(var(--color-surface-raised));
-  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14), 0 6px 18px -12px rgb(15 31 26 / 0.35);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.14), 0 6px 18px -12px rgb(var(--bureau-shadow) / 0.35);
 }
 
 :root[data-design="bureau"] .ask-composer:focus-within {
@@ -1445,13 +1453,13 @@
 :root[data-design="bureau"] .material-glass {
   border-radius: 20px;
   background-color: rgb(var(--color-surface-raised));
-  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 18px 40px -26px rgb(15 31 26 / 0.45);
+  box-shadow: 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 18px 40px -26px rgb(var(--bureau-shadow) / 0.45);
 }
 
 :root[data-design="bureau"] .material-glass:focus-within {
   background-color: rgb(var(--color-surface-raised));
   box-shadow: 0 0 0 1px rgb(var(--color-accent)), 0 0 0 4px rgb(var(--color-accent-glow) / 0.2),
-    0 18px 40px -26px rgb(15 31 26 / 0.45);
+    0 18px 40px -26px rgb(var(--bureau-shadow) / 0.45);
 }
 
 :root[data-design="bureau"] .home-intake {
@@ -1477,8 +1485,8 @@
   --mac-pill-fill: rgb(var(--color-surface-raised));
   --mac-pill-rim: 0 0 0 0 transparent;
   --mac-pill-contact: 0 0 0 1px rgb(var(--color-text-primary) / 0.08);
-  --mac-pill-drop: 0 1px 3px rgb(15 31 26 / 0.14);
-  --mac-thumb-drop: 0 1px 3px rgb(15 31 26 / 0.14);
+  --mac-pill-drop: 0 1px 3px rgb(var(--bureau-shadow) / 0.14);
+  --mac-thumb-drop: 0 1px 3px rgb(var(--bureau-shadow) / 0.14);
   background: transparent;
 }
 
@@ -1539,7 +1547,7 @@
 
 :root[data-design="bureau"] .mac-segmented {
   background: rgb(var(--color-text-primary) / 0.06);
-  box-shadow: inset 0 1px 2px rgb(15 31 26 / 0.06);
+  box-shadow: inset 0 1px 2px rgb(var(--bureau-shadow) / 0.06);
 }
 
 :root[data-design="bureau"] .mac-segment.is-selected {
@@ -1700,7 +1708,7 @@
   letter-spacing: -0.01em;
 }
 
-/* The house seal: the summit in brass on a square of the desk's green. */
+/* The house seal: the summit in brass on a square of the desk. */
 :root[data-design="bureau"] .login-tile,
 :root[data-design="bureau"].dark .login-tile {
   color: rgb(var(--bureau-brass));
@@ -1745,7 +1753,7 @@
   background-color: rgb(var(--color-accent));
   background-image: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 60%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 0 0 1px rgb(var(--color-accent-hover) / 0.55),
-    0 6px 16px -8px rgb(15 31 26 / 0.5);
+    0 6px 16px -8px rgb(var(--bureau-shadow) / 0.5);
 }
 
 :root[data-design="bureau"] .login-submit::after {

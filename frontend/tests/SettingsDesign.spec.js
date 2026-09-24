@@ -13,7 +13,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock("../src/api.js", () => ({ api: apiMock, withApiToken: (u) => u }));
 
 import SettingsView from "../src/views/SettingsView.vue";
-import { setDesign } from "../src/design.js";
+import { BUREAU_DESKS, DEFAULT_BUREAU_DESK, setBureauDesk, setDesign } from "../src/design.js";
 import { setAppLanguage } from "../src/state.js";
 
 async function mountSettings() {
@@ -49,7 +49,9 @@ describe("Settings design switch", () => {
 
   afterEach(() => {
     setDesign("bureau");
+    setBureauDesk(DEFAULT_BUREAU_DESK);
     window.localStorage.removeItem("bsh.research.design");
+    window.localStorage.removeItem("bsh.research.bureauDesk");
     setAppLanguage("en");
   });
 
@@ -82,5 +84,77 @@ describe("Settings design switch", () => {
     setAppLanguage("zh");
     const wrapper = await mountSettings();
     expect(wrapper.get('[data-testid="settings-design-bureau"]').text()).toBe("Bureau 书案");
+  });
+});
+
+describe("Settings desk color", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setAppLanguage("en");
+    setDesign("bureau");
+    setBureauDesk(DEFAULT_BUREAU_DESK);
+    apiMock.userCenter.mockResolvedValue({ account: { email: "qa@bsh.org" } });
+    apiMock.workspaceSettings.mockResolvedValue({ account: {}, preferences: {} });
+    apiMock.getFundPolicy.mockResolvedValue({ set: false, stages: {}, context: {} });
+    apiMock.me.mockResolvedValue({ permissions: [] });
+  });
+
+  afterEach(() => {
+    setDesign("bureau");
+    setBureauDesk(DEFAULT_BUREAU_DESK);
+    window.localStorage.removeItem("bsh.research.design");
+    window.localStorage.removeItem("bsh.research.bureauDesk");
+    setAppLanguage("en");
+  });
+
+  const picker = (wrapper) => wrapper.find('[data-testid="bureau-desk-picker"]');
+
+  it("offers the seven desks as a radio group while Bureau is on, Onyx & White chosen", async () => {
+    const wrapper = await mountSettings();
+    expect(picker(wrapper).exists()).toBe(true);
+    expect(picker(wrapper).element.tagName).toBe("FIELDSET");
+    expect(picker(wrapper).get("legend").text()).toBe("Desk color");
+
+    const radios = picker(wrapper).findAll('input[type="radio"]');
+    expect(radios.map((radio) => radio.element.value)).toEqual(BUREAU_DESKS);
+    // One group: the arrow keys move between the desks.
+    expect(new Set(radios.map((radio) => radio.attributes("name"))).size).toBe(1);
+
+    const onyx = wrapper.get('[data-testid="bureau-desk-onyx"]');
+    expect(onyx.text()).toBe("Onyx & White");
+    expect(onyx.attributes("data-selected")).toBe("true");
+    expect(onyx.get("input").element.checked).toBe(true);
+    expect(wrapper.get('[data-testid="bureau-desk-green"]').text()).toBe("Bottle green");
+    expect(wrapper.get('[data-testid="bureau-desk-green"]').attributes("data-selected")).toBe("false");
+  });
+
+  it("shows only while Bureau is the design", async () => {
+    const wrapper = await mountSettings();
+    expect(picker(wrapper).exists()).toBe(true);
+    await wrapper.get('[data-testid="settings-design-folio"]').trigger("click");
+    expect(picker(wrapper).exists()).toBe(false);
+    await wrapper.get('[data-testid="settings-design-glass"]').trigger("click");
+    expect(picker(wrapper).exists()).toBe(false);
+    await wrapper.get('[data-testid="settings-design-bureau"]').trigger("click");
+    expect(picker(wrapper).exists()).toBe(true);
+  });
+
+  it("applies a desk the moment it is chosen", async () => {
+    const wrapper = await mountSettings();
+    await wrapper.get('[data-testid="bureau-desk-maroon"] input').setValue(true);
+    expect(document.documentElement.dataset.desk).toBe("maroon");
+    expect(window.localStorage.getItem("bsh.research.bureauDesk")).toBe("maroon");
+    expect(wrapper.get('[data-testid="bureau-desk-maroon"]').attributes("data-selected")).toBe("true");
+    expect(wrapper.get('[data-testid="bureau-desk-onyx"]').attributes("data-selected")).toBe("false");
+
+    await wrapper.get('[data-testid="bureau-desk-green"] input').setValue(true);
+    expect(document.documentElement.dataset.desk).toBe("green");
+  });
+
+  it("names the desks in Chinese too", async () => {
+    setAppLanguage("zh");
+    const wrapper = await mountSettings();
+    expect(picker(wrapper).get("legend").text()).toBe("书案颜色");
+    expect(wrapper.get('[data-testid="bureau-desk-onyx"]').text()).toBe("Onyx & White 黑白");
   });
 });

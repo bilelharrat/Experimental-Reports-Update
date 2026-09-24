@@ -6,8 +6,8 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <title>BSH Research Center</title>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0f1f1a" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080d0b" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111113" />
     <!-- Appearance is resolved before first paint so there is no flash.
          Follows the system unless Settings chose Light or Dark. Mirrors
          the logic in src/appearance.js. -->
@@ -27,22 +27,38 @@
           }
         }
         if (dark) document.documentElement.classList.add("dark");
-        // The design (Bureau unless Settings chose Folio or Summit Glass).
-        // Mirrors src/design.js.
-        var design = "bureau";
-        try {
-          var chosen = localStorage.getItem("bsh.research.design");
-          if (chosen === "folio" || chosen === "glass") design = chosen;
-        } catch (e) {
-          /* storage disabled — the default design */
-        }
-        document.documentElement.setAttribute("data-design", design);
-        // The browser chrome takes the design's ground from the first paint.
-        var ground = {
-          bureau: ["#0f1f1a", "#080d0b"],
+        // The design (Summit Glass unless Settings chose Bureau or Folio),
+        // and Bureau's desk color (Onyx & White unless Settings chose
+        // another). Mirrors src/design.js.
+        var design = "glass";
+        var desk = "onyx";
+        // Each ground as [by day, by night]: Folio's paper, Summit's
+        // neutral, and Bureau's desks (BUREAU_DESK_COLORS).
+        var grounds = {
           folio: ["#f4f2ed", "#161513"],
           glass: ["#f4f4f6", "#111113"],
-        }[design];
+        };
+        var desks = {
+          onyx: ["#ffffff", "#050505"],
+          green: ["#0f1f1a", "#080d0b"],
+          maroon: ["#50121e", "#16060a"],
+          navy: ["#101c34", "#060910"],
+          aubergine: ["#30162e", "#0c070c"],
+          tobacco: ["#362212", "#0b0805"],
+          graphite: ["#1e2228", "#08090b"],
+        };
+        try {
+          var chosen = localStorage.getItem("bsh.research.design");
+          if (chosen === "bureau" || chosen === "folio") design = chosen;
+          var chosenDesk = localStorage.getItem("bsh.research.bureauDesk");
+          if (chosenDesk && Object.prototype.hasOwnProperty.call(desks, chosenDesk)) desk = chosenDesk;
+        } catch (e) {
+          /* storage disabled — the default design and desk */
+        }
+        document.documentElement.setAttribute("data-design", design);
+        document.documentElement.setAttribute("data-desk", desk);
+        // The browser chrome takes the design's ground from the first paint.
+        var ground = design === "bureau" ? desks[desk] : grounds[design];
         var metas = document.querySelectorAll('meta[name="theme-color"]');
         for (var i = 0; i < metas.length; i++) {
           var isDark = (metas[i].getAttribute("media") || "").indexOf("dark") !== -1;

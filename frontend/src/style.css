@@ -2159,6 +2159,340 @@ aside[data-collapsed="true"] .company-pages::before {
   transform: scale(1.15);
 }
 
+/* Choose a look (the welcome tour): the three designs as cards, each with a
+   miniature of its ground and page. The miniatures are painted in each
+   design's own colors rather than the tokens, because two of the three
+   aren't on while you look at them. The radios are native and visually
+   hidden; the card shows focus and the choice. */
+.look-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.look-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 9px;
+  padding: 8px 8px 11px;
+  border-radius: 13px;
+  cursor: pointer;
+  background-color: rgb(var(--color-fill-tertiary));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.07);
+  transition:
+    background-color 0.15s var(--ease-standard),
+    box-shadow 0.15s var(--ease-standard);
+}
+
+.look-card:hover {
+  background-color: rgb(var(--color-fill-secondary));
+}
+
+.look-card[data-selected="true"] {
+  background-color: rgb(var(--color-accent) / 0.07);
+  box-shadow: inset 0 0 0 2px rgb(var(--color-accent));
+}
+
+.look-card:has(input:focus-visible) {
+  outline: 2px solid rgb(var(--color-accent-glow));
+  outline-offset: 2px;
+}
+
+.look-card-preview {
+  position: relative;
+  display: block;
+  height: 62px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.dark .look-card-preview {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.look-card-page {
+  position: absolute;
+  display: block;
+}
+
+/* A title line and an accent mark on each miniature page. */
+.look-card-page::before,
+.look-card-page::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.look-card-page::before {
+  top: 8px;
+  width: 42%;
+  background-color: currentColor;
+  opacity: 0.5;
+}
+
+.look-card-page::after {
+  top: 17px;
+  width: 18px;
+}
+
+/* Summit Glass: a white card floating on a lit, cool ground. */
+.look-card-preview[data-look="glass"] {
+  background:
+    radial-gradient(90% 120% at 8% 0%, rgb(56 168 232 / 0.22), transparent 62%),
+    #eef0f4;
+}
+
+.look-card-preview[data-look="glass"] .look-card-page {
+  inset: 10px 10px 9px 30px;
+  border-radius: 6px;
+  color: #1d1d1f;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 4px 10px -4px rgb(0 0 0 / 0.2);
+}
+
+.look-card-preview[data-look="glass"] .look-card-page::after {
+  background-color: #0b87d6;
+}
+
+.dark .look-card-preview[data-look="glass"] {
+  background:
+    radial-gradient(90% 120% at 8% 0%, rgb(56 168 232 / 0.16), transparent 62%),
+    #141417;
+}
+
+.dark .look-card-preview[data-look="glass"] .look-card-page {
+  color: #f2f2f4;
+  background-color: #232327;
+  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.12), 0 4px 10px -4px rgb(0 0 0 / 0.5);
+}
+
+.dark .look-card-preview[data-look="glass"] .look-card-page::after {
+  background-color: #38a8e8;
+}
+
+/* Bureau: the page laid on its desk, running off the desk's lower edge. */
+.look-card-preview[data-look="bureau"] {
+  background-color: var(--look-desk-day);
+}
+
+.look-card-preview[data-look="bureau"] .look-card-page {
+  inset: 14px 6px 0 18px;
+  border-radius: 6px 6px 0 0;
+  color: #181818;
+  background-color: var(--look-sheet-day);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.1);
+}
+
+.look-card-preview[data-look="bureau"] .look-card-page::after {
+  background-color: #b08a42;
+}
+
+.dark .look-card-preview[data-look="bureau"] {
+  background-color: var(--look-desk-night);
+}
+
+.dark .look-card-preview[data-look="bureau"] .look-card-page {
+  color: #eae5d6;
+  background-color: var(--look-sheet-night);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+
+.dark .look-card-preview[data-look="bureau"] .look-card-page::after {
+  background-color: #d6b268;
+}
+
+/* Folio: a sheet of paper ruled in ink. */
+.look-card-preview[data-look="folio"] {
+  background-color: #f4f2ed;
+}
+
+.look-card-preview[data-look="folio"] .look-card-page {
+  inset: 9px 12px 0;
+  border-radius: 3px 3px 0 0;
+  color: #1c1a17;
+  background-color: #fbfaf7;
+  box-shadow: 0 0 0 1px rgb(28 26 23 / 0.16);
+}
+
+.look-card-preview[data-look="folio"] .look-card-page::after {
+  background-color: #263cd4;
+}
+
+.dark .look-card-preview[data-look="folio"] {
+  background-color: #161513;
+}
+
+.dark .look-card-preview[data-look="folio"] .look-card-page {
+  color: #ece8df;
+  background-color: #211f1c;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.dark .look-card-preview[data-look="folio"] .look-card-page::after {
+  background-color: #8193ff;
+}
+
+.look-card-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.look-card-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 17px;
+  color: rgb(var(--color-text-primary));
+}
+
+.look-card-default {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  color: rgb(var(--color-accent-ink));
+  background-color: rgb(var(--color-accent-soft));
+}
+
+.look-card-body {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: rgb(var(--color-text-muted));
+}
+
+.look-card-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background-color: rgb(var(--color-accent));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+
+/* A phone: the cards stack, the miniature beside the words. */
+@media (max-width: 520px) {
+  .look-cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .look-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 40px 8px 8px;
+  }
+
+  .look-card-preview {
+    width: 84px;
+    height: 54px;
+  }
+
+  .look-card-check {
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+  }
+}
+
+/* Bureau's desk color (Settings, and the tour's look step once Bureau is
+   picked): a group of swatches, Onyx & White split white and black. The
+   radios are native and visually hidden; the swatch shows the choice and the
+   option shows focus. */
+.desk-picker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Narrow enough for all seven in one row in the Settings card and the tour. */
+.desk-picker-option {
+  display: flex;
+  width: 3.5rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 2px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.15s var(--ease-standard);
+}
+
+.desk-picker-option:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+.desk-picker-option:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px rgb(var(--color-accent-glow) / 0.85);
+}
+
+.desk-picker-swatch {
+  position: relative;
+  display: block;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.16);
+}
+
+/* By night the darker desks sit on a dark ground: a firmer rim finds them. */
+.dark .desk-picker-swatch {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.32);
+}
+
+.desk-picker-option[data-selected="true"] .desk-picker-swatch {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 2px;
+}
+
+.desk-picker-check {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background-color: rgb(var(--color-accent));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+.desk-picker-name {
+  font-size: 11px;
+  line-height: 14px;
+  color: rgb(var(--color-text-secondary));
+}
+
+.desk-picker-option[data-selected="true"] .desk-picker-name {
+  font-weight: 600;
+  color: rgb(var(--color-text-primary));
+}
+
 /* Lucide draws at 2px; SF Symbols at these sizes read nearer 1.75. */
 .lucide {
   stroke-width: 1.75;

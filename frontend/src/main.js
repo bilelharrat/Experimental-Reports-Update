@@ -9,6 +9,7 @@ import "@fontsource-variable/instrument-sans/wght.css";
 import "./style.css";
 import "./folio.css";
 import "./bureau.css";
+import "./bureau-desks.css";
 
 initAppearance();
 initDesign();
