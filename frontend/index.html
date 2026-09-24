@@ -6,13 +6,22 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <title>BSH Research Center</title>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0f1f1a" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080d0b" />
-    <!-- Appearance is resolved before first paint so there is no flash.
-         Follows the system unless Settings chose Light or Dark. Mirrors
-         the logic in src/appearance.js. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#03060b" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#03060b" />
+    <!-- Appearance and design are resolved before first paint so there is
+         no flash. Appearance follows the system unless Settings chose Light
+         or Dark, and Reactor is always dark. Mirrors src/appearance.js and
+         src/design.js. -->
     <script>
       (function () {
+        // The design (Reactor unless Settings chose another).
+        var design = "reactor";
+        try {
+          var chosen = localStorage.getItem("bsh.research.design");
+          if (chosen === "bureau" || chosen === "folio" || chosen === "glass") design = chosen;
+        } catch (e) {
+          /* storage disabled — the default design */
+        }
         var dark = false;
         try {
           var saved = localStorage.getItem("bsh.research.appearance");
@@ -26,19 +35,12 @@
             dark = false;
           }
         }
+        if (design === "reactor") dark = true;
         if (dark) document.documentElement.classList.add("dark");
-        // The design (Bureau unless Settings chose Folio or Summit Glass).
-        // Mirrors src/design.js.
-        var design = "bureau";
-        try {
-          var chosen = localStorage.getItem("bsh.research.design");
-          if (chosen === "folio" || chosen === "glass") design = chosen;
-        } catch (e) {
-          /* storage disabled — the default design */
-        }
         document.documentElement.setAttribute("data-design", design);
         // The browser chrome takes the design's ground from the first paint.
         var ground = {
+          reactor: ["#03060b", "#03060b"],
           bureau: ["#0f1f1a", "#080d0b"],
           folio: ["#f4f2ed", "#161513"],
           glass: ["#f4f4f6", "#111113"],

@@ -1,11 +1,63 @@
 # Web design language
 
-The web app has three designs. **Bureau** (the page on the desk) is the
-default. **Folio** (paper and ink) and **Summit Glass**, the Mac twin
-described in the rest of this document, stay one click away in Settings →
-Preferences → Design. The choice is kept per browser (`bsh.research.design`)
-and set as `data-design` on `<html>` before first paint (`index.html`,
-`src/design.js`), which also gives the browser chrome the design's ground.
+The web app has four designs. **Reactor** (the workshop heads-up display)
+is the default. **Bureau** (the page on the desk), **Folio** (paper and ink)
+and **Summit Glass**, the Mac twin described in the rest of this document,
+stay one click away in Settings → Preferences → Design. The choice is kept
+per browser (`bsh.research.design`) and set as `data-design` on `<html>`
+before first paint (`index.html`, `src/design.js`), which also gives the
+browser chrome the design's ground.
+
+## Reactor
+
+Everything Reactor changes lives in `frontend/src/reactor.css`, scoped under
+`:root[data-design="reactor"]`. It is a heads-up display in a dark workshop,
+and it shares Bureau's shell (below): the desks are tabs across the
+masthead and the companies a rail. Four rules:
+
+- **Light is information.** The app is drawn in light on near-black
+  (`--reactor-void`, `3 6 11`) over a faint engineering grid, scanlines and a
+  reactor glow from above (`--reactor-field`, one fixed layer on
+  `.canvas-wash::before`, repeated on the masthead with a fixed attachment
+  so content slides under it). Panels are dark slabs whose edge is a line of
+  light and whose corners carry lit brackets (`.shadow-card`, `.mac-card`,
+  `.glass-card`, `.morning-brief`, `.news-lead` and the other card classes
+  get the bracket gradients through `background-image`, so their own
+  `bg-*` color stays). The page itself (`.app-sheet`) is a viewport framed
+  by larger brackets. Nothing is frosted; a glow means live, chosen or under
+  the pointer. Radii come down to 2–4px; dots, avatars and switches stay
+  round.
+- **Reactor cyan is the interface** (`--reactor-cyan`, `79 216 255`):
+  navigation, selection, focus and links. The desk you are on is powered —
+  cyan, washed from below, with a beam along its foot. Segments, the Market
+  ranges, report rows and menu rows light the same way.
+- **Titanium gold is for acting** (`--reactor-gold`, `242 181 68`): primary
+  buttons (`.btn-filled`, `.mac-btn--prominent`, Generate report, sign in)
+  are gold slabs with two corners cut (`clip-path`, so focus draws inside
+  them with a negative outline offset) and dark type in tracked capitals.
+  The `accent` token is a deep reactor blue (`14 126 176`) that carries
+  white type, so a view's own `bg-accent text-white` stays legible. Green
+  and red belong to prices and alerts.
+- **Type is engineered.** Desk titles and the Home title are Michroma, wide
+  and in capitals; the interface is Saira (with its width axis for tracked
+  legends); figures (`.mono-data`, `.tabular`, the brief's kicker, tickers)
+  are JetBrains Mono so readouts align like instruments. All three are
+  bundled (`@fontsource`, imported in `main.js`); a face downloads only when
+  a design uses it. Section labels are small tracked cyan capitals. The
+  morning brief's `--brief-serif` is re-pointed at Saira.
+
+**Always dark.** Reactor is in `DARK_ONLY_DESIGNS` (`forcesDark` in
+`design.js`): `appearance.js` keeps `.dark` on `<html>` while it is on, so
+views' own `dark:` variants apply, and `index.html` does the same before
+first paint. The Appearance choice is still saved and applies to the other
+designs; Settings says so under the control while Reactor is on.
+
+Home has one ornament: behind the title a reactor turns — a core of light,
+a ring of ticks and a broken outer ring with one gold arc, rotating the
+other way (`.home-hero-glow` and its `::before`/`::after`, `rotate`
+animations that the global reduced-motion rule stops). The hero is set
+lower so the rings sit outside the title block and never cross a word; on a
+phone the reactor is hidden.
 
 ## Bureau
 
@@ -54,7 +106,10 @@ page's own colors from there through `--bureau-sheet` and `--bureau-ink`,
 which the desk leaves alone.
 
 **The shell changes shape.** `DESK_TAB_DESIGNS` in `src/design.js` lists the
-designs whose shell works this way (`desksAsTabs`):
+designs whose shell works this way (`desksAsTabs`) — Bureau and Reactor.
+The behavior below is shared (`tests/DeskTabShell.spec.js` runs it under
+both); each design's stylesheet dresses it, with its own copy of the layout
+rules, so either file can change without touching the other:
 
 - The sidebar's desk rows are carried into the masthead
   (`<Teleport to="#masthead-desk-tabs">` in `Sidebar.vue`), so the tabs keep
@@ -64,8 +119,8 @@ designs whose shell works this way (`desksAsTabs`):
   index (sort, filter, sectors, Diffs, folders) and folds it back; the choice
   is `companyIndexOpen` (`bsh.companyIndexOpen`, a device key), kept apart
   from the list sidebar's `sidebarCollapsed`.
-- Generate report moves beside Warren as a brass pill (`.masthead-generate`);
-  the sidebar's own button stays in the drawer.
+- Generate report moves beside Warren (`.masthead-generate`: Bureau's brass
+  pill, Reactor's gold slab); the sidebar's own button stays in the drawer.
 - The masthead gives way by its own width, through a container query
   (`container-name: masthead`), because the open index and Warren both
   narrow it: the jump field goes first (⌘K still opens the palette), then
@@ -82,7 +137,7 @@ Hook classes: `.app-sheet`, `.app-toolbar-row`, `.masthead-desk-tabs`,
 sign-in sheet's `.login-sheet` / `.login-glow` (Summit and Folio ignore them).
 When you build something new, style it in `style.css` as usual; if it floats
 over the page, give it `surface-raised` and `--shadow-sheet`, and check it in
-all three designs and both appearances. A pseudo-element can't go inside
+all four designs and both appearances. A pseudo-element can't go inside
 `:is()` — the whole argument is dropped silently — so give
 `.foo::before` a rule of its own.
 
