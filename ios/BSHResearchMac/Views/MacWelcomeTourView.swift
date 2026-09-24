@@ -103,6 +103,7 @@ struct MacWelcomeTourView: View {
     var container: CGSize = .zero
 
     @EnvironmentObject private var store: MacAppStore
+    @EnvironmentObject private var design: BSHDesignStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -185,7 +186,7 @@ struct MacWelcomeTourView: View {
 
     private var calloutWidth: CGFloat {
         let maximum = max(280, container.width - 48)
-        return page.isHero ? min(520, maximum) : min(420, maximum)
+        return page.isHero ? min(520, maximum) : min(page.choosesLook ? 460 : 420, maximum)
     }
 
     /// Beside the row it is describing, centred when there is nothing to point at.
@@ -281,6 +282,10 @@ struct MacWelcomeTourView: View {
                 Spacer(minLength: 0)
             }
 
+            if page.choosesLook {
+                lookChooser
+            }
+
             VStack(spacing: 6) {
                 ForEach(page.tips) { tip in
                     HStack(spacing: 10) {
@@ -298,6 +303,29 @@ struct MacWelcomeTourView: View {
                     .padding(.vertical, 8)
                     .appleGlassTile(cornerRadius: 9)
                 }
+            }
+        }
+    }
+
+    /// The designs, applied as they are chosen: the terminal rebuilds behind the tour,
+    /// which keeps its place. Bureau adds its desk colors.
+    private var lookChooser: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BSHDesignCards(selection: $design.design, caption: { MacWelcomeTourCatalog.lookCaption($0) })
+                .accessibilityIdentifier("welcome-tour-designs")
+
+            if design.design == .bureau {
+                HStack(spacing: 10) {
+                    Text("Desk color")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    BSHBureauDeskPicker(selection: $design.bureauDesk, size: 20)
+                    Spacer(minLength: 0)
+                    Text(design.bureauDesk.title)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("welcome-tour-desks")
             }
         }
     }
@@ -441,6 +469,8 @@ struct MacWelcomeTourPage: Identifiable {
     var anchor: String? = nil
     var isHero: Bool { id == "welcome" }
     var usesWarrenPortrait: Bool { id == "warren" }
+    /// The step that offers the designs.
+    var choosesLook: Bool { id == "look" }
 }
 
 enum MacWelcomeTourCatalog {
@@ -542,5 +572,21 @@ enum MacWelcomeTourCatalog {
             tab: .copilot,
             anchor: tabAnchor(.copilot)
         ),
+        // Last, once the terminal has been seen: Summit Glass, Bureau or Folio, applied as
+        // it is chosen, with Bureau's desk colors when Bureau is.
+        MacWelcomeTourPage(
+            id: "look", symbol: "paintbrush.pointed",
+            title: "Choose your look",
+            body: "Dress the terminal the way you like to work. You can change it any time in Settings (⌘,)."
+        ),
     ]
+
+    /// A line about each design, under its card.
+    static func lookCaption(_ design: BSHDesign) -> String {
+        switch design {
+        case .glass: return "The original: the Mac's own glass."
+        case .bureau: return "A page on a desk, with brass."
+        case .folio: return "Paper and ink, set like a book."
+        }
+    }
 }

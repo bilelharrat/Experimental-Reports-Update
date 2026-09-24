@@ -97,6 +97,7 @@ struct GlassRowHighlight: View {
     var inset: EdgeInsets = EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
     @Environment(\.bshOnFrame) private var onFrame
     @Environment(\.bshPageScheme) private var pageScheme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
@@ -118,8 +119,15 @@ struct GlassRowHighlight: View {
                 case .bureau:
                     if onFrame {
                         // On the desk, the chosen row is a slip of the sheet itself.
+                        // On Onyx's white desk by day, a rim sets the stone slip off it.
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .fill(pageScheme.map(BSHPalette.bureauSheet(for:)) ?? BSHPalette.bureauSheet)
+                            .overlay {
+                                if !BSHPalette.bureauDeskIsDark(pageScheme ?? colorScheme) {
+                                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                        .strokeBorder(Color.black.opacity(0.1), lineWidth: 1)
+                                }
+                            }
                             .padding(inset)
                     } else {
                         // On the page, fresh paper lifted from it.

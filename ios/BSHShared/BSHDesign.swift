@@ -4,11 +4,12 @@
 //
 //  The app's three designs, as on the website (frontend/src/design.js):
 //
-//  - Bureau, the page on a desk: a bottle-green desk, one ivory sheet laid on it,
-//    brass for acting, Instrument Serif titles. Where you are is cut from the page.
+//  - Summit Glass, the original and the default: the system's own materials and blue.
+//  - Bureau, the page on a desk: one sheet laid on a desk (white by day and black by
+//    night unless another desk color is chosen), brass for acting, Instrument Serif
+//    titles. Where you are is cut from the page.
 //  - Folio, paper and ink: warm paper, ruled cards, a book serif (Iowan Old Style),
 //    selection set in solid ink, ultramarine for acting.
-//  - Summit Glass, the original: the system's own materials and blue.
 //
 //  Views don't read the choice. They use the `Color.ds*` / `Font.ds*` tokens and the
 //  card, tile and selection components (MacDesign.swift / ResearchDesign.swift), which
@@ -35,7 +36,7 @@ enum BSHDesign: String, CaseIterable, Identifiable {
 
     /// The same key the website keeps its choice under (per device here, per browser there).
     static let storageKey = "bsh.research.design"
-    static let defaultDesign: BSHDesign = .bureau
+    static let defaultDesign: BSHDesign = .glass
 
     /// The design every token resolves against. Kept by `BSHDesignStore`.
     nonisolated(unsafe) static var active: BSHDesign = stored()
@@ -56,8 +57,145 @@ enum BSHDesign: String, CaseIterable, Identifiable {
     var isPaper: Bool { self != .glass }
 }
 
-/// Holds the chosen design and persists it. The app reads `design` to rebuild its root
-/// (`.id(design)`), so every token re-resolves at once.
+/// Bureau's desk. Onyx & White is the standard: a white desk by day and a black one by
+/// night, with a stone sheet. The others lay the ivory sheet on a colored desk; bottle
+/// green is where Bureau began. The website keeps the same choice (`data-desk`).
+enum BSHBureauDesk: String, CaseIterable, Identifiable {
+    case onyx
+    case green
+    case maroon
+    case navy
+    case aubergine
+    case tobacco
+    case graphite
+
+    var id: String { rawValue }
+
+    /// The website's key for the same choice (per device here, per browser there).
+    static let storageKey = "bsh.research.bureauDesk"
+    static let defaultDesk: BSHBureauDesk = .onyx
+
+    /// The desk Bureau's tokens resolve against. Kept by `BSHDesignStore`.
+    nonisolated(unsafe) static var active: BSHBureauDesk = stored()
+
+    static func stored(in defaults: UserDefaults = .standard) -> BSHBureauDesk {
+        defaults.string(forKey: storageKey).flatMap(BSHBureauDesk.init(rawValue:)) ?? defaultDesk
+    }
+
+    var title: String {
+        switch self {
+        case .onyx: return "Onyx & White"
+        case .green: return "Bottle green"
+        case .maroon: return "Maroon"
+        case .navy: return "Navy"
+        case .aubergine: return "Aubergine"
+        case .tobacco: return "Tobacco"
+        case .graphite: return "Graphite"
+        }
+    }
+
+    /// Whether the desk is dark in the given appearance: every desk is, except Onyx's
+    /// white desk by day. Chrome on a dark desk draws in the dark appearance.
+    func isDark(in scheme: ColorScheme) -> Bool {
+        self != .onyx || scheme == .dark
+    }
+
+    /// The desk's color as a swatch shows it (its daytime desk).
+    var swatch: Color { .bshFixed(tones.frame.light) }
+
+    var tones: BSHBureauTones {
+        // The ivory sheet the colored desks share by day, and its trays and rules.
+        let ivory = BSHRGB(247, 244, 236)
+        let onDesk = (light: BSHRGB(238, 232, 216), dark: BSHRGB(230, 225, 210))
+        let nightInk = BSHRGB(234, 229, 214)
+        func colored(
+            frame: (BSHRGB, BSHRGB), raised: (BSHRGB, BSHRGB), sheet: BSHRGB, ink: BSHRGB,
+            tray: BSHRGB, lifted: BSHRGB, rule: BSHRGB
+        ) -> BSHBureauTones {
+            BSHBureauTones(
+                frame: (frame.0, frame.1),
+                frameRaised: (raised.0, raised.1),
+                onFrame: onDesk,
+                sheet: (ivory, sheet),
+                ink: (ink, nightInk),
+                tray: (BSHRGB(240, 236, 226), tray),
+                raised: (BSHRGB(255, 253, 248), lifted),
+                rule: (BSHRGB(222, 215, 200), rule)
+            )
+        }
+        switch self {
+        case .onyx:
+            return BSHBureauTones(
+                frame: (BSHRGB(255, 255, 255), BSHRGB(5, 5, 5)),
+                frameRaised: (BSHRGB(242, 242, 242), BSHRGB(17, 17, 17)),
+                onFrame: (BSHRGB(24, 24, 24), BSHRGB(232, 229, 222)),
+                sheet: (BSHRGB(241, 240, 236), BSHRGB(24, 24, 24)),
+                ink: (BSHRGB(24, 24, 24), BSHRGB(232, 229, 222)),
+                tray: (BSHRGB(233, 231, 226), BSHRGB(15, 15, 15)),
+                raised: (BSHRGB(251, 251, 249), BSHRGB(33, 33, 33)),
+                rule: (BSHRGB(216, 214, 208), BSHRGB(44, 43, 43))
+            )
+        case .green:
+            return colored(
+                frame: (BSHRGB(15, 31, 26), BSHRGB(7, 11, 9)), raised: (BSHRGB(25, 45, 39), BSHRGB(17, 26, 22)),
+                sheet: BSHRGB(21, 29, 26), ink: BSHRGB(24, 30, 27),
+                tray: BSHRGB(14, 20, 17), lifted: BSHRGB(30, 39, 35), rule: BSHRGB(40, 50, 45)
+            )
+        case .maroon:
+            return colored(
+                frame: (BSHRGB(80, 18, 30), BSHRGB(22, 6, 10)), raised: (BSHRGB(89, 30, 40), BSHRGB(33, 18, 21)),
+                sheet: BSHRGB(35, 19, 24), ink: BSHRGB(33, 24, 25),
+                tray: BSHRGB(29, 13, 17), lifted: BSHRGB(44, 28, 33), rule: BSHRGB(54, 39, 42)
+            )
+        case .navy:
+            return colored(
+                frame: (BSHRGB(16, 28, 52), BSHRGB(6, 9, 16)), raised: (BSHRGB(28, 39, 61), BSHRGB(18, 21, 27)),
+                sheet: BSHRGB(20, 25, 35), ink: BSHRGB(22, 27, 36),
+                tray: BSHRGB(13, 17, 26), lifted: BSHRGB(30, 34, 43), rule: BSHRGB(40, 44, 52)
+            )
+        case .aubergine:
+            return colored(
+                frame: (BSHRGB(48, 22, 46), BSHRGB(12, 7, 12)), raised: (BSHRGB(58, 34, 55), BSHRGB(24, 19, 23)),
+                sheet: BSHRGB(30, 22, 30), ink: BSHRGB(30, 24, 30),
+                tray: BSHRGB(21, 15, 21), lifted: BSHRGB(39, 31, 38), rule: BSHRGB(49, 42, 47)
+            )
+        case .tobacco:
+            return colored(
+                frame: (BSHRGB(54, 34, 18), BSHRGB(11, 8, 5)), raised: (BSHRGB(64, 45, 29), BSHRGB(23, 20, 16)),
+                sheet: BSHRGB(34, 27, 22), ink: BSHRGB(32, 27, 22),
+                tray: BSHRGB(23, 18, 14), lifted: BSHRGB(43, 36, 31), rule: BSHRGB(53, 46, 40)
+            )
+        case .graphite:
+            return colored(
+                frame: (BSHRGB(30, 34, 40), BSHRGB(8, 9, 11)), raised: (BSHRGB(41, 45, 50), BSHRGB(20, 21, 22)),
+                sheet: BSHRGB(25, 28, 34), ink: BSHRGB(25, 28, 32),
+                tray: BSHRGB(17, 19, 23), lifted: BSHRGB(34, 37, 42), rule: BSHRGB(45, 47, 51)
+            )
+        }
+    }
+}
+
+/// One Bureau desk's colors by day and by night, as the website sets them (bureau.css).
+struct BSHBureauTones {
+    typealias Pair = (light: BSHRGB, dark: BSHRGB)
+
+    /// The desk.
+    let frame: Pair
+    /// A control lifted off the desk.
+    let frameRaised: Pair
+    /// What is written on the desk.
+    let onFrame: Pair
+    /// The page, and its ink.
+    let sheet: Pair
+    let ink: Pair
+    /// A card pressed into the page, paper lifted off it, and a rule on it.
+    let tray: Pair
+    let raised: Pair
+    let rule: Pair
+}
+
+/// Holds the chosen design (and Bureau's desk) and persists it. The app rebuilds its
+/// windows on `identity`, so every token re-resolves at once.
 @MainActor
 final class BSHDesignStore: ObservableObject {
     @Published var design: BSHDesign {
@@ -69,17 +207,34 @@ final class BSHDesignStore: ObservableObject {
         }
     }
 
+    @Published var bureauDesk: BSHBureauDesk {
+        didSet {
+            defaults.set(bureauDesk.rawValue, forKey: BSHBureauDesk.storageKey)
+            BSHBureauDesk.active = bureauDesk
+            onApply?(design)
+        }
+    }
+
+    /// What a window rebuilds on: the design and, under Bureau, its desk.
+    var identity: String {
+        design == .bureau ? "\(design.rawValue)-\(bureauDesk.rawValue)" : design.rawValue
+    }
+
     private let defaults: UserDefaults
     private let onApply: (@MainActor (BSHDesign) -> Void)?
 
-    /// - Parameter onApply: runs with the design at launch and after every change, before
-    ///   the windows rebuild (the iPhone and iPad app points UIKit's bars at it here).
+    /// - Parameter onApply: runs with the design at launch and after every change (of the
+    ///   design or the desk), before the windows rebuild (the iPhone and iPad app points
+    ///   UIKit's bars at it here).
     init(defaults: UserDefaults = .standard, onApply: (@MainActor (BSHDesign) -> Void)? = nil) {
         self.defaults = defaults
         self.onApply = onApply
         let stored = BSHDesign.stored(in: defaults)
+        let storedDesk = BSHBureauDesk.stored(in: defaults)
         design = stored
+        bureauDesk = storedDesk
         BSHDesign.active = stored
+        BSHBureauDesk.active = storedDesk
         onApply?(stored)
     }
 }
@@ -122,37 +277,42 @@ extension Color {
     }
 }
 
-/// Every design-dependent color, resolved against `BSHDesign.active`. The values are the
-/// website's (bureau.css, folio.css), so a desk looks the same on every surface.
+/// Every design-dependent color, resolved against `BSHDesign.active` (and, under Bureau,
+/// `BSHBureauDesk.active`). The values are the website's (bureau.css, folio.css), so a
+/// desk looks the same on every surface.
 enum BSHPalette {
     // Bureau's desk and sheet, named apart from the page tokens so chrome on the desk
     // can still reach the page's colors.
-    private static let bureauFrameRGB = (light: BSHRGB(15, 31, 26), dark: BSHRGB(7, 11, 9))
-    private static let bureauSheetRGB = (light: BSHRGB(247, 244, 236), dark: BSHRGB(21, 29, 26))
-    private static let bureauInkRGB = (light: BSHRGB(24, 30, 27), dark: BSHRGB(234, 229, 214))
-    static let bureauFrame = Color.bshTone(bureauFrameRGB.light, bureauFrameRGB.dark)
-    static let bureauFrameRaised = Color.bshTone(BSHRGB(25, 45, 39), BSHRGB(17, 26, 22))
-    static let bureauOnFrame = Color.bshTone(BSHRGB(238, 232, 216), BSHRGB(230, 225, 210))
-    static let bureauSheet = Color.bshTone(bureauSheetRGB.light, bureauSheetRGB.dark)
-    static let bureauInk = Color.bshTone(bureauInkRGB.light, bureauInkRGB.dark)
+    private static var desk: BSHBureauTones { BSHBureauDesk.active.tones }
 
-    // The same, fixed to the page's appearance. Chrome on the desk draws in the dark
+    private static func tone(_ pair: BSHBureauTones.Pair, opacity: Double = 1) -> Color {
+        .bshTone(pair.light, pair.dark, opacity: opacity)
+    }
+
+    private static func fixed(_ pair: BSHBureauTones.Pair, _ page: ColorScheme) -> Color {
+        .bshFixed(page == .dark ? pair.dark : pair.light)
+    }
+
+    static var bureauFrame: Color { tone(desk.frame) }
+    static var bureauFrameRaised: Color { tone(desk.frameRaised) }
+    static var bureauOnFrame: Color { tone(desk.onFrame) }
+    static var bureauSheet: Color { tone(desk.sheet) }
+    static var bureauInk: Color { tone(desk.ink) }
+
+    // The same, fixed to the page's appearance. Chrome on a dark desk draws in the dark
     // appearance in either mode (as the website's desk does), so what it borrows from
     // the page is resolved against the page's own appearance instead.
-    static func bureauFrame(for page: ColorScheme) -> Color {
-        .bshFixed(page == .dark ? bureauFrameRGB.dark : bureauFrameRGB.light)
+    static func bureauFrame(for page: ColorScheme) -> Color { fixed(desk.frame, page) }
+    static func bureauSheet(for page: ColorScheme) -> Color { fixed(desk.sheet, page) }
+    static func bureauInk(for page: ColorScheme) -> Color { fixed(desk.ink, page) }
+
+    /// Whether Bureau's desk is dark in `scheme`: every desk but Onyx's white one by day.
+    static func bureauDeskIsDark(_ scheme: ColorScheme) -> Bool {
+        BSHBureauDesk.active.isDark(in: scheme)
     }
 
-    static func bureauSheet(for page: ColorScheme) -> Color {
-        .bshFixed(page == .dark ? bureauSheetRGB.dark : bureauSheetRGB.light)
-    }
-
-    static func bureauInk(for page: ColorScheme) -> Color {
-        .bshFixed(page == .dark ? bureauInkRGB.dark : bureauInkRGB.light)
-    }
     static let bureauBrass = Color.bshFixed(BSHRGB(208, 172, 100))
     static let bureauBrassDeep = Color.bshFixed(BSHRGB(176, 138, 66))
-    static let bureauSwitchOn = Color.bshTone(BSHRGB(26, 62, 51), BSHRGB(158, 120, 52))
 
     // Folio's ink, which selection is set in, and the paper that shows through it.
     static let folioInk = Color.bshTone(BSHRGB(26, 25, 22), BSHRGB(238, 235, 227))
@@ -175,7 +335,7 @@ enum BSHPalette {
     /// A card: Bureau's tray pressed into the sheet, Folio's fresher sheet.
     static var card: Color {
         switch BSHDesign.active {
-        case .bureau: return .bshTone(BSHRGB(240, 236, 226), BSHRGB(14, 20, 17))
+        case .bureau: return tone(desk.tray)
         case .folio: return .bshTone(BSHRGB(251, 250, 247), BSHRGB(30, 29, 26))
         case .glass:
             #if canImport(UIKit)
@@ -189,7 +349,7 @@ enum BSHPalette {
     /// Paper lifted off the page: menus, fields, a chosen chip.
     static var raised: Color {
         switch BSHDesign.active {
-        case .bureau: return .bshTone(BSHRGB(255, 253, 248), BSHRGB(30, 39, 35))
+        case .bureau: return tone(desk.raised)
         case .folio: return .bshTone(BSHRGB(253, 252, 250), BSHRGB(40, 39, 35))
         case .glass:
             #if canImport(UIKit)
@@ -203,7 +363,7 @@ enum BSHPalette {
     /// A small tile inside a card.
     static var tile: Color {
         switch BSHDesign.active {
-        case .bureau: return .bshTone(BSHRGB(24, 30, 27), BSHRGB(234, 229, 214), opacity: 0.05)
+        case .bureau: return tone(desk.ink, opacity: 0.05)
         case .folio: return .bshTone(BSHRGB(26, 25, 22), BSHRGB(238, 235, 227), opacity: 0.045)
         case .glass:
             #if canImport(UIKit)
@@ -217,7 +377,7 @@ enum BSHPalette {
     /// A rule between things.
     static var hairline: Color {
         switch BSHDesign.active {
-        case .bureau: return .bshTone(BSHRGB(222, 215, 200), BSHRGB(40, 50, 45))
+        case .bureau: return tone(desk.rule)
         case .folio: return .bshTone(BSHRGB(224, 220, 212), BSHRGB(54, 52, 47))
         case .glass:
             #if canImport(UIKit)
@@ -295,7 +455,13 @@ enum BSHType {
 
     /// A card or section heading.
     static func heading(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        switch BSHDesign.active {
+        heading(size, weight: weight, in: BSHDesign.active)
+    }
+
+    /// A heading in a given design's face, whichever design is active (the design
+    /// choosers set each design's name in its own type).
+    static func heading(_ size: CGFloat, weight: Font.Weight = .semibold, in design: BSHDesign) -> Font {
+        switch design {
         case .bureau: return .custom(bureauSerif, size: (size * 1.3).rounded())
         case .folio: return .custom(folioSerif, size: (size * 1.1).rounded()).weight(.semibold)
         case .glass: return .system(size: size, weight: weight)
@@ -360,6 +526,9 @@ struct BSHJoinedTabShape: Shape {
     /// The edge the tab is joined to the page along.
     var join: Edge
     var radius: CGFloat = 12
+    /// False draws only the free edges, open along the join, for a rim that doesn't
+    /// cross between the tab and the page (on Onyx's white desk by day).
+    var includesJoin: Bool = true
 
     func path(in rect: CGRect) -> Path {
         let r = min(radius, rect.width / 2, rect.height / 2)
@@ -368,8 +537,12 @@ struct BSHJoinedTabShape: Shape {
         switch join {
         case .top:
             // Page above, tab hanging below it: flares at the top corners.
-            p.move(to: CGPoint(x: rect.minX - r, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.maxX + r, y: rect.minY))
+            if includesJoin {
+                p.move(to: CGPoint(x: rect.minX - r, y: rect.minY))
+                p.addLine(to: CGPoint(x: rect.maxX + r, y: rect.minY))
+            } else {
+                p.move(to: CGPoint(x: rect.maxX + r, y: rect.minY))
+            }
             p.addCurve(
                 to: CGPoint(x: rect.maxX, y: rect.minY + r),
                 control1: CGPoint(x: rect.maxX + r - k * r, y: rect.minY),
@@ -422,8 +595,12 @@ struct BSHJoinedTabShape: Shape {
         case .trailing:
             // Page to the right, tab reaching into it from the left: flares at the
             // trailing corners.
-            p.move(to: CGPoint(x: rect.maxX, y: rect.minY - r))
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY + r))
+            if includesJoin {
+                p.move(to: CGPoint(x: rect.maxX, y: rect.minY - r))
+                p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY + r))
+            } else {
+                p.move(to: CGPoint(x: rect.maxX, y: rect.maxY + r))
+            }
             p.addCurve(
                 to: CGPoint(x: rect.maxX - r, y: rect.maxY),
                 control1: CGPoint(x: rect.maxX, y: rect.maxY + r - k * r),
@@ -474,7 +651,9 @@ struct BSHJoinedTabShape: Shape {
                 control2: CGPoint(x: rect.minX, y: rect.maxY + r - k * r)
             )
         }
-        p.closeSubpath()
+        if includesJoin {
+            p.closeSubpath()
+        }
         return p
     }
 }

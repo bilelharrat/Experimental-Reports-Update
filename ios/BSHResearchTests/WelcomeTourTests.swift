@@ -45,11 +45,22 @@ final class WelcomeTourTests: XCTestCase {
         let phone = WelcomeTourCatalog.pages(isPad: false)
         let pad = WelcomeTourCatalog.pages(isPad: true)
         XCTAssertEqual(phone.first?.id, "welcome")
-        XCTAssertEqual(phone.last?.id, "widgets")
+        XCTAssertEqual(phone.last?.id, "look")
         XCTAssertEqual(pad.count, phone.count + 1)
         XCTAssertEqual(pad[1].id, "ipad")
         XCTAssertFalse(phone.contains { $0.id == "ipad" })
         XCTAssertTrue(phone.contains { $0.usesWarrenPortrait })
+    }
+
+    func testTheTourEndsByOfferingTheDesigns() {
+        for isPad in [false, true] {
+            let last = WelcomeTourCatalog.pages(isPad: isPad).last
+            XCTAssertEqual(last?.id, "look")
+            XCTAssertEqual(last?.choosesLook, true)
+            XCTAssertNil(last?.tab, "choosing a look leaves the app where it is")
+            XCTAssertNil(last?.anchor)
+        }
+        XCTAssertGreaterThanOrEqual(WelcomeTourStore.currentVersion, 3, "people who saw the old tour see the designs once")
     }
 
     func testEveryStepAfterTheWelcomeOpensTheScreenItExplains() {

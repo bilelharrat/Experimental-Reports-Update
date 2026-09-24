@@ -20,41 +20,84 @@ final class BSHDesignTests: XCTestCase {
         return [r, g, b].map { Int(($0 * 255).rounded()) }
     }
 
-    func testBureauIsTheDefaultAndTheKeyIsTheWebsites() {
-        XCTAssertEqual(BSHDesign.defaultDesign, .bureau)
+    func testSummitGlassIsTheDefaultAndOnyxIsBureausDesk() {
+        XCTAssertEqual(BSHDesign.defaultDesign, .glass)
         XCTAssertEqual(BSHDesign.storageKey, "bsh.research.design")
-        XCTAssertEqual(BSHDesign.stored(in: freshDefaults()), .bureau)
+        XCTAssertEqual(BSHDesign.stored(in: freshDefaults()), .glass)
+        XCTAssertEqual(BSHBureauDesk.defaultDesk, .onyx)
+        XCTAssertEqual(BSHBureauDesk.storageKey, "bsh.research.bureauDesk")
+        XCTAssertEqual(BSHBureauDesk.stored(in: freshDefaults()), .onyx)
     }
 
-    func testAnUnknownStoredDesignFallsBackToBureau() {
+    func testUnknownStoredChoicesFallBackToTheDefaults() {
         let defaults = freshDefaults()
         defaults.set("reactor", forKey: BSHDesign.storageKey)
-        XCTAssertEqual(BSHDesign.stored(in: defaults), .bureau)
+        defaults.set("chartreuse", forKey: BSHBureauDesk.storageKey)
+        XCTAssertEqual(BSHDesign.stored(in: defaults), .glass)
+        XCTAssertEqual(BSHBureauDesk.stored(in: defaults), .onyx)
     }
 
     func testTheStoreRemembersTheChoiceAndAppliesItBeforeTheRebuild() {
-        let saved = BSHDesign.active
-        defer { BSHDesign.active = saved }
+        let saved = (BSHDesign.active, BSHBureauDesk.active)
+        defer { (BSHDesign.active, BSHBureauDesk.active) = saved }
         let defaults = freshDefaults()
         var applied: [BSHDesign] = []
 
         let store = BSHDesignStore(defaults: defaults, onApply: { applied.append($0) })
-        XCTAssertEqual(store.design, .bureau)
-        store.design = .folio
+        XCTAssertEqual(store.design, .glass)
+        XCTAssertEqual(store.bureauDesk, .onyx)
+        XCTAssertEqual(store.identity, "glass")
 
-        XCTAssertEqual(defaults.string(forKey: BSHDesign.storageKey), "folio")
-        XCTAssertEqual(BSHDesign.active, .folio)
-        XCTAssertEqual(applied, [.bureau, .folio], "applied at launch, then on the change")
-        XCTAssertEqual(BSHDesignStore(defaults: defaults).design, .folio, "the next launch reads it back")
+        store.design = .bureau
+        store.bureauDesk = .maroon
+
+        XCTAssertEqual(defaults.string(forKey: BSHDesign.storageKey), "bureau")
+        XCTAssertEqual(defaults.string(forKey: BSHBureauDesk.storageKey), "maroon")
+        XCTAssertEqual(BSHDesign.active, .bureau)
+        XCTAssertEqual(BSHBureauDesk.active, .maroon)
+        XCTAssertEqual(store.identity, "bureau-maroon", "a desk change rebuilds the windows too")
+        XCTAssertEqual(applied, [.glass, .bureau, .bureau], "applied at launch, then on each change")
+
+        let relaunched = BSHDesignStore(defaults: defaults)
+        XCTAssertEqual(relaunched.design, .bureau, "the next launch reads it back")
+        XCTAssertEqual(relaunched.bureauDesk, .maroon)
+    }
+
+    func testOnlyOnyxHasALightDeskAndOnlyByDay() {
+        XCTAssertFalse(BSHBureauDesk.onyx.isDark(in: .light))
+        XCTAssertTrue(BSHBureauDesk.onyx.isDark(in: .dark))
+        for desk in BSHBureauDesk.allCases where desk != .onyx {
+            XCTAssertTrue(desk.isDark(in: .light), "\(desk) by day")
+            XCTAssertTrue(desk.isDark(in: .dark), "\(desk) by night")
+        }
+    }
+
+    func testBureausTokensFollowTheDesk() {
+        let saved = (BSHDesign.active, BSHBureauDesk.active)
+        defer { (BSHDesign.active, BSHBureauDesk.active) = saved }
+        BSHDesign.active = .bureau
+
+        BSHBureauDesk.active = .onyx
+        XCTAssertEqual(rgb(BSHPalette.bureauFrame, .light), [255, 255, 255], "a white desk by day")
+        XCTAssertEqual(rgb(BSHPalette.bureauFrame, .dark), [5, 5, 5], "a black one by night")
+        XCTAssertEqual(rgb(.dsCanvas, .light), [241, 240, 236], "Onyx's stone sheet")
+        XCTAssertEqual(rgb(BSHPalette.bureauOnFrame, .light), [24, 24, 24], "written in ink on the white desk")
+
+        BSHBureauDesk.active = .maroon
+        XCTAssertEqual(rgb(BSHPalette.bureauFrame, .light), [80, 18, 30])
+        XCTAssertEqual(rgb(.dsCanvas, .light), [247, 244, 236], "the colored desks share the ivory sheet")
+        XCTAssertEqual(rgb(.dsCanvas, .dark), [35, 19, 24])
+        XCTAssertEqual(rgb(.dsAccent, .light), [148, 112, 47], "brass on every desk")
     }
 
     func testTokensFollowTheActiveDesign() {
-        let saved = BSHDesign.active
-        defer { BSHDesign.active = saved }
+        let saved = (BSHDesign.active, BSHBureauDesk.active)
+        defer { (BSHDesign.active, BSHBureauDesk.active) = saved }
 
         BSHDesign.active = .bureau
-        XCTAssertEqual(rgb(.dsCanvas, .light), [247, 244, 236], "Bureau's ivory sheet")
-        XCTAssertEqual(rgb(.dsCanvas, .dark), [21, 29, 26], "Bureau's green slate at night")
+        BSHBureauDesk.active = .green
+        XCTAssertEqual(rgb(.dsCanvas, .light), [247, 244, 236], "bottle green's ivory sheet")
+        XCTAssertEqual(rgb(.dsCanvas, .dark), [21, 29, 26], "its green slate at night")
         XCTAssertEqual(rgb(.dsAccent, .light), [148, 112, 47], "brass")
         XCTAssertEqual(MacDS.cardRadius, 14)
 
@@ -94,7 +137,8 @@ final class BSHDesignTests: XCTestCase {
     }
 
     func testTheDesignSettingIsLocalized() {
-        let keys = ["settings.design", "settings.design_help", "settings.design_bureau", "settings.design_folio", "settings.design_glass"]
+        var keys = ["settings.design", "settings.design_help", "settings.design_bureau", "settings.design_folio", "settings.design_glass", "settings.bureau_desk"]
+        keys += BSHBureauDesk.allCases.map { "settings.bureau_desk_\($0.rawValue)" }
         for key in keys {
             for lang in AppLanguage.allCases {
                 let value = L10n.string(key, lang: lang)

@@ -264,7 +264,8 @@ final class MacAppStore: ObservableObject {
 
     // MARK: - Welcome tour (first launch)
     /// v2: the tour walks the terminal instead of paging through cards.
-    static let welcomeTourVersion = 2
+    /// v3: the tour ends by offering the designs (Summit Glass, Bureau, Folio).
+    static let welcomeTourVersion = 3
     static let welcomeTourSeenKey = "bsh.mac.welcomeTourVersionSeen"
     @Published var showWelcomeTour: Bool = false
     /// Which step the walkthrough is on. The selected desk follows it, because

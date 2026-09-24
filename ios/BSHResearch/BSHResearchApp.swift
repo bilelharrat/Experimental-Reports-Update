@@ -11,19 +11,20 @@ struct BSHResearchApp: App {
     @StateObject private var router = DeepLinkRouter()
     @StateObject private var dataCache = AppDataCache.shared
     @StateObject private var welcomeTour = WelcomeTourStore()
-    /// Bureau, Folio or Summit Glass. Every window rebuilds when it changes, so the
-    /// design's tokens re-resolve everywhere at once; UIKit's bars are pointed at the
-    /// new design first.
+    /// Summit Glass, Bureau (and its desk) or Folio. Every window rebuilds when it
+    /// changes, so the design's tokens re-resolve everywhere at once; UIKit's bars are
+    /// pointed at the new design first.
     @StateObject private var design = BSHDesignStore(onApply: { BSHUIKitChrome.apply($0) })
+    @StateObject private var settings = SettingsPresenter()
 
     init() {
         BSHType.registerBundledFonts()
     }
 
     /// What a window's content is rebuilt on: the language (fresh `language.t(...)`
-    /// strings in TabView chrome) and the design (fresh tokens).
+    /// strings in TabView chrome) and the design with Bureau's desk (fresh tokens).
     private var rootIdentity: String {
-        "\(language.language.rawValue)-\(design.design.rawValue)"
+        "\(language.language.rawValue)-\(design.identity)"
     }
 
     var body: some Scene {
@@ -39,6 +40,7 @@ struct BSHResearchApp: App {
                 .environmentObject(welcomeTour)
                 .environmentObject(ResearchDeskStore.shared)
                 .environmentObject(design)
+                .environmentObject(settings)
                 .bshDesignRoot()
                 .task {
                     async let cachePreload: Void = dataCache.preloadAll(lang: language.language)
@@ -62,6 +64,26 @@ struct BSHResearchApp: App {
                         router.pending = link
                     }
                 }
+                // Settings hangs above the rebuilt content, so choosing a language, a
+                // design or Bureau's desk rebuilds it in place and keeps it open.
+                .sheet(isPresented: $settings.isPresented) {
+                    SettingsView()
+                        .environmentObject(session)
+                        .environmentObject(language)
+                        .environmentObject(appearance)
+                        .environmentObject(desk)
+                        .environmentObject(askPersona)
+                        .environmentObject(router)
+                        .environmentObject(dataCache)
+                        .environmentObject(welcomeTour)
+                        .environmentObject(ResearchDeskStore.shared)
+                        .environmentObject(design)
+                        .environmentObject(settings)
+                        .bshDesignRoot()
+                        .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
+                        .id(rootIdentity)
+                        .bshSheetChrome()
+                }
         }
 
         WindowGroup(id: "reports") {
@@ -75,6 +97,7 @@ struct BSHResearchApp: App {
                 .environmentObject(dataCache)
                 .environmentObject(welcomeTour)
                 .environmentObject(design)
+                .environmentObject(settings)
                 .bshDesignRoot()
                 .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
                 .id(rootIdentity)
@@ -96,6 +119,7 @@ struct BSHResearchApp: App {
                 .environmentObject(dataCache)
                 .environmentObject(welcomeTour)
                 .environmentObject(design)
+                .environmentObject(settings)
                 .bshDesignRoot()
                 .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
                 .id(rootIdentity)

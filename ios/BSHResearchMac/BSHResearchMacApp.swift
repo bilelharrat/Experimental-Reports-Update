@@ -46,8 +46,8 @@ struct BSHResearchMacApp: App {
     @StateObject private var store = MacAppStore()
     /// Where the welcome tour's spotlight targets are, in window coordinates.
     @StateObject private var tourAnchors = MacTourAnchorStore()
-    /// Bureau, Folio or Summit Glass. Every window rebuilds when it changes, so the
-    /// design's tokens re-resolve everywhere at once.
+    /// Summit Glass, Bureau (and its desk) or Folio. Every window rebuilds when it
+    /// changes, so the design's tokens re-resolve everywhere at once.
     @StateObject private var design = BSHDesignStore()
 
     init() {
@@ -61,7 +61,7 @@ struct BSHResearchMacApp: App {
                 .environmentObject(tourAnchors)
                 .environmentObject(design)
                 .bshDesignRoot()
-                .id(design.design)
+                .id(design.identity)
                 .frame(minWidth: 1050, minHeight: 680)
         }
         .windowToolbarStyle(.unified)
@@ -91,7 +91,7 @@ struct BSHResearchMacApp: App {
                     .environmentObject(tourAnchors)
                     .environmentObject(design)
                     .bshDesignRoot()
-                    .id(design.design)
+                    .id(design.identity)
             }
         }
         .defaultSize(width: 980, height: 840)
@@ -104,7 +104,7 @@ struct BSHResearchMacApp: App {
                     .environmentObject(tourAnchors)
                     .environmentObject(design)
                     .bshDesignRoot()
-                    .id(design.design)
+                    .id(design.identity)
             }
         }
         .defaultSize(width: 1400, height: 880)
@@ -115,7 +115,7 @@ struct BSHResearchMacApp: App {
                 .environmentObject(tourAnchors)
                 .environmentObject(design)
                 .bshDesignRoot()
-                .id(design.design)
+                .id(design.identity)
         }
     }
 }

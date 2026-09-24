@@ -34,9 +34,16 @@ struct WelcomeTourPage: Identifiable, Equatable {
     var anchor: String? = nil
     var isHero: Bool { id == "welcome" }
     var usesWarrenPortrait: Bool { id == "warren" }
+    /// The step that offers the designs.
+    var choosesLook: Bool { id == "look" }
 
     var localizedKeys: [String] {
-        [titleKey, bodyKey] + tips.map(\.textKey)
+        var keys = [titleKey, bodyKey] + tips.map(\.textKey)
+        if choosesLook {
+            keys += BSHDesign.allCases.map { "welcome.look_\($0.rawValue)" }
+            keys += ["settings.bureau_desk"] + BSHBureauDesk.allCases.map { "settings.bureau_desk_\($0.rawValue)" }
+        }
+        return keys
     }
 }
 
@@ -133,6 +140,14 @@ enum WelcomeTourCatalog {
                     WelcomeTourTip(textKey: "welcome.widgets_tip_watch", symbol: "applewatch.watchface"),
                 ]
             ),
+            // Last, once the app has been seen: Summit Glass, Bureau or Folio, applied as
+            // it is chosen, with Bureau's desk colors when Bureau is.
+            WelcomeTourPage(
+                id: "look",
+                symbol: "paintbrush.pointed",
+                titleKey: "welcome.look_title",
+                bodyKey: "welcome.look_body"
+            ),
         ]
         return pages
     }
@@ -146,7 +161,8 @@ enum WelcomeTourCatalog {
 @MainActor
 final class WelcomeTourStore: ObservableObject {
     /// v2: the tour walks the app instead of paging through cards.
-    static let currentVersion = 2
+    /// v3: it ends by offering the designs (Summit Glass, Bureau, Folio).
+    static let currentVersion = 3
     static let seenVersionKey = "bsh.welcome.versionSeen"
 
     @Published var isPresented = false

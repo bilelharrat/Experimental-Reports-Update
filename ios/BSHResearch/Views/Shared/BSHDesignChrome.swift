@@ -8,10 +8,11 @@
 //  - Summit Glass: the floating glass travel bar and the glass rail (RootView), untouched.
 //  - Folio: paper throughout. The desk bar is ruled off the page and the desk you are on
 //    is set in solid ink; on the iPad rail the chosen row is a bookmark.
-//  - Bureau: the page lies on a green desk. On iPhone and portrait iPad the page's bottom
-//    edge rests on the desk and the desk you are on is a tab cut from the page; on the
-//    landscape iPad rail the desks are written on the green in ivory and the chosen one
-//    is a tab of the sheet reaching into the rail.
+//  - Bureau: the page lies on a desk (Onyx's white by day and black by night, or the
+//    chosen color). On iPhone and portrait iPad the page's bottom edge rests on the desk
+//    and the desk you are on is a tab cut from the page; on the landscape iPad rail the
+//    desks are written on the desk and the chosen one is a tab of the sheet reaching
+//    into the rail.
 //
 
 import SwiftUI
@@ -182,12 +183,13 @@ struct BSHDeskTabIcon: View {
     }
 }
 
-/// Bureau: the page (the desks above) rests on the green desk; the desks are written on
-/// the desk in ivory, and the one you are on is a tab of the page itself, hanging from
-/// its bottom edge and flaring into it.
+/// Bureau: the page (the desks above) rests on the desk; the desks are written on the
+/// desk, and the one you are on is a tab of the page itself, hanging from its bottom
+/// edge and flaring into it.
 struct BureauDeskBar: View {
     @Binding var selection: AppTab
     @EnvironmentObject private var language: LanguageStore
+    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var tabSpace
 
     /// The page's bottom corners; the bar keeps its tabs clear of them.
@@ -230,8 +232,15 @@ struct BureauDeskBar: View {
             .background(alignment: .top) {
                 if isSelected {
                     // Reaches a point up into the page so no seam shows where they meet.
+                    // On Onyx's white desk by day, a rim traces its free edges.
                     BSHJoinedTabShape(join: .top, radius: Self.flare)
                         .fill(BSHPalette.bureauSheet)
+                        .overlay {
+                            if !BSHPalette.bureauDeskIsDark(colorScheme) {
+                                BSHJoinedTabShape(join: .top, radius: Self.flare, includesJoin: false)
+                                    .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                            }
+                        }
                         .padding(.top, -1)
                         .matchedGeometryEffect(id: "bureauDeskTab", in: tabSpace)
                 }
@@ -320,24 +329,44 @@ struct BSHPageShape: Shape {
 
 extension View {
     /// Bureau's page on the desk: the desk's content clipped to the page and its shadow
-    /// cast on the green. A page that runs off the top of the screen carries its paper
-    /// up under the status bar, so the clock is on paper in either appearance.
+    /// cast on the desk (on Onyx's white desk by day, a rim and a lighter shadow). A page
+    /// that runs off the top of the screen carries its paper up under the status bar, so
+    /// the clock is on paper in either appearance.
     func bureauPage(_ shape: BSHPageShape = BSHPageShape()) -> some View {
-        self
+        modifier(BSHBureauPage(shape: shape))
+    }
+}
+
+private struct BSHBureauPage: ViewModifier {
+    var shape: BSHPageShape
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let lightDesk = !BSHPalette.bureauDeskIsDark(colorScheme)
+        let underStatusBar: Edge.Set = shape.topRadius == 0 ? .top : []
+        content
             .clipShape(shape)
             .background {
                 shape
                     .fill(BSHPalette.bureauSheet)
-                    .shadow(color: .black.opacity(0.34), radius: 14, y: 6)
-                    .ignoresSafeArea(edges: shape.topRadius == 0 ? .top : [])
+                    .shadow(color: .black.opacity(lightDesk ? 0.1 : 0.34), radius: 14, y: 6)
+                    .ignoresSafeArea(edges: underStatusBar)
+            }
+            .overlay {
+                if lightDesk {
+                    shape
+                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                        .ignoresSafeArea(edges: underStatusBar)
+                        .allowsHitTesting(false)
+                }
             }
     }
 }
 
 // MARK: - The landscape iPad rail
 
-/// Colors of the rail's writing in each design: ivory on Bureau's desk, ink on Folio's
-/// paper, the system's labels under Summit Glass.
+/// Colors of the rail's writing in each design: the desk's own on Bureau's desk, ink on
+/// Folio's paper, the system's labels under Summit Glass.
 enum BSHRailInk {
     static var title: Color {
         switch BSHDesign.active {
@@ -406,12 +435,19 @@ struct BSHRailSelection: View {
     var cornerRadius: CGFloat = 10
     /// How far the rail's edge (and so the page) lies past the row's trailing edge.
     var reachToPage: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         switch BSHDesign.active {
         case .bureau:
             BSHJoinedTabShape(join: .trailing, radius: cornerRadius)
                 .fill(BSHPalette.bureauSheet)
+                .overlay {
+                    if !BSHPalette.bureauDeskIsDark(colorScheme) {
+                        BSHJoinedTabShape(join: .trailing, radius: cornerRadius, includesJoin: false)
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    }
+                }
                 .padding(.trailing, -(reachToPage + 1))
         case .folio:
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -428,10 +464,10 @@ struct BSHRailSelection: View {
     }
 }
 
-/// The desk beside the rail. Bureau: the page laid on the green with a gutter above,
-/// to its right and below, and straight along the rail so the chosen row's tab joins it.
-/// The status bar is hidden there (a clock on the green would be dark on dark), as a
-/// full-screen desk. Folio and Summit: the detail as it is.
+/// The desk beside the rail. Bureau: the page laid on the desk with a gutter above, to
+/// its right and below, and straight along the rail so the chosen row's tab joins it.
+/// On a dark desk the status bar is hidden (the clock would be dark on dark in light
+/// mode), as a full-screen desk. Folio and Summit: the detail as it is.
 struct BSHPadDeskPage: ViewModifier {
     static let gutter: CGFloat = 8
 

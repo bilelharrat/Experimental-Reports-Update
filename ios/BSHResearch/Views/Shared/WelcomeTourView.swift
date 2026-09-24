@@ -54,6 +54,7 @@ struct WelcomeTourOverlay: View {
 
     @EnvironmentObject private var tour: WelcomeTourStore
     @EnvironmentObject private var language: LanguageStore
+    @EnvironmentObject private var design: BSHDesignStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -130,7 +131,8 @@ struct WelcomeTourOverlay: View {
 
     private var calloutWidth: CGFloat {
         let maximum = container.width - 32
-        return isHero ? min(420, maximum) : min(360, maximum)
+        if isHero { return min(420, maximum) }
+        return min(page?.choosesLook == true ? 400 : 360, maximum)
     }
 
     /// Beside the control when there is one, centred when there isn't.
@@ -227,6 +229,10 @@ struct WelcomeTourOverlay: View {
                 Spacer(minLength: 0)
             }
 
+            if page.choosesLook {
+                lookChooser
+            }
+
             if !page.tips.isEmpty {
                 VStack(spacing: 6) {
                     ForEach(page.tips) { tip in
@@ -248,6 +254,33 @@ struct WelcomeTourOverlay: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// The designs, applied as they are chosen: the app rebuilds behind the tour, which
+    /// keeps its place. Bureau adds its desk colors.
+    private var lookChooser: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BSHDesignCards(
+                selection: $design.design,
+                title: { language.t("settings.design_\($0.rawValue)") },
+                caption: { language.t("welcome.look_\($0.rawValue)") }
+            )
+            .accessibilityIdentifier("welcome-tour-designs")
+
+            if design.design == .bureau {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(language.t("settings.bureau_desk"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    BSHBureauDeskPicker(
+                        selection: $design.bureauDesk,
+                        title: { language.t("settings.bureau_desk_\($0.rawValue)") },
+                        size: 24
+                    )
+                }
+                .accessibilityIdentifier("welcome-tour-desks")
             }
         }
     }

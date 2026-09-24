@@ -46,6 +46,7 @@
 		314E804751210231F051E14B /* ReportsWindowRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEBB54B7582B5126384F1F9 /* ReportsWindowRootView.swift */; };
 		3175C589A20A0A5CA31E30D3 /* Stores.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13C0FA2A87F5017ED39093F /* Stores.swift */; };
 		330A3162982A5CDFB13280B4 /* BSHBrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83F19825BAD21A0303D2408D /* BSHBrandMark.swift */; };
+		33B56CB15602D86C41AE048D /* BSHDesignPickers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526825D11E117C6923A26F60 /* BSHDesignPickers.swift */; };
 		3560760398C9BBC98152979D /* ResearchProfileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECB2ADDEA72936DAA82777D /* ResearchProfileViews.swift */; };
 		374E5076802D06782D3C0A0D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */; };
 		3881099AF6EDAA67CF2D349D /* MacQuoteChartPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E1A869762231E5F9EE1ADC /* MacQuoteChartPanel.swift */; };
@@ -121,6 +122,7 @@
 		A7ABC17EED833045B916ADE6 /* MacDesignChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A986EB64F77F56106F60618 /* MacDesignChrome.swift */; };
 		A9473794C7EFB28FD2053969 /* CompactPageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */; };
 		A97BAFF5B406F244AA148296 /* AdaptiveLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C41F62229F1D97D8F6C2D8 /* AdaptiveLayout.swift */; };
+		A9A16A4F1F0532B01D51D972 /* BSHDesignPickers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526825D11E117C6923A26F60 /* BSHDesignPickers.swift */; };
 		AB61C94F72046809A0284472 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344177AD4528799F2FC1EECD /* TokenStore.swift */; };
 		AC622C9EE8F8ADFA318EF327 /* ResearchDecisionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E9B1FF4BDE40AFF2C086D76 /* ResearchDecisionViews.swift */; };
 		AF50A47647D70FF02CA741F7 /* ResearchDeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7D2EF4DFDF255D269F0CEA /* ResearchDeskModels.swift */; };
@@ -323,6 +325,7 @@
 		4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoPaperDocumentView.swift; sourceTree = "<group>"; };
 		4F16706A0C7B13B59C7A0BD0 /* MacWelcomeTourView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWelcomeTourView.swift; sourceTree = "<group>"; };
 		50F8EB6E62001F20BDA552D1 /* MacVCRatiosBlotterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVCRatiosBlotterView.swift; sourceTree = "<group>"; };
+		526825D11E117C6923A26F60 /* BSHDesignPickers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHDesignPickers.swift; sourceTree = "<group>"; };
 		54E6B7ABCA3736771C303BE8 /* MacReportCustomizerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacReportCustomizerSheet.swift; sourceTree = "<group>"; };
 		55EB68FEA12743F730B3EF27 /* MacThesisEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacThesisEditor.swift; sourceTree = "<group>"; };
 		566F2612B7C7E580762A1FC1 /* BSHResearch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BSHResearch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -583,6 +586,7 @@
 			isa = PBXGroup;
 			children = (
 				2A8F7F5086B07011A264F1C5 /* BSHDesign.swift */,
+				526825D11E117C6923A26F60 /* BSHDesignPickers.swift */,
 				2DE84E1F5B0CDBD450FFC421 /* Fonts */,
 			);
 			path = BSHShared;
@@ -1147,6 +1151,7 @@
 				A22CD255BD3BB3AA2E7850B1 /* BSHBrandMark.swift in Sources */,
 				F09831FD108CD8F69FFF869C /* BSHDesign.swift in Sources */,
 				C3241FEA2D1DB36F076E95C1 /* BSHDesignChrome.swift in Sources */,
+				33B56CB15602D86C41AE048D /* BSHDesignPickers.swift in Sources */,
 				249BE13F0E1CBA9BBECCBA77 /* BSHResearchApp.swift in Sources */,
 				260C8F887C0F2B163CFE255B /* BSHResearchSeedData.swift in Sources */,
 				D89AF766760E3740856D8358 /* ChangeBadge.swift in Sources */,
@@ -1243,6 +1248,7 @@
 			files = (
 				330A3162982A5CDFB13280B4 /* BSHBrandMark.swift in Sources */,
 				9BAF9F6C88AB8731F691C2F3 /* BSHDesign.swift in Sources */,
+				A9A16A4F1F0532B01D51D972 /* BSHDesignPickers.swift in Sources */,
 				0245BFF8D3F375A609BCF440 /* BSHResearchMacApp.swift in Sources */,
 				E578142F1FD3E410FC5EAB42 /* MacAPIClient.swift in Sources */,
 				90B0EBA109716F95B65C2D9C /* MacAppStore.swift in Sources */,

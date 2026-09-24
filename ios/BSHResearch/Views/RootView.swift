@@ -27,7 +27,7 @@ struct MainTabView: View {
         }
         return .home
     }()
-    @State private var showSettings = false
+    @EnvironmentObject private var settings: SettingsPresenter
     /// Measured window size — never wrap TabView in GeometryReader (that breaks
     /// the system tab bar safe-area / placement on iPad).
     @State private var windowSize: CGSize = .zero
@@ -50,10 +50,6 @@ struct MainTabView: View {
                     .preference(key: RootWindowSizeKey.self, value: geo.size)
             }
             .ignoresSafeArea()
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .bshSheetChrome()
         }
         // The tour rides over the app instead of covering it: each step moves
         // the real tab and rings the real control.
@@ -96,7 +92,7 @@ struct MainTabView: View {
                 selection = .reports
             case .settings:
                 router.pending = nil
-                showSettings = true
+                settings.isPresented = true
             default:
                 // Home owns the record destinations; make sure it's frontmost.
                 selection = .home
@@ -363,6 +359,7 @@ private struct RootWindowSizeKey: PreferenceKey {
 /// Landscape iPad root: custom expand/collapse rail (never NavigationSplitView hide-all).
 private struct MainSidebarChrome: View {
     @EnvironmentObject private var language: LanguageStore
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: AppTab
     @AppStorage("bsh.rootSidebarExpanded") private var isExpanded = true
 
@@ -392,7 +389,8 @@ private struct MainSidebarChrome: View {
                 .modifier(BSHPadDeskPage())
         }
         .background(Self.ground)
-        .statusBarHidden(BSHDesign.active == .bureau)
+        // Over a dark desk the clock can't be read in light mode; Onyx's white desk keeps it.
+        .statusBarHidden(BSHDesign.active == .bureau && BSHPalette.bureauDeskIsDark(colorScheme))
     }
 
     private static var ground: Color {
@@ -482,7 +480,7 @@ private struct RootSidebarRail: View {
     @EnvironmentObject private var language: LanguageStore
     @Binding var selection: AppTab
     @Binding var isExpanded: Bool
-    @State private var showSettings = false
+    @EnvironmentObject private var settings: SettingsPresenter
     @State private var hoveredTab: AppTab? = nil
     @State private var isSettingsHovered = false
     @State private var isHeaderToggleHovered = false
@@ -516,10 +514,6 @@ private struct RootSidebarRail: View {
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background { BSHRailGround() }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .bshSheetChrome()
-        }
     }
 
     /// How far the rail's edge (where Bureau's page begins) lies past a row's edge.
@@ -535,7 +529,7 @@ private struct RootSidebarRail: View {
 
     private var settingsButton: some View {
         Button {
-            showSettings = true
+            settings.isPresented = true
         } label: {
             HStack(spacing: isExpanded ? 10 : 0) {
                 Image(systemName: "gearshape")

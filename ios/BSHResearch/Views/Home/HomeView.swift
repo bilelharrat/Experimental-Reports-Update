@@ -321,7 +321,7 @@ struct HomeView: View {
     @EnvironmentObject private var desk: DeskStore
     @StateObject private var model = HomeDeskViewModel()
     @State private var path = NavigationPath()
-    @State private var showSettings = false
+    @EnvironmentObject private var settings: SettingsPresenter
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -345,17 +345,13 @@ struct HomeView: View {
                 searchPrompt: language.t("search.placeholder")
             ) {
                 Button {
-                    showSettings = true
+                    settings.isPresented = true
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.title3)
                         .symbolRenderingMode(.hierarchical)
                 }
                 .accessibilityLabel(language.t("tab.settings"))
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-                    .bshSheetChrome()
             }
             .onChange(of: model.query) { _, value in model.onQueryChanged(value) }
             .navigationDestination(for: TickerNav.self) { nav in
@@ -408,7 +404,7 @@ struct HomeView: View {
             path.append(ReportNav(id: id))
         case .settings:
             router.pending = nil
-            showSettings = true
+            settings.isPresented = true
         case .tab:
             // Tab switches are the root view's business, not Home's.
             break

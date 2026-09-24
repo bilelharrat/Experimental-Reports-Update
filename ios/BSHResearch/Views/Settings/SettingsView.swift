@@ -85,10 +85,10 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.navigationLink)
 
-                        // Choosing a design rebuilds the app in it (and closes Settings),
-                        // as choosing a language does.
+                        // Choosing a design (or Bureau's desk) rebuilds the app in it, and
+                        // Settings with it, as choosing a language does.
                         Picker(selection: $design.design) {
-                            ForEach(BSHDesign.allCases) { option in
+                            ForEach(BSHDesignCards.order) { option in
                                 Text(language.t("settings.design_\(option.rawValue)")).tag(option)
                             }
                         } label: {
@@ -100,6 +100,30 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
                         .accessibilityIdentifier("settings-design")
+
+                        // Only Bureau has a desk to color.
+                        if design.design == .bureau {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Label {
+                                        Text(language.t("settings.bureau_desk"))
+                                    } icon: {
+                                        SettingsIcon(symbol: "swatchpalette.fill", color: .gray)
+                                    }
+                                    Spacer()
+                                    Text(language.t("settings.bureau_desk_\(design.bureauDesk.rawValue)"))
+                                        .foregroundStyle(.secondary)
+                                }
+                                BSHBureauDeskPicker(
+                                    selection: $design.bureauDesk,
+                                    title: { language.t("settings.bureau_desk_\($0.rawValue)") },
+                                    size: 24
+                                )
+                                .padding(.leading, 40)
+                            }
+                            .padding(.vertical, 2)
+                            .accessibilityIdentifier("settings-bureau-desk")
+                        }
                     } header: {
                         BSHSectionTitle(language.t("settings.appearance"))
                     } footer: {

@@ -9,9 +9,9 @@
 //  - Summit Glass: the Mac's own vibrant sidebar and toolbar, untouched.
 //  - Folio: the sidebar is a paper index column ruled off from the page; the toolbar is
 //    paper too. A chosen row is a bookmark (GlassRowHighlight).
-//  - Bureau: the sidebar and the toolbar are the green desk, written in ivory; the desk
-//    you are on is one ivory sheet laid on it with a gutter; the chosen row is a slip of
-//    that sheet, so its label takes the page's ink.
+//  - Bureau: the sidebar and the toolbar are the desk (Onyx's white by day and black by
+//    night, or the chosen color); the desk you are on is one sheet laid on it with a
+//    gutter; the chosen row is a slip of that sheet, so its label takes the page's ink.
 //
 
 import AppKit
@@ -58,9 +58,9 @@ struct MacSidebarGround: ViewModifier {
                 .tint(BSHPalette.bureauBrass)
                 .environment(\.bshOnFrame, true)
                 .environment(\.bshPageScheme, colorScheme)
-                // The desk is dark in either appearance, as the website's is: its
-                // controls, and the toolbar buttons over it, draw light on the green.
-                .environment(\.colorScheme, .dark)
+                // A dark desk is dark in either appearance, as the website's is: its
+                // controls, and the toolbar buttons over it, draw light on it.
+                .environment(\.colorScheme, BSHPalette.bureauDeskIsDark(colorScheme) ? .dark : colorScheme)
                 .background(BSHPalette.bureauFrame(for: colorScheme))
         }
     }
@@ -81,19 +81,23 @@ struct MacSidebarRowInk: ViewModifier {
     }
 }
 
-/// The detail column: under Bureau, the desk on screen is one ivory sheet with rounded
-/// corners, laid on the green with a gutter; the other designs fill the column.
+/// The detail column: under Bureau, the desk on screen is one sheet with rounded
+/// corners, laid on the desk with a gutter; the other designs fill the column.
 struct MacDeskSheet: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
     func body(content: Content) -> some View {
         if BSHDesign.active == .bureau {
+            // On Onyx's white desk by day the sheet is set off by a rim, not a shadow.
+            let lightDesk = !BSHPalette.bureauDeskIsDark(colorScheme)
             content
                 .background(BSHPalette.bureauSheet)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
+                        .strokeBorder(Color.black.opacity(lightDesk ? 0.1 : 0.18), lineWidth: lightDesk ? 1 : 0.5)
                 )
-                .shadow(color: .black.opacity(0.35), radius: 14, y: 8)
+                .shadow(color: .black.opacity(lightDesk ? 0.1 : 0.35), radius: 14, y: 8)
                 .padding(EdgeInsets(top: 0, leading: 6, bottom: 8, trailing: 8))
                 .background(BSHPalette.bureauFrame)
         } else {
@@ -102,8 +106,8 @@ struct MacDeskSheet: ViewModifier {
     }
 }
 
-/// The window's toolbar: Bureau's desk green with its title and controls in light ink,
-/// Folio's paper, Summit's own material.
+/// The window's toolbar: Bureau's desk (on a dark desk, its title and controls in light
+/// ink), Folio's paper, Summit's own material.
 struct MacWindowChrome: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -118,22 +122,23 @@ struct MacWindowChrome: ViewModifier {
                 .toolbarBackground(.visible, for: .windowToolbar)
                 .background(MacTitlebarAppearance(appearance: nil))
         case .bureau:
+            let darkDesk = BSHPalette.bureauDeskIsDark(colorScheme)
             content
-                // The desk's green as the page around it resolves it, fixed: the
-                // titlebar below draws in the dark appearance, where the dynamic green
+                // The desk as the page around it resolves it, fixed: over a dark desk the
+                // titlebar below draws in the dark appearance, where the dynamic desk
                 // would resolve to night's and part from the sidebar in light mode.
                 .toolbarBackground(BSHPalette.bureauFrame(for: colorScheme), for: .windowToolbar)
                 .toolbarBackground(.visible, for: .windowToolbar)
-                .toolbarColorScheme(.dark, for: .windowToolbar)
-                .background(MacTitlebarAppearance(appearance: NSAppearance(named: .darkAqua)))
+                .toolbarColorScheme(darkDesk ? .dark : colorScheme, for: .windowToolbar)
+                .background(MacTitlebarAppearance(appearance: darkDesk ? NSAppearance(named: .darkAqua) : nil))
         }
     }
 }
 
 /// Draws the window's titlebar (its title, traffic lights and toolbar controls) in the
-/// given appearance, or the window's own when nil. Bureau's toolbar is the green desk in
-/// either appearance, and `toolbarColorScheme` doesn't reach a macOS window toolbar, so
-/// in light mode its controls would be dark on dark without this.
+/// given appearance, or the window's own when nil. A dark Bureau desk is dark in either
+/// appearance, and `toolbarColorScheme` doesn't reach a macOS window toolbar, so in light
+/// mode its controls would be dark on dark without this.
 private struct MacTitlebarAppearance: NSViewRepresentable {
     var appearance: NSAppearance?
 

@@ -69,12 +69,26 @@ struct MacSettingsView: View {
                 GlassSegmentedPicker(
                     "Design",
                     selection: $design.design,
-                    options: BSHDesign.allCases,
+                    options: BSHDesignCards.order,
                     title: \.title
                 )
                 .frame(maxWidth: 360)
                 .accessibilityIdentifier("settings-design")
-                Text("Bureau lays the page on a green desk. Folio is paper and ink. Summit Glass is the Mac's original look. Each device and the website keep their own choice.")
+
+                // Only Bureau has a desk to color.
+                if design.design == .bureau {
+                    LabeledContent("Desk color") {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            BSHBureauDeskPicker(selection: $design.bureauDesk, size: 20)
+                            Text(design.bureauDesk.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("settings-bureau-desk")
+                }
+
+                Text("Summit Glass is the Mac's original look, and the default. Bureau lays the page on a desk: white by day and black by night, or a color picked above. Folio is paper and ink. Each device and the website keep their own choice.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

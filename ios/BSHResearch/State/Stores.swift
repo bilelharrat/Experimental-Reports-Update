@@ -186,6 +186,14 @@ final class DeepLinkRouter: ObservableObject {
     @Published var pending: DeepLink?
 }
 
+/// Whether Settings is showing. The sheet hangs above the window's content, which
+/// rebuilds when the language, the design or Bureau's desk changes, so choosing one
+/// rebuilds Settings in place instead of closing it.
+@MainActor
+final class SettingsPresenter: ObservableObject {
+    @Published var isPresented = false
+}
+
 @MainActor
 final class AppearanceStore: ObservableObject {
     @Published var appearance: AppAppearance {

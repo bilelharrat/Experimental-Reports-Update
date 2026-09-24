@@ -113,45 +113,64 @@ Signing & Capabilities, select that team for every target.
   `BSHResearch.entitlements` and the Push capability in Xcode.
 
 
-## Designs: Bureau, Folio, Summit Glass
+## Designs: Summit Glass, Bureau, Folio
 
-The iPhone/iPad and Mac apps wear the website's designs (see
-`docs/web-design-language.md`). **Bureau** is the default: the page lies on a
-bottle-green desk, brass is for acting, titles are set in Instrument Serif,
-and where you are is cut from the page. **Folio** is paper and ink, with Iowan
-Old Style titles and selection set in solid ink. **Summit Glass** is the
-original system look. Settings → Appearance → Design picks one per device,
-stored under `bsh.research.design` (the website's key); the window rebuilds
-in it.
+The iPhone/iPad and Mac apps offer the website's designs (see
+`docs/web-design-language.md`):
 
-- `BSHShared/BSHDesign.swift` (compiled into both apps) holds the choice
-  (`BSHDesign`, `BSHDesignStore`), the palette (`BSHPalette`, the website's
-  RGB values), the type (`BSHType`) and `BSHJoinedTabShape`, the tab that
-  flares into the page. Instrument Serif and its licence ship in
-  `BSHShared/Fonts`; Iowan comes with the OS.
+- **Summit Glass**, the original system look, is the default.
+- **Bureau** lays the page on a desk, uses brass for acting, sets titles in
+  Instrument Serif, and cuts where you are from the page. Its desk color is a
+  second choice: **Onyx & White** (a white desk by day, black by night) is
+  the default, and bottle green, maroon, navy, aubergine, tobacco and graphite
+  are the others.
+- **Folio** is paper and ink, with Iowan Old Style titles and selection set in
+  solid ink.
+
+Settings → Appearance → Design picks one per device. The desk colors show
+only while Bureau is chosen. The welcome tour ends on the same choice
+("Choose your look"; the tour is at v3, so people who saw v2 get it once more).
+Choices are stored under the website's keys, `bsh.research.design` and
+`bsh.research.bureauDesk`. The window rebuilds in the new look, and Settings
+and the tour stay open through the rebuild.
+
+- `BSHShared/BSHDesign.swift` (compiled into both apps) holds the choices
+  (`BSHDesign`, `BSHBureauDesk`, and `BSHDesignStore` with its `identity`),
+  the palette (`BSHPalette`, the website's RGB values, per desk under Bureau),
+  the type (`BSHType`) and `BSHJoinedTabShape`, the tab that flares into the
+  page. `BSHShared/BSHDesignPickers.swift` holds the two choosers:
+  `BSHDesignCards` and `BSHBureauDeskPicker`. Instrument Serif and its
+  licence ship in `BSHShared/Fonts`; Iowan comes with the OS.
 - Desks don't read the design. They use the tokens and components
   (`Color.ds*`, `Font.dsTitle`/`dsHeadline`, `appleGlassCard`/`Tile`,
   `MacSectionLabel`, `MacTabBar`: `ResearchDesign.swift` on iOS,
   `MacDesign.swift` / `MacGlassStyles.swift` on the Mac), which resolve
-  against `BSHDesign.active`. Use `Color.dsAccent`, never `Color.accentColor`.
-- iOS extras in `Views/Shared/BSHDesignChrome.swift`: put `.bshListSurface()`
-  on a List or Form and wrap its sections in `Group { … }.bshListRows()`, title
-  sections with `BSHSectionTitle`, and use `Color.dsPage` / `.dsBar` /
-  `.dsFloating` where a view used `systemBackground`, `.bar` or a thin
-  material. Only the shells branch on the design: the iPhone and portrait-iPad
-  desk bar and the landscape-iPad rail (`RootView.swift`); on the Mac, the
-  sidebar, toolbar and page (`MacDesignChrome.swift`).
+  against `BSHDesign.active` and `BSHBureauDesk.active`. Use `Color.dsAccent`,
+  never `Color.accentColor`.
+- iOS extras in `Views/Shared/BSHDesignChrome.swift`:
+  - Put `.bshListSurface()` on a List or Form, and wrap its sections in
+    `Group { … }.bshListRows()`.
+  - Title sections with `BSHSectionTitle`.
+  - Use `Color.dsPage`, `.dsBar` or `.dsFloating` where a view used
+    `systemBackground`, `.bar` or a thin material.
+- Only the shells branch on the design: the iPhone and portrait-iPad desk bar
+  and the landscape-iPad rail (`RootView.swift`); on the Mac, the sidebar,
+  toolbar and page (`MacDesignChrome.swift`). Settings is presented once, from
+  the app (`SettingsPresenter`), above the content that rebuilds.
 - Gotchas:
   - UIKit's navigation bars and segmented controls take the design from
     appearance proxies (`BSHUIKitChrome`), which only reach bars created
     later. `BSHDesignStore` applies them before the rebuild.
-  - Bureau's desk is dark in both appearances, as on the web. On the Mac the
-    sidebar forces the dark scheme so the toolbar buttons over it read on
-    green. It borrows page colors through `bshPageScheme`, and the titlebar
-    draws dark.
-  - In landscape, the iPad's Bureau page floats on the desk with the status
-    bar hidden, because a clock over the green rail can't be read in light
-    mode.
+  - A dark Bureau desk is dark in both appearances, as on the web
+    (`BSHBureauDesk.isDark(in:)`; every desk but Onyx's white one by day).
+    Over a dark desk:
+    - the Mac sidebar forces the dark scheme, so the toolbar buttons over it
+      read, and borrows page colors through `bshPageScheme`;
+    - the Mac titlebar draws dark;
+    - the landscape iPad hides the status bar, since its clock can't be read
+      over the rail in light mode.
+  - On Onyx's white desk by day the page, the tabs and the chosen rows are set
+    off by a hairline rim instead of a shadow.
 
 ## Layout
 
