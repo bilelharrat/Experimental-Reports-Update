@@ -113,8 +113,8 @@ const route = useRoute();
 
 const isDesktop = useMediaQuery("(min-width: 1024px)");
 // The icon rail is a desktop affordance; the mobile drawer always shows labels.
-// A design that sets the desks as tabs (Reactor, Bureau) keeps its own choice
-// and starts as the rail: the company index sits at the page's edge as a column
+// A design that sets the desks as tabs (Bureau) keeps its own choice and
+// starts as the rail: the company index sits at the page's edge as a column
 // of logos until it is opened.
 const collapsed = computed(() => {
   if (!isDesktop.value) return false;

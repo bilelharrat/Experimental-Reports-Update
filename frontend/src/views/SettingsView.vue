@@ -6,7 +6,7 @@ import { api } from "../api.js";
 import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
-import { DESIGNS, design, forcesDark, setDesign } from "../design.js";
+import { DESIGNS, design, setDesign } from "../design.js";
 import { isSignedIn, signInRoute } from "../auth.js";
 import {
   applyDeskState,
@@ -419,8 +419,7 @@ function appearanceIcon(value) {
 function designLabel(value) {
   if (value === "glass") return t("settings.design_glass");
   if (value === "folio") return t("settings.design_folio");
-  if (value === "bureau") return t("settings.design_bureau");
-  return t("settings.design_reactor");
+  return t("settings.design_bureau");
 }
 
 async function exportDeskState() {
@@ -602,13 +601,6 @@ async function importDeskState(event) {
               {{ appearanceLabel(option) }}
             </button>
           </div>
-          <p
-            v-if="forcesDark"
-            class="mt-1.5 text-footnote text-ink-muted"
-            data-testid="settings-appearance-forced"
-          >
-            {{ t("settings.appearance_forced_dark") }}
-          </p>
         </div>
         <div class="mt-5">
           <div class="vogue-label mb-2">{{ t("settings.design") }}</div>

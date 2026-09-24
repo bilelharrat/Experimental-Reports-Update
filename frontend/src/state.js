@@ -81,10 +81,10 @@ export function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
 }
 
-// The company index of a design that sets the desks as tabs (Reactor,
-// Bureau): a rail of logos at the page's edge by default, opened to the
-// named list on demand. Kept apart from the list sidebar's collapsed state so
-// switching designs never flips the other one's choice.
+// The company index of a design that sets the desks as tabs (Bureau): a rail
+// of logos at the page's edge by default, opened to the named list on
+// demand. Kept apart from the list sidebar's collapsed state so switching
+// designs never flips the other one's choice.
 const COMPANY_INDEX_KEY = "bsh.companyIndexOpen";
 
 function _initialCompanyIndexOpen() {

@@ -3,15 +3,12 @@
  *
  * Like the Mac terminal, the web app follows the system appearance by
  * default: dark only when the Mac itself is dark. An explicit Light or Dark
- * choice in Settings overrides it. A dark-only design (Reactor, see
- * design.js) keeps the page dark whatever is chosen here; the choice still
- * stands for the other designs.
+ * choice in Settings overrides it.
  *
  * NOTE: index.html runs an inline copy of `resolve()` before first paint to
  * avoid a white flash on load. Keep the two in sync.
  */
-import { computed, ref, watch } from "vue";
-import { forcesDark } from "./design.js";
+import { computed, ref } from "vue";
 
 const STORAGE_KEY = "bsh.research.appearance";
 export const APPEARANCES = ["auto", "light", "dark"];
@@ -32,7 +29,7 @@ function readStored() {
 }
 
 export const appearance = ref(readStored());
-export const isDark = computed(() => forcesDark.value || resolve(appearance.value));
+export const isDark = computed(() => resolve(appearance.value));
 
 function resolve(pref) {
   if (pref === "dark") return true;
@@ -44,9 +41,6 @@ function apply() {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", isDark.value);
 }
-
-// Switching into or out of a dark-only design re-resolves the page.
-watch(forcesDark, () => apply());
 
 export function setAppearance(next) {
   appearance.value = APPEARANCES.includes(next) ? next : "auto";

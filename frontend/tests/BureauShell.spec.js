@@ -24,10 +24,9 @@ import {
   sidebarCollapsed,
 } from "../src/state.js";
 
-// Reactor and Bureau (design.js DESK_TAB_DESIGNS) set the desks as tabs
-// across the masthead — the sidebar's own rows, carried there — and fold
-// the company list to a rail of logos until it is opened. Each design dresses
-// the same shell its own way; the behavior is shared, so it is tested for both.
+// Bureau lays the page on a desk: the desks become tabs along the top edge
+// of the sheet (the sidebar's own rows, carried into the masthead) and the
+// company list folds to a rail of logos until it is opened.
 
 const companies = [
   { id: "intc", name: "Intel Corp", ticker: "INTC", status: "public" },
@@ -81,19 +80,19 @@ async function mountShell(start = "/reports") {
 const tabs = () => document.querySelector('[data-testid="masthead-tabs"]');
 const aside = () => wrapper.find("aside.app-sidebar");
 
-describe.each(["reactor", "bureau"])("the %s shell", (name) => {
+describe("Bureau shell", () => {
   beforeEach(() => {
     window.localStorage.removeItem("bsh.companyIndexOpen");
     setCompanyIndexOpen(false);
     setSidebarCollapsed(false);
-    setDesign(name);
+    setDesign("bureau");
   });
 
   afterEach(() => {
     wrapper?.unmount();
     wrapper = null;
     document.body.innerHTML = "";
-    setDesign(name);
+    setDesign("bureau");
     setCompanyIndexOpen(false);
   });
 
